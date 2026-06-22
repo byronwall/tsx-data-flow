@@ -6,14 +6,14 @@
 
 | Sink                       | Component boundaries | Wrappers | Classification    |
 | -------------------------- | -------------------- | -------- | ----------------- |
-| src/DashboardShell.tsx:140 | 9                    | 26       | transformed relay |
-| src/DashboardShell.tsx:141 | 9                    | 26       | transformed relay |
-| src/DashboardShell.tsx:138 | 8                    | 26       | transformed relay |
-| src/DashboardShell.tsx:142 | 8                    | 26       | transformed relay |
-| src/DashboardShell.tsx:143 | 8                    | 26       | transformed relay |
-| src/DashboardShell.tsx:64  | 7                    | 10       | transformed relay |
-| src/DashboardShell.tsx:64  | 6                    | 10       | transformed relay |
-| src/DashboardShell.tsx:80  | 7                    | 11       | transformed relay |
+| src/DashboardShell.tsx:166 | 9                    | 26       | transformed relay |
+| src/DashboardShell.tsx:167 | 9                    | 26       | transformed relay |
+| src/DashboardShell.tsx:163 | 8                    | 26       | transformed relay |
+| src/DashboardShell.tsx:168 | 8                    | 26       | transformed relay |
+| src/DashboardShell.tsx:169 | 8                    | 26       | transformed relay |
+| src/DashboardShell.tsx:68  | 7                    | 10       | transformed relay |
+| src/DashboardShell.tsx:69  | 6                    | 10       | transformed relay |
+| src/DashboardShell.tsx:86  | 7                    | 11       | transformed relay |
 
 ---
 

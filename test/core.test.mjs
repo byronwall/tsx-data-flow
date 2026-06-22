@@ -4,14 +4,17 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  BANNED_SUGGESTION_IDENTIFIERS,
   REPORT_VIEWS,
   analyzeProject,
+  classifyPathShape,
   findDefaultSource,
   findDefaultTsconfig,
   helpText,
   parseArgs,
   renderAllReports,
   renderReport,
+  sinkFamilyOf,
 } from "../src/core.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -496,6 +499,207 @@ describe("render path data-flow analyzer", () => {
 
     expect(report.baseline.regressed).toBe(true);
     expect(report.baseline.currentWorst).toBeGreaterThan(0);
+  });
+});
+
+describe("shape-aware suggestions, sink-family grouping, and explainability", () => {
+  it("classifies render-path shapes from the trace (Phase 1)", async () => {
+    const project = await createFixtureProject({
+      "src/Shapes.tsx": `
+        declare function createMemo<T>(fn: () => T): () => T;
+        declare function Show(props: { when: unknown; children: unknown }): unknown;
+        declare function For<T>(props: { each: T[]; children: unknown }): unknown;
+        export function Shapes(props: {
+          w: number; count: number; rows: number[]; show: boolean; active: boolean;
+          meta: { label?: string };
+        }) {
+          const x = (props.w / props.count) * 2;
+          return <svg>
+            <g transform={\`translate(\${x},0)\`} />
+            <For each={props.rows.map((r) => r + 1)}>{(r) => <i>{r}</i>}</For>
+            <Show when={props.show}>ok</Show>
+            <span class={props.active ? "on" : "off"}>x</span>
+            <b>{props.meta.label ?? "n/a"}</b>
+          </svg>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const shapeOf = (match) =>
+      classifyPathShape(report.sinks.find((sink) => sink.expression.includes(match)));
+
+    expect(shapeOf("translate")).toContain("geometry-chain");
+    expect(shapeOf(".map(")).toContain("collection-render-model");
+    expect(shapeOf("props.show")).toContain("control-flow-gate");
+    expect(shapeOf('"on"')).toContain("presentation-pack");
+    expect(shapeOf('?? "n/a"')).toContain("domain-normalization");
+  });
+
+  it("suggests shape-matched edits and never leaks analyzer jargon as code names (Phase 2)", async () => {
+    const project = await createFixtureProject({
+      "src/Geo.tsx": `
+        export function Geo(props: { w: number; count: number }) {
+          const x = (props.w / props.count) * 2;
+          return <svg><g transform={\`translate(\${x},0)\`} /></svg>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+
+    const edits = packets.split("**Candidate edits**")[1].split("**Risk**")[0];
+    expect(edits).toContain("geometry");
+    // Generic Provider/Context advice must not appear for a local geometry path.
+    expect(edits).not.toContain("Provider/Context");
+    // No banned identifier is suggested as a code name.
+    for (const banned of BANNED_SUGGESTION_IDENTIFIERS) {
+      expect(edits).not.toContain(`\`${banned}\``);
+    }
+  });
+
+  it("keeps Provider/Context advice for genuine cross-component relays", async () => {
+    const project = await createFixtureProject({
+      "src/feature/Ctx.context.tsx": `
+        export function useFeature() { return { detail: () => ({ id: "1" }) }; }
+      `,
+      "src/feature/Shell.tsx": `
+        import { useFeature } from "./Ctx.context";
+        export function Shell() {
+          const feature = useFeature();
+          return <div>{feature.detail().id}</div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    expect(packets).toContain("Provider/Context");
+  });
+
+  it("assigns sink families and flags an overpacked object split (Phase 3)", async () => {
+    const project = await createFixtureProject({
+      "src/Chart.tsx": `
+        declare function createMemo<T>(fn: () => T): () => T;
+        declare function Show(props: { when: unknown; children: unknown }): unknown;
+        export function Chart(props: { w: number; h: number; show: boolean; count: number }) {
+          const layout = createMemo(() => ({ w: props.w, h: props.h, show: props.show, x: props.w / props.count }));
+          return <svg width={layout().w} height={layout().h}>
+            <Show when={layout().show}><g transform={\`translate(\${layout().x},0)\`} /></Show>
+          </svg>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+
+    const widthSink = report.sinks.find((sink) => sink.label.startsWith("width="));
+    const transformSink = report.sinks.find((sink) => sink.label.startsWith("transform="));
+    expect(sinkFamilyOf(widthSink)).toBe("svg-shell");
+    expect(sinkFamilyOf(transformSink)).toBe("geometry");
+
+    const overpacked = report.packGroups.find((group) => group.verdict === "overpacked-bag");
+    expect(overpacked).toBeTruthy();
+    expect(overpacked.families).toEqual(
+      expect.arrayContaining(["svg-shell", "geometry", "control-flow"]),
+    );
+
+    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    expect(packets).toContain("Sink-family split");
+    expect(packets).toContain("feeds 3 sink families");
+  });
+
+  it("treats a single-family object as a render model, not an overpacked bag", async () => {
+    const project = await createFixtureProject({
+      "src/Text.tsx": `
+        declare function createMemo<T>(fn: () => T): () => T;
+        export function Text(props: { a: string; b: string }) {
+          const view = createMemo(() => ({ title: props.a, subtitle: props.b }));
+          return <div><h1>{view().title}</h1><h2>{view().subtitle}</h2></div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const overpacked = report.packGroups.find((group) => group.verdict === "overpacked-bag");
+    expect(overpacked).toBeUndefined();
+    const renderModel = report.packGroups.find((group) => group.verdict === "render-model");
+    expect(renderModel).toBeTruthy();
+    expect(renderModel.families).toEqual(["text"]);
+  });
+
+  it("renders human-readable confidence, reviewer summary, ownership, and boundaries", async () => {
+    const project = await createFixtureProject({
+      "src/Work.tsx": `
+        type User = { displayName?: string };
+        function pack(user: User) { return { title: user.displayName }; }
+        export function Card(props: { user: User }) {
+          const model = pack(props.user);
+          return <h2>{model.title ?? "Unknown"}</h2>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+
+    expect(packets).toContain("Review summary");
+    expect(packets).toContain("confidence reason:");
+    expect(packets).toContain("ownership:");
+
+    const findings = renderReport(report, { ...project.args, view: "findings", format: "markdown" });
+    expect(findings).toContain("Reason:");
+    expect(findings).toContain("Risk:");
+    expect(findings).toContain("Metric contributions");
+  });
+
+  it("labels defensive fallback origin and adds an Origin column (Phase 9)", async () => {
+    const project = await createFixtureProject({
+      "src/Defenses.tsx": `
+        export function Card(props: { sure: string; maybe?: string }) {
+          return <div>
+            <span>{props.sure ?? "stale"}</span>
+            <span>{props.maybe ?? "compat"}</span>
+          </div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, { ...project.args, view: "defensive-ledger", format: "markdown" });
+
+    expect(output).toContain("Origin");
+    expect(output).toContain("stale (type-impossible)");
+    expect(output).toContain("compatibility (optional)");
+  });
+
+  it("diffs a baseline into removed/improved/regressed/new-top (Phase 10)", async () => {
+    const project = await createFixtureProject({
+      "src/Diff.tsx": `
+        type User = { displayName: string };
+        export function UserCard(props: { user: User }) {
+          const a = { user: props.user };
+          const b = { title: a.user.displayName };
+          return <h2>{b.title ?? "Unknown"}</h2>;
+        }
+      `,
+    });
+    // A baseline with a sink that no longer exists (different file/signature) and
+    // an inflated burden for the current top, so it reads as "improved" + "removed".
+    const liveReport = await analyzeProject(project.args);
+    const top = liveReport.rankings.all[0];
+    const baselinePath = resolve(project.root, "baseline.json");
+    await writeFile(
+      baselinePath,
+      JSON.stringify({
+        sinks: [
+          { ...top, scores: { burden: 0.99 } },
+          { file: "src/Gone.tsx", signature: "deep call -> jsx-sink", label: "gone={...}", metrics: { maximumPathDepth: 9 }, scores: { burden: 0.5 } },
+        ],
+      }),
+    );
+
+    const report = await analyzeProject({ ...project.args, baseline: baselinePath });
+    expect(report.baseline.improved.length).toBeGreaterThan(0);
+    expect(report.baseline.removed.some((item) => item.label === "gone={...}")).toBe(true);
+
+    const output = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    expect(output).toContain("Removed:");
+    expect(output).toContain("Improved:");
   });
 });
 

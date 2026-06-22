@@ -13,6 +13,10 @@
 ## WORK ITEM DF-001
 Simplify JSX row.label ?? "Untitled" in src/DashboardShell.tsx
 
+**Review summary**
+
+This sink mixes defaulting and normalization. A behavior-preserving fix is to resolve defaults and normalization at a named boundary before JSX. Watch for overpacking `{ task, owner: user, swatch: preferences.…` across 2 sink families.
+
 **Scope**
 
 | Metric          | Value                                                  |
@@ -22,6 +26,9 @@ Simplify JSX row.label ?? "Untitled" in src/DashboardShell.tsx
 | source inputs   | 10                                                     |
 | reachable sinks | 31                                                     |
 | confidence      | 99%                                                    |
+
+- confidence reason: Single file, direct JSX sink, all hops statically resolved.
+- risk: low; behavior-preserving extraction likely.
 
 **Why this was selected**
 
@@ -49,18 +56,32 @@ Simplify JSX row.label ?? "Untitled" in src/DashboardShell.tsx
 -> row.label ?? "Untitled"  [fallback]
 ```
 
+**Sink-family split**
+
+```
+Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
+  Style: style
+  Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
+```
+
 **Candidate edits**
 
-1. Check whether this feature already has or needs a Provider/Context boundary.
-2. Move shared filters, table state, action state, drafts, and derived selectors behind the feature hook.
-3. Remove same-feature pass-through props; keep only row-local items and narrow display props.
+1. Resolve defaults, optional reads, and union narrowing at a named boundary memo (e.g. profileData) before any JSX reads it.
+2. Inline representation-only wrappers that have no semantic role.
+3. Remove the type-impossible fallback(s) — unreachable under the checked types.
+4. Keep JSX scannable — attributes should read named values, not derive them.
 
 **Risk**
 
+- ownership: architectural fan-in
 - queue: central-leverage
 
 ## WORK ITEM DF-002
 Simplify JSX row.ownerLabel ?? "Unknown owner" in src/DashboardShell.tsx
+
+**Review summary**
+
+This sink mixes defaulting and normalization. A behavior-preserving fix is to resolve defaults and normalization at a named boundary before JSX. Watch for overpacking `{ task, owner: user, swatch: preferences.…` across 2 sink families.
 
 **Scope**
 
@@ -71,6 +92,9 @@ Simplify JSX row.ownerLabel ?? "Unknown owner" in src/DashboardShell.tsx
 | source inputs   | 10                                                     |
 | reachable sinks | 31                                                     |
 | confidence      | 99%                                                    |
+
+- confidence reason: Single file, direct JSX sink, all hops statically resolved.
+- risk: low; behavior-preserving extraction likely.
 
 **Why this was selected**
 
@@ -98,18 +122,32 @@ Simplify JSX row.ownerLabel ?? "Unknown owner" in src/DashboardShell.tsx
 -> row.ownerLabel ?? "Unknown owner"  [fallback]
 ```
 
+**Sink-family split**
+
+```
+Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
+  Style: style
+  Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
+```
+
 **Candidate edits**
 
-1. Check whether this feature already has or needs a Provider/Context boundary.
-2. Move shared filters, table state, action state, drafts, and derived selectors behind the feature hook.
-3. Remove same-feature pass-through props; keep only row-local items and narrow display props.
+1. Resolve defaults, optional reads, and union narrowing at a named boundary memo (e.g. profileData) before any JSX reads it.
+2. Inline representation-only wrappers that have no semantic role.
+3. Remove the type-impossible fallback(s) — unreachable under the checked types.
+4. Keep JSX scannable — attributes should read named values, not derive them.
 
 **Risk**
 
+- ownership: architectural fan-in
 - queue: central-leverage
 
 ## WORK ITEM DF-003
 Simplify style={...} in src/DashboardShell.tsx
+
+**Review summary**
+
+This sink mixes class/style packing and defaulting and normalization. A behavior-preserving fix is to build the class/style object in a small memo split by responsibility. Watch for overpacking `{ task, owner: user, swatch: preferences.…` across 2 sink families.
 
 **Scope**
 
@@ -120,6 +158,9 @@ Simplify style={...} in src/DashboardShell.tsx
 | source inputs   | 9                                                      |
 | reachable sinks | 31                                                     |
 | confidence      | 88%                                                    |
+
+- confidence reason: All hops statically resolved within one file.
+- risk: low.
 
 **Why this was selected**
 
@@ -147,18 +188,37 @@ Simplify style={...} in src/DashboardShell.tsx
 -> `--accent:${row.swatch}`  [template]
 ```
 
+**Recommended boundaries**
+
+```
+Recommended boundary after: defaults & normalization (step 8).
+```
+
+**Sink-family split**
+
+```
+Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
+  Style: style
+  Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
+```
+
 **Candidate edits**
 
-1. Check whether this feature already has or needs a Provider/Context boundary.
-2. Move shared filters, table state, action state, drafts, and derived selectors behind the feature hook.
-3. Remove same-feature pass-through props; keep only row-local items and narrow display props.
+1. Build the class/style object in a small memo split by responsibility.
+2. Avoid packing unrelated attributes into one object that several sinks then share.
+3. Keep JSX scannable — attributes should read named values, not derive them.
 
 **Risk**
 
+- ownership: architectural fan-in
 - queue: central-leverage
 
 ## WORK ITEM DF-004
 Simplify JSX row.priorityLabel in src/DashboardShell.tsx
+
+**Review summary**
+
+This sink mixes defaulting and normalization. A behavior-preserving fix is to resolve defaults and normalization at a named boundary before JSX. Watch for overpacking `{ task, owner: user, swatch: preferences.…` across 2 sink families.
 
 **Scope**
 
@@ -169,6 +229,9 @@ Simplify JSX row.priorityLabel in src/DashboardShell.tsx
 | source inputs   | 9                                                      |
 | reachable sinks | 31                                                     |
 | confidence      | 88%                                                    |
+
+- confidence reason: All hops statically resolved within one file.
+- risk: low.
 
 **Why this was selected**
 
@@ -195,18 +258,37 @@ Simplify JSX row.priorityLabel in src/DashboardShell.tsx
 -> priorityLabel  [property-read]
 ```
 
+**Recommended boundaries**
+
+```
+Recommended boundary after: defaults & normalization (step 8).
+```
+
+**Sink-family split**
+
+```
+Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
+  Style: style
+  Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
+```
+
 **Candidate edits**
 
-1. Check whether this feature already has or needs a Provider/Context boundary.
-2. Move shared filters, table state, action state, drafts, and derived selectors behind the feature hook.
-3. Remove same-feature pass-through props; keep only row-local items and narrow display props.
+1. Resolve defaults, optional reads, and union narrowing at a named boundary memo (e.g. profileData) before any JSX reads it.
+2. Inline representation-only wrappers that have no semantic role.
+3. Keep JSX scannable — attributes should read named values, not derive them.
 
 **Risk**
 
+- ownership: architectural fan-in
 - queue: central-leverage
 
 ## WORK ITEM DF-005
 Simplify JSX row.estimateLabel in src/DashboardShell.tsx
+
+**Review summary**
+
+This sink mixes defaulting and normalization. A behavior-preserving fix is to resolve defaults and normalization at a named boundary before JSX. Watch for overpacking `{ task, owner: user, swatch: preferences.…` across 2 sink families.
 
 **Scope**
 
@@ -217,6 +299,9 @@ Simplify JSX row.estimateLabel in src/DashboardShell.tsx
 | source inputs   | 9                                                      |
 | reachable sinks | 31                                                     |
 | confidence      | 88%                                                    |
+
+- confidence reason: All hops statically resolved within one file.
+- risk: low.
 
 **Why this was selected**
 
@@ -243,18 +328,37 @@ Simplify JSX row.estimateLabel in src/DashboardShell.tsx
 -> estimateLabel  [property-read]
 ```
 
+**Recommended boundaries**
+
+```
+Recommended boundary after: defaults & normalization (step 8).
+```
+
+**Sink-family split**
+
+```
+Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
+  Style: style
+  Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
+```
+
 **Candidate edits**
 
-1. Check whether this feature already has or needs a Provider/Context boundary.
-2. Move shared filters, table state, action state, drafts, and derived selectors behind the feature hook.
-3. Remove same-feature pass-through props; keep only row-local items and narrow display props.
+1. Resolve defaults, optional reads, and union narrowing at a named boundary memo (e.g. profileData) before any JSX reads it.
+2. Inline representation-only wrappers that have no semantic role.
+3. Keep JSX scannable — attributes should read named values, not derive them.
 
 **Risk**
 
+- ownership: architectural fan-in
 - queue: central-leverage
 
 ## WORK ITEM DF-006
 Simplify data-theme={...} in src/DashboardShell.tsx
+
+**Review summary**
+
+This sink mixes defaulting and normalization. A behavior-preserving fix is to resolve defaults and normalization at a named boundary before JSX.
 
 **Scope**
 
@@ -265,6 +369,9 @@ Simplify data-theme={...} in src/DashboardShell.tsx
 | source inputs   | 8                                                      |
 | reachable sinks | 31                                                     |
 | confidence      | 99%                                                    |
+
+- confidence reason: Single file, direct JSX sink, all hops statically resolved.
+- risk: low; behavior-preserving extraction likely.
 
 **Why this was selected**
 
@@ -293,16 +400,22 @@ Simplify data-theme={...} in src/DashboardShell.tsx
 
 **Candidate edits**
 
-1. Check whether this feature already has or needs a Provider/Context boundary.
-2. Move shared filters, table state, action state, drafts, and derived selectors behind the feature hook.
-3. Remove same-feature pass-through props; keep only row-local items and narrow display props.
+1. Resolve defaults, optional reads, and union narrowing at a named boundary memo (e.g. profileData) before any JSX reads it.
+2. Inline representation-only wrappers that have no semantic role.
+3. Remove the type-impossible fallback(s) — unreachable under the checked types.
+4. Keep JSX scannable — attributes should read named values, not derive them.
 
 **Risk**
 
+- ownership: architectural fan-in
 - queue: central-leverage
 
 ## WORK ITEM DF-007
 Simplify data-density={...} in src/DashboardShell.tsx
+
+**Review summary**
+
+This sink mixes defaulting and normalization. A behavior-preserving fix is to resolve defaults and normalization at a named boundary before JSX.
 
 **Scope**
 
@@ -313,6 +426,9 @@ Simplify data-density={...} in src/DashboardShell.tsx
 | source inputs   | 7                                                      |
 | reachable sinks | 31                                                     |
 | confidence      | 99%                                                    |
+
+- confidence reason: Single file, direct JSX sink, all hops statically resolved.
+- risk: low; behavior-preserving extraction likely.
 
 **Why this was selected**
 
@@ -341,16 +457,22 @@ Simplify data-density={...} in src/DashboardShell.tsx
 
 **Candidate edits**
 
-1. Check whether this feature already has or needs a Provider/Context boundary.
-2. Move shared filters, table state, action state, drafts, and derived selectors behind the feature hook.
-3. Remove same-feature pass-through props; keep only row-local items and narrow display props.
+1. Resolve defaults, optional reads, and union narrowing at a named boundary memo (e.g. profileData) before any JSX reads it.
+2. Inline representation-only wrappers that have no semantic role.
+3. Remove the type-impossible fallback(s) — unreachable under the checked types.
+4. Keep JSX scannable — attributes should read named values, not derive them.
 
 **Risk**
 
+- ownership: architectural fan-in
 - queue: central-leverage
 
 ## WORK ITEM DF-008
 Simplify task={...} in src/DashboardShell.tsx
+
+**Review summary**
+
+This sink mixes defaulting and normalization. A behavior-preserving fix is to resolve defaults and normalization at a named boundary before JSX.
 
 **Scope**
 
@@ -361,6 +483,9 @@ Simplify task={...} in src/DashboardShell.tsx
 | source inputs   | 8                                                      |
 | reachable sinks | 31                                                     |
 | confidence      | 99%                                                    |
+
+- confidence reason: Single file, direct JSX sink, all hops statically resolved.
+- risk: low; behavior-preserving extraction likely.
 
 **Why this was selected**
 
@@ -387,14 +512,22 @@ Simplify task={...} in src/DashboardShell.tsx
 -> selectedTask  [alias]
 ```
 
+**Recommended boundaries**
+
+```
+Recommended boundary after: defaults & normalization (step 6).
+```
+
 **Candidate edits**
 
-1. Check whether this feature already has or needs a Provider/Context boundary.
-2. Move shared filters, table state, action state, drafts, and derived selectors behind the feature hook.
-3. Remove same-feature pass-through props; keep only row-local items and narrow display props.
+1. Resolve defaults, optional reads, and union narrowing at a named boundary memo (e.g. profileData) before any JSX reads it.
+2. Inline representation-only wrappers that have no semantic role.
+3. Remove the type-impossible fallback(s) — unreachable under the checked types.
+4. Keep JSX scannable — attributes should read named values, not derive them.
 
 **Risk**
 
+- ownership: architectural fan-in
 - queue: central-leverage
 
 

@@ -12,24 +12,24 @@
 
 ## Peripheral quick wins
 
-- **0.1** src/DashboardShell.tsx:138 — render-path data-flow hotspot
-- **0.2** src/DashboardShell.tsx:95 — type-impossible defensive render path
-- **0.1** src/DashboardShell.tsx:119 — helper-heavy render path
-- **0.1** src/DashboardShell.tsx:123 — render-path data-flow hotspot
-- **0.0** src/DashboardShell.tsx:120 — render-path data-flow hotspot
-- **0.1** src/DashboardShell.tsx:98 — render-path data-flow hotspot
-- **0.1** src/DashboardShell.tsx:121 — render-path data-flow hotspot
+- **0.1** src/DashboardShell.tsx:162 — render-path data-flow hotspot _(local component cleanup)_
+- **0.2** src/DashboardShell.tsx:108 — type-impossible defensive render path _(feature hook extraction)_
+- **0.1** src/DashboardShell.tsx:138 — helper-heavy render path _(feature hook extraction)_
+- **0.1** src/DashboardShell.tsx:143 — render-path data-flow hotspot _(cross-component prop relay)_
+- **0.0** src/DashboardShell.tsx:140 — render-path data-flow hotspot _(local component cleanup)_
+- **0.1** src/DashboardShell.tsx:111 — render-path data-flow hotspot _(feature hook extraction)_
+- **0.1** src/DashboardShell.tsx:141 — render-path data-flow hotspot _(feature hook extraction)_
 
 ## Central leverage
 
-- **0.7** src/DashboardShell.tsx:140 — type-impossible defensive render path
-- **0.7** src/DashboardShell.tsx:141 — type-impossible defensive render path
-- **0.6** src/DashboardShell.tsx:80 — type-impossible defensive render path
-- **0.6** src/DashboardShell.tsx:138 — representation-heavy render path
-- **0.6** src/DashboardShell.tsx:142 — representation-heavy render path
-- **0.6** src/DashboardShell.tsx:143 — representation-heavy render path
-- **0.6** src/DashboardShell.tsx:64 — type-impossible defensive render path
-- **0.6** src/DashboardShell.tsx:64 — type-impossible defensive render path
+- **0.7** src/DashboardShell.tsx:166 — type-impossible defensive render path _(architectural fan-in)_
+- **0.7** src/DashboardShell.tsx:167 — type-impossible defensive render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:86 — type-impossible defensive render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:163 — representation-heavy render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:168 — representation-heavy render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:169 — representation-heavy render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:68 — type-impossible defensive render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:69 — type-impossible defensive render path _(architectural fan-in)_
 
 ## Investigate
 

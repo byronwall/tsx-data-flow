@@ -1,6 +1,6 @@
 {
   "analysisVersion": 1,
-  "generatedAt": "2026-06-22T14:19:45.438Z",
+  "generatedAt": "2026-06-22T15:51:02.586Z",
   "summary": {
     "sources": 38,
     "sinks": 41,
@@ -12,10 +12,10 @@
   "view": "dossier",
   "sinks": [
     {
-      "id": "RPF-140-15",
+      "id": "RPF-166-17",
       "file": "src/DashboardShell.tsx",
-      "line": 140,
-      "column": 15,
+      "line": 166,
+      "column": 17,
       "category": "rendered-value",
       "label": "JSX row.label ?? \"Untitled\"",
       "expression": "row.label ?? \"Untitled\"",
@@ -148,6 +148,16 @@
           "kind": "fallback"
         }
       ],
+      "packs": [
+        {
+          "key": "src/DashboardShell.tsx:46:18",
+          "label": "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }"
+        },
+        {
+          "key": "src/DashboardShell.tsx:51:10",
+          "label": "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…"
+        }
+      ],
       "nodeId": "n783",
       "metrics": {
         "sliceSize": 80,
@@ -169,6 +179,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -180,6 +191,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -191,6 +203,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -202,6 +215,7 @@
           "guardedExpression": "packed.task.priority",
           "type": "\"low\" | \"normal\" | \"high\" | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 54,
             "column": 20
@@ -213,6 +227,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -224,6 +239,7 @@
           "guardedExpression": "packed.task.estimateHours",
           "type": "number | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 55,
             "column": 23
@@ -235,6 +251,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -246,14 +263,18 @@
           "guardedExpression": "row.label",
           "type": "string",
           "verdict": "impossible",
+          "origin": "stale (type-impossible)",
           "location": {
-            "line": 140,
-            "column": 16
+            "line": 166,
+            "column": 18
           }
         }
       ],
       "confidence": 99,
+      "confidenceReason": "Single file, direct JSX sink, all hops statically resolved.",
+      "confidenceRisk": "low; behavior-preserving extraction likely.",
       "queue": "central-leverage",
+      "signature": "deep object-pack -> call -> impossible-defense -> jsx-sink",
       "scores": {
         "burden": 0.6865079603661961,
         "centrality": 0.8843158575633067,
@@ -264,10 +285,10 @@
       }
     },
     {
-      "id": "RPF-141-14",
+      "id": "RPF-167-16",
       "file": "src/DashboardShell.tsx",
-      "line": 141,
-      "column": 14,
+      "line": 167,
+      "column": 16,
       "category": "rendered-value",
       "label": "JSX row.ownerLabel ?? \"Unknown owner\"",
       "expression": "row.ownerLabel ?? \"Unknown owner\"",
@@ -400,6 +421,16 @@
           "kind": "fallback"
         }
       ],
+      "packs": [
+        {
+          "key": "src/DashboardShell.tsx:46:18",
+          "label": "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }"
+        },
+        {
+          "key": "src/DashboardShell.tsx:51:10",
+          "label": "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…"
+        }
+      ],
       "nodeId": "n851",
       "metrics": {
         "sliceSize": 80,
@@ -421,6 +452,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -432,6 +464,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -443,6 +476,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -454,6 +488,7 @@
           "guardedExpression": "packed.task.priority",
           "type": "\"low\" | \"normal\" | \"high\" | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 54,
             "column": 20
@@ -465,6 +500,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -476,6 +512,7 @@
           "guardedExpression": "packed.task.estimateHours",
           "type": "number | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 55,
             "column": 23
@@ -487,6 +524,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -498,14 +536,18 @@
           "guardedExpression": "row.ownerLabel",
           "type": "string",
           "verdict": "impossible",
+          "origin": "stale (type-impossible)",
           "location": {
-            "line": 141,
-            "column": 15
+            "line": 167,
+            "column": 17
           }
         }
       ],
       "confidence": 99,
+      "confidenceReason": "Single file, direct JSX sink, all hops statically resolved.",
+      "confidenceRisk": "low; behavior-preserving extraction likely.",
       "queue": "central-leverage",
+      "signature": "deep object-pack -> call -> impossible-defense -> jsx-sink",
       "scores": {
         "burden": 0.6865079603661961,
         "centrality": 0.8843158575633067,
@@ -516,10 +558,10 @@
       }
     },
     {
-      "id": "RPF-138-55",
+      "id": "RPF-163-07",
       "file": "src/DashboardShell.tsx",
-      "line": 138,
-      "column": 55,
+      "line": 163,
+      "column": 7,
       "category": "style",
       "label": "style={...}",
       "expression": "`--accent:${row.swatch}`",
@@ -647,6 +689,16 @@
           "kind": "template"
         }
       ],
+      "packs": [
+        {
+          "key": "src/DashboardShell.tsx:46:18",
+          "label": "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }"
+        },
+        {
+          "key": "src/DashboardShell.tsx:51:10",
+          "label": "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…"
+        }
+      ],
       "nodeId": "n713",
       "metrics": {
         "sliceSize": 79,
@@ -668,6 +720,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -679,6 +732,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -690,6 +744,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -701,6 +756,7 @@
           "guardedExpression": "packed.task.priority",
           "type": "\"low\" | \"normal\" | \"high\" | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 54,
             "column": 20
@@ -712,6 +768,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -723,6 +780,7 @@
           "guardedExpression": "packed.task.estimateHours",
           "type": "number | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 55,
             "column": 23
@@ -734,6 +792,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -741,7 +800,10 @@
         }
       ],
       "confidence": 88,
+      "confidenceReason": "All hops statically resolved within one file.",
+      "confidenceRisk": "low.",
       "queue": "central-leverage",
+      "signature": "deep object-pack -> call -> fallback -> jsx-sink",
       "scores": {
         "burden": 0.6418048285701582,
         "centrality": 0.8796200383459784,
@@ -752,10 +814,10 @@
       }
     },
     {
-      "id": "RPF-142-13",
+      "id": "RPF-168-15",
       "file": "src/DashboardShell.tsx",
-      "line": 142,
-      "column": 13,
+      "line": 168,
+      "column": 15,
       "category": "rendered-value",
       "label": "JSX row.priorityLabel",
       "expression": "row.priorityLabel",
@@ -878,6 +940,16 @@
           "kind": "property-read"
         }
       ],
+      "packs": [
+        {
+          "key": "src/DashboardShell.tsx:46:18",
+          "label": "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }"
+        },
+        {
+          "key": "src/DashboardShell.tsx:51:10",
+          "label": "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…"
+        }
+      ],
       "nodeId": "n917",
       "metrics": {
         "sliceSize": 77,
@@ -899,6 +971,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -910,6 +983,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -921,6 +995,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -932,6 +1007,7 @@
           "guardedExpression": "packed.task.priority",
           "type": "\"low\" | \"normal\" | \"high\" | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 54,
             "column": 20
@@ -943,6 +1019,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -954,6 +1031,7 @@
           "guardedExpression": "packed.task.estimateHours",
           "type": "number | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 55,
             "column": 23
@@ -965,6 +1043,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -972,7 +1051,10 @@
         }
       ],
       "confidence": 88,
+      "confidenceReason": "All hops statically resolved within one file.",
+      "confidenceRisk": "low.",
       "queue": "central-leverage",
+      "signature": "deep object-pack -> call -> fallback -> jsx-sink",
       "scores": {
         "burden": 0.6384056318374249,
         "centrality": 0.8750877760356673,
@@ -983,10 +1065,10 @@
       }
     },
     {
-      "id": "RPF-143-13",
+      "id": "RPF-169-15",
       "file": "src/DashboardShell.tsx",
-      "line": 143,
-      "column": 13,
+      "line": 169,
+      "column": 15,
       "category": "rendered-value",
       "label": "JSX row.estimateLabel",
       "expression": "row.estimateLabel",
@@ -1109,6 +1191,16 @@
           "kind": "property-read"
         }
       ],
+      "packs": [
+        {
+          "key": "src/DashboardShell.tsx:46:18",
+          "label": "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }"
+        },
+        {
+          "key": "src/DashboardShell.tsx:51:10",
+          "label": "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…"
+        }
+      ],
       "nodeId": "n983",
       "metrics": {
         "sliceSize": 77,
@@ -1130,6 +1222,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -1141,6 +1234,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -1152,6 +1246,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -1163,6 +1258,7 @@
           "guardedExpression": "packed.task.priority",
           "type": "\"low\" | \"normal\" | \"high\" | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 54,
             "column": 20
@@ -1174,6 +1270,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -1185,6 +1282,7 @@
           "guardedExpression": "packed.task.estimateHours",
           "type": "number | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 55,
             "column": 23
@@ -1196,6 +1294,7 @@
           "guardedExpression": "preferences.accentColor",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 49,
             "column": 13
@@ -1203,7 +1302,10 @@
         }
       ],
       "confidence": 88,
+      "confidenceReason": "All hops statically resolved within one file.",
+      "confidenceRisk": "low.",
       "queue": "central-leverage",
+      "signature": "deep object-pack -> call -> fallback -> jsx-sink",
       "scores": {
         "burden": 0.6384056318374249,
         "centrality": 0.8750877760356673,
@@ -1214,10 +1316,10 @@
       }
     },
     {
-      "id": "RPF-064-16",
+      "id": "RPF-068-07",
       "file": "src/DashboardShell.tsx",
-      "line": 64,
-      "column": 16,
+      "line": 68,
+      "column": 7,
       "category": "attribute",
       "label": "data-theme={...}",
       "expression": "route.toolbar.theme ?? \"light\"",
@@ -1335,6 +1437,16 @@
           "kind": "fallback"
         }
       ],
+      "packs": [
+        {
+          "key": "src/DashboardShell.tsx:37:14",
+          "label": "{ title: `${props.user.name}'s tasks`, theme: props.preferences.theme, density: props.preferences.…"
+        },
+        {
+          "key": "src/DashboardShell.tsx:32:10",
+          "label": "{ actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…"
+        }
+      ],
       "nodeId": "n38",
       "metrics": {
         "sliceSize": 49,
@@ -1356,6 +1468,7 @@
           "guardedExpression": "props.tasks[0]",
           "type": "Task",
           "verdict": "impossible",
+          "origin": "stale (type-impossible)",
           "location": {
             "line": 31,
             "column": 50
@@ -1367,6 +1480,7 @@
           "guardedExpression": "props.selectedTaskId",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 31,
             "column": 26
@@ -1378,6 +1492,7 @@
           "guardedExpression": "props.selectedTaskId ?? props.tasks[0]?.id",
           "type": "string",
           "verdict": "impossible",
+          "origin": "stale (type-impossible)",
           "location": {
             "line": 31,
             "column": 26
@@ -1389,6 +1504,7 @@
           "guardedExpression": "props.preferences.density",
           "type": "\"compact\" | \"comfortable\" | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 40,
             "column": 16
@@ -1400,14 +1516,18 @@
           "guardedExpression": "route.toolbar.theme",
           "type": "\"light\" | \"dark\"",
           "verdict": "impossible",
+          "origin": "stale (type-impossible)",
           "location": {
-            "line": 64,
-            "column": 28
+            "line": 68,
+            "column": 19
           }
         }
       ],
       "confidence": 99,
+      "confidenceReason": "Single file, direct JSX sink, all hops statically resolved.",
+      "confidenceRisk": "low; behavior-preserving extraction likely.",
       "queue": "central-leverage",
+      "signature": "deep object-pack -> call -> impossible-defense -> jsx-sink",
       "scores": {
         "burden": 0.5955889339770464,
         "centrality": 0.8357462514180233,
@@ -1418,10 +1538,10 @@
       }
     },
     {
-      "id": "RPF-064-60",
+      "id": "RPF-069-07",
       "file": "src/DashboardShell.tsx",
-      "line": 64,
-      "column": 60,
+      "line": 69,
+      "column": 7,
       "category": "attribute",
       "label": "data-density={...}",
       "expression": "route.toolbar.density ?? \"comfortable\"",
@@ -1534,6 +1654,16 @@
           "kind": "fallback"
         }
       ],
+      "packs": [
+        {
+          "key": "src/DashboardShell.tsx:37:14",
+          "label": "{ title: `${props.user.name}'s tasks`, theme: props.preferences.theme, density: props.preferences.…"
+        },
+        {
+          "key": "src/DashboardShell.tsx:32:10",
+          "label": "{ actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…"
+        }
+      ],
       "nodeId": "n76",
       "metrics": {
         "sliceSize": 49,
@@ -1555,6 +1685,7 @@
           "guardedExpression": "props.tasks[0]",
           "type": "Task",
           "verdict": "impossible",
+          "origin": "stale (type-impossible)",
           "location": {
             "line": 31,
             "column": 50
@@ -1566,6 +1697,7 @@
           "guardedExpression": "props.selectedTaskId",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 31,
             "column": 26
@@ -1577,6 +1709,7 @@
           "guardedExpression": "props.selectedTaskId ?? props.tasks[0]?.id",
           "type": "string",
           "verdict": "impossible",
+          "origin": "stale (type-impossible)",
           "location": {
             "line": 31,
             "column": 26
@@ -1588,6 +1721,7 @@
           "guardedExpression": "props.preferences.density",
           "type": "\"compact\" | \"comfortable\" | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 40,
             "column": 16
@@ -1599,14 +1733,18 @@
           "guardedExpression": "route.toolbar.density",
           "type": "\"compact\" | \"comfortable\"",
           "verdict": "impossible",
+          "origin": "stale (type-impossible)",
           "location": {
-            "line": 64,
-            "column": 74
+            "line": 69,
+            "column": 21
           }
         }
       ],
       "confidence": 99,
+      "confidenceReason": "Single file, direct JSX sink, all hops statically resolved.",
+      "confidenceRisk": "low; behavior-preserving extraction likely.",
       "queue": "central-leverage",
+      "signature": "deep object-pack -> call -> impossible-defense -> jsx-sink",
       "scores": {
         "burden": 0.5955889339770464,
         "centrality": 0.829943221317293,
@@ -1617,10 +1755,10 @@
       }
     },
     {
-      "id": "RPF-080-07",
+      "id": "RPF-086-09",
       "file": "src/DashboardShell.tsx",
-      "line": 80,
-      "column": 7,
+      "line": 86,
+      "column": 9,
       "category": "attribute",
       "label": "task={...}",
       "expression": "selectedTask",
@@ -1738,6 +1876,16 @@
           "kind": "alias"
         }
       ],
+      "packs": [
+        {
+          "key": "src/DashboardShell.tsx:37:14",
+          "label": "{ title: `${props.user.name}'s tasks`, theme: props.preferences.theme, density: props.preferences.…"
+        },
+        {
+          "key": "src/DashboardShell.tsx:32:10",
+          "label": "{ actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…"
+        }
+      ],
       "nodeId": "n434",
       "metrics": {
         "sliceSize": 49,
@@ -1759,6 +1907,7 @@
           "guardedExpression": "props.tasks[0]",
           "type": "Task",
           "verdict": "impossible",
+          "origin": "stale (type-impossible)",
           "location": {
             "line": 31,
             "column": 50
@@ -1770,6 +1919,7 @@
           "guardedExpression": "props.selectedTaskId",
           "type": "string | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 31,
             "column": 26
@@ -1781,6 +1931,7 @@
           "guardedExpression": "props.selectedTaskId ?? props.tasks[0]?.id",
           "type": "string",
           "verdict": "impossible",
+          "origin": "stale (type-impossible)",
           "location": {
             "line": 31,
             "column": 26
@@ -1792,6 +1943,7 @@
           "guardedExpression": "props.preferences.density",
           "type": "\"compact\" | \"comfortable\" | undefined",
           "verdict": "possible",
+          "origin": "compatibility (optional)",
           "location": {
             "line": 40,
             "column": 16
@@ -1799,7 +1951,10 @@
         }
       ],
       "confidence": 99,
+      "confidenceReason": "Single file, direct JSX sink, all hops statically resolved.",
+      "confidenceRisk": "low; behavior-preserving extraction likely.",
       "queue": "central-leverage",
+      "signature": "deep object-pack -> call -> impossible-defense -> jsx-sink",
       "scores": {
         "burden": 0.5930502213913232,
         "centrality": 0.8609140224337609,

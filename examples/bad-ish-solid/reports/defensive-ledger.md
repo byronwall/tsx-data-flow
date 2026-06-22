@@ -4,16 +4,16 @@
 >
 > Lists defensive operations (optional chains, nullish fallbacks) on render paths. _Verdict_ is whether the guard can ever fire given the TypeScript types: _impossible_ means the guarded value is never nullish, so the defense is dead code; _possible_ means it can; _unknown_ means the type is too loose to tell.
 
-| Location                  | Expression                                              | Type                                    | Verdict    |
-| ------------------------- | ------------------------------------------------------- | --------------------------------------- | ---------- |
-| src/DashboardShell.tsx:31 | `props.tasks[0]?.id`                                    | `Task`                                  | impossible |
-| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id`            | `string \| undefined`                    | possible   |
-| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"` | `string`                                | impossible |
-| src/DashboardShell.tsx:40 | `props.preferences.density ?? "comfortable"`            | `"compact" \| "comfortable" \| undefined` | possible   |
-| src/DashboardShell.tsx:64 | `route.toolbar.theme ?? "light"`                        | `"light" \| "dark"`                      | impossible |
-| src/DashboardShell.tsx:31 | `props.tasks[0]?.id`                                    | `Task`                                  | impossible |
-| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id`            | `string \| undefined`                    | possible   |
-| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"` | `string`                                | impossible |
+| Location                  | Expression                                              | Type                                    | Verdict    | Origin                   |
+| ------------------------- | ------------------------------------------------------- | --------------------------------------- | ---------- | ------------------------ |
+| src/DashboardShell.tsx:31 | `props.tasks[0]?.id`                                    | `Task`                                  | impossible | stale (type-impossible)  |
+| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id`            | `string \| undefined`                    | possible   | compatibility (optional) |
+| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"` | `string`                                | impossible | stale (type-impossible)  |
+| src/DashboardShell.tsx:40 | `props.preferences.density ?? "comfortable"`            | `"compact" \| "comfortable" \| undefined` | possible   | compatibility (optional) |
+| src/DashboardShell.tsx:68 | `route.toolbar.theme ?? "light"`                        | `"light" \| "dark"`                      | impossible | stale (type-impossible)  |
+| src/DashboardShell.tsx:31 | `props.tasks[0]?.id`                                    | `Task`                                  | impossible | stale (type-impossible)  |
+| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id`            | `string \| undefined`                    | possible   | compatibility (optional) |
+| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"` | `string`                                | impossible | stale (type-impossible)  |
 
 ---
 

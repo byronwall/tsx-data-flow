@@ -4,8 +4,8 @@
 >
 > Each finding is one render **sink** (a value rendered into the DOM). _Sink_ is the rendered expression, _Source_ the actionable inputs it derives from, _path depth_ the number of transformation hops between them, and _severity/burden_ reflects how much data-flow plumbing sits on the path.
 
-## RPF-140-15 · HIGH · type-impossible defensive render path
-src/DashboardShell.tsx:140
+## RPF-166-17 · HIGH · type-impossible defensive render path
+src/DashboardShell.tsx:166
 
 **Sink**
 
@@ -32,6 +32,21 @@ props.task, props.actor, props.preferences, preferences.accentColor
 | centrality percentile  | 88    |
 | analysis confidence    | 99%   |
 
+Confidence: 99%
+Reason: Single file, direct JSX sink, all hops statically resolved.
+Risk: low; behavior-preserving extraction likely.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 3
+  - preferences.accentColor ?? "#3f7f6f"  [fallback]
+  - packed.task.estimateHours ?? 0  [fallback]
+  - row.label ?? "Untitled"  [fallback]
+helper hops on this path: 1
+  - taskRowView  [call]
+```
+
 **Representative path**
 
 ```
@@ -55,8 +70,8 @@ props.task, props.actor, props.preferences, preferences.accentColor
 
 A nullish fallback or optional access is unreachable under the checked TypeScript program.
 
-## RPF-141-14 · HIGH · type-impossible defensive render path
-src/DashboardShell.tsx:141
+## RPF-167-16 · HIGH · type-impossible defensive render path
+src/DashboardShell.tsx:167
 
 **Sink**
 
@@ -83,6 +98,21 @@ props.task, props.actor, props.preferences, preferences.accentColor
 | centrality percentile  | 88    |
 | analysis confidence    | 99%   |
 
+Confidence: 99%
+Reason: Single file, direct JSX sink, all hops statically resolved.
+Risk: low; behavior-preserving extraction likely.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 3
+  - preferences.accentColor ?? "#3f7f6f"  [fallback]
+  - packed.task.estimateHours ?? 0  [fallback]
+  - row.ownerLabel ?? "Unknown owner"  [fallback]
+helper hops on this path: 1
+  - taskRowView  [call]
+```
+
 **Representative path**
 
 ```
@@ -106,8 +136,8 @@ props.task, props.actor, props.preferences, preferences.accentColor
 
 A nullish fallback or optional access is unreachable under the checked TypeScript program.
 
-## RPF-138-55 · MEDIUM · representation-heavy render path
-src/DashboardShell.tsx:138
+## RPF-163-07 · MEDIUM · representation-heavy render path
+src/DashboardShell.tsx:163
 
 **Sink**
 
@@ -134,6 +164,20 @@ props.task, props.actor, props.preferences, preferences.accentColor
 | centrality percentile  | 88    |
 | analysis confidence    | 88%   |
 
+Confidence: 88%
+Reason: All hops statically resolved within one file.
+Risk: low.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 2
+  - preferences.accentColor ?? "#3f7f6f"  [fallback]
+  - packed.task.estimateHours ?? 0  [fallback]
+helper hops on this path: 1
+  - taskRowView  [call]
+```
+
 **Representative path**
 
 ```
@@ -157,8 +201,8 @@ props.task, props.actor, props.preferences, preferences.accentColor
 
 This rendered value has more data-flow plumbing than nearby JSX should usually need.
 
-## RPF-142-13 · MEDIUM · representation-heavy render path
-src/DashboardShell.tsx:142
+## RPF-168-15 · MEDIUM · representation-heavy render path
+src/DashboardShell.tsx:168
 
 **Sink**
 
@@ -185,6 +229,20 @@ props.task, props.actor, props.preferences, preferences.accentColor
 | centrality percentile  | 88    |
 | analysis confidence    | 88%   |
 
+Confidence: 88%
+Reason: All hops statically resolved within one file.
+Risk: low.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 2
+  - preferences.accentColor ?? "#3f7f6f"  [fallback]
+  - packed.task.estimateHours ?? 0  [fallback]
+helper hops on this path: 1
+  - taskRowView  [call]
+```
+
 **Representative path**
 
 ```
@@ -207,8 +265,8 @@ props.task, props.actor, props.preferences, preferences.accentColor
 
 This rendered value has more data-flow plumbing than nearby JSX should usually need.
 
-## RPF-143-13 · MEDIUM · representation-heavy render path
-src/DashboardShell.tsx:143
+## RPF-169-15 · MEDIUM · representation-heavy render path
+src/DashboardShell.tsx:169
 
 **Sink**
 
@@ -235,6 +293,20 @@ props.task, props.actor, props.preferences, preferences.accentColor
 | centrality percentile  | 88    |
 | analysis confidence    | 88%   |
 
+Confidence: 88%
+Reason: All hops statically resolved within one file.
+Risk: low.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 2
+  - preferences.accentColor ?? "#3f7f6f"  [fallback]
+  - packed.task.estimateHours ?? 0  [fallback]
+helper hops on this path: 1
+  - taskRowView  [call]
+```
+
 **Representative path**
 
 ```
@@ -257,8 +329,8 @@ props.task, props.actor, props.preferences, preferences.accentColor
 
 This rendered value has more data-flow plumbing than nearby JSX should usually need.
 
-## RPF-064-16 · HIGH · type-impossible defensive render path
-src/DashboardShell.tsx:64
+## RPF-068-07 · HIGH · type-impossible defensive render path
+src/DashboardShell.tsx:68
 
 **Sink**
 
@@ -285,6 +357,22 @@ props.user, props.tasks, props.preferences, props.selectedTaskId
 | centrality percentile  | 84    |
 | analysis confidence    | 99%   |
 
+Confidence: 99%
+Reason: Single file, direct JSX sink, all hops statically resolved.
+Risk: low; behavior-preserving extraction likely.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 4
+  - id  [optional-read]
+  - props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
+  - props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
+  - route.toolbar.theme ?? "light"  [fallback]
+helper hops on this path: 1
+  - buildRouteModel  [call]
+```
+
 **Representative path**
 
 ```
@@ -307,8 +395,8 @@ props.user, props.tasks, props.preferences, props.selectedTaskId
 
 A nullish fallback or optional access is unreachable under the checked TypeScript program.
 
-## RPF-064-60 · HIGH · type-impossible defensive render path
-src/DashboardShell.tsx:64
+## RPF-069-07 · HIGH · type-impossible defensive render path
+src/DashboardShell.tsx:69
 
 **Sink**
 
@@ -335,6 +423,22 @@ props.user, props.tasks, props.preferences, props.selectedTaskId
 | centrality percentile  | 83    |
 | analysis confidence    | 99%   |
 
+Confidence: 99%
+Reason: Single file, direct JSX sink, all hops statically resolved.
+Risk: low; behavior-preserving extraction likely.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 4
+  - id  [optional-read]
+  - props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
+  - props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
+  - route.toolbar.density ?? "comfortable"  [fallback]
+helper hops on this path: 1
+  - buildRouteModel  [call]
+```
+
 **Representative path**
 
 ```
@@ -357,8 +461,8 @@ props.user, props.tasks, props.preferences, props.selectedTaskId
 
 A nullish fallback or optional access is unreachable under the checked TypeScript program.
 
-## RPF-080-07 · HIGH · type-impossible defensive render path
-src/DashboardShell.tsx:80
+## RPF-086-09 · HIGH · type-impossible defensive render path
+src/DashboardShell.tsx:86
 
 **Sink**
 
@@ -384,6 +488,22 @@ props.user, props.tasks, props.preferences, props.selectedTaskId
 | downstream sink count  | 31    |
 | centrality percentile  | 86    |
 | analysis confidence    | 99%   |
+
+Confidence: 99%
+Reason: Single file, direct JSX sink, all hops statically resolved.
+Risk: low; behavior-preserving extraction likely.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 3
+  - id  [optional-read]
+  - props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
+  - props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
+helper hops on this path: 2
+  - buildRouteModel  [call]
+  - find  [call]
+```
 
 **Representative path**
 

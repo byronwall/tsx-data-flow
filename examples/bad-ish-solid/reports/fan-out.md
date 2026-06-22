@@ -6,14 +6,14 @@
 
 | Source                  | Sinks | Files | Example sink               | Max depth |
 | ----------------------- | ----- | ----- | -------------------------- | --------- |
-| props.preferences       | 31    | 1     | src/DashboardShell.tsx:138 | 14        |
-| props.actor             | 19    | 1     | src/DashboardShell.tsx:138 | 14        |
-| props.tasks             | 14    | 1     | src/DashboardShell.tsx:64  | 13        |
-| props.selectedTaskId    | 14    | 1     | src/DashboardShell.tsx:64  | 13        |
-| props.user              | 13    | 1     | src/DashboardShell.tsx:64  | 13        |
-| props.task              | 9     | 1     | src/DashboardShell.tsx:138 | 14        |
-| preferences.accentColor | 5     | 1     | src/DashboardShell.tsx:138 | 14        |
-| props.title             | 4     | 1     | src/DashboardShell.tsx:94  | 8         |
+| props.preferences       | 31    | 1     | src/DashboardShell.tsx:163 | 14        |
+| props.actor             | 19    | 1     | src/DashboardShell.tsx:163 | 14        |
+| props.tasks             | 14    | 1     | src/DashboardShell.tsx:68  | 13        |
+| props.selectedTaskId    | 14    | 1     | src/DashboardShell.tsx:68  | 13        |
+| props.user              | 13    | 1     | src/DashboardShell.tsx:68  | 13        |
+| props.task              | 9     | 1     | src/DashboardShell.tsx:163 | 14        |
+| preferences.accentColor | 5     | 1     | src/DashboardShell.tsx:163 | 14        |
+| props.title             | 4     | 1     | src/DashboardShell.tsx:107 | 8         |
 
 ---
 

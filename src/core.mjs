@@ -57,6 +57,53 @@ function defaultMaxItemsFor(view) {
     ? DEFAULT_TABLE_MAX_ITEMS
     : DEFAULT_REPORT_MAX_ITEMS;
 }
+
+// --- Shape vocabulary (shared across path classification and sink families) ---
+// Kept in one place so the geometry/style/control sets never drift between the
+// path-shape classifier (Phase 1), fix suggestions (Phase 2), and sink-family
+// grouping (Phase 3).
+
+// Attributes that size the SVG/HTML shell itself. Split out from geometry so a
+// plain width={...} is not lumped with bar-coordinate math when grouping sinks.
+const SVG_SHELL_ATTRIBUTES = new Set(["width", "height", "viewBox", "viewbox"]);
+// Per-element coordinate/shape attributes — the bar-geometry family.
+const GEOMETRY_FAMILY_ATTRIBUTES = new Set([
+  "transform",
+  "x",
+  "y",
+  "cx",
+  "cy",
+  "d",
+  "points",
+  "r",
+  "dx",
+  "dy",
+  "x1",
+  "y1",
+  "x2",
+  "y2",
+  "rx",
+  "ry",
+]);
+// The union is what "this path computes geometry" keys off of (Phase 1).
+const GEOMETRY_ATTRIBUTES = new Set([
+  ...SVG_SHELL_ATTRIBUTES,
+  ...GEOMETRY_FAMILY_ATTRIBUTES,
+]);
+const STYLE_ATTRIBUTES = new Set(["class", "className", "style"]);
+const CONTROL_FLOW_ATTRIBUTES = new Set(["when", "each", "fallback"]);
+
+// Analyzer jargon and tidy-but-vague names that must never be suggested as code
+// identifiers. Reports may use these words in prose; generated code names must
+// describe the rendered thing instead (Taste #1/#4).
+export const BANNED_SUGGESTION_IDENTIFIERS = [
+  "pivot",
+  "sinkData",
+  "fanInResult",
+  "transformedProps",
+  "viewModel",
+  "layout",
+];
 // This package's own directory (one level up from src/). Used as a last-resort
 // location for resolving the bundled `typescript` dependency.
 const packageDir = path.resolve(
@@ -442,6 +489,7 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
   const rankings = rankSinks(
     filteredSinks.filter((sink) => sink.category !== "event-handler"),
   );
+  const packGroups = computePackGroups(filteredSinks);
   const baseline = args.baseline
     ? compareBaseline(rankings, args.baseline)
     : null;
@@ -464,6 +512,7 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     sinks: filteredSinks,
     contextRelay,
     rankings,
+    packGroups,
     baseline,
     summary: summarize(filteredSinks, graph),
   };
@@ -925,6 +974,12 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
   const edges = [];
   const rootInfos = [];
   const defenses = [];
+  // Packed objects the value flows through, so sinks sharing one packed object
+  // (a createMemo/object literal) can be grouped and checked for over-packing
+  // (Phase 3). Identity is the object literal's *source location*, NOT the graph
+  // node id: the trace graph re-traces each sink, minting a fresh node per
+  // object-pack, so node ids are never shared even for the same literal.
+  const packs = [];
   // Each path step carries its operation kind so the transformation ledger and
   // path renderers can name the real operation (property-read, fallback, call,
   // object-pack, …) instead of a constant placeholder.
@@ -944,9 +999,15 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
         trace.roots.map((root) => ({ label: root, kind: "source" }))),
     );
     defenses.push(...trace.defenses);
+    packs.push(...(trace.packs ?? []));
     if (trace.longestPath.length + 1 > longest.length) {
       longest = [...trace.longestPath, { label, kind }];
     }
+  }
+  if (kind === "object-pack") {
+    const where = locationOf(expression.getSourceFile(), expression);
+    const file = relativePath(graph.root, expression.getSourceFile().fileName);
+    packs.push({ key: `${file}:${where.line}:${where.column}`, label });
   }
   if (traces.length === 0) rootInfos.push({ label, kind: "operation" });
   const dedupedRoots = uniqueRootInfos(rootInfos);
@@ -957,7 +1018,17 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
     edges,
     defenses,
     longestPath: longest,
+    packs: uniquePacks(packs),
   };
+}
+
+// Deduplicate packs by their source-location key, keeping the first label seen.
+function uniquePacks(packs) {
+  const seen = new Map();
+  for (const pack of packs) {
+    if (!seen.has(pack.key)) seen.set(pack.key, pack);
+  }
+  return Array.from(seen.values());
 }
 
 // Deduplicate root descriptors by label, keeping the first (most specific)
@@ -987,6 +1058,7 @@ function sourceTrace(graph, expression, kind, label, unknown, rootKind = kind) {
     edges: [],
     defenses: [],
     longestPath: [{ label, kind }],
+    packs: [],
     unknown,
   };
 }
@@ -1004,6 +1076,7 @@ function buildSinkRecord(
   const location = locationOf(sourceFile, node);
   const metrics = metricsFor(trace);
   const sinkId = `RPF-${String(location.line).padStart(3, "0")}-${String(location.column).padStart(2, "0")}`;
+  const confidence = confidenceFor(metrics, trace.defenses);
   return {
     id: sinkId,
     file: relativePath(root, sourceFile.fileName),
@@ -1026,10 +1099,13 @@ function buildSinkRecord(
       label: step.label,
       kind: step.kind,
     })),
+    packs: trace.packs ?? [],
     nodeId: sinkNode.id,
     metrics,
     defenses: trace.defenses,
-    confidence: confidenceFor(metrics, trace.defenses),
+    confidence: confidence.score,
+    confidenceReason: confidence.reason,
+    confidenceRisk: confidence.risk,
     queue: queueFor(metrics, trace.defenses),
   };
 }
@@ -1111,8 +1187,40 @@ function defenseRecord(ts, checker, guardedExpression, node, operation) {
       checker.typeToString(checker.getTypeAtLocation(guardedExpression)),
     ),
     verdict,
+    origin: fallbackOrigin(ts, checker, guardedExpression, node, verdict),
     location: locationOf(node.getSourceFile(), node),
   };
+}
+
+// Phase 9 — distinguish stale defensive code from intentional compatibility
+// guards, using only local signals: the guard's type/optionality and any
+// leading comment on the AST node (no repo scanning).
+function fallbackOrigin(ts, checker, guardedExpression, node, verdict) {
+  if (verdict === "impossible") return "stale (type-impossible)";
+  if (verdict === "unknown") return "unknown";
+  const comment = leadingCommentText(ts, node);
+  if (/persist|legacy|back[ -]?compat|compat|migrat|deprecat/i.test(comment)) {
+    return "compatibility (documented)";
+  }
+  if (
+    ts.isPropertyAccessExpression(guardedExpression) &&
+    guardedExpression.questionDotToken
+  ) {
+    return "compatibility (optional)";
+  }
+  const type = checker.getTypeAtLocation(guardedExpression);
+  const members = type.isUnion() ? type.types : [type];
+  if (members.some((m) => (m.flags & ts.TypeFlags.Undefined) !== 0)) {
+    return "compatibility (optional)";
+  }
+  return "defensive (review)";
+}
+
+function leadingCommentText(ts, node) {
+  const sourceFile = node.getSourceFile();
+  const fullText = sourceFile.getFullText();
+  const ranges = ts.getLeadingCommentRanges(fullText, node.getFullStart()) ?? [];
+  return ranges.map((range) => fullText.slice(range.pos, range.end)).join(" ");
 }
 
 function getNullishStatus(ts, checker, expression) {
@@ -1142,6 +1250,7 @@ function rankSinks(sinks) {
     const confidence = sink.confidence / 100;
     return {
       ...sink,
+      signature: signatureFor(sink),
       scores: {
         burden,
         centrality,
@@ -1214,6 +1323,17 @@ function renderFindings(report, args) {
       ]),
     );
     lines.push("");
+    lines.push(`Confidence: ${sink.confidence}%`);
+    lines.push(`Reason: ${sink.confidenceReason}`);
+    lines.push(`Risk: ${sink.confidenceRisk}`);
+    lines.push("");
+    const contributions = metricContributionLines(sink);
+    if (contributions.length > 0) {
+      lines.push("**Metric contributions**");
+      lines.push("");
+      lines.push(...fenced(contributions));
+      lines.push("");
+    }
     lines.push("**Representative path**");
     lines.push("");
     lines.push(...fenced(representativePathLines(sink)));
@@ -1225,6 +1345,33 @@ function renderFindings(report, args) {
   }
   appendBaseline(lines, report);
   return `${lines.join("\n")}\n`;
+}
+
+// Phase 8 — itemize which exact path operations produced the headline metric
+// counts, so a "defensive operations: 2" is backed by the two steps that caused
+// it. Driven by the representative (longest) path steps.
+function metricContributionLines(sink) {
+  const steps = sink.representativeSteps ?? [];
+  const lines = [];
+  const defensive = steps.filter(
+    (step) => step.kind === "fallback" || step.kind === "optional-read",
+  );
+  const helpers = steps.filter((step) => step.kind === "call");
+  // Counts are for the representative (longest) path only, so they can be lower
+  // than the whole-trace metric totals; the heading says so to avoid confusion.
+  if (defensive.length > 0) {
+    lines.push(`defensive operations on this path: ${defensive.length}`);
+    for (const step of defensive) {
+      lines.push(`  - ${formatExpression(step.label, 60)}  [${step.kind}]`);
+    }
+  }
+  if (helpers.length > 0) {
+    lines.push(`helper hops on this path: ${helpers.length}`);
+    for (const step of helpers) {
+      lines.push(`  - ${formatExpression(step.label, 60)}  [call]`);
+    }
+  }
+  return lines;
 }
 
 // One-lined, kind-annotated path steps for the fenced prose renderers. The
@@ -1264,8 +1411,13 @@ function renderWorkPackets(report, args) {
   ];
   appendFeatureClusters(lines, report, args);
   sinks.forEach((sink, index) => {
+    const group = overpackedGroupForSink(sink, report.packGroups);
     lines.push(`## WORK ITEM DF-${String(index + 1).padStart(3, "0")}`);
     lines.push(`Simplify ${formatExpression(sink.label, 80)} in ${sink.file}`);
+    lines.push("");
+    lines.push("**Review summary**");
+    lines.push("");
+    lines.push(reviewerSummaryFor(sink, group));
     lines.push("");
     lines.push("**Scope**");
     lines.push("");
@@ -1278,6 +1430,9 @@ function renderWorkPackets(report, args) {
         ["confidence", `${sink.confidence}%`],
       ]),
     );
+    lines.push("");
+    lines.push(`- confidence reason: ${sink.confidenceReason}`);
+    lines.push(`- risk: ${sink.confidenceRisk}`);
     lines.push("");
     lines.push("**Why this was selected**");
     lines.push("");
@@ -1296,6 +1451,19 @@ function renderWorkPackets(report, args) {
     lines.push("");
     lines.push(...fenced(representativePathLines(sink)));
     lines.push("");
+    const hints = extractionHintsFor(sink);
+    if (hints.length > 0) {
+      lines.push("**Recommended boundaries**");
+      lines.push("");
+      lines.push(...fenced(hints));
+      lines.push("");
+    }
+    if (group) {
+      lines.push("**Sink-family split**");
+      lines.push("");
+      lines.push(...fenced(overpackedSplitLines(group)));
+      lines.push("");
+    }
     lines.push("**Candidate edits**");
     lines.push("");
     candidateEditsFor(sink).forEach((edit, editIndex) => {
@@ -1304,6 +1472,7 @@ function renderWorkPackets(report, args) {
     lines.push("");
     lines.push("**Risk**");
     lines.push("");
+    lines.push(`- ownership: ${ownershipHintFor(sink)}`);
     lines.push(`- queue: ${sink.queue}`);
     if (sink.metrics.unknownEdgeCount > 0) {
       lines.push(
@@ -1481,10 +1650,11 @@ function renderDefensiveLedger(report, args) {
       code(formatExpression(defense.expression)),
       code(defense.type),
       defense.verdict,
+      defense.origin ?? "—",
     ]);
   return tableReport(
     "Defensive Logic",
-    ["Location", "Expression", "Type", "Verdict"],
+    ["Location", "Expression", "Type", "Verdict", "Origin"],
     rows,
     viewIntro("defensive-ledger", report),
   );
@@ -1539,7 +1709,7 @@ function renderRepairMap(report, args) {
     if (selected.length === 0) lines.push("- none");
     selected.forEach((sink) => {
       lines.push(
-        `- **${sink.scores.burden.toFixed(1)}** ${sink.file}:${sink.line} — ${findingTitle(sink)}`,
+        `- **${sink.scores.burden.toFixed(1)}** ${sink.file}:${sink.line} — ${findingTitle(sink)} _(${ownershipHintFor(sink)})_`,
       );
     });
     lines.push("");
@@ -1623,7 +1793,160 @@ function featureKeyFor(file) {
   return directoryParts.slice(0, 3).join("/") || path.dirname(file);
 }
 
+// The JSX attribute name a sink renders into (`transform` from `transform={...}`),
+// or null for bare rendered values / text nodes.
+function sinkAttributeName(sink) {
+  const match = /^([A-Za-z0-9_-]+)=\{/.exec(sink.label ?? "");
+  return match ? match[1] : null;
+}
+
+// Phase 1 — classify the data-flow path feeding a sink into zero or more shape
+// tags, derived purely from the sink's own trace (no repo scanning). Tags are
+// non-exclusive; the array is returned in a fixed priority order so callers can
+// treat element 0 as the primary shape.
+export function classifyPathShape(sink) {
+  const attribute = sinkAttributeName(sink);
+  const steps = sink.representativeSteps ?? [];
+  const kinds = new Set(steps.map((step) => step.kind));
+  const labelText = steps.map((step) => step.label).join(" ");
+  const metrics = sink.metrics;
+  const rootInfos = sink.rootInfos ?? [];
+  const tags = [];
+
+  const hasArithmetic = /[-+*/%]/.test(labelText) || kinds.has("template");
+  if (
+    (attribute && GEOMETRY_ATTRIBUTES.has(attribute)) ||
+    (kinds.has("template") && hasArithmetic && metrics.controlDependencyCount > 0)
+  ) {
+    tags.push("geometry-chain");
+  }
+
+  if (
+    (sink.category === "render-control" && attribute === "each") ||
+    /\.(map|filter|sort|flatMap|reduce|slice)\(/.test(labelText)
+  ) {
+    tags.push("collection-render-model");
+  }
+
+  if (
+    (attribute && (attribute === "when" || attribute === "fallback")) ||
+    (metrics.controlDependencyCount > 0 &&
+      metrics.defensiveOperationCount > 0 &&
+      sink.category === "render-control")
+  ) {
+    tags.push("control-flow-gate");
+  }
+
+  if (
+    sink.category === "style" ||
+    (kinds.has("object-pack") && attribute && STYLE_ATTRIBUTES.has(attribute))
+  ) {
+    tags.push("presentation-pack");
+  }
+
+  if (
+    metrics.defensiveOperationCount > 0 ||
+    (metrics.controlDependencyCount > 0 &&
+      rootInfos.some((info) => info.kind === "prop-read"))
+  ) {
+    tags.push("domain-normalization");
+  }
+
+  if (
+    metrics.mergeWidth > 1 &&
+    metrics.helperHops === 0 &&
+    rootInfos.length > 0 &&
+    rootInfos.every(
+      (info) => info.kind === "prop-read" || info.kind === "parameter",
+    )
+  ) {
+    tags.push("cross-component-relay");
+  }
+
+  return tags;
+}
+
+// Plain-English noun for a shape tag — used in reviewer summaries (Phase 6).
+const SHAPE_PHRASES = {
+  "geometry-chain": "SVG/layout geometry",
+  "collection-render-model": "collection rendering",
+  "control-flow-gate": "control-flow gating",
+  "presentation-pack": "class/style packing",
+  "domain-normalization": "defaulting and normalization",
+  "cross-component-relay": "cross-component prop relay",
+};
+
+// One-line headline fix per primary shape — the lead sentence of the reviewer
+// summary (Phase 6) and the spine of the candidate edits (Phase 2).
+const SHAPE_HEADLINE_FIX = {
+  "geometry-chain":
+    "compute a render-ready geometry model in a memo, then read named fields in JSX",
+  "collection-render-model":
+    "extract the item models into a memo and render one component per item",
+  "control-flow-gate":
+    "name the predicate (or the shown value) in a memo so the gate reads as a sentence",
+  "presentation-pack":
+    "build the class/style object in a small memo split by responsibility",
+  "domain-normalization":
+    "resolve defaults and normalization at a named boundary before JSX",
+  "cross-component-relay":
+    "move shared state behind a Provider/Context instead of threading props",
+};
+
 function candidateEditsFor(sink) {
+  const shapes = classifyPathShape(sink);
+  const reminder =
+    "Keep JSX scannable — attributes should read named values, not derive them.";
+
+  // Provider/Context advice is reserved for genuine cross-component relays (or
+  // flows already rooted at a feature hook), not local geometry/normalization.
+  if (shapes.includes("cross-component-relay") || hasContextHookRoot(sink)) {
+    return providerContextEdits(sink);
+  }
+
+  const shapeEdits = {
+    "geometry-chain": [
+      "Extract a createMemo returning the render-ready geometry (e.g. { x, y, width, height }); keep the SVG attribute reading named fields.",
+      "Name the memo for what it positions (barSizing, nullBar), not a catch-all like layout.",
+      "Resolve any defaults/normalization in a separate boundary before the geometry math.",
+    ],
+    "collection-render-model": [
+      "Extract the item models into a createMemo that returns the array; feed <For each={...}> and render one component per item.",
+      "Name the memo with a plural noun for what is rendered (realBars, visibleRows).",
+    ],
+    "control-flow-gate": [
+      "Name the predicate or the shown value in a memo so the when={...} reads as a sentence.",
+      "Resolve fallbacks before the gate, not inside the JSX condition.",
+    ],
+    "presentation-pack": [
+      "Build the class/style object in a small memo split by responsibility.",
+      "Avoid packing unrelated attributes into one object that several sinks then share.",
+    ],
+    "domain-normalization": [
+      "Resolve defaults, optional reads, and union narrowing at a named boundary memo (e.g. profileData) before any JSX reads it.",
+      "Inline representation-only wrappers that have no semantic role.",
+    ],
+  };
+
+  const primary = shapes[0];
+  const edits = shapeEdits[primary]
+    ? [...shapeEdits[primary]]
+    : [
+        "Move repeated parsing, formatting, or normalization to the nearest data/model boundary.",
+        "Inline representation-only wrappers when they have no semantic role.",
+        "Keep the change scoped to the file named above.",
+      ];
+
+  if (sink.metrics.impossibleDefenseCount > 0) {
+    edits.push(
+      "Remove the type-impossible fallback(s) — unreachable under the checked types.",
+    );
+  }
+  edits.push(reminder);
+  return edits;
+}
+
+function providerContextEdits(sink) {
   if (hasContextHookRoot(sink)) {
     return [
       "This flow already starts at a feature hook; do not reintroduce parent pass-through props.",
@@ -1668,6 +1991,195 @@ function hasContextHookRoot(sink) {
   return sink.roots.some((root) => /^use[A-Z]/.test(root));
 }
 
+// Phase 3a — the render region a sink belongs to. width/height/viewBox are the
+// SVG/HTML *shell*; coordinate attributes are *geometry*; when/each/fallback are
+// *control-flow*; class/style are *style*; bare values are *text*.
+export function sinkFamilyOf(sink) {
+  const attribute = sinkAttributeName(sink);
+  if (attribute && SVG_SHELL_ATTRIBUTES.has(attribute)) return "svg-shell";
+  if (attribute && GEOMETRY_FAMILY_ATTRIBUTES.has(attribute)) return "geometry";
+  if (attribute && CONTROL_FLOW_ATTRIBUTES.has(attribute)) return "control-flow";
+  if (attribute && STYLE_ATTRIBUTES.has(attribute)) return "style";
+  if (sink.category === "rendered-value") return "text";
+  return "other";
+}
+
+// Phase 3b/3c — group sinks that flow through the same packed object (a
+// createMemo/object literal). A pack feeding ≥2 sinks is a "render model" when
+// every consumer shares one family (benign wrapper / shape noise) and an
+// "overpacked bag" when it feeds ≥2 families (mixed responsibility — split it).
+function computePackGroups(sinks) {
+  const byPack = new Map();
+  for (const sink of sinks) {
+    for (const pack of sink.packs ?? []) {
+      let entry = byPack.get(pack.key);
+      if (!entry) {
+        entry = { key: pack.key, label: pack.label, sinks: [] };
+        byPack.set(pack.key, entry);
+      }
+      entry.sinks.push(sink);
+    }
+  }
+
+  const groups = [];
+  for (const entry of byPack.values()) {
+    if (entry.sinks.length < 2) continue;
+    const familyMembers = new Map();
+    for (const sink of entry.sinks) {
+      const family = sinkFamilyOf(sink);
+      if (!familyMembers.has(family)) familyMembers.set(family, new Set());
+      familyMembers
+        .get(family)
+        .add(sinkAttributeName(sink) ?? formatExpression(sink.expression, 24));
+    }
+    const families = Array.from(familyMembers.keys());
+    groups.push({
+      key: entry.key,
+      label: formatExpression(entry.label, 48),
+      sinkCount: entry.sinks.length,
+      families,
+      familyMembers: Object.fromEntries(
+        Array.from(familyMembers.entries()).map(([family, members]) => [
+          family,
+          Array.from(members),
+        ]),
+      ),
+      verdict: families.length >= 2 ? "overpacked-bag" : "render-model",
+    });
+  }
+  return groups.sort(
+    (left, right) =>
+      right.families.length - left.families.length ||
+      right.sinkCount - left.sinkCount,
+  );
+}
+
+// The overpacked-bag group (if any) that a given sink flows through — the one
+// with the most families wins when a sink touches several packs.
+function overpackedGroupForSink(sink, packGroups) {
+  const keys = new Set((sink.packs ?? []).map((pack) => pack.key));
+  return (
+    (packGroups ?? [])
+      .filter(
+        (group) => group.verdict === "overpacked-bag" && keys.has(group.key),
+      )
+      .sort((left, right) => right.families.length - left.families.length)[0] ??
+    null
+  );
+}
+
+// Human labels for the sink families in a split recommendation.
+const FAMILY_LABELS = {
+  "svg-shell": "SVG shell",
+  geometry: "Geometry",
+  "control-flow": "Control flow",
+  style: "Style",
+  text: "Text",
+  other: "Other",
+};
+
+// The "split this object by sink family" block shown under a work item whose
+// packed object feeds more than one family (Phase 3d).
+function overpackedSplitLines(group) {
+  const lines = [
+    `Object \`${group.label}\` feeds ${group.families.length} sink families — split it:`,
+  ];
+  for (const family of group.families) {
+    const members = group.familyMembers[family] ?? [];
+    lines.push(`  ${FAMILY_LABELS[family] ?? family}: ${members.join(", ")}`);
+  }
+  return lines;
+}
+
+// Phase 5 — turn the representative path into extraction-boundary hints plus a
+// suggested render-model shape. Boundaries are placed after the last
+// normalization step and after a contiguous geometry/arithmetic sub-chain; the
+// model shape comes from the sink family.
+function extractionHintsFor(sink) {
+  const steps = sink.representativeSteps ?? [];
+  const hints = [];
+
+  let lastNormalization = -1;
+  let lastGeometry = -1;
+  steps.forEach((step, index) => {
+    if (step.kind === "fallback" || step.kind === "optional-read") {
+      lastNormalization = index;
+    }
+    if (
+      step.kind === "template" ||
+      (step.kind === "conditional" && /[-+*/%]/.test(step.label))
+    ) {
+      lastGeometry = index;
+    }
+  });
+
+  if (lastNormalization >= 0 && lastNormalization < steps.length - 1) {
+    hints.push(
+      `Recommended boundary after: defaults & normalization (step ${lastNormalization + 1}).`,
+    );
+  }
+  if (
+    classifyPathShape(sink).includes("geometry-chain") &&
+    lastGeometry >= 0 &&
+    lastGeometry < steps.length - 1
+  ) {
+    hints.push(
+      `Recommended boundary after: layout/geometry math (step ${lastGeometry + 1}).`,
+    );
+  }
+
+  const family = sinkFamilyOf(sink);
+  if (family === "geometry" || family === "svg-shell") {
+    hints.push("Recommended sink model: { x, y, width, height }.");
+  } else if (classifyPathShape(sink).includes("collection-render-model")) {
+    hints.push("Recommended sink model: Array<ItemModel>.");
+  }
+  return hints;
+}
+
+// Phase 6 — a compact PR-review framing: what the sink mixes, the headline fix,
+// and (when relevant) an over-packing warning.
+function reviewerSummaryFor(sink, group) {
+  const shapes = classifyPathShape(sink);
+  const phrases = shapes.map((shape) => SHAPE_PHRASES[shape]).filter(Boolean);
+  const mixed =
+    phrases.length > 0
+      ? `This sink mixes ${joinList(phrases)}.`
+      : "This sink has more data-flow plumbing than nearby JSX should need.";
+  const fix = SHAPE_HEADLINE_FIX[shapes[0]];
+  const fixSentence = fix
+    ? `A behavior-preserving fix is to ${fix}.`
+    : "A behavior-preserving fix is to compute a render model before JSX.";
+  const sentences = [mixed, fixSentence];
+  if (group?.verdict === "overpacked-bag") {
+    sentences.push(
+      `Watch for overpacking \`${group.label}\` across ${group.families.length} sink families.`,
+    );
+  }
+  return sentences.join(" ");
+}
+
+// Phase 7 — the kind of change this is, as a four-rung ladder of honest
+// categories rather than a binary Provider/Context flag.
+function ownershipHintFor(sink) {
+  if (classifyPathShape(sink).includes("cross-component-relay")) {
+    return "cross-component prop relay";
+  }
+  if (hasContextHookRoot(sink)) return "feature hook extraction";
+  if (sink.metrics.mergeWidth >= 3 && sink.metrics.reachableSinks >= 4) {
+    return "architectural fan-in";
+  }
+  if (sink.metrics.reachableSinks > 5) return "feature hook extraction";
+  return "local component cleanup";
+}
+
+// Oxford-comma join for short prose lists.
+function joinList(items) {
+  if (items.length <= 1) return items.join("");
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
+}
+
 function selectViewPayload(report, args) {
   return {
     analysisVersion: report.analysisVersion,
@@ -1705,7 +2217,58 @@ function compareBaseline(rankings, baselinePath) {
     currentWorst,
     baselineWorst,
     regressed: currentWorst > baselineWorst,
+    ...diffBaselineSinks(rankings.all, baseline.sinks ?? []),
   };
+}
+
+// Phase 10 — a per-sink diff against a prior JSON report. Sinks are keyed by
+// file + structural signature so small line shifts don't read as churn; burden
+// is the lower-is-better quality number. Categories: removed (gone), regressed
+// (got heavier), improved (got lighter), and the current new top finding.
+function diffBaselineSinks(currentSinks, baselineSinks) {
+  const keyOf = (sink) =>
+    `${sink.file ?? "?"}::${sink.signature ?? sink.label ?? "?"}`;
+  const burdenOf = (sink) => sink.scores?.burden ?? 0;
+
+  const currentByKey = new Map(currentSinks.map((sink) => [keyOf(sink), sink]));
+  const baselineByKey = new Map(
+    baselineSinks.map((sink) => [keyOf(sink), sink]),
+  );
+
+  const removed = [];
+  const improved = [];
+  const regressed = [];
+  for (const [key, baseSink] of baselineByKey) {
+    const current = currentByKey.get(key);
+    if (!current) {
+      removed.push({
+        label: baseSink.label ?? baseSink.file ?? key,
+        depth: baseSink.metrics?.maximumPathDepth ?? null,
+      });
+      continue;
+    }
+    const before = burdenOf(baseSink);
+    const after = burdenOf(current);
+    const entry = {
+      label: current.label ?? current.file,
+      file: current.file,
+      line: current.line,
+      before: Number(before.toFixed(2)),
+      after: Number(after.toFixed(2)),
+    };
+    if (after < before - 0.001) improved.push(entry);
+    else if (after > before + 0.001) regressed.push(entry);
+  }
+
+  const top = currentSinks[0];
+  const newTop =
+    top && !baselineByKey.has(keyOf(top))
+      ? { label: top.label, file: top.file, line: top.line }
+      : null;
+
+  // `regressedSinks` (a list), not `regressed` (the boolean summary flag), so
+  // the spread in compareBaseline does not clobber the existing flag.
+  return { removed, improved, regressedSinks: regressed, newTop };
 }
 
 function readCompilerOptions(ts, args) {
@@ -2332,22 +2895,75 @@ function formatExpression(value, max = 100) {
 
 function appendBaseline(lines, report) {
   if (!report.baseline) return;
+  const baseline = report.baseline;
   lines.push("## Baseline");
   lines.push("");
   lines.push(
     ...metricTable([
-      ["current worst", report.baseline.currentWorst.toFixed(2)],
-      ["baseline worst", report.baseline.baselineWorst.toFixed(2)],
-      ["regressed", report.baseline.regressed ? "yes" : "no"],
+      ["current worst", baseline.currentWorst.toFixed(2)],
+      ["baseline worst", baseline.baselineWorst.toFixed(2)],
+      ["regressed", baseline.regressed ? "yes" : "no"],
     ]),
   );
+
+  const changes = [];
+  for (const item of baseline.removed ?? []) {
+    changes.push(
+      `Removed:   ${formatExpression(item.label, 60)}${item.depth != null ? ` (depth ${item.depth})` : ""}`,
+    );
+  }
+  for (const item of baseline.improved ?? []) {
+    changes.push(
+      `Improved:  ${item.file}:${item.line} ${item.before} -> ${item.after}`,
+    );
+  }
+  for (const item of baseline.regressedSinks ?? []) {
+    changes.push(
+      `Regressed: ${item.file}:${item.line} ${item.before} -> ${item.after}`,
+    );
+  }
+  if (baseline.newTop) {
+    changes.push(
+      `New top:   ${baseline.newTop.file}:${baseline.newTop.line} ${formatExpression(baseline.newTop.label, 48)}`,
+    );
+  }
+  if (changes.length > 0) {
+    lines.push("");
+    lines.push(...fenced(changes));
+  }
 }
 
+// Confidence as a score plus a plain-English reason and risk (Phase 4). The
+// numeric `score` preserves the prior return value so ranking/queueing are
+// unchanged; reason/risk explain it in human terms for the report.
 function confidenceFor(metrics, defenses) {
-  if (metrics.unknownEdgeCount > 0) return 72;
-  if (defenses.some((defense) => defense.verdict === "unknown")) return 80;
-  if (metrics.impossibleDefenseCount > 0) return 99;
-  return 88;
+  if (metrics.unknownEdgeCount > 0) {
+    return {
+      score: 72,
+      reason: "Path contains unresolved (dynamic or external) hops.",
+      risk: "medium; verify the unknown edge before editing.",
+    };
+  }
+  if (defenses.some((defense) => defense.verdict === "unknown")) {
+    return {
+      score: 80,
+      reason: "A guard's type is too loose to evaluate statically.",
+      risk: "low–medium; confirm the guard is still needed.",
+    };
+  }
+  if (metrics.impossibleDefenseCount > 0) {
+    return {
+      score: 99,
+      reason:
+        "Single file, direct JSX sink, all hops statically resolved.",
+      risk: "low; behavior-preserving extraction likely.",
+    };
+  }
+  return {
+    score: 88,
+    reason: "All hops statically resolved within one file.",
+    risk: "low.",
+  };
 }
 
 function queueFor(metrics, defenses, reachThreshold = 3) {
