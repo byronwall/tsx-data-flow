@@ -9,6 +9,7 @@
   "files": [
     "bin",
     "src",
+    "examples",
     "skills",
     "docs",
     "README.md"
@@ -16,7 +17,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "analyze": "node bin/tsx-dataflow.mjs"
+    "analyze": "node bin/tsx-dataflow.mjs",
+    "examples:regenerate": "node examples/regenerate.mjs"
   },
   "engines": {
     "node": ">=18"

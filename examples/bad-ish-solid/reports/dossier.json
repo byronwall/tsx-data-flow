@@ -1,0 +1,1999 @@
+{
+  "analysisVersion": 1,
+  "generatedAt": "2026-06-22T14:19:45.438Z",
+  "summary": {
+    "sources": 38,
+    "sinks": 41,
+    "nodes": 1078,
+    "edges": 1037,
+    "unknownEdges": 9,
+    "pathFamilies": 12
+  },
+  "view": "dossier",
+  "sinks": [
+    {
+      "id": "RPF-140-15",
+      "file": "src/DashboardShell.tsx",
+      "line": 140,
+      "column": 15,
+      "category": "rendered-value",
+      "label": "JSX row.label ?? \"Untitled\"",
+      "expression": "row.label ?? \"Untitled\"",
+      "type": "string",
+      "roots": [
+        "props.task",
+        "props.actor",
+        "props.preferences",
+        "task",
+        "user",
+        "preferences.accentColor",
+        "\"#3f7f6f\"",
+        "\"normal\"",
+        "0",
+        "\"Untitled\""
+      ],
+      "rootInfos": [
+        {
+          "label": "props.task",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.actor",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.preferences",
+          "kind": "prop-read"
+        },
+        {
+          "label": "task",
+          "kind": "parameter"
+        },
+        {
+          "label": "user",
+          "kind": "parameter"
+        },
+        {
+          "label": "preferences.accentColor",
+          "kind": "prop-read"
+        },
+        {
+          "label": "\"#3f7f6f\"",
+          "kind": "literal"
+        },
+        {
+          "label": "\"normal\"",
+          "kind": "literal"
+        },
+        {
+          "label": "0",
+          "kind": "literal"
+        },
+        {
+          "label": "\"Untitled\"",
+          "kind": "literal"
+        }
+      ],
+      "representativePath": [
+        "preferences",
+        "accentColor",
+        "preferences.accentColor ?? \"#3f7f6f\"",
+        "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }",
+        "packed",
+        "task",
+        "estimateHours",
+        "packed.task.estimateHours ?? 0",
+        "`${packed.task.estimateHours ?? 0}h`",
+        "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…",
+        "taskRowView",
+        "row",
+        "label",
+        "row.label ?? \"Untitled\""
+      ],
+      "representativeSteps": [
+        {
+          "label": "preferences",
+          "kind": "source"
+        },
+        {
+          "label": "accentColor",
+          "kind": "property-read"
+        },
+        {
+          "label": "preferences.accentColor ?? \"#3f7f6f\"",
+          "kind": "fallback"
+        },
+        {
+          "label": "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }",
+          "kind": "object-pack"
+        },
+        {
+          "label": "packed",
+          "kind": "alias"
+        },
+        {
+          "label": "task",
+          "kind": "property-read"
+        },
+        {
+          "label": "estimateHours",
+          "kind": "property-read"
+        },
+        {
+          "label": "packed.task.estimateHours ?? 0",
+          "kind": "fallback"
+        },
+        {
+          "label": "`${packed.task.estimateHours ?? 0}h`",
+          "kind": "template"
+        },
+        {
+          "label": "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…",
+          "kind": "object-pack"
+        },
+        {
+          "label": "taskRowView",
+          "kind": "call"
+        },
+        {
+          "label": "row",
+          "kind": "alias"
+        },
+        {
+          "label": "label",
+          "kind": "property-read"
+        },
+        {
+          "label": "row.label ?? \"Untitled\"",
+          "kind": "fallback"
+        }
+      ],
+      "nodeId": "n783",
+      "metrics": {
+        "sliceSize": 80,
+        "maximumPathDepth": 14,
+        "helperHops": 5,
+        "representationChurn": 26,
+        "defensiveOperationCount": 16,
+        "impossibleDefenseCount": 1,
+        "controlDependencyCount": 0,
+        "mergeWidth": 10,
+        "reachableSinks": 31,
+        "repeatedNormalization": 15,
+        "unknownEdgeCount": 0
+      },
+      "defenses": [
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "packed.task.priority ?? \"normal\"",
+          "guardedExpression": "packed.task.priority",
+          "type": "\"low\" | \"normal\" | \"high\" | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 54,
+            "column": 20
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "packed.task.estimateHours ?? 0",
+          "guardedExpression": "packed.task.estimateHours",
+          "type": "number | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 55,
+            "column": 23
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "row.label ?? \"Untitled\"",
+          "guardedExpression": "row.label",
+          "type": "string",
+          "verdict": "impossible",
+          "location": {
+            "line": 140,
+            "column": 16
+          }
+        }
+      ],
+      "confidence": 99,
+      "queue": "central-leverage",
+      "scores": {
+        "burden": 0.6865079603661961,
+        "centrality": 0.8843158575633067,
+        "changeRisk": 0.5588519055411483,
+        "quickWin": 0.18565362825886456,
+        "centralLeverage": 0.6570926128281098,
+        "investigationPriority": 0
+      }
+    },
+    {
+      "id": "RPF-141-14",
+      "file": "src/DashboardShell.tsx",
+      "line": 141,
+      "column": 14,
+      "category": "rendered-value",
+      "label": "JSX row.ownerLabel ?? \"Unknown owner\"",
+      "expression": "row.ownerLabel ?? \"Unknown owner\"",
+      "type": "string",
+      "roots": [
+        "props.task",
+        "props.actor",
+        "props.preferences",
+        "task",
+        "user",
+        "preferences.accentColor",
+        "\"#3f7f6f\"",
+        "\"normal\"",
+        "0",
+        "\"Unknown owner\""
+      ],
+      "rootInfos": [
+        {
+          "label": "props.task",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.actor",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.preferences",
+          "kind": "prop-read"
+        },
+        {
+          "label": "task",
+          "kind": "parameter"
+        },
+        {
+          "label": "user",
+          "kind": "parameter"
+        },
+        {
+          "label": "preferences.accentColor",
+          "kind": "prop-read"
+        },
+        {
+          "label": "\"#3f7f6f\"",
+          "kind": "literal"
+        },
+        {
+          "label": "\"normal\"",
+          "kind": "literal"
+        },
+        {
+          "label": "0",
+          "kind": "literal"
+        },
+        {
+          "label": "\"Unknown owner\"",
+          "kind": "literal"
+        }
+      ],
+      "representativePath": [
+        "preferences",
+        "accentColor",
+        "preferences.accentColor ?? \"#3f7f6f\"",
+        "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }",
+        "packed",
+        "task",
+        "estimateHours",
+        "packed.task.estimateHours ?? 0",
+        "`${packed.task.estimateHours ?? 0}h`",
+        "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…",
+        "taskRowView",
+        "row",
+        "ownerLabel",
+        "row.ownerLabel ?? \"Unknown owner\""
+      ],
+      "representativeSteps": [
+        {
+          "label": "preferences",
+          "kind": "source"
+        },
+        {
+          "label": "accentColor",
+          "kind": "property-read"
+        },
+        {
+          "label": "preferences.accentColor ?? \"#3f7f6f\"",
+          "kind": "fallback"
+        },
+        {
+          "label": "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }",
+          "kind": "object-pack"
+        },
+        {
+          "label": "packed",
+          "kind": "alias"
+        },
+        {
+          "label": "task",
+          "kind": "property-read"
+        },
+        {
+          "label": "estimateHours",
+          "kind": "property-read"
+        },
+        {
+          "label": "packed.task.estimateHours ?? 0",
+          "kind": "fallback"
+        },
+        {
+          "label": "`${packed.task.estimateHours ?? 0}h`",
+          "kind": "template"
+        },
+        {
+          "label": "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…",
+          "kind": "object-pack"
+        },
+        {
+          "label": "taskRowView",
+          "kind": "call"
+        },
+        {
+          "label": "row",
+          "kind": "alias"
+        },
+        {
+          "label": "ownerLabel",
+          "kind": "property-read"
+        },
+        {
+          "label": "row.ownerLabel ?? \"Unknown owner\"",
+          "kind": "fallback"
+        }
+      ],
+      "nodeId": "n851",
+      "metrics": {
+        "sliceSize": 80,
+        "maximumPathDepth": 14,
+        "helperHops": 5,
+        "representationChurn": 26,
+        "defensiveOperationCount": 16,
+        "impossibleDefenseCount": 1,
+        "controlDependencyCount": 0,
+        "mergeWidth": 10,
+        "reachableSinks": 31,
+        "repeatedNormalization": 15,
+        "unknownEdgeCount": 0
+      },
+      "defenses": [
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "packed.task.priority ?? \"normal\"",
+          "guardedExpression": "packed.task.priority",
+          "type": "\"low\" | \"normal\" | \"high\" | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 54,
+            "column": 20
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "packed.task.estimateHours ?? 0",
+          "guardedExpression": "packed.task.estimateHours",
+          "type": "number | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 55,
+            "column": 23
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "row.ownerLabel ?? \"Unknown owner\"",
+          "guardedExpression": "row.ownerLabel",
+          "type": "string",
+          "verdict": "impossible",
+          "location": {
+            "line": 141,
+            "column": 15
+          }
+        }
+      ],
+      "confidence": 99,
+      "queue": "central-leverage",
+      "scores": {
+        "burden": 0.6865079603661961,
+        "centrality": 0.8843158575633067,
+        "changeRisk": 0.5588519055411483,
+        "quickWin": 0.18565362825886456,
+        "centralLeverage": 0.6570926128281098,
+        "investigationPriority": 0
+      }
+    },
+    {
+      "id": "RPF-138-55",
+      "file": "src/DashboardShell.tsx",
+      "line": 138,
+      "column": 55,
+      "category": "style",
+      "label": "style={...}",
+      "expression": "`--accent:${row.swatch}`",
+      "type": "string",
+      "roots": [
+        "props.task",
+        "props.actor",
+        "props.preferences",
+        "task",
+        "user",
+        "preferences.accentColor",
+        "\"#3f7f6f\"",
+        "\"normal\"",
+        "0"
+      ],
+      "rootInfos": [
+        {
+          "label": "props.task",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.actor",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.preferences",
+          "kind": "prop-read"
+        },
+        {
+          "label": "task",
+          "kind": "parameter"
+        },
+        {
+          "label": "user",
+          "kind": "parameter"
+        },
+        {
+          "label": "preferences.accentColor",
+          "kind": "prop-read"
+        },
+        {
+          "label": "\"#3f7f6f\"",
+          "kind": "literal"
+        },
+        {
+          "label": "\"normal\"",
+          "kind": "literal"
+        },
+        {
+          "label": "0",
+          "kind": "literal"
+        }
+      ],
+      "representativePath": [
+        "preferences",
+        "accentColor",
+        "preferences.accentColor ?? \"#3f7f6f\"",
+        "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }",
+        "packed",
+        "task",
+        "estimateHours",
+        "packed.task.estimateHours ?? 0",
+        "`${packed.task.estimateHours ?? 0}h`",
+        "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…",
+        "taskRowView",
+        "row",
+        "swatch",
+        "`--accent:${row.swatch}`"
+      ],
+      "representativeSteps": [
+        {
+          "label": "preferences",
+          "kind": "source"
+        },
+        {
+          "label": "accentColor",
+          "kind": "property-read"
+        },
+        {
+          "label": "preferences.accentColor ?? \"#3f7f6f\"",
+          "kind": "fallback"
+        },
+        {
+          "label": "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }",
+          "kind": "object-pack"
+        },
+        {
+          "label": "packed",
+          "kind": "alias"
+        },
+        {
+          "label": "task",
+          "kind": "property-read"
+        },
+        {
+          "label": "estimateHours",
+          "kind": "property-read"
+        },
+        {
+          "label": "packed.task.estimateHours ?? 0",
+          "kind": "fallback"
+        },
+        {
+          "label": "`${packed.task.estimateHours ?? 0}h`",
+          "kind": "template"
+        },
+        {
+          "label": "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…",
+          "kind": "object-pack"
+        },
+        {
+          "label": "taskRowView",
+          "kind": "call"
+        },
+        {
+          "label": "row",
+          "kind": "alias"
+        },
+        {
+          "label": "swatch",
+          "kind": "property-read"
+        },
+        {
+          "label": "`--accent:${row.swatch}`",
+          "kind": "template"
+        }
+      ],
+      "nodeId": "n713",
+      "metrics": {
+        "sliceSize": 79,
+        "maximumPathDepth": 14,
+        "helperHops": 5,
+        "representationChurn": 26,
+        "defensiveOperationCount": 14,
+        "impossibleDefenseCount": 0,
+        "controlDependencyCount": 0,
+        "mergeWidth": 9,
+        "reachableSinks": 31,
+        "repeatedNormalization": 13,
+        "unknownEdgeCount": 0
+      },
+      "defenses": [
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "packed.task.priority ?? \"normal\"",
+          "guardedExpression": "packed.task.priority",
+          "type": "\"low\" | \"normal\" | \"high\" | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 54,
+            "column": 20
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "packed.task.estimateHours ?? 0",
+          "guardedExpression": "packed.task.estimateHours",
+          "type": "number | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 55,
+            "column": 23
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        }
+      ],
+      "confidence": 88,
+      "queue": "central-leverage",
+      "scores": {
+        "burden": 0.6418048285701582,
+        "centrality": 0.8796200383459784,
+        "changeRisk": 0.5588519055411483,
+        "quickWin": 0.15863703342310317,
+        "centralLeverage": 0.5402650428546468,
+        "investigationPriority": 0
+      }
+    },
+    {
+      "id": "RPF-142-13",
+      "file": "src/DashboardShell.tsx",
+      "line": 142,
+      "column": 13,
+      "category": "rendered-value",
+      "label": "JSX row.priorityLabel",
+      "expression": "row.priorityLabel",
+      "type": "\"low\" | \"normal\" | \"high\"",
+      "roots": [
+        "props.task",
+        "props.actor",
+        "props.preferences",
+        "task",
+        "user",
+        "preferences.accentColor",
+        "\"#3f7f6f\"",
+        "\"normal\"",
+        "0"
+      ],
+      "rootInfos": [
+        {
+          "label": "props.task",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.actor",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.preferences",
+          "kind": "prop-read"
+        },
+        {
+          "label": "task",
+          "kind": "parameter"
+        },
+        {
+          "label": "user",
+          "kind": "parameter"
+        },
+        {
+          "label": "preferences.accentColor",
+          "kind": "prop-read"
+        },
+        {
+          "label": "\"#3f7f6f\"",
+          "kind": "literal"
+        },
+        {
+          "label": "\"normal\"",
+          "kind": "literal"
+        },
+        {
+          "label": "0",
+          "kind": "literal"
+        }
+      ],
+      "representativePath": [
+        "preferences",
+        "accentColor",
+        "preferences.accentColor ?? \"#3f7f6f\"",
+        "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }",
+        "packed",
+        "task",
+        "estimateHours",
+        "packed.task.estimateHours ?? 0",
+        "`${packed.task.estimateHours ?? 0}h`",
+        "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…",
+        "taskRowView",
+        "row",
+        "priorityLabel"
+      ],
+      "representativeSteps": [
+        {
+          "label": "preferences",
+          "kind": "source"
+        },
+        {
+          "label": "accentColor",
+          "kind": "property-read"
+        },
+        {
+          "label": "preferences.accentColor ?? \"#3f7f6f\"",
+          "kind": "fallback"
+        },
+        {
+          "label": "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }",
+          "kind": "object-pack"
+        },
+        {
+          "label": "packed",
+          "kind": "alias"
+        },
+        {
+          "label": "task",
+          "kind": "property-read"
+        },
+        {
+          "label": "estimateHours",
+          "kind": "property-read"
+        },
+        {
+          "label": "packed.task.estimateHours ?? 0",
+          "kind": "fallback"
+        },
+        {
+          "label": "`${packed.task.estimateHours ?? 0}h`",
+          "kind": "template"
+        },
+        {
+          "label": "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…",
+          "kind": "object-pack"
+        },
+        {
+          "label": "taskRowView",
+          "kind": "call"
+        },
+        {
+          "label": "row",
+          "kind": "alias"
+        },
+        {
+          "label": "priorityLabel",
+          "kind": "property-read"
+        }
+      ],
+      "nodeId": "n917",
+      "metrics": {
+        "sliceSize": 77,
+        "maximumPathDepth": 13,
+        "helperHops": 5,
+        "representationChurn": 26,
+        "defensiveOperationCount": 14,
+        "impossibleDefenseCount": 0,
+        "controlDependencyCount": 0,
+        "mergeWidth": 9,
+        "reachableSinks": 31,
+        "repeatedNormalization": 13,
+        "unknownEdgeCount": 0
+      },
+      "defenses": [
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "packed.task.priority ?? \"normal\"",
+          "guardedExpression": "packed.task.priority",
+          "type": "\"low\" | \"normal\" | \"high\" | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 54,
+            "column": 20
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "packed.task.estimateHours ?? 0",
+          "guardedExpression": "packed.task.estimateHours",
+          "type": "number | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 55,
+            "column": 23
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        }
+      ],
+      "confidence": 88,
+      "queue": "central-leverage",
+      "scores": {
+        "burden": 0.6384056318374249,
+        "centrality": 0.8750877760356673,
+        "changeRisk": 0.5588519055411483,
+        "quickWin": 0.16193242783569464,
+        "centralLeverage": 0.531879930520735,
+        "investigationPriority": 0
+      }
+    },
+    {
+      "id": "RPF-143-13",
+      "file": "src/DashboardShell.tsx",
+      "line": 143,
+      "column": 13,
+      "category": "rendered-value",
+      "label": "JSX row.estimateLabel",
+      "expression": "row.estimateLabel",
+      "type": "string",
+      "roots": [
+        "props.task",
+        "props.actor",
+        "props.preferences",
+        "task",
+        "user",
+        "preferences.accentColor",
+        "\"#3f7f6f\"",
+        "\"normal\"",
+        "0"
+      ],
+      "rootInfos": [
+        {
+          "label": "props.task",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.actor",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.preferences",
+          "kind": "prop-read"
+        },
+        {
+          "label": "task",
+          "kind": "parameter"
+        },
+        {
+          "label": "user",
+          "kind": "parameter"
+        },
+        {
+          "label": "preferences.accentColor",
+          "kind": "prop-read"
+        },
+        {
+          "label": "\"#3f7f6f\"",
+          "kind": "literal"
+        },
+        {
+          "label": "\"normal\"",
+          "kind": "literal"
+        },
+        {
+          "label": "0",
+          "kind": "literal"
+        }
+      ],
+      "representativePath": [
+        "preferences",
+        "accentColor",
+        "preferences.accentColor ?? \"#3f7f6f\"",
+        "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }",
+        "packed",
+        "task",
+        "estimateHours",
+        "packed.task.estimateHours ?? 0",
+        "`${packed.task.estimateHours ?? 0}h`",
+        "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…",
+        "taskRowView",
+        "row",
+        "estimateLabel"
+      ],
+      "representativeSteps": [
+        {
+          "label": "preferences",
+          "kind": "source"
+        },
+        {
+          "label": "accentColor",
+          "kind": "property-read"
+        },
+        {
+          "label": "preferences.accentColor ?? \"#3f7f6f\"",
+          "kind": "fallback"
+        },
+        {
+          "label": "{ task, owner: user, swatch: preferences.accentColor ?? \"#3f7f6f\", }",
+          "kind": "object-pack"
+        },
+        {
+          "label": "packed",
+          "kind": "alias"
+        },
+        {
+          "label": "task",
+          "kind": "property-read"
+        },
+        {
+          "label": "estimateHours",
+          "kind": "property-read"
+        },
+        {
+          "label": "packed.task.estimateHours ?? 0",
+          "kind": "fallback"
+        },
+        {
+          "label": "`${packed.task.estimateHours ?? 0}h`",
+          "kind": "template"
+        },
+        {
+          "label": "{ label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…",
+          "kind": "object-pack"
+        },
+        {
+          "label": "taskRowView",
+          "kind": "call"
+        },
+        {
+          "label": "row",
+          "kind": "alias"
+        },
+        {
+          "label": "estimateLabel",
+          "kind": "property-read"
+        }
+      ],
+      "nodeId": "n983",
+      "metrics": {
+        "sliceSize": 77,
+        "maximumPathDepth": 13,
+        "helperHops": 5,
+        "representationChurn": 26,
+        "defensiveOperationCount": 14,
+        "impossibleDefenseCount": 0,
+        "controlDependencyCount": 0,
+        "mergeWidth": 9,
+        "reachableSinks": 31,
+        "repeatedNormalization": 13,
+        "unknownEdgeCount": 0
+      },
+      "defenses": [
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "packed.task.priority ?? \"normal\"",
+          "guardedExpression": "packed.task.priority",
+          "type": "\"low\" | \"normal\" | \"high\" | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 54,
+            "column": 20
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "packed.task.estimateHours ?? 0",
+          "guardedExpression": "packed.task.estimateHours",
+          "type": "number | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 55,
+            "column": 23
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "preferences.accentColor ?? \"#3f7f6f\"",
+          "guardedExpression": "preferences.accentColor",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 49,
+            "column": 13
+          }
+        }
+      ],
+      "confidence": 88,
+      "queue": "central-leverage",
+      "scores": {
+        "burden": 0.6384056318374249,
+        "centrality": 0.8750877760356673,
+        "changeRisk": 0.5588519055411483,
+        "quickWin": 0.16193242783569464,
+        "centralLeverage": 0.531879930520735,
+        "investigationPriority": 0
+      }
+    },
+    {
+      "id": "RPF-064-16",
+      "file": "src/DashboardShell.tsx",
+      "line": 64,
+      "column": 16,
+      "category": "attribute",
+      "label": "data-theme={...}",
+      "expression": "route.toolbar.theme ?? \"light\"",
+      "type": "\"light\" | \"dark\"",
+      "roots": [
+        "props",
+        "props.user",
+        "props.tasks",
+        "props.preferences",
+        "props.selectedTaskId",
+        "\"empty\"",
+        "\"comfortable\"",
+        "\"light\""
+      ],
+      "rootInfos": [
+        {
+          "label": "props",
+          "kind": "parameter"
+        },
+        {
+          "label": "props.user",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.tasks",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.preferences",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.selectedTaskId",
+          "kind": "prop-read"
+        },
+        {
+          "label": "\"empty\"",
+          "kind": "literal"
+        },
+        {
+          "label": "\"comfortable\"",
+          "kind": "literal"
+        },
+        {
+          "label": "\"light\"",
+          "kind": "literal"
+        }
+      ],
+      "representativePath": [
+        "props",
+        "tasks",
+        "props.tasks[0]",
+        "id",
+        "props.selectedTaskId ?? props.tasks[0]?.id",
+        "props.selectedTaskId ?? props.tasks[0]?.id ?? \"empty\"",
+        "selectedTaskId",
+        "{ actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…",
+        "buildRouteModel",
+        "route",
+        "toolbar",
+        "theme",
+        "route.toolbar.theme ?? \"light\""
+      ],
+      "representativeSteps": [
+        {
+          "label": "props",
+          "kind": "source"
+        },
+        {
+          "label": "tasks",
+          "kind": "property-read"
+        },
+        {
+          "label": "props.tasks[0]",
+          "kind": "property-read"
+        },
+        {
+          "label": "id",
+          "kind": "optional-read"
+        },
+        {
+          "label": "props.selectedTaskId ?? props.tasks[0]?.id",
+          "kind": "fallback"
+        },
+        {
+          "label": "props.selectedTaskId ?? props.tasks[0]?.id ?? \"empty\"",
+          "kind": "fallback"
+        },
+        {
+          "label": "selectedTaskId",
+          "kind": "alias"
+        },
+        {
+          "label": "{ actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…",
+          "kind": "object-pack"
+        },
+        {
+          "label": "buildRouteModel",
+          "kind": "call"
+        },
+        {
+          "label": "route",
+          "kind": "alias"
+        },
+        {
+          "label": "toolbar",
+          "kind": "property-read"
+        },
+        {
+          "label": "theme",
+          "kind": "property-read"
+        },
+        {
+          "label": "route.toolbar.theme ?? \"light\"",
+          "kind": "fallback"
+        }
+      ],
+      "nodeId": "n38",
+      "metrics": {
+        "sliceSize": 49,
+        "maximumPathDepth": 13,
+        "helperHops": 2,
+        "representationChurn": 10,
+        "defensiveOperationCount": 9,
+        "impossibleDefenseCount": 3,
+        "controlDependencyCount": 0,
+        "mergeWidth": 8,
+        "reachableSinks": 31,
+        "repeatedNormalization": 8,
+        "unknownEdgeCount": 0
+      },
+      "defenses": [
+        {
+          "operation": "optional-read",
+          "expression": "props.tasks[0]?.id",
+          "guardedExpression": "props.tasks[0]",
+          "type": "Task",
+          "verdict": "impossible",
+          "location": {
+            "line": 31,
+            "column": 50
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "props.selectedTaskId ?? props.tasks[0]?.id",
+          "guardedExpression": "props.selectedTaskId",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 31,
+            "column": 26
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "props.selectedTaskId ?? props.tasks[0]?.id ?? \"empty\"",
+          "guardedExpression": "props.selectedTaskId ?? props.tasks[0]?.id",
+          "type": "string",
+          "verdict": "impossible",
+          "location": {
+            "line": 31,
+            "column": 26
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "props.preferences.density ?? \"comfortable\"",
+          "guardedExpression": "props.preferences.density",
+          "type": "\"compact\" | \"comfortable\" | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 40,
+            "column": 16
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "route.toolbar.theme ?? \"light\"",
+          "guardedExpression": "route.toolbar.theme",
+          "type": "\"light\" | \"dark\"",
+          "verdict": "impossible",
+          "location": {
+            "line": 64,
+            "column": 28
+          }
+        }
+      ],
+      "confidence": 99,
+      "queue": "central-leverage",
+      "scores": {
+        "burden": 0.5955889339770464,
+        "centrality": 0.8357462514180233,
+        "changeRisk": 0.536084880671453,
+        "quickWin": 0.21182298029252017,
+        "centralLeverage": 0.523915498495095,
+        "investigationPriority": 0
+      }
+    },
+    {
+      "id": "RPF-064-60",
+      "file": "src/DashboardShell.tsx",
+      "line": 64,
+      "column": 60,
+      "category": "attribute",
+      "label": "data-density={...}",
+      "expression": "route.toolbar.density ?? \"comfortable\"",
+      "type": "\"compact\" | \"comfortable\"",
+      "roots": [
+        "props",
+        "props.user",
+        "props.tasks",
+        "props.preferences",
+        "props.selectedTaskId",
+        "\"empty\"",
+        "\"comfortable\""
+      ],
+      "rootInfos": [
+        {
+          "label": "props",
+          "kind": "parameter"
+        },
+        {
+          "label": "props.user",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.tasks",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.preferences",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.selectedTaskId",
+          "kind": "prop-read"
+        },
+        {
+          "label": "\"empty\"",
+          "kind": "literal"
+        },
+        {
+          "label": "\"comfortable\"",
+          "kind": "literal"
+        }
+      ],
+      "representativePath": [
+        "props",
+        "tasks",
+        "props.tasks[0]",
+        "id",
+        "props.selectedTaskId ?? props.tasks[0]?.id",
+        "props.selectedTaskId ?? props.tasks[0]?.id ?? \"empty\"",
+        "selectedTaskId",
+        "{ actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…",
+        "buildRouteModel",
+        "route",
+        "toolbar",
+        "density",
+        "route.toolbar.density ?? \"comfortable\""
+      ],
+      "representativeSteps": [
+        {
+          "label": "props",
+          "kind": "source"
+        },
+        {
+          "label": "tasks",
+          "kind": "property-read"
+        },
+        {
+          "label": "props.tasks[0]",
+          "kind": "property-read"
+        },
+        {
+          "label": "id",
+          "kind": "optional-read"
+        },
+        {
+          "label": "props.selectedTaskId ?? props.tasks[0]?.id",
+          "kind": "fallback"
+        },
+        {
+          "label": "props.selectedTaskId ?? props.tasks[0]?.id ?? \"empty\"",
+          "kind": "fallback"
+        },
+        {
+          "label": "selectedTaskId",
+          "kind": "alias"
+        },
+        {
+          "label": "{ actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…",
+          "kind": "object-pack"
+        },
+        {
+          "label": "buildRouteModel",
+          "kind": "call"
+        },
+        {
+          "label": "route",
+          "kind": "alias"
+        },
+        {
+          "label": "toolbar",
+          "kind": "property-read"
+        },
+        {
+          "label": "density",
+          "kind": "property-read"
+        },
+        {
+          "label": "route.toolbar.density ?? \"comfortable\"",
+          "kind": "fallback"
+        }
+      ],
+      "nodeId": "n76",
+      "metrics": {
+        "sliceSize": 49,
+        "maximumPathDepth": 13,
+        "helperHops": 2,
+        "representationChurn": 10,
+        "defensiveOperationCount": 9,
+        "impossibleDefenseCount": 3,
+        "controlDependencyCount": 0,
+        "mergeWidth": 7,
+        "reachableSinks": 31,
+        "repeatedNormalization": 8,
+        "unknownEdgeCount": 0
+      },
+      "defenses": [
+        {
+          "operation": "optional-read",
+          "expression": "props.tasks[0]?.id",
+          "guardedExpression": "props.tasks[0]",
+          "type": "Task",
+          "verdict": "impossible",
+          "location": {
+            "line": 31,
+            "column": 50
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "props.selectedTaskId ?? props.tasks[0]?.id",
+          "guardedExpression": "props.selectedTaskId",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 31,
+            "column": 26
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "props.selectedTaskId ?? props.tasks[0]?.id ?? \"empty\"",
+          "guardedExpression": "props.selectedTaskId ?? props.tasks[0]?.id",
+          "type": "string",
+          "verdict": "impossible",
+          "location": {
+            "line": 31,
+            "column": 26
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "props.preferences.density ?? \"comfortable\"",
+          "guardedExpression": "props.preferences.density",
+          "type": "\"compact\" | \"comfortable\" | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 40,
+            "column": 16
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "route.toolbar.density ?? \"comfortable\"",
+          "guardedExpression": "route.toolbar.density",
+          "type": "\"compact\" | \"comfortable\"",
+          "verdict": "impossible",
+          "location": {
+            "line": 64,
+            "column": 74
+          }
+        }
+      ],
+      "confidence": 99,
+      "queue": "central-leverage",
+      "scores": {
+        "burden": 0.5955889339770464,
+        "centrality": 0.829943221317293,
+        "changeRisk": 0.536084880671453,
+        "quickWin": 0.21703418008699488,
+        "centralLeverage": 0.5166651107056427,
+        "investigationPriority": 0
+      }
+    },
+    {
+      "id": "RPF-080-07",
+      "file": "src/DashboardShell.tsx",
+      "line": 80,
+      "column": 7,
+      "category": "attribute",
+      "label": "task={...}",
+      "expression": "selectedTask",
+      "type": "Task | undefined",
+      "roots": [
+        "props",
+        "props.user",
+        "props.tasks",
+        "props.preferences",
+        "props.selectedTaskId",
+        "\"empty\"",
+        "\"comfortable\"",
+        "(task) => task.id === route.selectedTaskId"
+      ],
+      "rootInfos": [
+        {
+          "label": "props",
+          "kind": "parameter"
+        },
+        {
+          "label": "props.user",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.tasks",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.preferences",
+          "kind": "prop-read"
+        },
+        {
+          "label": "props.selectedTaskId",
+          "kind": "prop-read"
+        },
+        {
+          "label": "\"empty\"",
+          "kind": "literal"
+        },
+        {
+          "label": "\"comfortable\"",
+          "kind": "literal"
+        },
+        {
+          "label": "(task) => task.id === route.selectedTaskId",
+          "kind": "literal"
+        }
+      ],
+      "representativePath": [
+        "props",
+        "tasks",
+        "props.tasks[0]",
+        "id",
+        "props.selectedTaskId ?? props.tasks[0]?.id",
+        "props.selectedTaskId ?? props.tasks[0]?.id ?? \"empty\"",
+        "selectedTaskId",
+        "{ actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…",
+        "buildRouteModel",
+        "route",
+        "visibleTasks",
+        "find",
+        "selectedTask"
+      ],
+      "representativeSteps": [
+        {
+          "label": "props",
+          "kind": "source"
+        },
+        {
+          "label": "tasks",
+          "kind": "property-read"
+        },
+        {
+          "label": "props.tasks[0]",
+          "kind": "property-read"
+        },
+        {
+          "label": "id",
+          "kind": "optional-read"
+        },
+        {
+          "label": "props.selectedTaskId ?? props.tasks[0]?.id",
+          "kind": "fallback"
+        },
+        {
+          "label": "props.selectedTaskId ?? props.tasks[0]?.id ?? \"empty\"",
+          "kind": "fallback"
+        },
+        {
+          "label": "selectedTaskId",
+          "kind": "alias"
+        },
+        {
+          "label": "{ actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…",
+          "kind": "object-pack"
+        },
+        {
+          "label": "buildRouteModel",
+          "kind": "call"
+        },
+        {
+          "label": "route",
+          "kind": "alias"
+        },
+        {
+          "label": "visibleTasks",
+          "kind": "property-read"
+        },
+        {
+          "label": "find",
+          "kind": "call"
+        },
+        {
+          "label": "selectedTask",
+          "kind": "alias"
+        }
+      ],
+      "nodeId": "n434",
+      "metrics": {
+        "sliceSize": 49,
+        "maximumPathDepth": 13,
+        "helperHops": 4,
+        "representationChurn": 11,
+        "defensiveOperationCount": 7,
+        "impossibleDefenseCount": 2,
+        "controlDependencyCount": 0,
+        "mergeWidth": 8,
+        "reachableSinks": 31,
+        "repeatedNormalization": 6,
+        "unknownEdgeCount": 0
+      },
+      "defenses": [
+        {
+          "operation": "optional-read",
+          "expression": "props.tasks[0]?.id",
+          "guardedExpression": "props.tasks[0]",
+          "type": "Task",
+          "verdict": "impossible",
+          "location": {
+            "line": 31,
+            "column": 50
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "props.selectedTaskId ?? props.tasks[0]?.id",
+          "guardedExpression": "props.selectedTaskId",
+          "type": "string | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 31,
+            "column": 26
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "props.selectedTaskId ?? props.tasks[0]?.id ?? \"empty\"",
+          "guardedExpression": "props.selectedTaskId ?? props.tasks[0]?.id",
+          "type": "string",
+          "verdict": "impossible",
+          "location": {
+            "line": 31,
+            "column": 26
+          }
+        },
+        {
+          "operation": "fallback",
+          "expression": "props.preferences.density ?? \"comfortable\"",
+          "guardedExpression": "props.preferences.density",
+          "type": "\"compact\" | \"comfortable\" | undefined",
+          "verdict": "possible",
+          "location": {
+            "line": 40,
+            "column": 16
+          }
+        }
+      ],
+      "confidence": 99,
+      "queue": "central-leverage",
+      "scores": {
+        "burden": 0.5930502213913232,
+        "centrality": 0.8609140224337609,
+        "changeRisk": 0.5528633946819448,
+        "quickWin": 0.18381601754809884,
+        "centralLeverage": 0.5420065972746324,
+        "investigationPriority": 0
+      }
+    }
+  ],
+  "graph": {
+    "nodes": [
+      {
+        "id": "n1",
+        "kind": "source",
+        "label": "props",
+        "file": "src/DashboardShell.tsx",
+        "location": {
+          "line": 61,
+          "column": 33
+        },
+        "type": "unknown"
+      },
+      {
+        "id": "n2",
+        "kind": "source",
+        "label": "props",
+        "file": "src/DashboardShell.tsx",
+        "location": {
+          "line": 33,
+          "column": 12
+        },
+        "type": "unknown"
+      },
+      {
+        "id": "n3",
+        "kind": "property-read",
+        "label": "user",
+        "file": "src/DashboardShell.tsx",
+        "location": {
+          "line": 33,
+          "column": 12
+        },
+        "type": "unknown"
+      },
+      {
+        "id": "n4",
+        "kind": "source",
+        "label": "props",
+        "file": "src/DashboardShell.tsx",
+        "location": {
+          "line": 34,
+          "column": 19
+        },
+        "type": "unknown"
+      },
+      {
+        "id": "n5",
+        "kind": "property-read",
+        "label": "tasks",
+        "file": "src/DashboardShell.tsx",
+        "location": {
+          "line": 34,
+          "column": 19
+        },
+        "type": "unknown"
+      },
+      {
+        "id": "n6",
+        "kind": "source",
+        "label": "props",
+        "file": "src/DashboardShell.tsx",
+        "location": {
+          "line": 35,
+          "column": 18
+        },
+        "type": "unknown"
+      },
+      {
+        "id": "n7",
+        "kind": "property-read",
+        "label": "preferences",
+        "file": "src/DashboardShell.tsx",
+        "location": {
+          "line": 35,
+          "column": 18
+        },
+        "type": "unknown"
+      },
+      {
+        "id": "n8",
+        "kind": "source",
+        "label": "props",
+        "file": "src/DashboardShell.tsx",
+        "location": {
+          "line": 31,
+          "column": 26
+        },
+        "type": "unknown"
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "from": "n2",
+        "to": "n3",
+        "kind": "property-read",
+        "unknown": false,
+        "location": {
+          "line": 33,
+          "column": 12
+        }
+      },
+      {
+        "id": "e2",
+        "from": "n4",
+        "to": "n5",
+        "kind": "property-read",
+        "unknown": false,
+        "location": {
+          "line": 34,
+          "column": 19
+        }
+      },
+      {
+        "id": "e3",
+        "from": "n6",
+        "to": "n7",
+        "kind": "property-read",
+        "unknown": false,
+        "location": {
+          "line": 35,
+          "column": 18
+        }
+      },
+      {
+        "id": "e4",
+        "from": "n8",
+        "to": "n9",
+        "kind": "property-read",
+        "unknown": false,
+        "location": {
+          "line": 31,
+          "column": 26
+        }
+      },
+      {
+        "id": "e5",
+        "from": "n10",
+        "to": "n11",
+        "kind": "property-read",
+        "unknown": false,
+        "location": {
+          "line": 31,
+          "column": 50
+        }
+      },
+      {
+        "id": "e6",
+        "from": "n11",
+        "to": "n12",
+        "kind": "property-read",
+        "unknown": false,
+        "location": {
+          "line": 31,
+          "column": 50
+        }
+      },
+      {
+        "id": "e7",
+        "from": "n12",
+        "to": "n13",
+        "kind": "optional-read",
+        "unknown": false,
+        "location": {
+          "line": 31,
+          "column": 50
+        }
+      },
+      {
+        "id": "e8",
+        "from": "n9",
+        "to": "n14",
+        "kind": "fallback",
+        "unknown": false,
+        "location": {
+          "line": 31,
+          "column": 26
+        }
+      }
+    ],
+    "omittedNodes": 1070,
+    "omittedEdges": 1029,
+    "unknownEdges": 9
+  },
+  "baseline": null
+}

@@ -53,11 +53,16 @@ const DEFAULT_TABLE_MAX_ITEMS = 12;
 const DEFAULT_REPORT_MAX_ITEMS = 5;
 
 function defaultMaxItemsFor(view) {
-  return TABLE_VIEWS.has(view) ? DEFAULT_TABLE_MAX_ITEMS : DEFAULT_REPORT_MAX_ITEMS;
+  return TABLE_VIEWS.has(view)
+    ? DEFAULT_TABLE_MAX_ITEMS
+    : DEFAULT_REPORT_MAX_ITEMS;
 }
 // This package's own directory (one level up from src/). Used as a last-resort
 // location for resolving the bundled `typescript` dependency.
-const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const packageDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 // Run as a global CLI, the analyzer is invoked from inside the target project,
 // so the current working directory is the right default root.
 const defaultRoot = process.cwd();
@@ -343,7 +348,9 @@ export function renderAllReports(report, args) {
   const extension = args.format === "json" ? "json" : "md";
   return REPORT_VIEWS.map((view) => {
     // Each view keeps its own per-view default cap unless --max-items was given.
-    const maxItems = args.maxItemsExplicit ? args.maxItems : defaultMaxItemsFor(view);
+    const maxItems = args.maxItemsExplicit
+      ? args.maxItems
+      : defaultMaxItemsFor(view);
     return {
       view,
       filename: `${view}.${extension}`,
@@ -368,12 +375,28 @@ export async function writeAllReports(reports, outDir) {
 // often read detached from the shell that produced them, so each one carries its
 // own provenance command. Only non-default flags are emitted to keep it short.
 function regenCommand(args, view) {
-  const parts = ["tsx-dataflow", "--root", shellQuote(args.root), "--view", view];
-  if (Number.isFinite(args.maxItems)) parts.push("--max-items", String(args.maxItems));
+  const parts = [
+    "tsx-dataflow",
+    "--root",
+    shellQuote(commandPath(args.root)),
+    "--view",
+    view,
+  ];
+  if (Number.isFinite(args.maxItems))
+    parts.push("--max-items", String(args.maxItems));
   if (args.scope) parts.push("--scope", shellQuote(args.scope));
-  if (args.format && args.format !== "markdown") parts.push("--format", args.format);
+  if (args.format && args.format !== "markdown")
+    parts.push("--format", args.format);
   if (args.includeTests) parts.push("--include-tests");
   return parts.join(" ");
+}
+
+function commandPath(targetPath) {
+  const relative = path.relative(process.cwd(), targetPath);
+  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative))
+    return relative;
+  if (relative === "") return ".";
+  return targetPath;
 }
 
 function regenFooter(args, view) {
@@ -416,8 +439,12 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     analyzeContextRelay(ts, sourceFiles, args.root),
     args.scope,
   );
-  const rankings = rankSinks(filteredSinks.filter((sink) => sink.category !== "event-handler"));
-  const baseline = args.baseline ? compareBaseline(rankings, args.baseline) : null;
+  const rankings = rankSinks(
+    filteredSinks.filter((sink) => sink.category !== "event-handler"),
+  );
+  const baseline = args.baseline
+    ? compareBaseline(rankings, args.baseline)
+    : null;
 
   return {
     analysisVersion: 1,
@@ -449,12 +476,18 @@ function analyzeSourceFile(ts, checker, graph, sourceFile, args) {
   const visit = (node) => {
     const sinkExpression = getSinkExpression(ts, node);
     if (sinkExpression) {
-      const trace = traceExpression(ts, checker, graph, sinkExpression.expression, {
-        ...context,
-        sourceFile,
-        root: args.root,
-        stack: new Set(),
-      });
+      const trace = traceExpression(
+        ts,
+        checker,
+        graph,
+        sinkExpression.expression,
+        {
+          ...context,
+          sourceFile,
+          root: args.root,
+          stack: new Set(),
+        },
+      );
       const sinkNode = addNode(graph, {
         kind: "jsx-sink",
         label: sinkExpression.label,
@@ -463,7 +496,18 @@ function analyzeSourceFile(ts, checker, graph, sourceFile, args) {
         type: "DOM",
       });
       addEdge(graph, trace.lastNodeId, sinkNode.id, "jsx-sink", node);
-      sinks.push(buildSinkRecord(ts, checker, sourceFile, node, sinkExpression, trace, sinkNode, args.root));
+      sinks.push(
+        buildSinkRecord(
+          ts,
+          checker,
+          sourceFile,
+          node,
+          sinkExpression,
+          trace,
+          sinkNode,
+          args.root,
+        ),
+      );
     }
     ts.forEachChild(node, visit);
   };
@@ -485,7 +529,8 @@ function buildFileContext(ts, sourceFile) {
     if (ts.isFunctionDeclaration(node) && node.name) {
       functions.set(node.name.text, node);
       for (const parameter of node.parameters) {
-        if (ts.isIdentifier(parameter.name)) parameters.add(parameter.name.text);
+        if (ts.isIdentifier(parameter.name))
+          parameters.add(parameter.name.text);
       }
     }
     if (
@@ -496,7 +541,8 @@ function buildFileContext(ts, sourceFile) {
     ) {
       functions.set(node.parent.name.text, node);
       for (const parameter of node.parameters) {
-        if (ts.isIdentifier(parameter.name)) parameters.add(parameter.name.text);
+        if (ts.isIdentifier(parameter.name))
+          parameters.add(parameter.name.text);
       }
     }
     ts.forEachChild(node, visit);
@@ -520,7 +566,10 @@ function registerVariable(ts, node, variables, accessors) {
     node.name.elements.forEach((element, index) => {
       if (ts.isBindingElement(element) && ts.isIdentifier(element.name)) {
         variables.set(element.name.text, node);
-        if (index === 0 && ["createSignal", "createResource"].includes(callName)) {
+        if (
+          index === 0 &&
+          ["createSignal", "createResource"].includes(callName)
+        ) {
           accessors.set(element.name.text, {
             kind: callName === "createSignal" ? "signal" : "resource",
             declaration: node,
@@ -551,7 +600,11 @@ function getSinkExpression(ts, node) {
     };
   }
 
-  if (ts.isJsxAttribute(node) && node.initializer && ts.isJsxExpression(node.initializer)) {
+  if (
+    ts.isJsxAttribute(node) &&
+    node.initializer &&
+    ts.isJsxExpression(node.initializer)
+  ) {
     const expression = node.initializer.expression;
     if (!expression) return null;
     const name = node.name.getText();
@@ -570,7 +623,10 @@ function traceExpression(ts, checker, graph, expression, context) {
   if (context.stack.has(expression)) {
     return sourceTrace(graph, expression, "cycle", text, true);
   }
-  const nextContext = { ...context, stack: new Set([...context.stack, expression]) };
+  const nextContext = {
+    ...context,
+    stack: new Set([...context.stack, expression]),
+  };
 
   if (ts.isIdentifier(expression)) {
     return traceIdentifier(ts, checker, graph, expression, nextContext);
@@ -600,10 +656,22 @@ function traceExpression(ts, checker, graph, expression, context) {
     return traceBinaryExpression(ts, checker, graph, expression, nextContext);
   }
   if (ts.isParenthesizedExpression(expression)) {
-    return traceExpression(ts, checker, graph, expression.expression, nextContext);
+    return traceExpression(
+      ts,
+      checker,
+      graph,
+      expression.expression,
+      nextContext,
+    );
   }
   if (ts.isAsExpression(expression) || ts.isNonNullExpression(expression)) {
-    return traceExpression(ts, checker, graph, expression.expression, nextContext);
+    return traceExpression(
+      ts,
+      checker,
+      graph,
+      expression.expression,
+      nextContext,
+    );
   }
   if (ts.isTemplateExpression(expression)) {
     return addOperationTrace(
@@ -628,12 +696,21 @@ function traceExpression(ts, checker, graph, expression, context) {
 function traceIdentifier(ts, checker, graph, expression, context) {
   const name = expression.text;
   const accessor = context.accessors.get(name);
-  if (accessor) return traceAccessor(ts, checker, graph, expression, accessor, context);
+  if (accessor)
+    return traceAccessor(ts, checker, graph, expression, accessor, context);
 
   const declaration = context.variables.get(name);
   if (declaration?.initializer && declaration.initializer !== expression) {
-    const trace = traceExpression(ts, checker, graph, declaration.initializer, context);
-    return addOperationTrace(ts, graph, "alias", expression, [trace], { label: name });
+    const trace = traceExpression(
+      ts,
+      checker,
+      graph,
+      declaration.initializer,
+      context,
+    );
+    return addOperationTrace(ts, graph, "alias", expression, [trace], {
+      label: name,
+    });
   }
 
   const isParameter = context.parameters.has(name);
@@ -641,42 +718,91 @@ function traceIdentifier(ts, checker, graph, expression, context) {
   // Track the root kind separately from the graph node kind: a bare parameter
   // object (e.g. `props`) is too coarse to be one fan-out "source", so we tag
   // it `parameter` and let property reads off it refine into concrete sources.
-  const rootKind = unknown ? "unknown-source" : isParameter ? "parameter" : "source";
-  return sourceTrace(graph, expression, unknown ? "unknown-source" : "source", name, unknown, rootKind);
+  const rootKind = unknown
+    ? "unknown-source"
+    : isParameter
+      ? "parameter"
+      : "source";
+  return sourceTrace(
+    graph,
+    expression,
+    unknown ? "unknown-source" : "source",
+    name,
+    unknown,
+    rootKind,
+  );
 }
 
 function traceAccessor(ts, checker, graph, expression, accessor, context) {
   const call = accessor.declaration.initializer;
   if (!call || !ts.isCallExpression(call)) {
-    return sourceTrace(graph, expression, "solid-accessor", expression.getText(), true);
+    return sourceTrace(
+      graph,
+      expression,
+      "solid-accessor",
+      expression.getText(),
+      true,
+    );
   }
   if (accessor.kind === "memo") {
     const callback = call.arguments[0];
     const body = getFunctionReturnExpression(ts, callback);
     if (body) {
       const trace = traceExpression(ts, checker, graph, body, context);
-      return addOperationTrace(ts, graph, "solid-accessor", expression, [trace], {
-        label: `${expression.text}() memo`,
-      });
+      return addOperationTrace(
+        ts,
+        graph,
+        "solid-accessor",
+        expression,
+        [trace],
+        {
+          label: `${expression.text}() memo`,
+        },
+      );
     }
   }
   if (accessor.kind === "signal") {
     const trace = call.arguments[0]
       ? traceExpression(ts, checker, graph, call.arguments[0], context)
-      : sourceTrace(graph, expression, "solid-accessor", `${expression.text}()`, true);
+      : sourceTrace(
+          graph,
+          expression,
+          "solid-accessor",
+          `${expression.text}()`,
+          true,
+        );
     return addOperationTrace(ts, graph, "solid-accessor", expression, [trace], {
       label: `${expression.text}() signal`,
     });
   }
-  return sourceTrace(graph, expression, "solid-accessor", `${expression.text}() resource`, true);
+  return sourceTrace(
+    graph,
+    expression,
+    "solid-accessor",
+    `${expression.text}() resource`,
+    true,
+  );
 }
 
 function tracePropertyAccess(ts, checker, graph, expression, context) {
-  const receiverTrace = traceExpression(ts, checker, graph, expression.expression, context);
+  const receiverTrace = traceExpression(
+    ts,
+    checker,
+    graph,
+    expression.expression,
+    context,
+  );
   const kind = expression.questionDotToken ? "optional-read" : "property-read";
-  const operation = addOperationTrace(ts, graph, kind, expression, [receiverTrace], {
-    label: expression.name.text,
-  });
+  const operation = addOperationTrace(
+    ts,
+    graph,
+    kind,
+    expression,
+    [receiverTrace],
+    {
+      label: expression.name.text,
+    },
+  );
   // Refine the first concrete property read off a bare parameter into a
   // qualified root (`props` -> `props.meta`). `props` alone is too coarse to
   // rank as one source; the property read is the value that actually fans out.
@@ -691,7 +817,9 @@ function tracePropertyAccess(ts, checker, graph, expression, context) {
     operation.roots = [qualified];
   }
   if (expression.questionDotToken) {
-    operation.defenses.push(defenseRecord(ts, checker, expression.expression, expression, kind));
+    operation.defenses.push(
+      defenseRecord(ts, checker, expression.expression, expression, kind),
+    );
   }
   return operation;
 }
@@ -705,18 +833,37 @@ function traceCallExpression(ts, checker, graph, expression, context) {
       traceExpression(ts, checker, graph, argument, context),
     );
     if (returnExpression) {
-      traces.push(traceExpression(ts, checker, graph, returnExpression, context));
+      traces.push(
+        traceExpression(ts, checker, graph, returnExpression, context),
+      );
     }
-    return addOperationTrace(ts, graph, "call", expression, traces, { label: callee });
+    return addOperationTrace(ts, graph, "call", expression, traces, {
+      label: callee,
+    });
   }
 
   if (ts.isIdentifier(expression.expression) && context.accessors.has(callee)) {
-    return traceAccessor(ts, checker, graph, expression.expression, context.accessors.get(callee), context);
+    return traceAccessor(
+      ts,
+      checker,
+      graph,
+      expression.expression,
+      context.accessors.get(callee),
+      context,
+    );
   }
 
   const traces = [];
   if (ts.isPropertyAccessExpression(expression.expression)) {
-    traces.push(traceExpression(ts, checker, graph, expression.expression.expression, context));
+    traces.push(
+      traceExpression(
+        ts,
+        checker,
+        graph,
+        expression.expression.expression,
+        context,
+      ),
+    );
   }
   traces.push(
     ...expression.arguments.map((argument) =>
@@ -733,9 +880,13 @@ function traceObjectLiteral(ts, checker, graph, expression, context) {
   const traces = [];
   for (const property of expression.properties) {
     if (ts.isSpreadAssignment(property)) {
-      traces.push(traceExpression(ts, checker, graph, property.expression, context));
+      traces.push(
+        traceExpression(ts, checker, graph, property.expression, context),
+      );
     } else if (ts.isPropertyAssignment(property)) {
-      traces.push(traceExpression(ts, checker, graph, property.initializer, context));
+      traces.push(
+        traceExpression(ts, checker, graph, property.initializer, context),
+      );
     } else if (ts.isShorthandPropertyAssignment(property)) {
       traces.push(traceExpression(ts, checker, graph, property.name, context));
     }
@@ -755,7 +906,9 @@ function traceBinaryExpression(ts, checker, graph, expression, context) {
     traceExpression(ts, checker, graph, expression.right, context),
   ]);
   if (operator === ts.SyntaxKind.QuestionQuestionToken) {
-    trace.defenses.push(defenseRecord(ts, checker, expression.left, expression, "fallback"));
+    trace.defenses.push(
+      defenseRecord(ts, checker, expression.left, expression, "fallback"),
+    );
   }
   return trace;
 }
@@ -777,9 +930,19 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
   // object-pack, …) instead of a constant placeholder.
   let longest = [{ label, kind }];
   for (const trace of traces.filter(Boolean)) {
-    addEdge(graph, trace.lastNodeId, node.id, kind, expression, options.unknown);
+    addEdge(
+      graph,
+      trace.lastNodeId,
+      node.id,
+      kind,
+      expression,
+      options.unknown,
+    );
     edges.push(...trace.edges, kind);
-    rootInfos.push(...(trace.rootInfos ?? trace.roots.map((root) => ({ label: root, kind: "source" }))));
+    rootInfos.push(
+      ...(trace.rootInfos ??
+        trace.roots.map((root) => ({ label: root, kind: "source" }))),
+    );
     defenses.push(...trace.defenses);
     if (trace.longestPath.length + 1 > longest.length) {
       longest = [...trace.longestPath, { label, kind }];
@@ -828,7 +991,16 @@ function sourceTrace(graph, expression, kind, label, unknown, rootKind = kind) {
   };
 }
 
-function buildSinkRecord(ts, checker, sourceFile, node, sinkExpression, trace, sinkNode, root) {
+function buildSinkRecord(
+  ts,
+  checker,
+  sourceFile,
+  node,
+  sinkExpression,
+  trace,
+  sinkNode,
+  root,
+) {
   const location = locationOf(sourceFile, node);
   const metrics = metricsFor(trace);
   const sinkId = `RPF-${String(location.line).padStart(3, "0")}-${String(location.column).padStart(2, "0")}`;
@@ -840,11 +1012,20 @@ function buildSinkRecord(ts, checker, sourceFile, node, sinkExpression, trace, s
     category: sinkExpression.category,
     label: sinkExpression.label,
     expression: sinkExpression.expression.getText(),
-    type: safeTypeText(checker.typeToString(checker.getTypeAtLocation(sinkExpression.expression))),
+    type: safeTypeText(
+      checker.typeToString(
+        checker.getTypeAtLocation(sinkExpression.expression),
+      ),
+    ),
     roots: trace.roots,
-    rootInfos: trace.rootInfos ?? trace.roots.map((root) => ({ label: root, kind: "source" })),
+    rootInfos:
+      trace.rootInfos ??
+      trace.roots.map((root) => ({ label: root, kind: "source" })),
     representativePath: trace.longestPath.map((step) => step.label),
-    representativeSteps: trace.longestPath.map((step) => ({ label: step.label, kind: step.kind })),
+    representativeSteps: trace.longestPath.map((step) => ({
+      label: step.label,
+      kind: step.kind,
+    })),
     nodeId: sinkNode.id,
     metrics,
     defenses: trace.defenses,
@@ -858,12 +1039,16 @@ function metricsFor(trace) {
   const defensiveOperationCount =
     (edgeCounts.fallback ?? 0) + (edgeCounts["optional-read"] ?? 0);
   const representationChurn =
-    (edgeCounts["object-pack"] ?? 0) + (edgeCounts["object-spread"] ?? 0) + (edgeCounts.alias ?? 0);
+    (edgeCounts["object-pack"] ?? 0) +
+    (edgeCounts["object-spread"] ?? 0) +
+    (edgeCounts.alias ?? 0);
   const helperHops = edgeCounts.call ?? 0;
   const impossibleDefenseCount = trace.defenses.filter(
     (defense) => defense.verdict === "impossible",
   ).length;
-  const unknownEdgeCount = trace.edges.filter((edge) => edge === "unknown").length;
+  const unknownEdgeCount = trace.edges.filter(
+    (edge) => edge === "unknown",
+  ).length;
   return {
     sliceSize: trace.edges.length + trace.longestPath.length,
     maximumPathDepth: trace.longestPath.length,
@@ -907,7 +1092,9 @@ function groundReachability(sinks) {
   // quartile rather than a fixed magic number: it adapts to codebase size and
   // keeps central-leverage a meaningful minority. The floor of 3 means a sink
   // must feed at least three render sinks to qualify on small/flat projects.
-  const reaches = sinks.map((sink) => sink.metrics.reachableSinks).sort((a, b) => a - b);
+  const reaches = sinks
+    .map((sink) => sink.metrics.reachableSinks)
+    .sort((a, b) => a - b);
   const reachThreshold = Math.max(3, percentile(reaches, 0.75));
   for (const sink of sinks) {
     sink.queue = queueFor(sink.metrics, sink.defenses, reachThreshold);
@@ -920,7 +1107,9 @@ function defenseRecord(ts, checker, guardedExpression, node, operation) {
     operation,
     expression: node.getText(),
     guardedExpression: guardedExpression.getText(),
-    type: safeTypeText(checker.typeToString(checker.getTypeAtLocation(guardedExpression))),
+    type: safeTypeText(
+      checker.typeToString(checker.getTypeAtLocation(guardedExpression)),
+    ),
     verdict,
     location: locationOf(node.getSourceFile(), node),
   };
@@ -932,12 +1121,15 @@ function getNullishStatus(ts, checker, expression) {
   const uncertain = members.some(
     (member) =>
       (member.flags &
-        (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter)) !==
+        (ts.TypeFlags.Any |
+          ts.TypeFlags.Unknown |
+          ts.TypeFlags.TypeParameter)) !==
       0,
   );
   if (uncertain) return "unknown";
   const containsNullish = members.some(
-    (member) => (member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0,
+    (member) =>
+      (member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) !== 0,
   );
   return containsNullish ? "possible" : "impossible";
 }
@@ -954,33 +1146,47 @@ function rankSinks(sinks) {
         burden,
         centrality,
         changeRisk,
-        quickWin: confidence * burden * Math.pow(1 - centrality, 0.7) / (0.25 + changeRisk),
+        quickWin:
+          (confidence * burden * Math.pow(1 - centrality, 0.7)) /
+          (0.25 + changeRisk),
         centralLeverage:
-          confidence * burden * centrality * Math.max(0.1, centrality) / (0.25 + changeRisk),
-        investigationPriority: burden * centrality * Math.min(1, sink.metrics.unknownEdgeCount / 3),
+          (confidence * burden * centrality * Math.max(0.1, centrality)) /
+          (0.25 + changeRisk),
+        investigationPriority:
+          burden * centrality * Math.min(1, sink.metrics.unknownEdgeCount / 3),
       },
     };
   });
   return {
-    all: enriched.sort((left, right) => right.scores.burden - left.scores.burden),
+    all: enriched.sort(
+      (left, right) => right.scores.burden - left.scores.burden,
+    ),
     quickWins: enriched
       .filter((sink) => sink.queue === "peripheral-quick-win")
       .sort((left, right) => right.scores.quickWin - left.scores.quickWin),
     centralLeverage: enriched
       .filter((sink) => sink.queue === "central-leverage")
-      .sort((left, right) => right.scores.centralLeverage - left.scores.centralLeverage),
+      .sort(
+        (left, right) =>
+          right.scores.centralLeverage - left.scores.centralLeverage,
+      ),
     investigations: enriched
       .filter((sink) => sink.queue === "investigation")
       .sort(
         (left, right) =>
-          right.scores.investigationPriority - left.scores.investigationPriority,
+          right.scores.investigationPriority -
+          left.scores.investigationPriority,
       ),
   };
 }
 
 function renderFindings(report, args) {
   const sinks = report.rankings.all.slice(0, args.maxItems);
-  const lines = ["# Render-Path Findings", "", ...viewIntro("findings", report)];
+  const lines = [
+    "# Render-Path Findings",
+    "",
+    ...viewIntro("findings", report),
+  ];
   for (const sink of sinks) {
     lines.push(`## ${sink.id} · ${severityFor(sink)} · ${findingTitle(sink)}`);
     lines.push(`${sink.file}:${sink.line}`);
@@ -1025,12 +1231,15 @@ function renderFindings(report, args) {
 // per-step operation kind comes from representativeSteps (P5); falls back to the
 // plain label array for any record analyzed before steps were threaded through.
 function representativePathLines(sink, { showKind = true } = {}) {
-  const steps = sink.representativeSteps
-    ?? sink.representativePath.map((label) => ({ label, kind: null }));
+  const steps =
+    sink.representativeSteps ??
+    sink.representativePath.map((label) => ({ label, kind: null }));
   if (steps.length === 0) return ["(no path)"];
   return steps.map((step) => {
     const label = formatExpression(step.label);
-    return showKind && step.kind ? `-> ${label}  [${step.kind}]` : `-> ${label}`;
+    return showKind && step.kind
+      ? `-> ${label}  [${step.kind}]`
+      : `-> ${label}`;
   });
 }
 
@@ -1038,7 +1247,9 @@ function representativePathLines(sink, { showKind = true } = {}) {
 // reads (props.meta), with literals, bare parameters, language globals, and
 // inline function bodies dropped via fanOutRootsFor. Capped with a `(+N more)`.
 function actionableSourceLabels(sink, max = 6) {
-  const labels = unique(fanOutRootsFor(sink).map((info) => formatExpression(info.label, 60)));
+  const labels = unique(
+    fanOutRootsFor(sink).map((info) => formatExpression(info.label, 60)),
+  );
   if (labels.length === 0) return "unknown";
   if (labels.length <= max) return labels.join(", ");
   return `${labels.slice(0, max).join(", ")} (+${labels.length - max} more)`;
@@ -1046,7 +1257,11 @@ function actionableSourceLabels(sink, max = 6) {
 
 function renderWorkPackets(report, args) {
   const sinks = report.rankings.all.slice(0, args.maxItems);
-  const lines = ["# Render-Path Data-Flow Work Packets", "", ...viewIntro("work-packets", report)];
+  const lines = [
+    "# Render-Path Data-Flow Work Packets",
+    "",
+    ...viewIntro("work-packets", report),
+  ];
   appendFeatureClusters(lines, report, args);
   sinks.forEach((sink, index) => {
     lines.push(`## WORK ITEM DF-${String(index + 1).padStart(3, "0")}`);
@@ -1067,9 +1282,15 @@ function renderWorkPackets(report, args) {
     lines.push("**Why this was selected**");
     lines.push("");
     lines.push(`- path depth ${sink.metrics.maximumPathDepth}`);
-    lines.push(`- ${sink.metrics.defensiveOperationCount} defensive operations`);
-    lines.push(`- ${sink.metrics.representationChurn} representation-only transformations`);
-    lines.push(`- ${sink.metrics.impossibleDefenseCount} type-impossible fallbacks`);
+    lines.push(
+      `- ${sink.metrics.defensiveOperationCount} defensive operations`,
+    );
+    lines.push(
+      `- ${sink.metrics.representationChurn} representation-only transformations`,
+    );
+    lines.push(
+      `- ${sink.metrics.impossibleDefenseCount} type-impossible fallbacks`,
+    );
     lines.push("");
     lines.push("**Representative path**");
     lines.push("");
@@ -1085,7 +1306,9 @@ function renderWorkPackets(report, args) {
     lines.push("");
     lines.push(`- queue: ${sink.queue}`);
     if (sink.metrics.unknownEdgeCount > 0) {
-      lines.push(`- ${sink.metrics.unknownEdgeCount} unknown edge(s) require investigation`);
+      lines.push(
+        `- ${sink.metrics.unknownEdgeCount} unknown edge(s) require investigation`,
+      );
     }
     lines.push("");
   });
@@ -1100,14 +1323,16 @@ function renderDossier(report) {
   lines.push(
     ...formatMarkdownTable(
       ["Nodes", "Edges", "Sources", "Sinks", "Path families", "Unknown edges"],
-      [[
-        String(summary.nodes),
-        String(summary.edges),
-        String(summary.sources),
-        String(summary.sinks),
-        String(summary.pathFamilies),
-        String(summary.unknownEdges),
-      ]],
+      [
+        [
+          String(summary.nodes),
+          String(summary.edges),
+          String(summary.sources),
+          String(summary.sinks),
+          String(summary.pathFamilies),
+          String(summary.unknownEdges),
+        ],
+      ],
     ),
   );
   lines.push("");
@@ -1116,11 +1341,13 @@ function renderDossier(report) {
   lines.push(
     ...formatMarkdownTable(
       ["Pivot", "Sink reach", "Burden score"],
-      [[
-        code(topSink ? actionableSourceLabels(topSink, 3) : "none"),
-        String(topSink ? topSink.metrics.reachableSinks : 0),
-        topSink ? topSink.scores.burden.toFixed(2) : "0.00",
-      ]],
+      [
+        [
+          code(topSink ? actionableSourceLabels(topSink, 3) : "none"),
+          String(topSink ? topSink.metrics.reachableSinks : 0),
+          topSink ? topSink.scores.burden.toFixed(2) : "0.00",
+        ],
+      ],
     ),
   );
   lines.push("");
@@ -1138,12 +1365,14 @@ function renderFanOut(report, args) {
 }
 
 function renderFanIn(report, args) {
-  const rows = report.rankings.all.slice(0, args.maxItems).map((sink) => [
-    `${sink.file}:${sink.line}`,
-    String(sink.metrics.mergeWidth),
-    String(sink.metrics.controlDependencyCount),
-    String(sink.metrics.maximumPathDepth),
-  ]);
+  const rows = report.rankings.all
+    .slice(0, args.maxItems)
+    .map((sink) => [
+      `${sink.file}:${sink.line}`,
+      String(sink.metrics.mergeWidth),
+      String(sink.metrics.controlDependencyCount),
+      String(sink.metrics.maximumPathDepth),
+    ]);
   return tableReport(
     "Sink Fan-In",
     ["Sink", "Root sources", "Predicates", "Max distance"],
@@ -1156,7 +1385,9 @@ function renderPathGallery(report, args) {
   const sinks = report.rankings.all.slice(0, args.maxItems);
   const lines = ["# Path Gallery", "", ...viewIntro("path-gallery", report)];
   for (const sink of sinks) {
-    lines.push(`## ${sink.file}:${sink.line} depth=${sink.metrics.maximumPathDepth}`);
+    lines.push(
+      `## ${sink.file}:${sink.line} depth=${sink.metrics.maximumPathDepth}`,
+    );
     lines.push("");
     lines.push(...fenced(representativePathLines(sink)));
     lines.push("");
@@ -1165,7 +1396,9 @@ function renderPathGallery(report, args) {
 }
 
 function renderPathCensus(report) {
-  const depths = report.sinks.map((sink) => sink.metrics.maximumPathDepth).sort((a, b) => a - b);
+  const depths = report.sinks
+    .map((sink) => sink.metrics.maximumPathDepth)
+    .sort((a, b) => a - b);
   return [
     "# Path Census",
     "",
@@ -1210,8 +1443,9 @@ function renderTransformationLedger(report) {
     `${sink.file}:${sink.line}`,
     "",
   ];
-  const steps = sink.representativeSteps
-    ?? sink.representativePath.map((label) => ({ label, kind: "data-flow" }));
+  const steps =
+    sink.representativeSteps ??
+    sink.representativePath.map((label) => ({ label, kind: "data-flow" }));
   lines.push(
     ...formatMarkdownTable(
       ["#", "Step", "Operation"],
@@ -1240,12 +1474,14 @@ function renderDefensiveLedger(report, args) {
   const defenses = report.sinks.flatMap((sink) =>
     sink.defenses.map((defense) => [sink, defense]),
   );
-  const rows = defenses.slice(0, args.maxItems).map(([sink, defense]) => [
-    `${sink.file}:${defense.location.line}`,
-    code(formatExpression(defense.expression)),
-    code(defense.type),
-    defense.verdict,
-  ]);
+  const rows = defenses
+    .slice(0, args.maxItems)
+    .map(([sink, defense]) => [
+      `${sink.file}:${defense.location.line}`,
+      code(formatExpression(defense.expression)),
+      code(defense.type),
+      defense.verdict,
+    ]);
   return tableReport(
     "Defensive Logic",
     ["Location", "Expression", "Type", "Verdict"],
@@ -1255,12 +1491,14 @@ function renderDefensiveLedger(report, args) {
 }
 
 function renderPropRelay(report, args) {
-  const rows = report.rankings.all.slice(0, args.maxItems).map((sink) => [
-    `${sink.file}:${sink.line}`,
-    String(Math.max(0, sink.metrics.mergeWidth - 1)),
-    String(sink.metrics.representationChurn),
-    sink.metrics.helperHops === 0 ? "pure data relay" : "transformed relay",
-  ]);
+  const rows = report.rankings.all
+    .slice(0, args.maxItems)
+    .map((sink) => [
+      `${sink.file}:${sink.line}`,
+      String(Math.max(0, sink.metrics.mergeWidth - 1)),
+      String(sink.metrics.representationChurn),
+      sink.metrics.helperHops === 0 ? "pure data relay" : "transformed relay",
+    ]);
   return tableReport(
     "Prop Relay",
     ["Sink", "Component boundaries", "Wrappers", "Classification"],
@@ -1270,13 +1508,15 @@ function renderPropRelay(report, args) {
 }
 
 function renderContextRelay(report, args) {
-  const rows = report.contextRelay.slice(0, args.maxItems).map((finding) => [
-    `${finding.parentFile}:${finding.line}`,
-    finding.childComponent,
-    finding.contextHooks.join(", "),
-    finding.props.join(", "),
-    finding.signal,
-  ]);
+  const rows = report.contextRelay
+    .slice(0, args.maxItems)
+    .map((finding) => [
+      `${finding.parentFile}:${finding.line}`,
+      finding.childComponent,
+      finding.contextHooks.join(", "),
+      finding.props.join(", "),
+      finding.signal,
+    ]);
   return tableReport(
     "Context Relay",
     ["Parent", "Child", "Context hooks in parent", "Passed props", "Signal"],
@@ -1309,13 +1549,23 @@ function renderRepairMap(report, args) {
 }
 
 function appendFeatureClusters(lines, report, args) {
-  const rows = featureClusterRows(report.rankings.all).slice(0, Math.min(args.maxItems, 8));
+  const rows = featureClusterRows(report.rankings.all).slice(
+    0,
+    Math.min(args.maxItems, 8),
+  );
   if (rows.length === 0) return;
   lines.push("## Feature Clusters");
   lines.push("");
   lines.push(
     ...formatMarkdownTable(
-      ["Feature area", "Sinks", "Files", "Max depth", "Wrappers", "Suggested first cut"],
+      [
+        "Feature area",
+        "Sinks",
+        "Files",
+        "Max depth",
+        "Wrappers",
+        "Suggested first cut",
+      ],
       rows,
     ),
   );
@@ -1335,7 +1585,10 @@ function featureClusterRows(sinks) {
     };
     cluster.sinks += 1;
     cluster.files.add(sink.file);
-    cluster.maxDepth = Math.max(cluster.maxDepth, sink.metrics.maximumPathDepth);
+    cluster.maxDepth = Math.max(
+      cluster.maxDepth,
+      sink.metrics.maximumPathDepth,
+    );
     cluster.wrappers += sink.metrics.representationChurn;
     if (isProviderContextCandidate(sink)) cluster.providerContextSignals += 1;
     clusters.set(key, cluster);
@@ -1363,7 +1616,10 @@ function featureKeyFor(file) {
   const parts = file.split("/");
   const sourceIndex = parts.findIndex((part) => part === "src");
   const offset = sourceIndex >= 0 ? sourceIndex + 1 : 0;
-  const directoryParts = parts.slice(offset, Math.max(offset + 1, parts.length - 1));
+  const directoryParts = parts.slice(
+    offset,
+    Math.max(offset + 1, parts.length - 1),
+  );
   return directoryParts.slice(0, 3).join("/") || path.dirname(file);
 }
 
@@ -1419,10 +1675,14 @@ function selectViewPayload(report, args) {
     summary: report.summary,
     view: args.view,
     sinks: report.rankings.all.slice(0, args.maxItems),
-    contextRelay: args.view === "context-relay"
-      ? report.contextRelay.slice(0, args.maxItems)
-      : undefined,
-    graph: args.view === "dossier" ? boundedGraph(report.graph, args.maxItems) : undefined,
+    contextRelay:
+      args.view === "context-relay"
+        ? report.contextRelay.slice(0, args.maxItems)
+        : undefined,
+    graph:
+      args.view === "dossier"
+        ? boundedGraph(report.graph, args.maxItems)
+        : undefined,
     baseline: report.baseline,
   };
 }
@@ -1469,8 +1729,10 @@ function shouldAnalyzeFile(file, args) {
   if (file.endsWith(".d.ts")) return false;
   if (!isWithin(file, args.source)) return false;
   const relativeParts = path.relative(args.root, file).split(path.sep);
-  if (relativeParts.some((part) => DEFAULT_IGNORED_PARTS.has(part))) return false;
-  if (!args.includeTests && /\.(test|spec)\.[cm]?[jt]sx?$/.test(file)) return false;
+  if (relativeParts.some((part) => DEFAULT_IGNORED_PARTS.has(part)))
+    return false;
+  if (!args.includeTests && /\.(test|spec)\.[cm]?[jt]sx?$/.test(file))
+    return false;
   return true;
 }
 
@@ -1520,7 +1782,8 @@ function getFunctionReturnExpression(ts, fn) {
   if (ts.isArrowFunction(fn) && !ts.isBlock(fn.body)) return fn.body;
   let found = null;
   const visit = (node) => {
-    if (!found && ts.isReturnStatement(node) && node.expression) found = node.expression;
+    if (!found && ts.isReturnStatement(node) && node.expression)
+      found = node.expression;
     if (!found) ts.forEachChild(node, visit);
   };
   if (fn.body) visit(fn.body);
@@ -1534,12 +1797,15 @@ function isCallNamed(ts, node, name) {
 function getCallName(ts, node) {
   if (!ts.isCallExpression(node)) return "";
   if (ts.isIdentifier(node.expression)) return node.expression.text;
-  if (ts.isPropertyAccessExpression(node.expression)) return node.expression.name.text;
+  if (ts.isPropertyAccessExpression(node.expression))
+    return node.expression.name.text;
   return "";
 }
 
 function locationOf(sourceFile, node) {
-  const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+  const position = sourceFile.getLineAndCharacterOfPosition(
+    node.getStart(sourceFile),
+  );
   return { line: position.line + 1, column: position.character + 1 };
 }
 
@@ -1580,7 +1846,10 @@ function fanOutRows(sinks) {
       entry.sinks += 1;
       entry.files.add(sink.file);
       entry.maxDepth = Math.max(entry.maxDepth, sink.metrics.maximumPathDepth);
-      if (!entry.example || sink.metrics.maximumPathDepth > entry.example.metrics.maximumPathDepth) {
+      if (
+        !entry.example ||
+        sink.metrics.maximumPathDepth > entry.example.metrics.maximumPathDepth
+      ) {
         entry.example = sink;
       }
     }
@@ -1624,7 +1893,9 @@ const NON_FAN_OUT_GLOBALS = new Set([
 // as are unresolved language globals (`undefined`, `Math`). Property reads off
 // a parameter (`props.meta`) and named locals are kept.
 function fanOutRootsFor(sink) {
-  const infos = sink.rootInfos ?? sink.roots.map((root) => ({ label: root, kind: "source" }));
+  const infos =
+    sink.rootInfos ??
+    sink.roots.map((root) => ({ label: root, kind: "source" }));
   return infos.filter(
     (info) =>
       info.kind !== "literal" &&
@@ -1634,18 +1905,21 @@ function fanOutRootsFor(sink) {
 }
 
 function analyzeContextRelay(ts, sourceFiles, root) {
-  return sourceFiles.flatMap((sourceFile) =>
-    contextRelayFindingsForFile(ts, sourceFile, root),
-  ).sort(
-    (left, right) =>
-      right.score - left.score ||
-      right.props.length - left.props.length ||
-      left.parentFile.localeCompare(right.parentFile),
-  );
+  return sourceFiles
+    .flatMap((sourceFile) => contextRelayFindingsForFile(ts, sourceFile, root))
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        right.props.length - left.props.length ||
+        left.parentFile.localeCompare(right.parentFile),
+    );
 }
 
 function contextRelayFindingsForFile(ts, sourceFile, root) {
-  if (!sourceFile.fileName.endsWith(".tsx") && !sourceFile.fileName.endsWith(".jsx")) {
+  if (
+    !sourceFile.fileName.endsWith(".tsx") &&
+    !sourceFile.fileName.endsWith(".jsx")
+  ) {
     return [];
   }
 
@@ -1683,13 +1957,16 @@ function contextRelayFindingsForFile(ts, sourceFile, root) {
             column: location.column,
             childComponent: jsx.tag,
             childFile: imported.file,
-            contextHooks: Array.from(usedContextHooks.size > 0 ? usedContextHooks : contextHooks),
+            contextHooks: Array.from(
+              usedContextHooks.size > 0 ? usedContextHooks : contextHooks,
+            ),
             props,
             sharedProps,
             score: sharedProps.length * 3 + props.length,
-            signal: sharedProps.length > 0
-              ? "shared prop names"
-              : "same-feature prop bundle",
+            signal:
+              sharedProps.length > 0
+                ? "shared prop names"
+                : "same-feature prop bundle",
           });
         }
       }
@@ -1734,18 +2011,26 @@ function localComponentImportMap(ts, sourceFile, root) {
 function contextHookNames(ts, sourceFile) {
   const hooks = new Set();
   const visit = (node) => {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
       const specifier = node.moduleSpecifier.text;
       if (specifier.includes("context") || specifier.includes("Context")) {
         const namedBindings = node.importClause?.namedBindings;
         if (namedBindings && ts.isNamedImports(namedBindings)) {
           for (const element of namedBindings.elements) {
-            if (/^use[A-Z]/.test(element.name.text)) hooks.add(element.name.text);
+            if (/^use[A-Z]/.test(element.name.text))
+              hooks.add(element.name.text);
           }
         }
       }
     }
-    if (ts.isFunctionDeclaration(node) && node.name && /^use[A-Z]/.test(node.name.text)) {
+    if (
+      ts.isFunctionDeclaration(node) &&
+      node.name &&
+      /^use[A-Z]/.test(node.name.text)
+    ) {
       hooks.add(node.name.text);
     }
     ts.forEachChild(node, visit);
@@ -1862,7 +2147,12 @@ function depthBand(depth) {
 }
 
 function tableReport(title, headers, rows, intro = []) {
-  const lines = [`# ${title}`, "", ...intro, ...formatMarkdownTable(headers, rows)];
+  const lines = [
+    `# ${title}`,
+    "",
+    ...intro,
+    ...formatMarkdownTable(headers, rows),
+  ];
   return `${lines.join("\n")}\n`;
 }
 
@@ -1871,11 +2161,14 @@ function tableReport(title, headers, rows, intro = []) {
 // source at hand, so this has to stand alone. Rendered as a blockquote note.
 function viewIntro(view, report) {
   const root = report?.meta?.root ?? null;
-  const generated = report?.generatedAt ? report.generatedAt.slice(0, 10) : null;
+  const displayRoot = root ? commandPath(root) : null;
+  const generated = report?.generatedAt
+    ? report.generatedAt.slice(0, 10)
+    : null;
   const provenance =
     `Generated by **tsx-dataflow**, a static render-path data-flow analyzer for ` +
     `TypeScript/TSX (Solid/SolidStart-aware)` +
-    (root ? `, from \`${root}\`` : "") +
+    (displayRoot ? `, from \`${displayRoot}\`` : "") +
     (generated ? ` on ${generated}` : "") +
     `.`;
   const method =
@@ -2003,7 +2296,10 @@ function padCell(escaped, width) {
 function code(value) {
   const text = String(value).trim();
   if (!text) return "";
-  const longestRun = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const longestRun = Math.max(
+    0,
+    ...(text.match(/`+/g) ?? []).map((run) => run.length),
+  );
   const fence = "`".repeat(longestRun + 1);
   const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
   return `${fence}${pad}${text}${pad}${fence}`;
@@ -2029,7 +2325,8 @@ function formatExpression(value, max = 100) {
   // Back off to the last non-identifier boundary so we don't slice mid-token,
   // but only if that keeps a reasonable amount of the text.
   const boundary = window.match(/^.*[^\p{L}\p{N}_$]/u);
-  const cut = boundary && boundary[0].length >= max * 0.6 ? boundary[0].length : max;
+  const cut =
+    boundary && boundary[0].length >= max * 0.6 ? boundary[0].length : max;
   return `${collapsed.slice(0, cut).trimEnd()}…`;
 }
 
@@ -2054,12 +2351,18 @@ function confidenceFor(metrics, defenses) {
 }
 
 function queueFor(metrics, defenses, reachThreshold = 3) {
-  if (metrics.unknownEdgeCount > 0 || defenses.some((defense) => defense.verdict === "unknown")) {
+  if (
+    metrics.unknownEdgeCount > 0 ||
+    defenses.some((defense) => defense.verdict === "unknown")
+  ) {
     return "investigation";
   }
   // Central-leverage = a source that feeds many render sinks (top reach
   // quartile for the report, passed in) or a pathologically deep relay path.
-  if (metrics.reachableSinks >= reachThreshold || metrics.maximumPathDepth > 10) {
+  if (
+    metrics.reachableSinks >= reachThreshold ||
+    metrics.maximumPathDepth > 10
+  ) {
     return "central-leverage";
   }
   return "peripheral-quick-win";
@@ -2106,7 +2409,8 @@ function findingTitle(sink) {
   if (sink.metrics.impossibleDefenseCount > 0) {
     return "type-impossible defensive render path";
   }
-  if (sink.metrics.representationChurn > 1) return "representation-heavy render path";
+  if (sink.metrics.representationChurn > 1)
+    return "representation-heavy render path";
   if (sink.metrics.helperHops > 1) return "helper-heavy render path";
   return "render-path data-flow hotspot";
 }
@@ -2126,7 +2430,9 @@ function severityFor(sink) {
 
 function percentile(values, target) {
   if (values.length === 0) return 0;
-  return values[Math.min(values.length - 1, Math.floor(values.length * target))];
+  return values[
+    Math.min(values.length - 1, Math.floor(values.length * target))
+  ];
 }
 
 function normalized(value) {
@@ -2146,7 +2452,10 @@ function countBy(values) {
 
 function isWithin(file, root) {
   const relative = path.relative(root, file);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
 }
 
 function relativePath(root, file) {
