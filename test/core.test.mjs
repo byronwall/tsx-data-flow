@@ -4,11 +4,13 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  REPORT_VIEWS,
   analyzeProject,
   findDefaultSource,
   findDefaultTsconfig,
   helpText,
   parseArgs,
+  renderAllReports,
   renderReport,
 } from "../src/core.mjs";
 
@@ -128,6 +130,209 @@ describe("render path data-flow analyzer", () => {
     expect(dossier.graph.nodes.length).toBeGreaterThan(0);
   });
 
+  it("fences code-like blocks and one-lines multi-line expressions in prose renderers", async () => {
+    const project = await createFixtureProject({
+      "src/MultiLine.tsx": `
+        type Props = { start: number; end: number; readings: number[] };
+        function buildWindow(input: { readings: number[]; start: number; end: number }) {
+          return input.readings;
+        }
+        export function Chart(props: Props) {
+          const allReadings = props.readings;
+          const windowed = buildWindow({
+            readings: allReadings,
+            start: props.start,
+            end: props.end,
+          });
+          return <div>{windowed.length ?? 0}</div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+
+    // Code/path blocks are fenced; the transformation ledger renders steps as a
+    // table with code-tick cells instead, so it carries no fences.
+    for (const view of ["findings", "work-packets", "path-gallery"]) {
+      const output = renderReport(report, { ...project.args, view, format: "markdown" });
+      // Every such report opens at least one fenced block.
+      expect(output).toContain("```");
+      // A balanced number of fences (no dangling open fence).
+      expect((output.match(/```/g) ?? []).length % 2).toBe(0);
+    }
+
+    // No rendered path step carries a raw newline mid-expression: the
+    // object-literal arg must be collapsed onto a single line in every view.
+    for (const view of ["findings", "work-packets", "path-gallery", "transformation-ledger"]) {
+      const output = renderReport(report, { ...project.args, view, format: "markdown" });
+      const stepLines = output.split("\n").filter((line) => /->|readings:/.test(line));
+      for (const line of stepLines) {
+        expect(line).not.toMatch(/readings:\s*$/);
+      }
+    }
+  });
+
+  it("truncates long expressions on a token boundary with an ellipsis", async () => {
+    const longName = "averyveryveryverylongidentifiernamethatwillexceedthelimit";
+    const project = await createFixtureProject({
+      "src/Long.tsx": `
+        export function Long(props: { ${longName}: string; other: string }) {
+          return <div>{props.${longName} + " " + props.other + " " + props.${longName} + " tail value here"}</div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, { ...project.args, view: "findings", format: "markdown" });
+    const truncated = output.split("\n").filter((line) => line.includes("…"));
+    expect(truncated.length).toBeGreaterThan(0);
+    // A truncated line must not end mid-identifier (the char before `…` is a
+    // boundary, or the whole identifier survived).
+    for (const line of truncated) {
+      expect(line).not.toMatch(/[A-Za-z0-9_$]…[A-Za-z0-9_$]/);
+    }
+  });
+
+  it("gives fan-out actionable location detail with an example sink and file count", async () => {
+    const project = await createFixtureProject({
+      "src/fan/A.tsx": `
+        export function A(props: { entity: { id: string } }) {
+          return <div>{props.entity.id}</div>;
+        }
+      `,
+      "src/fan/B.tsx": `
+        export function B(props: { entity: { id: string } }) {
+          return <span>{props.entity.id}</span>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, { ...project.args, view: "fan-out", format: "markdown" });
+
+    expect(output).toContain("Example sink");
+    expect(output).toContain("Files");
+    expect(output).not.toContain("Operations");
+    // The example-sink column points at a concrete file:line a reader can open.
+    expect(output).toMatch(/src\/fan\/[AB]\.tsx:\d+/);
+  });
+
+  it("renders only actionable sources in findings (no literals, globals, or bare params)", async () => {
+    const project = await createFixtureProject({
+      "src/Source.tsx": `
+        export function Card(props: { meta: { label: string } }) {
+          return <span>{props.meta.label ?? "" ?? String(document.title) ?? 0}</span>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, { ...project.args, view: "findings", format: "markdown" });
+    const sourceBlock = output.split("**Source**")[1].split("```")[1];
+
+    expect(sourceBlock).toContain("props.meta");
+    expect(sourceBlock).not.toContain("document");
+    expect(sourceBlock).not.toContain('"string"');
+    expect(sourceBlock.trim()).not.toMatch(/(^|,\s*)(0|""|props)(,|$)/);
+  });
+
+  it("labels transformation-ledger steps with real operation kinds", async () => {
+    const project = await createFixtureProject({
+      "src/Ledger.tsx": `
+        type User = { displayName?: string };
+        function pack(user: User) { return { title: user.displayName }; }
+        export function Card(props: { user: User }) {
+          const model = pack(props.user);
+          return <h2>{model.title ?? "Unknown"}</h2>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, {
+      ...project.args,
+      view: "transformation-ledger",
+      format: "markdown",
+    });
+
+    // The third column carries real operation kinds, not a constant "data-flow".
+    const kinds = output
+      .split("\n")
+      .filter((line) => line.startsWith("| ") && !line.includes("---") && !line.includes("Operation"))
+      .map((line) => line.split("|").at(-2).trim());
+    expect(kinds).not.toContain("data-flow");
+    expect(kinds.some((kind) => ["fallback", "call", "object-pack", "property-read"].includes(kind))).toBe(true);
+  });
+
+  it("aligns markdown table columns prettier-style", async () => {
+    const project = await createFixtureProject({
+      "src/Align.tsx": `
+        export function Panel(props: { entityName: { id: string }; x: { id: string } }) {
+          return <div>{props.entityName.id}{props.x.id}</div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, { ...project.args, view: "fan-out", format: "markdown" });
+    const tableLines = output.split("\n").filter((line) => line.startsWith("|"));
+    // Every rendered table row has the same character width (columns padded).
+    const widths = new Set(tableLines.map((line) => line.length));
+    expect(widths.size).toBe(1);
+    // The separator row's dashes fill the padded column width (more than 3).
+    const separator = tableLines[1];
+    expect(separator).toMatch(/-{4,}/);
+  });
+
+  it("appends a copy-pasteable regenerate command to every markdown view", async () => {
+    const project = await createFixtureProject({
+      "src/Foot.tsx": `
+        export function Card(props: { name: string }) {
+          return <h2>{props.name}</h2>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    for (const view of REPORT_VIEWS) {
+      const output = renderReport(report, {
+        ...project.args,
+        view,
+        maxItems: 5,
+        format: "markdown",
+      });
+      expect(output).toContain("_Regenerate this report:_");
+      expect(output).toContain("```sh");
+      expect(output).toContain(`--view ${view}`);
+      expect(output).toContain("--max-items 5");
+    }
+    // The footer is markdown-only; JSON payloads stay clean.
+    const json = renderReport(report, { ...project.args, view: "findings", format: "json" });
+    expect(json).not.toContain("Regenerate this report");
+  });
+
+  it("renders every view in one pass with --view all", async () => {
+    const project = await createFixtureProject({
+      "src/All.tsx": `
+        export function Card(props: { name: string }) {
+          return <h2>{props.name}</h2>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const reports = renderAllReports(report, {
+      ...project.args,
+      view: "all",
+      maxItems: 5,
+      format: "markdown",
+    });
+
+    expect(reports.map((entry) => entry.view)).toEqual(REPORT_VIEWS);
+    expect(reports.every((entry) => entry.filename.endsWith(".md"))).toBe(true);
+    expect(reports.every((entry) => entry.text.includes("_Regenerate this report:_"))).toBe(true);
+    // JSON format yields .json filenames and parseable payloads.
+    const jsonReports = renderAllReports(report, { ...project.args, view: "all", format: "json" });
+    expect(jsonReports.every((entry) => entry.filename.endsWith(".json"))).toBe(true);
+    expect(() => JSON.parse(jsonReports[0].text)).not.toThrow();
+  });
+
+  it("accepts --view all", () => {
+    expect(parseArgs(["--view", "all"]).view).toBe("all");
+  });
+
   it("reports same-feature prop relay from context-aware parents", async () => {
     const project = await createFixtureProject({
       "src/feature/Feature.context.tsx": `
@@ -234,7 +439,9 @@ describe("render path data-flow analyzer", () => {
     const signatures = output
       .split("\n")
       .filter((line) => line.startsWith("| ") && !line.includes("---") && !line.includes("Signature"))
-      .map((line) => line.split("|")[1].trim());
+      // Signatures are wrapped in backticks (code) and padded for alignment;
+      // strip both to read the bare signature.
+      .map((line) => line.split("|")[1].trim().replaceAll("`", ""));
 
     // The shallow direct read and the deeper packed/defended path must not
     // collapse into one bare `jsx-sink` family.

@@ -18,7 +18,8 @@ const DEFAULT_IGNORED_PARTS = new Set([
 ]);
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 const VALID_FORMATS = new Set(["json", "markdown"]);
-const VALID_VIEWS = new Set([
+// The concrete report views, in the order `--view all` emits them.
+export const REPORT_VIEWS = [
   "findings",
   "work-packets",
   "dossier",
@@ -32,7 +33,28 @@ const VALID_VIEWS = new Set([
   "prop-relay",
   "context-relay",
   "repair-map",
+];
+// `all` is a meta-view: build the report once and emit every concrete view.
+const ALL_VIEWS = "all";
+const VALID_VIEWS = new Set([...REPORT_VIEWS, ALL_VIEWS]);
+
+// Table-shaped views stay readable with more rows, so they default to a higher
+// item cap than the long prose reports (findings, work-packets, …), which get
+// noisy past a handful of entries. An explicit --max-items always wins.
+const TABLE_VIEWS = new Set([
+  "fan-out",
+  "fan-in",
+  "path-families",
+  "defensive-ledger",
+  "prop-relay",
+  "context-relay",
 ]);
+const DEFAULT_TABLE_MAX_ITEMS = 12;
+const DEFAULT_REPORT_MAX_ITEMS = 5;
+
+function defaultMaxItemsFor(view) {
+  return TABLE_VIEWS.has(view) ? DEFAULT_TABLE_MAX_ITEMS : DEFAULT_REPORT_MAX_ITEMS;
+}
 // This package's own directory (one level up from src/). Used as a last-resort
 // location for resolving the bundled `typescript` dependency.
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -51,7 +73,9 @@ export function parseArgs(argv, defaults = {}) {
     scope: defaults.scope ?? null,
     out: defaults.out ?? null,
     baseline: defaults.baseline ?? null,
-    maxItems: defaults.maxItems ?? 20,
+    // Resolved per-view after parsing unless the caller/CLI sets it explicitly.
+    maxItems: defaults.maxItems ?? null,
+    maxItemsExplicit: defaults.maxItems != null,
     includeTests: defaults.includeTests ?? false,
     failOnRegression: defaults.failOnRegression ?? false,
     help: false,
@@ -91,6 +115,7 @@ export function parseArgs(argv, defaults = {}) {
         break;
       case "--max-items":
         args.maxItems = Number.parseInt(readValue(), 10);
+        args.maxItemsExplicit = true;
         break;
       case "--out":
         args.out = readValue();
@@ -120,6 +145,9 @@ export function parseArgs(argv, defaults = {}) {
     throw new Error(
       `--view must be one of: ${Array.from(VALID_VIEWS).join(", ")}`,
     );
+  }
+  if (args.maxItems == null) {
+    args.maxItems = defaultMaxItemsFor(args.view);
   }
   if (!Number.isFinite(args.maxItems) || args.maxItems < 1) {
     throw new Error("--max-items must be a positive number");
@@ -155,17 +183,22 @@ Options:
   --tsconfig <path>         TypeScript config. Defaults to the nearest tsconfig.json.
   --typescript-from <path>  Extra directory used to resolve TypeScript.
   --format <json|markdown>  Output format. Defaults to markdown.
-  --view <name>             Report view. Defaults to work-packets.
+  --view <name>             Report view, or "all" for every view. Defaults to work-packets.
   --scope <value>           Limit report to a file, component, or symbol substring.
   --max-items <number>      Limit displayed findings or rows. Defaults to 20.
   --baseline <path>         Compare against a prior JSON report.
   --fail-on-regression      Exit non-zero only when baseline comparison regresses.
-  --out <path>              Write report to a file instead of stdout.
+  --out <path>              Write report to a file instead of stdout. With
+                            --view all, names a directory to fill (one file per view).
   --include-tests           Include *.test.* and *.spec.* files.
   --help                    Show this help.
 
 Views:
-  ${Array.from(VALID_VIEWS).join(", ")}
+  ${REPORT_VIEWS.join(", ")}
+
+  all                       Generate every view above in one run. Pair with
+                            --out <dir> to write one file per view, e.g.:
+                              tsx-dataflow --root . --view all --out reports
 `;
 }
 
@@ -262,7 +295,10 @@ export function renderReport(report, args) {
   if (args.format === "json") {
     return `${JSON.stringify(selectViewPayload(report, args), null, 2)}\n`;
   }
+  return `${renderMarkdownView(report, args)}\n${regenFooter(args, args.view)}`;
+}
 
+function renderMarkdownView(report, args) {
   switch (args.view) {
     case "findings":
       return renderFindings(report, args);
@@ -298,6 +334,67 @@ export function renderReport(report, args) {
 export async function writeReport(reportText, outPath) {
   await mkdir(path.dirname(outPath), { recursive: true });
   await writeFile(outPath, reportText);
+}
+
+// Render every concrete report view from a single already-built report. The
+// report is view-independent, so `--view all` analyzes once and projects each
+// view, returning the bytes plus a per-view filename for directory output.
+export function renderAllReports(report, args) {
+  const extension = args.format === "json" ? "json" : "md";
+  return REPORT_VIEWS.map((view) => {
+    // Each view keeps its own per-view default cap unless --max-items was given.
+    const maxItems = args.maxItemsExplicit ? args.maxItems : defaultMaxItemsFor(view);
+    return {
+      view,
+      filename: `${view}.${extension}`,
+      text: renderReport(report, { ...args, view, maxItems }),
+    };
+  });
+}
+
+// Write each rendered report into `outDir` under its per-view filename. Returns
+// the list of paths written.
+export async function writeAllReports(reports, outDir) {
+  const written = [];
+  for (const report of reports) {
+    const target = path.join(outDir, report.filename);
+    await writeReport(report.text, target);
+    written.push(target);
+  }
+  return written;
+}
+
+// A copy-pasteable command that regenerates exactly this report. Reports are
+// often read detached from the shell that produced them, so each one carries its
+// own provenance command. Only non-default flags are emitted to keep it short.
+function regenCommand(args, view) {
+  const parts = ["tsx-dataflow", "--root", shellQuote(args.root), "--view", view];
+  if (Number.isFinite(args.maxItems)) parts.push("--max-items", String(args.maxItems));
+  if (args.scope) parts.push("--scope", shellQuote(args.scope));
+  if (args.format && args.format !== "markdown") parts.push("--format", args.format);
+  if (args.includeTests) parts.push("--include-tests");
+  return parts.join(" ");
+}
+
+function regenFooter(args, view) {
+  return [
+    "---",
+    "",
+    "_Regenerate this report:_",
+    "",
+    "```sh",
+    regenCommand(args, view),
+    "```",
+    "",
+  ].join("\n");
+}
+
+function shellQuote(value) {
+  const text = String(value);
+  // Single-quote anything that isn't a safe bare token, escaping embedded quotes.
+  return /^[A-Za-z0-9_./@:-]+$/.test(text)
+    ? text
+    : `'${text.replaceAll("'", "'\\''")}'`;
 }
 
 function buildReport(ts, program, args, typescriptModulePath = null) {
@@ -450,7 +547,7 @@ function getSinkExpression(ts, node) {
     return {
       expression: node.expression,
       category: "rendered-value",
-      label: `JSX ${node.expression.getText().slice(0, 80)}`,
+      label: `JSX ${formatExpression(node.expression.getText())}`,
     };
   }
 
@@ -664,7 +761,7 @@ function traceBinaryExpression(ts, checker, graph, expression, context) {
 }
 
 function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
-  const label = options.label ?? expression.getText().slice(0, 80);
+  const label = options.label ?? formatExpression(expression.getText());
   const node = addNode(graph, {
     kind,
     label,
@@ -675,14 +772,17 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
   const edges = [];
   const rootInfos = [];
   const defenses = [];
-  let longest = [label];
+  // Each path step carries its operation kind so the transformation ledger and
+  // path renderers can name the real operation (property-read, fallback, call,
+  // object-pack, …) instead of a constant placeholder.
+  let longest = [{ label, kind }];
   for (const trace of traces.filter(Boolean)) {
     addEdge(graph, trace.lastNodeId, node.id, kind, expression, options.unknown);
     edges.push(...trace.edges, kind);
     rootInfos.push(...(trace.rootInfos ?? trace.roots.map((root) => ({ label: root, kind: "source" }))));
     defenses.push(...trace.defenses);
     if (trace.longestPath.length + 1 > longest.length) {
-      longest = [...trace.longestPath, label];
+      longest = [...trace.longestPath, { label, kind }];
     }
   }
   if (traces.length === 0) rootInfos.push({ label, kind: "operation" });
@@ -723,7 +823,7 @@ function sourceTrace(graph, expression, kind, label, unknown, rootKind = kind) {
     rootInfos: [{ label, kind: rootKind }],
     edges: [],
     defenses: [],
-    longestPath: [label],
+    longestPath: [{ label, kind }],
     unknown,
   };
 }
@@ -743,7 +843,8 @@ function buildSinkRecord(ts, checker, sourceFile, node, sinkExpression, trace, s
     type: safeTypeText(checker.typeToString(checker.getTypeAtLocation(sinkExpression.expression))),
     roots: trace.roots,
     rootInfos: trace.rootInfos ?? trace.roots.map((root) => ({ label: root, kind: "source" })),
-    representativePath: trace.longestPath,
+    representativePath: trace.longestPath.map((step) => step.label),
+    representativeSteps: trace.longestPath.map((step) => ({ label: step.label, kind: step.kind })),
     nodeId: sinkNode.id,
     metrics,
     defenses: trace.defenses,
@@ -879,71 +980,112 @@ function rankSinks(sinks) {
 
 function renderFindings(report, args) {
   const sinks = report.rankings.all.slice(0, args.maxItems);
-  const lines = ["# Render-Path Findings", ""];
+  const lines = ["# Render-Path Findings", "", ...viewIntro("findings", report)];
   for (const sink of sinks) {
-    lines.push(`${sink.id}  ${severityFor(sink)}  ${findingTitle(sink)}`);
+    lines.push(`## ${sink.id} · ${severityFor(sink)} · ${findingTitle(sink)}`);
     lines.push(`${sink.file}:${sink.line}`);
     lines.push("");
-    lines.push("Sink");
-    lines.push(`  ${sink.expression}`);
+    lines.push("**Sink**");
     lines.push("");
-    lines.push("Source");
-    lines.push(`  ${sink.roots.join(", ") || "unknown"}`);
+    lines.push(...fenced([formatExpression(sink.expression)]));
     lines.push("");
-    lines.push("Metrics");
-    lines.push(`  path depth:                 ${sink.metrics.maximumPathDepth}`);
-    lines.push(`  helper hops:                ${sink.metrics.helperHops}`);
-    lines.push(`  representation changes:     ${sink.metrics.representationChurn}`);
-    lines.push(`  defensive operations:       ${sink.metrics.defensiveOperationCount}`);
-    lines.push(`  impossible defenses:        ${sink.metrics.impossibleDefenseCount}`);
-    lines.push(`  downstream sink count:      ${sink.metrics.reachableSinks}`);
-    lines.push(`  centrality percentile:      ${Math.round(sink.scores.centrality * 100)}`);
-    lines.push(`  analysis confidence:        ${sink.confidence}%`);
+    lines.push("**Source**");
     lines.push("");
-    lines.push("Representative path");
-    for (const item of sink.representativePath) lines.push(`  -> ${item}`);
+    lines.push(...fenced([actionableSourceLabels(sink)]));
     lines.push("");
-    lines.push("Finding");
-    lines.push(`  ${findingSentence(sink)}`);
+    lines.push("**Metrics**");
+    lines.push("");
+    lines.push(
+      ...metricTable([
+        ["path depth", sink.metrics.maximumPathDepth],
+        ["helper hops", sink.metrics.helperHops],
+        ["representation changes", sink.metrics.representationChurn],
+        ["defensive operations", sink.metrics.defensiveOperationCount],
+        ["impossible defenses", sink.metrics.impossibleDefenseCount],
+        ["downstream sink count", sink.metrics.reachableSinks],
+        ["centrality percentile", Math.round(sink.scores.centrality * 100)],
+        ["analysis confidence", `${sink.confidence}%`],
+      ]),
+    );
+    lines.push("");
+    lines.push("**Representative path**");
+    lines.push("");
+    lines.push(...fenced(representativePathLines(sink)));
+    lines.push("");
+    lines.push("**Finding**");
+    lines.push("");
+    lines.push(findingSentence(sink));
     lines.push("");
   }
   appendBaseline(lines, report);
   return `${lines.join("\n")}\n`;
 }
 
+// One-lined, kind-annotated path steps for the fenced prose renderers. The
+// per-step operation kind comes from representativeSteps (P5); falls back to the
+// plain label array for any record analyzed before steps were threaded through.
+function representativePathLines(sink, { showKind = true } = {}) {
+  const steps = sink.representativeSteps
+    ?? sink.representativePath.map((label) => ({ label, kind: null }));
+  if (steps.length === 0) return ["(no path)"];
+  return steps.map((step) => {
+    const label = formatExpression(step.label);
+    return showKind && step.kind ? `-> ${label}  [${step.kind}]` : `-> ${label}`;
+  });
+}
+
+// Actionable domain sources for a sink: named locals and qualified property
+// reads (props.meta), with literals, bare parameters, language globals, and
+// inline function bodies dropped via fanOutRootsFor. Capped with a `(+N more)`.
+function actionableSourceLabels(sink, max = 6) {
+  const labels = unique(fanOutRootsFor(sink).map((info) => formatExpression(info.label, 60)));
+  if (labels.length === 0) return "unknown";
+  if (labels.length <= max) return labels.join(", ");
+  return `${labels.slice(0, max).join(", ")} (+${labels.length - max} more)`;
+}
+
 function renderWorkPackets(report, args) {
   const sinks = report.rankings.all.slice(0, args.maxItems);
-  const lines = ["# Render-Path Data-Flow Work Packets", ""];
+  const lines = ["# Render-Path Data-Flow Work Packets", "", ...viewIntro("work-packets", report)];
   appendFeatureClusters(lines, report, args);
   sinks.forEach((sink, index) => {
     lines.push(`## WORK ITEM DF-${String(index + 1).padStart(3, "0")}`);
-    lines.push(`Simplify ${sink.label} in ${sink.file}`);
+    lines.push(`Simplify ${formatExpression(sink.label, 80)} in ${sink.file}`);
     lines.push("");
-    lines.push("Scope");
-    lines.push(`  pivot:             ${sink.roots[0] ?? "unknown"}`);
-    lines.push(`  files:             1`);
-    lines.push(`  components:        ${Math.max(1, sink.metrics.mergeWidth)}`);
-    lines.push(`  reachable sinks:   ${sink.metrics.reachableSinks}`);
-    lines.push(`  confidence:        ${sink.confidence}%`);
+    lines.push("**Scope**");
     lines.push("");
-    lines.push("Why this was selected");
-    lines.push(`  path depth ${sink.metrics.maximumPathDepth}`);
-    lines.push(`  ${sink.metrics.defensiveOperationCount} defensive operations`);
-    lines.push(`  ${sink.metrics.representationChurn} representation-only transformations`);
-    lines.push(`  ${sink.metrics.impossibleDefenseCount} type-impossible fallbacks`);
+    lines.push(
+      ...metricTable([
+        ["pivot", code(actionableSourceLabels(sink, 3))],
+        ["files", 1],
+        ["source inputs", Math.max(1, sink.metrics.mergeWidth)],
+        ["reachable sinks", sink.metrics.reachableSinks],
+        ["confidence", `${sink.confidence}%`],
+      ]),
+    );
     lines.push("");
-    lines.push("Representative path");
-    sink.representativePath.forEach((item) => lines.push(`  -> ${item}`));
+    lines.push("**Why this was selected**");
     lines.push("");
-    lines.push("Candidate edits");
+    lines.push(`- path depth ${sink.metrics.maximumPathDepth}`);
+    lines.push(`- ${sink.metrics.defensiveOperationCount} defensive operations`);
+    lines.push(`- ${sink.metrics.representationChurn} representation-only transformations`);
+    lines.push(`- ${sink.metrics.impossibleDefenseCount} type-impossible fallbacks`);
+    lines.push("");
+    lines.push("**Representative path**");
+    lines.push("");
+    lines.push(...fenced(representativePathLines(sink)));
+    lines.push("");
+    lines.push("**Candidate edits**");
+    lines.push("");
     candidateEditsFor(sink).forEach((edit, editIndex) => {
-      lines.push(`  ${editIndex + 1}. ${edit}`);
+      lines.push(`${editIndex + 1}. ${edit}`);
     });
     lines.push("");
-    lines.push("Risk");
-    lines.push(`  queue: ${sink.queue}`);
+    lines.push("**Risk**");
+    lines.push("");
+    lines.push(`- queue: ${sink.queue}`);
     if (sink.metrics.unknownEdgeCount > 0) {
-      lines.push(`  ${sink.metrics.unknownEdgeCount} unknown edge(s) require investigation`);
+      lines.push(`- ${sink.metrics.unknownEdgeCount} unknown edge(s) require investigation`);
     }
     lines.push("");
   });
@@ -954,23 +1096,45 @@ function renderWorkPackets(report, args) {
 function renderDossier(report) {
   const summary = report.summary;
   const topSink = report.rankings.all[0];
-  return [
-    "# Render Graph Dossier",
-    "",
-    `${summary.nodes} nodes | ${summary.edges} edges | ${summary.sources} sources | ${summary.sinks} sinks`,
-    `${summary.pathFamilies} path families | ${summary.unknownEdges} unknown edges`,
-    "",
-    "Primary pivot",
-    `  ${topSink?.roots[0] ?? "none"}`,
-    `  sink reach: ${topSink ? topSink.metrics.reachableSinks : 0}`,
-    `  burden score: ${topSink ? topSink.scores.burden.toFixed(2) : "0.00"}`,
-    "",
-  ].join("\n");
+  const lines = ["# Render Graph Dossier", "", ...viewIntro("dossier", report)];
+  lines.push(
+    ...formatMarkdownTable(
+      ["Nodes", "Edges", "Sources", "Sinks", "Path families", "Unknown edges"],
+      [[
+        String(summary.nodes),
+        String(summary.edges),
+        String(summary.sources),
+        String(summary.sinks),
+        String(summary.pathFamilies),
+        String(summary.unknownEdges),
+      ]],
+    ),
+  );
+  lines.push("");
+  lines.push("## Primary pivot");
+  lines.push("");
+  lines.push(
+    ...formatMarkdownTable(
+      ["Pivot", "Sink reach", "Burden score"],
+      [[
+        code(topSink ? actionableSourceLabels(topSink, 3) : "none"),
+        String(topSink ? topSink.metrics.reachableSinks : 0),
+        topSink ? topSink.scores.burden.toFixed(2) : "0.00",
+      ]],
+    ),
+  );
+  lines.push("");
+  return lines.join("\n");
 }
 
 function renderFanOut(report, args) {
   const rows = fanOutRows(report.sinks).slice(0, args.maxItems);
-  return tableReport("Consumer Fan-Out", ["Source", "Sinks", "Components", "Operations"], rows);
+  return tableReport(
+    "Consumer Fan-Out",
+    ["Source", "Sinks", "Files", "Example sink", "Max depth"],
+    rows,
+    viewIntro("fan-out", report),
+  );
 }
 
 function renderFanIn(report, args) {
@@ -980,15 +1144,21 @@ function renderFanIn(report, args) {
     String(sink.metrics.controlDependencyCount),
     String(sink.metrics.maximumPathDepth),
   ]);
-  return tableReport("Sink Fan-In", ["Sink", "Root sources", "Predicates", "Max distance"], rows);
+  return tableReport(
+    "Sink Fan-In",
+    ["Sink", "Root sources", "Predicates", "Max distance"],
+    rows,
+    viewIntro("fan-in", report),
+  );
 }
 
 function renderPathGallery(report, args) {
   const sinks = report.rankings.all.slice(0, args.maxItems);
-  const lines = ["# Path Gallery", ""];
+  const lines = ["# Path Gallery", "", ...viewIntro("path-gallery", report)];
   for (const sink of sinks) {
     lines.push(`## ${sink.file}:${sink.line} depth=${sink.metrics.maximumPathDepth}`);
-    sink.representativePath.forEach((item) => lines.push(`  -> ${item}`));
+    lines.push("");
+    lines.push(...fenced(representativePathLines(sink)));
     lines.push("");
   }
   return `${lines.join("\n")}\n`;
@@ -999,38 +1169,70 @@ function renderPathCensus(report) {
   return [
     "# Path Census",
     "",
-    `Sources:              ${report.summary.sources}`,
-    `Sinks:                ${report.summary.sinks}`,
-    `Known path families:  ${report.summary.pathFamilies}`,
-    `Unknown edges:        ${report.summary.unknownEdges}`,
+    ...viewIntro("path-census", report),
+    ...metricTable([
+      ["Sources", report.summary.sources],
+      ["Sinks", report.summary.sinks],
+      ["Known path families", report.summary.pathFamilies],
+      ["Unknown edges", report.summary.unknownEdges],
+    ]),
     "",
-    "Path depth",
-    `  median    ${percentile(depths, 0.5)}`,
-    `  p90       ${percentile(depths, 0.9)}`,
-    `  maximum   ${depths.at(-1) ?? 0}`,
+    "## Path depth",
+    "",
+    ...metricTable([
+      ["median", percentile(depths, 0.5)],
+      ["p90", percentile(depths, 0.9)],
+      ["maximum", depths.at(-1) ?? 0],
+    ]),
     "",
   ].join("\n");
 }
 
 function renderPathFamilies(report, args) {
-  const rows = familyRows(report.sinks).slice(0, args.maxItems);
-  return tableReport("Path Families", ["Signature", "Paths", "Sinks", "Max depth"], rows);
+  const rows = familyRows(report.sinks)
+    .slice(0, args.maxItems)
+    .map(([signature, ...rest]) => [code(signature), ...rest]);
+  return tableReport(
+    "Path Families",
+    ["Signature", "Paths", "Sinks", "Max depth"],
+    rows,
+    viewIntro("path-families", report),
+  );
 }
 
 function renderTransformationLedger(report) {
   const sink = report.rankings.all[0];
   if (!sink) return "# Transformation Ledger\n\nNo sinks found.\n";
-  const lines = ["# Transformation Ledger", "", `${sink.file}:${sink.line}`, ""];
-  sink.representativePath.forEach((item, index) => {
-    const operation = index === sink.representativePath.length - 1 ? "JSX text" : "data-flow";
-    lines.push(`${String(index + 1).padStart(2, " ")}  ${item}  ${operation}`);
-  });
+  const lines = [
+    "# Transformation Ledger",
+    "",
+    ...viewIntro("transformation-ledger", report),
+    `${sink.file}:${sink.line}`,
+    "",
+  ];
+  const steps = sink.representativeSteps
+    ?? sink.representativePath.map((label) => ({ label, kind: "data-flow" }));
+  lines.push(
+    ...formatMarkdownTable(
+      ["#", "Step", "Operation"],
+      steps.map((step, index) => [
+        String(index + 1),
+        code(formatExpression(step.label)),
+        step.kind ?? "data-flow",
+      ]),
+    ),
+  );
   lines.push("");
-  lines.push("Summary");
-  lines.push(`  semantic transformations:        ${sink.metrics.helperHops}`);
-  lines.push(`  representation-only steps:       ${sink.metrics.representationChurn}`);
-  lines.push(`  defensive steps:                 ${sink.metrics.defensiveOperationCount}`);
-  lines.push(`  total steps:                     ${sink.metrics.maximumPathDepth}`);
+  lines.push("## Summary");
+  lines.push("");
+  lines.push(
+    ...metricTable([
+      ["semantic transformations", sink.metrics.helperHops],
+      ["representation-only steps", sink.metrics.representationChurn],
+      ["defensive steps", sink.metrics.defensiveOperationCount],
+      ["total steps", sink.metrics.maximumPathDepth],
+    ]),
+  );
   return `${lines.join("\n")}\n`;
 }
 
@@ -1040,11 +1242,16 @@ function renderDefensiveLedger(report, args) {
   );
   const rows = defenses.slice(0, args.maxItems).map(([sink, defense]) => [
     `${sink.file}:${defense.location.line}`,
-    defense.expression,
-    defense.type,
+    code(formatExpression(defense.expression)),
+    code(defense.type),
     defense.verdict,
   ]);
-  return tableReport("Defensive Logic", ["Location", "Expression", "Type", "Verdict"], rows);
+  return tableReport(
+    "Defensive Logic",
+    ["Location", "Expression", "Type", "Verdict"],
+    rows,
+    viewIntro("defensive-ledger", report),
+  );
 }
 
 function renderPropRelay(report, args) {
@@ -1054,7 +1261,12 @@ function renderPropRelay(report, args) {
     String(sink.metrics.representationChurn),
     sink.metrics.helperHops === 0 ? "pure data relay" : "transformed relay",
   ]);
-  return tableReport("Prop Relay", ["Sink", "Component boundaries", "Wrappers", "Classification"], rows);
+  return tableReport(
+    "Prop Relay",
+    ["Sink", "Component boundaries", "Wrappers", "Classification"],
+    rows,
+    viewIntro("prop-relay", report),
+  );
 }
 
 function renderContextRelay(report, args) {
@@ -1069,11 +1281,12 @@ function renderContextRelay(report, args) {
     "Context Relay",
     ["Parent", "Child", "Context hooks in parent", "Passed props", "Signal"],
     rows,
+    viewIntro("context-relay", report),
   );
 }
 
 function renderRepairMap(report, args) {
-  const lines = ["# Repair Map", ""];
+  const lines = ["# Repair Map", "", ...viewIntro("repair-map", report)];
   appendFeatureClusters(lines, report, args);
   for (const [heading, sinks] of [
     ["Peripheral quick wins", report.rankings.quickWins],
@@ -1081,11 +1294,12 @@ function renderRepairMap(report, args) {
     ["Investigate", report.rankings.investigations],
   ]) {
     lines.push(`## ${heading}`);
+    lines.push("");
     const selected = sinks.slice(0, args.maxItems);
-    if (selected.length === 0) lines.push("  none");
+    if (selected.length === 0) lines.push("- none");
     selected.forEach((sink) => {
       lines.push(
-        `  ${sink.scores.burden.toFixed(1)}  ${sink.file}:${sink.line} ${findingTitle(sink)}`,
+        `- **${sink.scores.burden.toFixed(1)}** ${sink.file}:${sink.line} — ${findingTitle(sink)}`,
       );
     });
     lines.push("");
@@ -1099,11 +1313,12 @@ function appendFeatureClusters(lines, report, args) {
   if (rows.length === 0) return;
   lines.push("## Feature Clusters");
   lines.push("");
-  lines.push("| Feature area | Sinks | Files | Max depth | Wrappers | Suggested first cut |");
-  lines.push("| --- | --- | --- | --- | --- | --- |");
-  for (const row of rows) {
-    lines.push(`| ${row.map(formatTableCell).join(" | ")} |`);
-  }
+  lines.push(
+    ...formatMarkdownTable(
+      ["Feature area", "Sinks", "Files", "Max depth", "Wrappers", "Suggested first cut"],
+      rows,
+    ),
+  );
   lines.push("");
 }
 
@@ -1349,23 +1564,34 @@ function summarize(sinks, graph) {
   };
 }
 
+// Per source, collect what a reader needs to act without re-grepping: how many
+// render sinks it feeds, in how many files, a representative sink to open first
+// (deepest path — the most likely cleanup target), and the worst path depth.
+// Replaces the former opaque `Operations` (a slice-size sum) with `Max depth`.
 function fanOutRows(sinks) {
-  return Object.entries(
-    sinks.reduce((acc, sink) => {
-      for (const info of fanOutRootsFor(sink)) {
-        acc[info.label] ??= { sinks: 0, components: new Set(), operations: 0 };
-        acc[info.label].sinks += 1;
-        acc[info.label].components.add(sink.file);
-        acc[info.label].operations += sink.metrics.sliceSize;
+  const map = new Map();
+  for (const sink of sinks) {
+    for (const info of fanOutRootsFor(sink)) {
+      let entry = map.get(info.label);
+      if (!entry) {
+        entry = { sinks: 0, files: new Set(), example: null, maxDepth: 0 };
+        map.set(info.label, entry);
       }
-      return acc;
-    }, {}),
-  )
+      entry.sinks += 1;
+      entry.files.add(sink.file);
+      entry.maxDepth = Math.max(entry.maxDepth, sink.metrics.maximumPathDepth);
+      if (!entry.example || sink.metrics.maximumPathDepth > entry.example.metrics.maximumPathDepth) {
+        entry.example = sink;
+      }
+    }
+  }
+  return Array.from(map.entries())
     .map(([root, value]) => [
       root,
       String(value.sinks),
-      String(value.components.size),
-      String(value.operations),
+      String(value.files.size),
+      value.example ? `${value.example.file}:${value.example.line}` : "",
+      String(value.maxDepth),
     ])
     .sort((left, right) => Number(right[1]) - Number(left[1]));
 }
@@ -1635,27 +1861,189 @@ function depthBand(depth) {
   return "deep";
 }
 
-function tableReport(title, headers, rows) {
-  const lines = [
-    `# ${title}`,
-    "",
-    `| ${headers.map(formatTableCell).join(" | ")} |`,
-    `| ${headers.map(() => "---").join(" | ")} |`,
-  ];
-  for (const row of rows) lines.push(`| ${row.map(formatTableCell).join(" | ")} |`);
+function tableReport(title, headers, rows, intro = []) {
+  const lines = [`# ${title}`, "", ...intro, ...formatMarkdownTable(headers, rows)];
   return `${lines.join("\n")}\n`;
+}
+
+// A short at-a-glance header for every report: where it came from and what the
+// view shows / what its terms mean. Reports are often read without the analyzer
+// source at hand, so this has to stand alone. Rendered as a blockquote note.
+function viewIntro(view, report) {
+  const root = report?.meta?.root ?? null;
+  const generated = report?.generatedAt ? report.generatedAt.slice(0, 10) : null;
+  const provenance =
+    `Generated by **tsx-dataflow**, a static render-path data-flow analyzer for ` +
+    `TypeScript/TSX (Solid/SolidStart-aware)` +
+    (root ? `, from \`${root}\`` : "") +
+    (generated ? ` on ${generated}` : "") +
+    `.`;
+  const method =
+    `It parses the source and builds a graph from each value (props, signals, ` +
+    `hooks, locals) through every transformation to the JSX **sink** that renders ` +
+    `it, then ranks the heaviest render paths.`;
+  const blurb = VIEW_BLURBS[view] ?? "";
+  const lines = [`> ${provenance} ${method}`];
+  if (blurb) lines.push(">", `> ${blurb}`);
+  lines.push("");
+  return lines;
+}
+
+// Per-view "what am I looking at" sentence(s): what the rows are and what the
+// non-obvious column/field names mean.
+const VIEW_BLURBS = {
+  findings:
+    "Each finding is one render **sink** (a value rendered into the DOM). " +
+    "_Sink_ is the rendered expression, _Source_ the actionable inputs it derives " +
+    "from, _path depth_ the number of transformation hops between them, and " +
+    "_severity/burden_ reflects how much data-flow plumbing sits on the path.",
+  "work-packets":
+    "Each work item is a scoped cleanup candidate for one render sink. _pivot_ is " +
+    "the primary source value, _source inputs_ the distinct inputs merged into it " +
+    "(fan-in), _reachable sinks_ how many render sites the same sources feed, and " +
+    "the representative path lists every transformation hop from source to JSX " +
+    "with its operation kind.",
+  dossier:
+    "A one-screen summary of the whole render graph — node/edge/source/sink counts " +
+    "and the single highest-burden _pivot_ source. _Sink reach_ is how many render " +
+    "sites that source feeds; _burden score_ is its plumbing-weight (0–1).",
+  "fan-out":
+    "Ranks source values by how many render sinks consume them. _Sinks_ is that " +
+    "consumer count, _Files_ how many files reference the source, _Example sink_ a " +
+    "representative file:line to open first, and _Max depth_ the longest " +
+    "transformation path from that source to JSX.",
+  "fan-in":
+    "Ranks render sinks by how many independent inputs they merge. _Root sources_ " +
+    "is the fan-in count, _Predicates_ the number of conditional branches on the " +
+    "path, and _Max distance_ the longest transformation path feeding the sink.",
+  "path-gallery":
+    "Shows the representative (longest) data-flow path for the heaviest sinks. Each " +
+    "`->` step is one transformation hop annotated with its operation kind " +
+    "(property-read, fallback, call, object-pack, solid-accessor, …).",
+  "path-census":
+    "The aggregate shape of the render graph: counts of sources, sinks, and path " +
+    "families, plus the distribution of _path depth_ (number of transformation " +
+    "hops from a source value to the JSX that renders it).",
+  "path-families":
+    "Groups render paths by structural _signature_ (a depth band plus the sequence " +
+    "of operation kinds) so recurring shapes surface. _Paths_/_Sinks_ count the " +
+    "family's members and _Max depth_ is the deepest path in it.",
+  "transformation-ledger":
+    "Walks the single heaviest render path step by step. Each row is one " +
+    "transformation hop with its _Operation_ kind; the summary tallies semantic vs. " +
+    "representation-only vs. defensive steps along the path.",
+  "defensive-ledger":
+    "Lists defensive operations (optional chains, nullish fallbacks) on render " +
+    "paths. _Verdict_ is whether the guard can ever fire given the TypeScript " +
+    "types: _impossible_ means the guarded value is never nullish, so the defense " +
+    "is dead code; _possible_ means it can; _unknown_ means the type is too loose " +
+    "to tell.",
+  "prop-relay":
+    "Render sinks that mostly relay data across component boundaries. _Component " +
+    "boundaries_ counts prop hand-offs, _Wrappers_ representation-only repacks, and " +
+    "_Classification_ marks whether the relay transforms the data or just passes it " +
+    "through.",
+  "context-relay":
+    "Same-feature components receiving prop bundles from a context-aware parent — " +
+    "candidates for moving shared state behind a Provider/Context instead of " +
+    "threading props. Lists the parent's context hooks and the props it forwards.",
+  "repair-map":
+    "A triage board grouping sinks into _peripheral quick wins_, _central leverage_ " +
+    "(sources feeding many sinks), and _investigate_ (paths with unknowns). The " +
+    "leading bold number is the burden score (higher = more plumbing).",
+};
+
+// Render a GitHub-flavored Markdown table with prettier-style column alignment:
+// every column is padded to the widest (visible) cell, and the separator row's
+// dashes fill the same width. Cells are sanitized via formatTableCell (newlines
+// collapsed, pipes escaped); padding is computed on the *visible* width so an
+// escaped pipe (`\|`, two source chars, one rendered char) still aligns.
+function formatMarkdownTable(headers, rows) {
+  const grid = [headers, ...rows].map((row) =>
+    headers.map((_, column) => formatTableCell(row[column] ?? "")),
+  );
+  const widths = headers.map((_, column) =>
+    Math.max(3, ...grid.map((row) => cellWidth(row[column]))),
+  );
+  const renderRow = (row) =>
+    `| ${row.map((cell, column) => padCell(cell, widths[column])).join(" | ")} |`;
+  const separator = `| ${widths.map((width) => "-".repeat(width)).join(" | ")} |`;
+  return [renderRow(grid[0]), separator, ...grid.slice(1).map(renderRow)];
 }
 
 function formatTableCell(value) {
   return String(value).replaceAll("\n", " ").replaceAll("|", "\\|");
 }
 
+// A small two-column metric/value table. Numeric and label metrics read better
+// as an aligned table than as a fenced block; fences are reserved for code.
+function metricTable(pairs) {
+  return formatMarkdownTable(
+    ["Metric", "Value"],
+    pairs.map(([label, value]) => [label, String(value)]),
+  );
+}
+
+// Visible width of an already-escaped cell. GFM unescapes `\|` to `|` before
+// rendering, so each escaped pipe occupies one rendered column, not two.
+function cellWidth(escaped) {
+  return escaped.length - (escaped.match(/\\\|/g)?.length ?? 0);
+}
+
+function padCell(escaped, width) {
+  return escaped + " ".repeat(Math.max(0, width - cellWidth(escaped)));
+}
+
+// Wrap a code-ish cell value as a Markdown code span so it renders monospaced.
+// Safe inside a table cell: GFM strips the table pipe-escaping before inline
+// code parsing, so backticks and escaped pipes coexist. Expressions often embed
+// backticks (template literals), so the delimiter is a backtick run one longer
+// than any internal run, with a pad space when the text starts/ends with a
+// backtick (GFM strips one space each side). Empty values are left untouched.
+function code(value) {
+  const text = String(value).trim();
+  if (!text) return "";
+  const longestRun = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(longestRun + 1);
+  const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+  return `${fence}${pad}${text}${pad}${fence}`;
+}
+
+// A fenced code block for the indented (prose) renderers. In GitHub-flavored
+// Markdown a 2-space indent does NOT create a code block, so aligned metric
+// columns and multi-line expressions collapse into re-wrapped prose. Fencing the
+// monospace payload preserves alignment and lets backtick-containing expressions
+// render literally. `content` is one entry per line (already one-lined).
+function fenced(content) {
+  return ["```", ...content, "```"];
+}
+
+// Collapse an expression/path-step/label to a single line and truncate on a
+// token-ish boundary with a trailing ellipsis. The prose-renderer analogue of
+// formatTableCell: no rendered expression should carry a raw newline or be cut
+// mid-identifier without a `…` marker.
+function formatExpression(value, max = 100) {
+  const collapsed = String(value).replace(/\s+/g, " ").trim();
+  if (collapsed.length <= max) return collapsed;
+  const window = collapsed.slice(0, max);
+  // Back off to the last non-identifier boundary so we don't slice mid-token,
+  // but only if that keeps a reasonable amount of the text.
+  const boundary = window.match(/^.*[^\p{L}\p{N}_$]/u);
+  const cut = boundary && boundary[0].length >= max * 0.6 ? boundary[0].length : max;
+  return `${collapsed.slice(0, cut).trimEnd()}…`;
+}
+
 function appendBaseline(lines, report) {
   if (!report.baseline) return;
-  lines.push("Baseline");
-  lines.push(`  current worst:  ${report.baseline.currentWorst.toFixed(2)}`);
-  lines.push(`  baseline worst: ${report.baseline.baselineWorst.toFixed(2)}`);
-  lines.push(`  regressed:      ${report.baseline.regressed ? "yes" : "no"}`);
+  lines.push("## Baseline");
+  lines.push("");
+  lines.push(
+    ...metricTable([
+      ["current worst", report.baseline.currentWorst.toFixed(2)],
+      ["baseline worst", report.baseline.baselineWorst.toFixed(2)],
+      ["regressed", report.baseline.regressed ? "yes" : "no"],
+    ]),
+  );
 }
 
 function confidenceFor(metrics, defenses) {

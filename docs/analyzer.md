@@ -386,7 +386,8 @@ The reach cutoff is computed in `groundReachability` from the report's own `reac
 - expression text
 - TypeScript type text
 - root labels
-- representative path
+- representative path (the longest source→JSX label chain, as plain strings)
+- representative steps (the same chain with a per-step `kind`: `property-read`, `fallback`, `call`, `object-pack`, `solid-accessor`, …) — surfaced in the path/ledger renderers
 - graph node id
 - metrics
 - defenses
@@ -418,7 +419,18 @@ Markdown renderers produce human-readable reports. JSON output returns `selectVi
 
 For JSON dossiers, `boundedGraph` returns only the first `--max-items` nodes and edges plus `omittedNodes` and `omittedEdges`. This prevents accidental massive output while preserving the report's shape.
 
-`tableReport` escapes newlines and pipe characters so Markdown tables remain valid when expressions contain multi-line code or union types.
+### Markdown Formatting
+
+Every Markdown view opens with a blockquote `viewIntro` note (provenance plus a one-glance description of the view and its terms) so a report stands alone without the analyzer source.
+
+Two presentation conventions keep reports readable:
+
+- **Code-like payloads** (sink expressions, source roots, the representative path, ledger/defensive expressions) are rendered as fenced code blocks or backtick code spans. `formatExpression` first collapses internal whitespace/newlines to a single line and truncates on a token boundary with a trailing `…`, so a multi-line object literal never shatters the layout and nothing is cut mid-identifier. `code()` picks a backtick-run delimiter longer than any run inside the value, so expressions that embed template literals still render as a single code span.
+- **Metric/value payloads** render as small two-column tables (`metricTable`) or bulleted lists rather than fenced text, because aligned numbers read better as a table than as monospaced prose.
+
+`formatMarkdownTable` lays out every table prettier-style: each column is padded to its widest cell and the separator dashes fill the same width, computed on *visible* width so an escaped pipe (`\|`, which GFM renders as one character) still aligns. `formatTableCell` escapes newlines and pipe characters so tables stay valid when cells contain multi-line code or union types.
+
+The `fan-out` view reports `Source | Sinks | Files | Example sink | Max depth`: an example `file:line` and file count let a reader open the right file without re-grepping, replacing the former opaque `Operations` slice-size sum.
 
 ## Baseline Comparison
 

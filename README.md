@@ -39,9 +39,14 @@ tsx-dataflow --view prop-relay --out .tsx-dataflow/prop-relay.md
 tsx-dataflow --view fan-out    --out .tsx-dataflow/fan-out.md
 tsx-dataflow --view repair-map --out .tsx-dataflow/repair-map.md
 
+# every view at once, one file per view in a directory
+tsx-dataflow --view all --out .tsx-dataflow
+
 # structured output for scripting / baselines
 tsx-dataflow --view dossier --format json --out .tsx-dataflow/dossier.json
 ```
+
+Every Markdown report ends with the exact command that regenerates it, so a report stays self-describing once it's detached from the shell that produced it.
 
 For a non-standard layout, pass paths explicitly:
 
@@ -58,12 +63,12 @@ tsx-dataflow --source app/src --tsconfig app/tsconfig.json --view findings
 | `--tsconfig <path>` | TypeScript config. Defaults to the nearest `tsconfig.json`. |
 | `--typescript-from <path>` | Extra directory used to resolve the `typescript` package. |
 | `--format <json\|markdown>` | Output format. Defaults to `markdown`. |
-| `--view <name>` | Report view (see below). Defaults to `work-packets`. |
+| `--view <name>` | Report view (see below), or `all` for every view. Defaults to `work-packets`. |
 | `--scope <text>` | Limit rows to a file, component, or symbol substring. |
 | `--max-items <n>` | Bound displayed findings / graph rows. Defaults to 20. |
 | `--baseline <path>` | Compare worst burden score against a prior JSON report. |
 | `--fail-on-regression` | Exit non-zero only when the baseline comparison regresses. |
-| `--out <path>` | Write the report to a file instead of stdout. |
+| `--out <path>` | Write the report to a file instead of stdout. With `--view all`, names a directory to fill with one file per view. |
 | `--include-tests` | Include `*.test.*` and `*.spec.*` files. |
 | `--help` | Show usage. |
 
@@ -84,6 +89,7 @@ tsx-dataflow --source app/src --tsconfig app/tsconfig.json --view findings
 | `path-census` | Aggregate source/sink/path-depth counts. |
 | `path-families` | Grouped path signatures. |
 | `dossier` | Graph-oriented JSON (nodes, edges, traces, metrics, omitted counts). |
+| `all` | Generate every view above in one run; pair with `--out <dir>` to write one file per view. |
 
 ## Agent skill
 
