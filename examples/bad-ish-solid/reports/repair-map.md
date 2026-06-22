@@ -10,6 +10,10 @@
 | ------------------ | ----- | ----- | --------- | -------- | ---------------------- |
 | DashboardShell.tsx | 38    | 1     | 15        | 313      | Provider/Context audit |
 
+**Coverage**
+
+_38 shown. Ranked burden is concentrated: top 1 file = 100%. 1 file carries ≥1 finding, 1 have ≥4. Use --spread / --diversity to widen, or `--view hotspots` for the full per-file map._
+
 ## Peripheral quick wins
 
 - **0.1** src/DashboardShell.tsx:106 — render-path data-flow hotspot _(local component cleanup)_
@@ -41,5 +45,5 @@
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view repair-map --max-items 8 --out examples/bad-ish-solid/reports/repair-map.md
+tsx-dataflow --root examples/bad-ish-solid --view all --max-items 8 --out examples/bad-ish-solid/reports
 ```

@@ -120,6 +120,13 @@ The more useful view for planning work is [`examples/bad-ish-solid/reports/work-
 | `--view <name>`             | Report view (see below), or `all` for every view. Defaults to `work-packets`.                                      |
 | `--scope <text>`            | Limit rows to a file, component, or symbol substring.                                                              |
 | `--max-items <n>`           | Bound displayed findings / graph rows. Defaults to 20.                                                             |
+| `--sort <mode>`             | Selection lens for `work-packets`/`findings`: `burden` (default, worst-first), `spread` (per-file/feature caps), `coverage` (one per file, then fill), `quick-win`. |
+| `--spread`                  | Shorthand for `--sort spread`.                                                                                     |
+| `--diversity <0..1>`        | MMR re-rank balancing burden against novelty (0 = pure burden, 1 = max spread). Overrides `--sort`.               |
+| `--per-file <n>`            | Max items from one file in spread mode (default 2).                                                                |
+| `--per-feature <n>`         | Max items from one feature area in spread mode (default 4).                                                        |
+| `--units`                   | Collapse file-local sinks that share a cause into one work unit ("fix once, N sinks improve").                     |
+| `--by <file\|feature>`      | Roll-up granularity for the `hotspots` view. Defaults to `file`.                                                   |
 | `--baseline <path>`         | Compare worst burden score against a prior JSON report.                                                            |
 | `--fail-on-regression`      | Exit non-zero only when the baseline comparison regresses.                                                         |
 | `--out <path>`              | Write the report to a file instead of stdout. With `--view all`, names a directory to fill with one file per view. |
@@ -146,6 +153,7 @@ The more useful view for planning work is [`examples/bad-ish-solid/reports/work-
 | `junctions`             | Confluence functions where independent lineages fork in and re-spread — the load-bearing knots, with tributaries and distributaries. |
 | `inline-preview`        | Inline-vs-keep decision per helper: how the path changes if folded in, with a verdict (proposes, never rewrites).    |
 | `dossier`               | Graph-oriented JSON (nodes, edges, traces, metrics, omitted counts).                                                 |
+| `hotspots` (`coverage`) | Breadth map: one row per file (or `--by feature`) with finding count, worst burden, dominant shape/ownership, and a suggested first cut, plus a concentration footer. |
 | `all`                   | Generate every view above in one run; pair with `--out <dir>` to write one file per view.                            |
 
 ### Cross-file tracing
@@ -158,6 +166,28 @@ views light up. Hook/context accessors (`useX`) are kept opaque (they are
 intentional feature boundaries). Use `--no-trace-helpers` for the fastest
 single-file pass, or `--max-helper-depth <n>` (default 3) to tune how many import
 boundaries are followed.
+
+### Depth vs. breadth
+
+`work-packets` ranks by descending burden, which surfaces the genuinely worst
+sinks but **clusters**: a few heavy files can monopolize the list. To trade some
+depth for breadth without losing the worst finding:
+
+- `--units` collapses file-local sinks that share a cause (a packed object, or
+  the same pivot + shape) into one packet — "fix once, N sinks improve" — so an
+  inflated count of 7 sinks becomes the 2 real units behind them.
+- `--spread` (or `--sort spread`) caps how many packets come from one file /
+  feature; demoted siblings are not dropped but collapsed into a "still hot" note.
+- `--diversity <0..1>` is the smooth version: a Maximal-Marginal-Relevance
+  re-rank that defers redundant siblings (same file / shape / pivot).
+- `--sort coverage` reaches one packet per file before filling by burden;
+  `--sort quick-win` leads with peripheral, low-risk wins.
+- `--view hotspots` is the breadth **map**: one row per file (or `--by feature`),
+  every place with a finding shown once, with a concentration footer. The same
+  concentration summary heads `work-packets` and `repair-map`.
+
+The default stays `--sort burden` (today's exact ordering); everything above is
+additive.
 
 ## Agent skill
 

@@ -19,5 +19,5 @@
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view boundary-report --max-items 8 --out examples/bad-ish-solid/reports/boundary-report.md
+tsx-dataflow --root examples/bad-ish-solid --view all --max-items 8 --out examples/bad-ish-solid/reports
 ```

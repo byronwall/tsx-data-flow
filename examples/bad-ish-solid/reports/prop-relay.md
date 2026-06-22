@@ -20,5 +20,5 @@
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view prop-relay --max-items 8 --out examples/bad-ish-solid/reports/prop-relay.md
+tsx-dataflow --root examples/bad-ish-solid --view all --max-items 8 --out examples/bad-ish-solid/reports
 ```

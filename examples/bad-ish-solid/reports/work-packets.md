@@ -10,7 +10,11 @@
 | ------------------ | ----- | ----- | --------- | -------- | ---------------------- |
 | DashboardShell.tsx | 38    | 1     | 15        | 313      | Provider/Context audit |
 
-## WORK ITEM DF-001
+**Coverage**
+
+_8 shown. Ranked burden is concentrated: top 1 file = 100%. 1 file carries ≥1 finding, 1 have ≥4. Use --spread / --diversity to widen, or `--view hotspots` for the full per-file map._
+
+## WORK ITEM DF-001  ·  RPF-110-17
 Simplify JSX row.label ?? "Untitled" in src/DashboardShell.tsx
 
 **Review summary**
@@ -52,8 +56,8 @@ F2:31    6. alias    packed  — = { task, owner: user, swatch: preferences.…
 F2:31    7. read     task
 F2:31    8. read     estimateHours
 F2:31    9. default  «packed.task.estimateHours» ?? 0
-F2:31   10. format   `${«packed.task.estimateHours ?? 0»}h`
-F2:27   11. pack     … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }
+F2:31   10. format   ${«packed.task.estimateHours ?? 0»}h
+F2:27   11. pack     … "normal", estimateLabel: «${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }
                      ↙ return to F1
 F1:102  12. helper   taskRowView()  — returns { label: packed.task.title.trim(), ownerLabel:…
 F1:110  13. alias    row  — = taskRowView(props.task, props.actor, props.…
@@ -68,7 +72,7 @@ Files:
 **Sink-family split**
 
 ```
-Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
+Object { task, owner: user, swatch: preferences.… feeds 2 sink families — split it:
   Style: style
   Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
 ```
@@ -97,7 +101,7 @@ after: JSX reads a field of renderModel(...) — a short path instead of 15 hops
 - ownership: architectural fan-in
 - queue: central-leverage
 
-## WORK ITEM DF-002
+## WORK ITEM DF-002  ·  RPF-111-16
 Simplify JSX row.ownerLabel ?? "Unknown owner" in src/DashboardShell.tsx
 
 **Review summary**
@@ -139,8 +143,8 @@ F2:31    6. alias    packed  — = { task, owner: user, swatch: preferences.…
 F2:31    7. read     task
 F2:31    8. read     estimateHours
 F2:31    9. default  «packed.task.estimateHours» ?? 0
-F2:31   10. format   `${«packed.task.estimateHours ?? 0»}h`
-F2:27   11. pack     … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }
+F2:31   10. format   ${«packed.task.estimateHours ?? 0»}h
+F2:27   11. pack     … "normal", estimateLabel: «${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }
                      ↙ return to F1
 F1:102  12. helper   taskRowView()  — returns { label: packed.task.title.trim(), ownerLabel:…
 F1:111  13. alias    row  — = taskRowView(props.task, props.actor, props.…
@@ -155,7 +159,7 @@ Files:
 **Sink-family split**
 
 ```
-Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
+Object { task, owner: user, swatch: preferences.… feeds 2 sink families — split it:
   Style: style
   Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
 ```
@@ -184,7 +188,7 @@ after: JSX reads a field of renderModel(...) — a short path instead of 15 hops
 - ownership: architectural fan-in
 - queue: central-leverage
 
-## WORK ITEM DF-003
+## WORK ITEM DF-003  ·  RPF-107-07
 Simplify style={...} in src/DashboardShell.tsx
 
 **Review summary**
@@ -227,13 +231,13 @@ F2:31    7. read     task
 F2:31    8. read     estimateHours
 F2:31    9. default  «packed.task.estimateHours» ?? 0
                      ▸ boundary: extract the defaults & normalization above into a named boundary memo
-F2:31   10. format   `${«packed.task.estimateHours ?? 0»}h`
-F2:27   11. pack     … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }
+F2:31   10. format   ${«packed.task.estimateHours ?? 0»}h
+F2:27   11. pack     … "normal", estimateLabel: «${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }
                      ↙ return to F1
 F1:102  12. helper   taskRowView()  — returns { label: packed.task.title.trim(), ownerLabel:…
 F1:107  13. alias    row  — = taskRowView(props.task, props.actor, props.…
 F1:107  14. read     swatch
-F1:107  15. format   `--accent:${«row.swatch»}`
+F1:107  15. format   --accent:${«row.swatch»}
 
 Files:
   F1 = src/DashboardShell.tsx
@@ -243,7 +247,7 @@ Files:
 **Sink-family split**
 
 ```
-Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
+Object { task, owner: user, swatch: preferences.… feeds 2 sink families — split it:
   Style: style
   Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
 ```
@@ -271,7 +275,7 @@ after: JSX reads a field of styleProps(...) — a short path instead of 15 hops.
 - ownership: architectural fan-in
 - queue: central-leverage
 
-## WORK ITEM DF-004
+## WORK ITEM DF-004  ·  RPF-112-15
 Simplify JSX row.priorityLabel in src/DashboardShell.tsx
 
 **Review summary**
@@ -314,8 +318,8 @@ F2:31    7. read     task
 F2:31    8. read     estimateHours
 F2:31    9. default  «packed.task.estimateHours» ?? 0
                      ▸ boundary: extract the defaults & normalization above into a named boundary memo
-F2:31   10. format   `${«packed.task.estimateHours ?? 0»}h`
-F2:27   11. pack     … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }
+F2:31   10. format   ${«packed.task.estimateHours ?? 0»}h
+F2:27   11. pack     … "normal", estimateLabel: «${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }
                      ↙ return to F1
 F1:102  12. helper   taskRowView()  — returns { label: packed.task.title.trim(), ownerLabel:…
 F1:112  13. alias    row  — = taskRowView(props.task, props.actor, props.…
@@ -329,7 +333,7 @@ Files:
 **Sink-family split**
 
 ```
-Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
+Object { task, owner: user, swatch: preferences.… feeds 2 sink families — split it:
   Style: style
   Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
 ```
@@ -357,7 +361,7 @@ after: JSX reads a field of renderModel(...) — a short path instead of 14 hops
 - ownership: architectural fan-in
 - queue: central-leverage
 
-## WORK ITEM DF-005
+## WORK ITEM DF-005  ·  RPF-113-15
 Simplify JSX row.estimateLabel in src/DashboardShell.tsx
 
 **Review summary**
@@ -400,8 +404,8 @@ F2:31    7. read     task
 F2:31    8. read     estimateHours
 F2:31    9. default  «packed.task.estimateHours» ?? 0
                      ▸ boundary: extract the defaults & normalization above into a named boundary memo
-F2:31   10. format   `${«packed.task.estimateHours ?? 0»}h`
-F2:27   11. pack     … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }
+F2:31   10. format   ${«packed.task.estimateHours ?? 0»}h
+F2:27   11. pack     … "normal", estimateLabel: «${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }
                      ↙ return to F1
 F1:102  12. helper   taskRowView()  — returns { label: packed.task.title.trim(), ownerLabel:…
 F1:113  13. alias    row  — = taskRowView(props.task, props.actor, props.…
@@ -415,7 +419,7 @@ Files:
 **Sink-family split**
 
 ```
-Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
+Object { task, owner: user, swatch: preferences.… feeds 2 sink families — split it:
   Style: style
   Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
 ```
@@ -443,7 +447,7 @@ after: JSX reads a field of renderModel(...) — a short path instead of 14 hops
 - ownership: architectural fan-in
 - queue: central-leverage
 
-## WORK ITEM DF-006
+## WORK ITEM DF-006  ·  RPF-030-09
 Simplify task={...} in src/DashboardShell.tsx
 
 **Review summary**
@@ -484,7 +488,7 @@ F2:7    5. default  props.selectedTaskId ?? «props.tasks[0]?.id»
 F2:7    6. default  «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"
                     ▸ boundary: extract the defaults & normalization above into a named boundary memo
 F2:12   7. alias    selectedTaskId  — = props.selectedTaskId ?? props.tasks[0]?.id ?? "…
-F2:8    8. pack     …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…
+F2:8    8. pack     …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: ${props.user.nam…
                     ↙ return to F1
 F1:5    9. helper   buildRouteModel()  — returns { actor: props.user, visibleTasks: props.tasks,…
 F1:6   10. alias    route  — = buildRouteModel(props)
@@ -522,7 +526,7 @@ after: JSX reads a field of renderModel(...) — a short path instead of 13 hops
 - ownership: architectural fan-in
 - queue: central-leverage
 
-## WORK ITEM DF-007
+## WORK ITEM DF-007  ·  RPF-012-07
 Simplify data-theme={...} in src/DashboardShell.tsx
 
 **Review summary**
@@ -562,7 +566,7 @@ F2:7    4. read?    id
 F2:7    5. default  props.selectedTaskId ?? «props.tasks[0]?.id»
 F2:7    6. default  «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"
 F2:12   7. alias    selectedTaskId  — = props.selectedTaskId ?? props.tasks[0]?.id ?? "…
-F2:8    8. pack     …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…
+F2:8    8. pack     …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: ${props.user.nam…
                     ↙ return to F1
 F1:5    9. helper   buildRouteModel()  — returns { actor: props.user, visibleTasks: props.tasks,…
 F1:12  10. alias    route  — = buildRouteModel(props)
@@ -600,7 +604,7 @@ after: JSX reads a field of renderModel(...) — a short path instead of 13 hops
 - ownership: architectural fan-in
 - queue: central-leverage
 
-## WORK ITEM DF-008
+## WORK ITEM DF-008  ·  RPF-013-07
 Simplify data-density={...} in src/DashboardShell.tsx
 
 **Review summary**
@@ -640,7 +644,7 @@ F2:7    4. read?    id
 F2:7    5. default  props.selectedTaskId ?? «props.tasks[0]?.id»
 F2:7    6. default  «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"
 F2:12   7. alias    selectedTaskId  — = props.selectedTaskId ?? props.tasks[0]?.id ?? "…
-F2:8    8. pack     …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…
+F2:8    8. pack     …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: ${props.user.nam…
                     ↙ return to F1
 F1:5    9. helper   buildRouteModel()  — returns { actor: props.user, visibleTasks: props.tasks,…
 F1:13  10. alias    route  — = buildRouteModel(props)
@@ -684,5 +688,5 @@ after: JSX reads a field of renderModel(...) — a short path instead of 13 hops
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view work-packets --max-items 8 --out examples/bad-ish-solid/reports/work-packets.md
+tsx-dataflow --root examples/bad-ish-solid --view all --max-items 8 --out examples/bad-ish-solid/reports
 ```

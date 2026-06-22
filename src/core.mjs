@@ -36,10 +36,15 @@ export const REPORT_VIEWS = [
   "boundary-report",
   "junctions",
   "inline-preview",
+  "hotspots",
 ];
 // `all` is a meta-view: build the report once and emit every concrete view.
 const ALL_VIEWS = "all";
-const VALID_VIEWS = new Set([...REPORT_VIEWS, ALL_VIEWS]);
+// `coverage` is an accepted alias for `hotspots` (normalized in parseArgs).
+const VALID_VIEWS = new Set([...REPORT_VIEWS, ALL_VIEWS, "coverage"]);
+
+// Selection lenses for the packet/finding views (Approach 6).
+const VALID_SORTS = new Set(["burden", "spread", "coverage", "quick-win"]);
 
 // Table-shaped views stay readable with more rows, so they default to a higher
 // item cap than the long prose reports (findings, work-packets, …), which get
@@ -53,6 +58,7 @@ const TABLE_VIEWS = new Set([
   "context-relay",
   "boundary-report",
   "junctions",
+  "hotspots",
 ]);
 const DEFAULT_TABLE_MAX_ITEMS = 12;
 const DEFAULT_REPORT_MAX_ITEMS = 5;
@@ -133,6 +139,20 @@ export function parseArgs(argv, defaults = {}) {
     // Resolved per-view after parsing unless the caller/CLI sets it explicitly.
     maxItems: defaults.maxItems ?? null,
     maxItemsExplicit: defaults.maxItems != null,
+    // Selection lens (Approach 6): how the packet/finding views pick from the
+    // burden ranking. `burden` reproduces today's pure worst-first sort.
+    sort: defaults.sort ?? "burden",
+    // MMR diversification knob (Approach 2): 0 = pure burden, 1 = maximize
+    // spread. Null means "off" (use --sort instead).
+    diversity: defaults.diversity ?? null,
+    // Hard diversity caps (Approach 1); null falls back to sane defaults only
+    // when spread/coverage selection is active.
+    perFile: defaults.perFile ?? null,
+    perFeature: defaults.perFeature ?? null,
+    // Collapse file-local sinks sharing a cause into one work unit (Approach 3).
+    units: defaults.units ?? false,
+    // Hotspots granularity (Approach 4): roll up by file or feature area.
+    by: defaults.by ?? "file",
     includeTests: defaults.includeTests ?? false,
     failOnRegression: defaults.failOnRegression ?? false,
     // Follow first-party imported helper calls into their definition files so
@@ -183,6 +203,27 @@ export function parseArgs(argv, defaults = {}) {
         args.maxItems = Number.parseInt(readValue(), 10);
         args.maxItemsExplicit = true;
         break;
+      case "--sort":
+        args.sort = readValue();
+        break;
+      case "--spread":
+        args.sort = "spread";
+        break;
+      case "--diversity":
+        args.diversity = Number.parseFloat(readValue());
+        break;
+      case "--per-file":
+        args.perFile = Number.parseInt(readValue(), 10);
+        break;
+      case "--per-feature":
+        args.perFeature = Number.parseInt(readValue(), 10);
+        break;
+      case "--units":
+        args.units = true;
+        break;
+      case "--by":
+        args.by = readValue();
+        break;
       case "--out":
         args.out = readValue();
         break;
@@ -220,6 +261,32 @@ export function parseArgs(argv, defaults = {}) {
     throw new Error(
       `--view must be one of: ${Array.from(VALID_VIEWS).join(", ")}`,
     );
+  }
+  // `coverage` is an alias for the hotspots roll-up view.
+  if (args.view === "coverage") args.view = "hotspots";
+  if (!VALID_SORTS.has(args.sort)) {
+    throw new Error(
+      `--sort must be one of: ${Array.from(VALID_SORTS).join(", ")}`,
+    );
+  }
+  if (args.by !== "file" && args.by !== "feature") {
+    throw new Error("--by must be file or feature");
+  }
+  if (
+    args.diversity != null &&
+    (!Number.isFinite(args.diversity) ||
+      args.diversity < 0 ||
+      args.diversity > 1)
+  ) {
+    throw new Error("--diversity must be between 0 and 1");
+  }
+  for (const [flag, value] of [
+    ["--per-file", args.perFile],
+    ["--per-feature", args.perFeature],
+  ]) {
+    if (value != null && (!Number.isFinite(value) || value < 1)) {
+      throw new Error(`${flag} must be a positive number`);
+    }
   }
   if (args.maxItems == null) {
     args.maxItems = defaultMaxItemsFor(args.view);
@@ -264,6 +331,18 @@ Options:
   --view <name>             Report view, or "all" for every view. Defaults to work-packets.
   --scope <value>           Limit report to a file, component, or symbol substring.
   --max-items <number>      Limit displayed findings or rows. Defaults to 20.
+  --sort <mode>             Selection lens for work-packets/findings:
+                            burden (default, worst-first), spread (diversity
+                            caps), coverage (one per file then fill), or
+                            quick-win (peripheral safe wins first).
+  --spread                  Shorthand for --sort spread.
+  --diversity <0..1>        MMR re-rank: 0 = pure burden, 1 = maximize spread.
+                            Overrides --sort when set.
+  --per-file <n>            Max packets from one file in spread mode (default 2).
+  --per-feature <n>         Max packets from one feature in spread mode (default 4).
+  --units                   Collapse file-local sinks that share a cause into
+                            one work unit ("fix once, N sinks improve").
+  --by <file|feature>       Hotspots roll-up granularity. Defaults to file.
   --baseline <path>         Compare against a prior JSON report.
   --fail-on-regression      Exit non-zero only when baseline comparison regresses.
   --out <path>              Write report to a file instead of stdout. With
@@ -414,6 +493,8 @@ function renderMarkdownView(report, args) {
       return renderJunctions(report, args);
     case "inline-preview":
       return renderInlinePreview(report, args);
+    case "hotspots":
+      return renderHotspots(report, args);
     default:
       return renderWorkPackets(report, args);
   }
@@ -480,6 +561,15 @@ function regenCommand(args, view) {
   if (Number.isFinite(args.maxItems))
     parts.push("--max-items", String(args.maxItems));
   if (args.scope) parts.push("--scope", shellQuote(args.scope));
+  // Echo selection lenses so a regenerated command reproduces the same spread.
+  if (args.sort && args.sort !== "burden") parts.push("--sort", args.sort);
+  if (args.diversity != null) parts.push("--diversity", String(args.diversity));
+  if (args.perFile != null) parts.push("--per-file", String(args.perFile));
+  if (args.perFeature != null)
+    parts.push("--per-feature", String(args.perFeature));
+  if (args.units) parts.push("--units");
+  if (view === "hotspots" && args.by && args.by !== "file")
+    parts.push("--by", args.by);
   if (args.format && args.format !== "markdown")
     parts.push("--format", args.format);
   if (args.includeTests) parts.push("--include-tests");
@@ -556,6 +646,11 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     filteredSinks.filter((sink) => sink.category !== "event-handler"),
   );
   const packGroups = computePackGroups(filteredSinks);
+  // Shared-cause work units (Approach 3) and the concentration profile
+  // (Approach 5) are pure roll-ups over the burden ranking; compute once so
+  // every view projects from the same data.
+  const workUnits = computeWorkUnits(rankings.all);
+  const concentration = computeConcentration(rankings.all);
   const helpers = buildHelperReport(ts, checker, crossFile, args, sourceFiles);
   const baseline = args.baseline
     ? compareBaseline(rankings, args.baseline)
@@ -580,6 +675,8 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     contextRelay,
     rankings,
     packGroups,
+    workUnits,
+    concentration,
     helpers,
     baseline,
     summary: summarize(filteredSinks, graph),
@@ -1808,13 +1905,321 @@ function rankSinks(sinks) {
   };
 }
 
+// --- Selection layer: depth vs. breadth -----------------------------------
+// `rankings.all` is a pure descending-burden sort, which clusters: a few heavy
+// files monopolize the top. These helpers re-select over that ranking to add
+// breadth — diversity caps (Approach 1), MMR (Approach 2), coverage round-robin
+// (Approach 6), or shared-cause work units (Approach 3) — without ever dropping
+// the single worst sink. Today's behavior is `--sort burden` (the default).
+
+const DEFAULT_PER_FILE = 2;
+const DEFAULT_PER_FEATURE = 4;
+
+// The primary actionable source ("pivot") and primary shape tag of a sink — the
+// redundancy/grouping keys shared by MMR and work-unit grouping.
+function primaryPivotOf(sink) {
+  const roots = fanOutRootsFor(sink);
+  return roots.length ? formatExpression(roots[0].label, 40) : null;
+}
+function primaryShapeOf(sink) {
+  return classifyPathShape(sink)[0] ?? "uncategorized";
+}
+
+// Approach 3 — collapse file-local sinks that share a cause into one work unit.
+// Two sinks join the same unit when they share a packed object (packs[].key) or
+// share BOTH their primary pivot and primary shape (so a geometry chain and a
+// leaky relay in the same file stay separate units — guarding the "don't
+// force-merge different fixes" risk). The representative is the highest-burden
+// member. Returned burden-sorted by representative.
+function computeWorkUnits(sinks) {
+  const byFile = new Map();
+  for (const sink of sinks) {
+    if (!byFile.has(sink.file)) byFile.set(sink.file, []);
+    byFile.get(sink.file).push(sink);
+  }
+  const units = [];
+  for (const fileSinks of byFile.values()) {
+    const groups = [];
+    for (const sink of fileSinks) {
+      const packKeys = new Set((sink.packs ?? []).map((pack) => pack.key));
+      const pivot = primaryPivotOf(sink);
+      const shape = primaryShapeOf(sink);
+      let group = groups.find(
+        (candidate) =>
+          [...packKeys].some((key) => candidate.packKeys.has(key)) ||
+          (pivot !== null &&
+            candidate.pivot === pivot &&
+            candidate.shape === shape),
+      );
+      if (!group) {
+        group = { sinks: [], packKeys: new Set(), pivot, shape };
+        groups.push(group);
+      }
+      group.sinks.push(sink);
+      for (const key of packKeys) group.packKeys.add(key);
+    }
+    for (const group of groups) {
+      const members = group.sinks
+        .slice()
+        .sort((left, right) => right.scores.burden - left.scores.burden);
+      units.push(makeWorkUnit(members[0], members));
+    }
+  }
+  return units.sort((left, right) => right.scores.burden - left.scores.burden);
+}
+
+// A work unit IS its representative sink (so every existing renderer keeps
+// working) plus a `.unit` block describing the sinks it covers.
+function makeWorkUnit(representative, members) {
+  const pivots = unique(
+    members.flatMap((member) =>
+      fanOutRootsFor(member).map((info) => formatExpression(info.label, 40)),
+    ),
+  ).slice(0, 4);
+  const causes = unique(
+    members.flatMap((member) =>
+      (member.representativeSteps ?? [])
+        .filter((step) => step.kind === "call")
+        .map((step) => formatExpression(step.label, 40)),
+    ),
+  ).slice(0, 4);
+  return {
+    ...representative,
+    unit: {
+      sinkCount: members.length,
+      members: members.map((member) => ({
+        id: member.id,
+        line: member.line,
+        label: formatExpression(member.label, 40),
+      })),
+      pivots,
+      causes,
+      shape: primaryShapeOf(representative),
+    },
+  };
+}
+
+// For each file with at least one shown item, how many of its ranked siblings
+// were NOT shown — the "+N more" collapsed tally that keeps the concentration
+// signal visible (the "don't hide the worst" risk).
+function suppressionFor(allItems, selected) {
+  const totalByFile = countBy(allItems.map((item) => item.file));
+  const selectedByFile = countBy(selected.map((item) => item.file));
+  const suppressed = new Map();
+  for (const [file, total] of Object.entries(totalByFile)) {
+    const shown = selectedByFile[file] ?? 0;
+    if (shown > 0 && total > shown) suppressed.set(file, total - shown);
+  }
+  return suppressed;
+}
+
+// Approach 1 — per-file / per-feature diversity caps. Walks the burden-sorted
+// list admitting an item only while its file and feature quotas have room.
+function selectSpread(items, args) {
+  const perFile = args.perFile ?? DEFAULT_PER_FILE;
+  const perFeature = args.perFeature ?? DEFAULT_PER_FEATURE;
+  const fileCount = new Map();
+  const featureCount = new Map();
+  const selected = [];
+  for (const item of items) {
+    if (selected.length >= args.maxItems) break;
+    const feature = featureKeyFor(item.file);
+    const fc = fileCount.get(item.file) ?? 0;
+    const ec = featureCount.get(feature) ?? 0;
+    if (fc < perFile && ec < perFeature) {
+      selected.push(item);
+      fileCount.set(item.file, fc + 1);
+      featureCount.set(feature, ec + 1);
+    }
+  }
+  return { selected, suppressed: suppressionFor(items, selected) };
+}
+
+// Approach 6 (coverage) — one item per file (best first) until every file is
+// represented or the list fills, then fill remaining slots by burden.
+function selectCoverage(items, args) {
+  const selected = [];
+  const chosen = new Set();
+  const seenFiles = new Set();
+  for (const item of items) {
+    if (selected.length >= args.maxItems) break;
+    if (!seenFiles.has(item.file)) {
+      selected.push(item);
+      chosen.add(item);
+      seenFiles.add(item.file);
+    }
+  }
+  for (const item of items) {
+    if (selected.length >= args.maxItems) break;
+    if (!chosen.has(item)) {
+      selected.push(item);
+      chosen.add(item);
+    }
+  }
+  return { selected, suppressed: suppressionFor(items, selected) };
+}
+
+// Approach 2 — Maximal Marginal Relevance. Greedily pick the item maximizing
+// burden − λ·redundancy, where redundancy rises when an item shares a file,
+// shape, or pivot with what is already selected. λ scales with --diversity.
+function selectMMR(items, args) {
+  const lambda = clamp01(args.diversity);
+  const maxBurden = Math.max(
+    0.0001,
+    ...items.map((item) => item.scores.burden),
+  );
+  const pool = items.slice();
+  const selected = [];
+  const fileCount = new Map();
+  const shapeCount = new Map();
+  const pivotCount = new Map();
+  while (selected.length < args.maxItems && pool.length > 0) {
+    const n = selected.length;
+    let bestIndex = 0;
+    let bestScore = -Infinity;
+    for (let index = 0; index < pool.length; index += 1) {
+      const item = pool[index];
+      const redundancy =
+        n === 0
+          ? 0
+          : 0.5 * ((fileCount.get(item.file) ?? 0) / n) +
+            0.25 * ((shapeCount.get(primaryShapeOf(item)) ?? 0) / n) +
+            0.25 * ((pivotCount.get(primaryPivotOf(item)) ?? 0) / n);
+      const score = item.scores.burden - lambda * maxBurden * redundancy;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    }
+    const [picked] = pool.splice(bestIndex, 1);
+    selected.push(picked);
+    fileCount.set(picked.file, (fileCount.get(picked.file) ?? 0) + 1);
+    const shape = primaryShapeOf(picked);
+    shapeCount.set(shape, (shapeCount.get(shape) ?? 0) + 1);
+    const pivot = primaryPivotOf(picked);
+    if (pivot) pivotCount.set(pivot, (pivotCount.get(pivot) ?? 0) + 1);
+  }
+  return { selected, suppressed: suppressionFor(items, selected) };
+}
+
+// The selection used by the packet/finding views. Picks the unit/sink list per
+// --units + --sort + --diversity, never dropping the worst item. Returns the
+// chosen items, the suppression tally, and the resolved mode for the banner.
+function selectWorkItems(report, args) {
+  const mode = args.sort ?? "burden";
+  const useUnits = Boolean(args.units) && mode !== "quick-win";
+  let pool = useUnits ? report.workUnits : report.rankings.all;
+
+  if (mode === "quick-win") {
+    const quickIds = new Set(report.rankings.quickWins.map((sink) => sink.id));
+    pool = report.rankings.quickWins.concat(
+      report.rankings.all.filter((sink) => !quickIds.has(sink.id)),
+    );
+  }
+
+  let result;
+  if (args.diversity != null) {
+    result = selectMMR(pool, args);
+  } else if (mode === "spread") {
+    result = selectSpread(pool, args);
+  } else if (mode === "coverage") {
+    result = selectCoverage(pool, args);
+  } else {
+    result = { selected: pool.slice(0, args.maxItems), suppressed: new Map() };
+  }
+  return { ...result, useUnits, mode };
+}
+
+// A one-line banner describing the active selection mode (omitted for the
+// default burden sort so today's output is unchanged at the top).
+function selectionBanner(selection, args) {
+  if (args.diversity != null) {
+    return `_Ranked by burden, diversified (--diversity ${args.diversity}). Redundant siblings deferred._`;
+  }
+  switch (selection.mode) {
+    case "spread":
+      return `_Spread mode: ≤${args.perFile ?? DEFAULT_PER_FILE} per file, ≤${args.perFeature ?? DEFAULT_PER_FEATURE} per feature. ${selection.selected.length} shown across ${plural(new Set(selection.selected.map((item) => item.file)).size, "file")}._`;
+    case "coverage":
+      return "_Sort: coverage — at most one packet per file until every file is represented, then fill remaining slots by burden._";
+    case "quick-win":
+      return "_Sort: quick-win — peripheral, high-confidence, low-change-risk sinks first._";
+    default:
+      return null;
+  }
+}
+
+// The collapsed "still hot" note for cap-demoted siblings (Approach 1).
+function suppressionLines(suppressed) {
+  if (!suppressed || suppressed.size === 0) return [];
+  const parts = Array.from(suppressed.entries())
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 6)
+    .map(([file, count]) => `${file.split("/").at(-1)} +${count}`);
+  return [
+    `_Suppressed (still hot, shown collapsed): ${parts.join(", ")} — see \`--view hotspots\` for the full count._`,
+    "",
+  ];
+}
+
+// Approach 5 — quantify how concentrated the ranked burden is, so the clustering
+// the user noticed becomes a reported fact rather than a surprise.
+function computeConcentration(sinks) {
+  const burdenByFile = new Map();
+  const countByFile = new Map();
+  let total = 0;
+  for (const sink of sinks) {
+    total += sink.scores.burden;
+    burdenByFile.set(
+      sink.file,
+      (burdenByFile.get(sink.file) ?? 0) + sink.scores.burden,
+    );
+    countByFile.set(sink.file, (countByFile.get(sink.file) ?? 0) + 1);
+  }
+  const fileBurdens = Array.from(burdenByFile.values()).sort(
+    (left, right) => right - left,
+  );
+  const frac = (n) =>
+    total > 0
+      ? fileBurdens.slice(0, n).reduce((sum, value) => sum + value, 0) / total
+      : 0;
+  return {
+    fileCount: burdenByFile.size,
+    sinkCount: sinks.length,
+    totalBurden: total,
+    top5: frac(5),
+    top9: frac(9),
+    hot4Plus: Array.from(countByFile.values()).filter((count) => count >= 4)
+      .length,
+  };
+}
+
+// Approach 5 — the "Coverage" paragraph shown in the packet/repair-map headers.
+function concentrationLines(report, shownCount) {
+  const concentration = report.concentration;
+  if (!concentration || concentration.fileCount === 0) return [];
+  const pct = (value) => `${Math.round(value * 100)}%`;
+  const topFiles = Math.min(5, concentration.fileCount);
+  let sentence =
+    `_${shownCount} shown. Ranked burden is concentrated: top ${plural(topFiles, "file")} = ${pct(concentration.top5)}`;
+  if (concentration.fileCount > 9) sentence += `, top 9 = ${pct(concentration.top9)}`;
+  sentence += `. ${plural(concentration.fileCount, "file")} ${concentration.fileCount === 1 ? "carries" : "carry"} ≥1 finding`;
+  if (concentration.hot4Plus > 0)
+    sentence += `, ${concentration.hot4Plus} have ≥4`;
+  sentence += ". Use --spread / --diversity to widen, or `--view hotspots` for the full per-file map._";
+  return ["**Coverage**", "", sentence, ""];
+}
+
 function renderFindings(report, args) {
-  const sinks = report.rankings.all.slice(0, args.maxItems);
+  const selection = selectWorkItems(report, { ...args, units: false });
+  const sinks = selection.selected;
   const lines = [
     "# Render-Path Findings",
     "",
     ...viewIntro("findings", report),
   ];
+  const banner = selectionBanner(selection, args);
+  if (banner) lines.push(banner, "");
+  lines.push(...suppressionLines(selection.suppressed));
   for (const sink of sinks) {
     lines.push(`## ${sink.id} · ${severityFor(sink)} · ${findingTitle(sink)}`);
     lines.push(`${sink.file}:${sink.line}`);
@@ -1922,18 +2327,49 @@ function actionableSourceLabels(sink, max = 6) {
 }
 
 function renderWorkPackets(report, args) {
-  const sinks = report.rankings.all.slice(0, args.maxItems);
+  const selection = selectWorkItems(report, args);
+  const sinks = selection.selected;
   const lines = [
     "# Render-Path Data-Flow Work Packets",
     "",
     ...viewIntro("work-packets", report),
   ];
+  const banner = selectionBanner(selection, args);
+  if (banner) lines.push(banner, "");
+  lines.push(...suppressionLines(selection.suppressed));
   appendFeatureClusters(lines, report, args);
+  lines.push(...concentrationLines(report, sinks.length));
+  const itemKind = selection.useUnits ? "WORK UNIT" : "WORK ITEM";
   sinks.forEach((sink, index) => {
     const group = overpackedGroupForSink(sink, report.packGroups);
-    lines.push(`## WORK ITEM DF-${String(index + 1).padStart(3, "0")}`);
+    lines.push(
+      `## ${itemKind} DF-${String(index + 1).padStart(3, "0")}  ·  ${sink.id}`,
+    );
     lines.push(`Simplify ${formatExpression(sink.label, 80)} in ${sink.file}`);
     lines.push("");
+    if (selection.useUnits && sink.unit && sink.unit.sinkCount > 1) {
+      lines.push(
+        `**Unit impact** — fix once, ${sink.unit.sinkCount} sinks in this file improve.`,
+      );
+      lines.push("");
+      lines.push(
+        ...formatMarkdownTable(
+          ["sinks improved", "shared pivot", "shared cause"],
+          [
+            [
+              String(sink.unit.sinkCount),
+              sink.unit.pivots.join(", ") || "—",
+              sink.unit.causes.join(", ") || "—",
+            ],
+          ],
+        ),
+      );
+      lines.push("");
+      lines.push(
+        `covers: ${sink.unit.members.map((member) => `${member.label} (L${member.line})`).join(", ")}`,
+      );
+      lines.push("");
+    }
     lines.push("**Review summary**");
     lines.push("");
     lines.push(reviewerSummaryFor(sink, group));
@@ -2221,6 +2657,7 @@ function renderContextRelay(report, args) {
 function renderRepairMap(report, args) {
   const lines = ["# Repair Map", "", ...viewIntro("repair-map", report)];
   appendFeatureClusters(lines, report, args);
+  lines.push(...concentrationLines(report, report.rankings.all.length));
   for (const [heading, sinks] of [
     ["Peripheral quick wins", report.rankings.quickWins],
     ["Central leverage", report.rankings.centralLeverage],
@@ -2239,6 +2676,107 @@ function renderRepairMap(report, args) {
   }
   appendBaseline(lines, report);
   return `${lines.join("\n")}\n`;
+}
+
+// Concise "suggested first cut" per shape — the headline action for a hotspot.
+const SHAPE_FIRST_CUT = {
+  "geometry-chain": "extract geometry model",
+  "collection-render-model": "extract item models",
+  "control-flow-gate": "name the predicate",
+  "presentation-pack": "split the class/style object",
+  "domain-normalization": "normalize at the boundary",
+  "cross-component-relay": "move state behind context",
+};
+
+function firstCutFor(sink) {
+  if (!sink) return "—";
+  return SHAPE_FIRST_CUT[primaryShapeOf(sink)] ?? "local boundary cleanup";
+}
+
+// The most common value in a list (for dominant shape/ownership columns).
+function modalValue(values) {
+  const counts = countBy(values);
+  const entries = Object.entries(counts).sort((left, right) => right[1] - left[1]);
+  return entries[0]?.[0] ?? "—";
+}
+
+// Approach 4 — aggregate the burden ranking into one row per file (or feature
+// area). The breadth map: every place with a finding appears once.
+function hotspotGroups(report, by) {
+  const groups = new Map();
+  for (const sink of report.rankings.all) {
+    const key = by === "feature" ? featureKeyFor(sink.file) : sink.file;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        count: 0,
+        worst: 0,
+        sumBurden: 0,
+        maxReach: 0,
+        shapes: [],
+        ownership: [],
+        worstSink: null,
+      };
+      groups.set(key, group);
+    }
+    group.count += 1;
+    group.sumBurden += sink.scores.burden;
+    if (sink.scores.burden > group.worst) {
+      group.worst = sink.scores.burden;
+      group.worstSink = sink;
+    }
+    group.maxReach = Math.max(group.maxReach, sink.metrics.reachableSinks);
+    group.shapes.push(primaryShapeOf(sink));
+    group.ownership.push(ownershipHintFor(sink));
+  }
+  return Array.from(groups.values()).sort(
+    (left, right) =>
+      right.sumBurden - left.sumBurden || right.worst - left.worst,
+  );
+}
+
+// Approach 4 — the Hotspots view. One row per file/feature so the spread of
+// work is visible at a glance, with a Concentration footer (Approach 5).
+function renderHotspots(report, args) {
+  const by = args.by === "feature" ? "feature" : "file";
+  const groups = hotspotGroups(report, by);
+  const shown = groups.slice(0, args.maxItems);
+  const columnLabel = by === "feature" ? "Feature" : "File";
+  const rows = shown.map((group) => [
+    group.key,
+    String(group.count),
+    group.worst.toFixed(2),
+    modalValue(group.shapes),
+    modalValue(group.ownership),
+    firstCutFor(group.worstSink),
+  ]);
+  const lines = tableReport(
+    `Hotspots  (by ${by})`,
+    [columnLabel, "Hotspots", "Worst", "Dominant shape", "Ownership", "First cut"],
+    rows,
+    viewIntro("hotspots", report),
+  ).split("\n");
+
+  const concentration = report.concentration;
+  if (concentration && concentration.fileCount > 0) {
+    lines.push("## Concentration");
+    lines.push("");
+    const topN = Math.min(5, concentration.fileCount);
+    lines.push(
+      `- Top ${plural(topN, "file")} hold${topN === 1 ? "s" : ""} ${Math.round(concentration.top5 * 100)}% of total ranked burden.`,
+    );
+    lines.push(
+      `- ${plural(concentration.fileCount, "file")} ${concentration.fileCount === 1 ? "has" : "have"} ≥1 finding; ${concentration.hot4Plus} ${concentration.hot4Plus === 1 ? "has" : "have"} ≥4.`,
+    );
+    if (groups.length > shown.length) {
+      lines.push(
+        `- ${groups.length} ${by}s total; showing the top ${shown.length} by burden (raise --max-items for more).`,
+      );
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
 }
 
 // Approach 2 — classify every function reached on a render path as a data-flow
@@ -3063,6 +3601,11 @@ function ownershipHintFor(sink) {
   return "local component cleanup";
 }
 
+// "1 file" / "3 files" — pluralize a count noun for prose.
+function plural(count, noun) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 // Oxford-comma join for short prose lists.
 function joinList(items) {
   if (items.length <= 1) return items.join("");
@@ -3090,6 +3633,23 @@ function selectViewPayload(report, args) {
     )
       ? (report.helpers ?? []).slice(0, args.maxItems)
       : undefined,
+    hotspots:
+      args.view === "hotspots"
+        ? hotspotGroups(report, args.by === "feature" ? "feature" : "file")
+            .slice(0, args.maxItems)
+            .map((group) => ({
+              key: group.key,
+              count: group.count,
+              worst: Number(group.worst.toFixed(3)),
+              sumBurden: Number(group.sumBurden.toFixed(3)),
+              maxReach: group.maxReach,
+              dominantShape: modalValue(group.shapes),
+              ownership: modalValue(group.ownership),
+              firstCut: firstCutFor(group.worstSink),
+            }))
+        : undefined,
+    concentration:
+      args.view === "hotspots" ? report.concentration : undefined,
     baseline: report.baseline,
   };
 }
@@ -3718,6 +4278,12 @@ const VIEW_BLURBS = {
     "(or lengthens) if the helper were folded in, plus a verdict. INLINE removes a " +
     "needless hop; KEEP/FORMALIZE means the helper consolidates real work. Proposes, " +
     "never rewrites.",
+  hotspots:
+    "The breadth map: one row per file (or per feature with --by feature) that has " +
+    "render-path findings, so the spread of work is visible at a glance. _Hotspots_ " +
+    "is the finding count, _Worst_ the heaviest burden, _Dominant shape_/_Ownership_ " +
+    "the most common path shape and ownership hint, and _First cut_ the suggested " +
+    "starting action. The Concentration footer quantifies how clustered the work is.",
 };
 
 // Render a GitHub-flavored Markdown table with prettier-style column alignment:
@@ -3782,10 +4348,13 @@ function code(value) {
 // A fenced code block for the indented (prose) renderers. In GitHub-flavored
 // Markdown a 2-space indent does NOT create a code block, so aligned metric
 // columns and multi-line expressions collapse into re-wrapped prose. Fencing the
-// monospace payload preserves alignment and lets backtick-containing expressions
-// render literally. `content` is one entry per line (already one-lined).
+// monospace payload preserves alignment. `content` is one entry per line
+// (already one-lined). Backticks are stripped from the payload: everything in
+// the block is already monospace, so a template literal's source backticks
+// (`` `link-${id}` ``) read as stray markdown ticks rather than signal — and a
+// stray "```" line would otherwise close the fence early.
 function fenced(content) {
-  return ["```", ...content, "```"];
+  return ["```", ...content.map((line) => String(line).replaceAll("`", "")), "```"];
 }
 
 // Collapse an expression/path-step/label to a single line and truncate on a

@@ -25,5 +25,5 @@ verdict: KEEP — genuine transformation (1 callers, internal depth 8); inlining
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view inline-preview --max-items 8 --out examples/bad-ish-solid/reports/inline-preview.md
+tsx-dataflow --root examples/bad-ish-solid --view all --max-items 8 --out examples/bad-ish-solid/reports
 ```

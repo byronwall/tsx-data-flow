@@ -59,8 +59,8 @@ helper hops on this path: 1
 -> task  [property-read]
 -> estimateHours  [property-read]
 -> «packed.task.estimateHours» ?? 0  [fallback]
--> `${«packed.task.estimateHours ?? 0»}h`  [template]
--> … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }  [object-pack]
+-> ${«packed.task.estimateHours ?? 0»}h  [template]
+-> … "normal", estimateLabel: «${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }  [object-pack]
 -> taskRowView  [call]
 -> row  [alias]
 -> label  [property-read]
@@ -126,8 +126,8 @@ helper hops on this path: 1
 -> task  [property-read]
 -> estimateHours  [property-read]
 -> «packed.task.estimateHours» ?? 0  [fallback]
--> `${«packed.task.estimateHours ?? 0»}h`  [template]
--> … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }  [object-pack]
+-> ${«packed.task.estimateHours ?? 0»}h  [template]
+-> … "normal", estimateLabel: «${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }  [object-pack]
 -> taskRowView  [call]
 -> row  [alias]
 -> ownerLabel  [property-read]
@@ -144,7 +144,7 @@ src/DashboardShell.tsx:107
 **Sink**
 
 ```
-`--accent:${row.swatch}`
+--accent:${row.swatch}
 ```
 
 **Source**
@@ -192,12 +192,12 @@ helper hops on this path: 1
 -> task  [property-read]
 -> estimateHours  [property-read]
 -> «packed.task.estimateHours» ?? 0  [fallback]
--> `${«packed.task.estimateHours ?? 0»}h`  [template]
--> … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }  [object-pack]
+-> ${«packed.task.estimateHours ?? 0»}h  [template]
+-> … "normal", estimateLabel: «${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }  [object-pack]
 -> taskRowView  [call]
 -> row  [alias]
 -> swatch  [property-read]
--> `--accent:${«row.swatch»}`  [template]
+-> --accent:${«row.swatch»}  [template]
 ```
 
 **Finding**
@@ -258,8 +258,8 @@ helper hops on this path: 1
 -> task  [property-read]
 -> estimateHours  [property-read]
 -> «packed.task.estimateHours» ?? 0  [fallback]
--> `${«packed.task.estimateHours ?? 0»}h`  [template]
--> … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }  [object-pack]
+-> ${«packed.task.estimateHours ?? 0»}h  [template]
+-> … "normal", estimateLabel: «${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }  [object-pack]
 -> taskRowView  [call]
 -> row  [alias]
 -> priorityLabel  [property-read]
@@ -323,8 +323,8 @@ helper hops on this path: 1
 -> task  [property-read]
 -> estimateHours  [property-read]
 -> «packed.task.estimateHours» ?? 0  [fallback]
--> `${«packed.task.estimateHours ?? 0»}h`  [template]
--> … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }  [object-pack]
+-> ${«packed.task.estimateHours ?? 0»}h  [template]
+-> … "normal", estimateLabel: «${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }  [object-pack]
 -> taskRowView  [call]
 -> row  [alias]
 -> estimateLabel  [property-read]
@@ -388,7 +388,7 @@ helper hops on this path: 2
 -> props.selectedTaskId ?? «props.tasks[0]?.id»  [fallback]
 -> «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"  [fallback]
 -> selectedTaskId  [alias]
--> …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…  [object-pack]
+-> …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: ${props.user.nam…  [object-pack]
 -> buildRouteModel  [call]
 -> route  [alias]
 -> visibleTasks  [property-read]
@@ -454,7 +454,7 @@ helper hops on this path: 1
 -> props.selectedTaskId ?? «props.tasks[0]?.id»  [fallback]
 -> «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"  [fallback]
 -> selectedTaskId  [alias]
--> …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…  [object-pack]
+-> …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: ${props.user.nam…  [object-pack]
 -> buildRouteModel  [call]
 -> route  [alias]
 -> toolbar  [property-read]
@@ -520,7 +520,7 @@ helper hops on this path: 1
 -> props.selectedTaskId ?? «props.tasks[0]?.id»  [fallback]
 -> «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"  [fallback]
 -> selectedTaskId  [alias]
--> …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…  [object-pack]
+-> …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: ${props.user.nam…  [object-pack]
 -> buildRouteModel  [call]
 -> route  [alias]
 -> toolbar  [property-read]
@@ -538,5 +538,5 @@ A nullish fallback or optional access is unreachable under the checked TypeScrip
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view findings --max-items 8 --out examples/bad-ish-solid/reports/findings.md
+tsx-dataflow --root examples/bad-ish-solid --view all --max-items 8 --out examples/bad-ish-solid/reports
 ```

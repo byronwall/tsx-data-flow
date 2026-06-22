@@ -14,5 +14,5 @@
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view junctions --max-items 8 --out examples/bad-ish-solid/reports/junctions.md
+tsx-dataflow --root examples/bad-ish-solid --view all --max-items 8 --out examples/bad-ish-solid/reports
 ```
