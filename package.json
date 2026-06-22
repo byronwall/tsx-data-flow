@@ -1,0 +1,42 @@
+{
+  "name": "tsx-data-flow",
+  "version": "0.1.0",
+  "description": "Static render-path data-flow analyzer for TypeScript/TSX (Solid/SolidStart-aware) UI code. Builds a typed graph from source values to JSX render sinks and ranks high-leverage cleanup work.",
+  "type": "module",
+  "bin": {
+    "tsx-dataflow": "bin/tsx-dataflow.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "skills",
+    "docs",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "analyze": "node bin/tsx-dataflow.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "typescript",
+    "tsx",
+    "solid",
+    "solidstart",
+    "static-analysis",
+    "data-flow",
+    "render-path",
+    "refactoring",
+    "cli"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "typescript": "^5.4.0"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0"
+  }
+}
