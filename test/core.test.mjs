@@ -896,6 +896,24 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(output).toContain("compatibility (optional)");
   });
 
+  it("dedupes a defense across reachable sinks into one row with a Sinks count", async () => {
+    const project = await createFixtureProject({
+      "src/Fanout.tsx": `
+        export function Button(props: { size?: string }) {
+          const size = props.size ?? "default";
+          return <button class={size} data-size={size}>{size}</button>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, { ...project.args, view: "defensive-ledger", format: "markdown" });
+
+    expect(output).toContain("Sinks");
+    // The single `?? "default"` fallback reaches multiple JSX sinks but appears once.
+    const occurrences = output.split('props.size ?? "default"').length - 1;
+    expect(occurrences).toBe(1);
+  });
+
   it("diffs a baseline into removed/improved/regressed/new-top (Phase 10)", async () => {
     const project = await createFixtureProject({
       "src/Diff.tsx": `

@@ -2599,21 +2599,32 @@ function renderTransformationLedger(report) {
 }
 
 function renderDefensiveLedger(report, args) {
-  const defenses = report.sinks.flatMap((sink) =>
-    sink.defenses.map((defense) => [sink, defense]),
-  );
-  const rows = defenses
+  // One defense can reach many sinks (e.g. a `size` fallback that drives several
+  // JSX outputs), so the same guard would otherwise repeat once per reachable
+  // sink. Dedupe by location+expression and surface the fan-out as a count so
+  // the breadth is preserved without wasting rows on identical entries.
+  const byKey = new Map();
+  for (const sink of report.sinks) {
+    for (const defense of sink.defenses) {
+      const key = `${sink.file}:${defense.location.line}|${defense.expression}`;
+      const existing = byKey.get(key);
+      if (existing) existing.count += 1;
+      else byKey.set(key, { sink, defense, count: 1 });
+    }
+  }
+  const rows = [...byKey.values()]
     .slice(0, args.maxItems)
-    .map(([sink, defense]) => [
+    .map(({ sink, defense, count }) => [
       `${sink.file}:${defense.location.line}`,
       code(formatExpression(defense.expression)),
       code(defense.type),
+      String(count),
       defense.verdict,
       defense.origin ?? "—",
     ]);
   return tableReport(
     "Defensive Logic",
-    ["Location", "Expression", "Type", "Verdict", "Origin"],
+    ["Location", "Expression", "Type", "Sinks", "Verdict", "Origin"],
     rows,
     viewIntro("defensive-ledger", report),
   );
