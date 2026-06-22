@@ -314,6 +314,7 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
   }
 
   const filteredSinks = applyScope(sinks, args.scope);
+  groundReachability(filteredSinks);
   const contextRelay = applyContextRelayScope(
     analyzeContextRelay(ts, sourceFiles, args.root),
     args.scope,
@@ -538,8 +539,13 @@ function traceIdentifier(ts, checker, graph, expression, context) {
     return addOperationTrace(ts, graph, "alias", expression, [trace], { label: name });
   }
 
-  const unknown = !context.parameters.has(name) && !declaration;
-  return sourceTrace(graph, expression, unknown ? "unknown-source" : "source", name, unknown);
+  const isParameter = context.parameters.has(name);
+  const unknown = !isParameter && !declaration;
+  // Track the root kind separately from the graph node kind: a bare parameter
+  // object (e.g. `props`) is too coarse to be one fan-out "source", so we tag
+  // it `parameter` and let property reads off it refine into concrete sources.
+  const rootKind = unknown ? "unknown-source" : isParameter ? "parameter" : "source";
+  return sourceTrace(graph, expression, unknown ? "unknown-source" : "source", name, unknown, rootKind);
 }
 
 function traceAccessor(ts, checker, graph, expression, accessor, context) {
@@ -574,6 +580,19 @@ function tracePropertyAccess(ts, checker, graph, expression, context) {
   const operation = addOperationTrace(ts, graph, kind, expression, [receiverTrace], {
     label: expression.name.text,
   });
+  // Refine the first concrete property read off a bare parameter into a
+  // qualified root (`props` -> `props.meta`). `props` alone is too coarse to
+  // rank as one source; the property read is the value that actually fans out.
+  if (
+    ts.isIdentifier(expression.expression) &&
+    receiverTrace.rootInfos?.length === 1 &&
+    receiverTrace.rootInfos[0].kind === "parameter" &&
+    receiverTrace.rootInfos[0].label === expression.expression.text
+  ) {
+    const qualified = `${expression.expression.text}.${expression.name.text}`;
+    operation.rootInfos = [{ label: qualified, kind: "prop-read" }];
+    operation.roots = [qualified];
+  }
   if (expression.questionDotToken) {
     operation.defenses.push(defenseRecord(ts, checker, expression.expression, expression, kind));
   }
@@ -654,29 +673,43 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
     type: safeTypeText(options.type),
   });
   const edges = [];
-  const roots = [];
+  const rootInfos = [];
   const defenses = [];
   let longest = [label];
   for (const trace of traces.filter(Boolean)) {
     addEdge(graph, trace.lastNodeId, node.id, kind, expression, options.unknown);
     edges.push(...trace.edges, kind);
-    roots.push(...trace.roots);
+    rootInfos.push(...(trace.rootInfos ?? trace.roots.map((root) => ({ label: root, kind: "source" }))));
     defenses.push(...trace.defenses);
     if (trace.longestPath.length + 1 > longest.length) {
       longest = [...trace.longestPath, label];
     }
   }
-  if (traces.length === 0) roots.push(label);
+  if (traces.length === 0) rootInfos.push({ label, kind: "operation" });
+  const dedupedRoots = uniqueRootInfos(rootInfos);
   return {
     lastNodeId: node.id,
-    roots: unique(roots),
+    roots: dedupedRoots.map((root) => root.label),
+    rootInfos: dedupedRoots,
     edges,
     defenses,
     longestPath: longest,
   };
 }
 
-function sourceTrace(graph, expression, kind, label, unknown) {
+// Deduplicate root descriptors by label, keeping the first (most specific)
+// kind seen. Sources are tracked with their node kind so reports can filter
+// out literal/primitive roots that are not actionable "sources".
+function uniqueRootInfos(rootInfos) {
+  const seen = new Map();
+  for (const info of rootInfos) {
+    if (!info || !info.label) continue;
+    if (!seen.has(info.label)) seen.set(info.label, info);
+  }
+  return Array.from(seen.values());
+}
+
+function sourceTrace(graph, expression, kind, label, unknown, rootKind = kind) {
   const node = addNode(graph, {
     kind,
     label,
@@ -687,6 +720,7 @@ function sourceTrace(graph, expression, kind, label, unknown) {
   return {
     lastNodeId: node.id,
     roots: [label],
+    rootInfos: [{ label, kind: rootKind }],
     edges: [],
     defenses: [],
     longestPath: [label],
@@ -708,6 +742,7 @@ function buildSinkRecord(ts, checker, sourceFile, node, sinkExpression, trace, s
     expression: sinkExpression.expression.getText(),
     type: safeTypeText(checker.typeToString(checker.getTypeAtLocation(sinkExpression.expression))),
     roots: trace.roots,
+    rootInfos: trace.rootInfos ?? trace.roots.map((root) => ({ label: root, kind: "source" })),
     representativePath: trace.longestPath,
     nodeId: sinkNode.id,
     metrics,
@@ -737,10 +772,45 @@ function metricsFor(trace) {
     impossibleDefenseCount,
     controlDependencyCount: edgeCounts.conditional ?? 0,
     mergeWidth: trace.roots.length,
-    sourceDispersion: trace.roots.length,
+    // True downstream reach is a whole-report property (how many sinks this
+    // sink's sources also feed), so it cannot be known from a single trace.
+    // Seeded to 1 here and filled in by groundReachability once all sinks exist.
+    reachableSinks: 1,
     repeatedNormalization: Math.max(0, defensiveOperationCount - 1),
     unknownEdgeCount,
   };
+}
+
+// Whole-graph grounding pass. The trace graph does not deduplicate nodes across
+// sinks, so downstream reach cannot be read off the raw graph per source node.
+// Instead aggregate by source identity (label): a source's reach is the number
+// of distinct render sinks its actionable roots feed. Each sink then inherits
+// the reach of its most-central source. This replaces the former constant base
+// reach in centralityScore and the hardcoded `reachable sinks: 1`.
+function groundReachability(sinks) {
+  const reachByRoot = new Map();
+  for (const sink of sinks) {
+    for (const info of fanOutRootsFor(sink)) {
+      reachByRoot.set(info.label, (reachByRoot.get(info.label) ?? 0) + 1);
+    }
+  }
+  for (const sink of sinks) {
+    let reach = 1;
+    for (const info of fanOutRootsFor(sink)) {
+      reach = Math.max(reach, reachByRoot.get(info.label) ?? 1);
+    }
+    sink.metrics.reachableSinks = reach;
+  }
+  // Queues depend on reach, so finalize them here (buildSinkRecord runs before
+  // grounding). The central-leverage cutoff is the report's own top reach
+  // quartile rather than a fixed magic number: it adapts to codebase size and
+  // keeps central-leverage a meaningful minority. The floor of 3 means a sink
+  // must feed at least three render sinks to qualify on small/flat projects.
+  const reaches = sinks.map((sink) => sink.metrics.reachableSinks).sort((a, b) => a - b);
+  const reachThreshold = Math.max(3, percentile(reaches, 0.75));
+  for (const sink of sinks) {
+    sink.queue = queueFor(sink.metrics, sink.defenses, reachThreshold);
+  }
 }
 
 function defenseRecord(ts, checker, guardedExpression, node, operation) {
@@ -826,7 +896,7 @@ function renderFindings(report, args) {
     lines.push(`  representation changes:     ${sink.metrics.representationChurn}`);
     lines.push(`  defensive operations:       ${sink.metrics.defensiveOperationCount}`);
     lines.push(`  impossible defenses:        ${sink.metrics.impossibleDefenseCount}`);
-    lines.push(`  downstream sink count:      1`);
+    lines.push(`  downstream sink count:      ${sink.metrics.reachableSinks}`);
     lines.push(`  centrality percentile:      ${Math.round(sink.scores.centrality * 100)}`);
     lines.push(`  analysis confidence:        ${sink.confidence}%`);
     lines.push("");
@@ -852,8 +922,8 @@ function renderWorkPackets(report, args) {
     lines.push("Scope");
     lines.push(`  pivot:             ${sink.roots[0] ?? "unknown"}`);
     lines.push(`  files:             1`);
-    lines.push(`  components:        ${Math.max(1, sink.metrics.sourceDispersion)}`);
-    lines.push(`  reachable sinks:   1`);
+    lines.push(`  components:        ${Math.max(1, sink.metrics.mergeWidth)}`);
+    lines.push(`  reachable sinks:   ${sink.metrics.reachableSinks}`);
     lines.push(`  confidence:        ${sink.confidence}%`);
     lines.push("");
     lines.push("Why this was selected");
@@ -892,7 +962,7 @@ function renderDossier(report) {
     "",
     "Primary pivot",
     `  ${topSink?.roots[0] ?? "none"}`,
-    `  sink reach: ${topSink ? 1 : 0}`,
+    `  sink reach: ${topSink ? topSink.metrics.reachableSinks : 0}`,
     `  burden score: ${topSink ? topSink.scores.burden.toFixed(2) : "0.00"}`,
     "",
   ].join("\n");
@@ -980,7 +1050,7 @@ function renderDefensiveLedger(report, args) {
 function renderPropRelay(report, args) {
   const rows = report.rankings.all.slice(0, args.maxItems).map((sink) => [
     `${sink.file}:${sink.line}`,
-    String(Math.max(0, sink.metrics.sourceDispersion - 1)),
+    String(Math.max(0, sink.metrics.mergeWidth - 1)),
     String(sink.metrics.representationChurn),
     sink.metrics.helperHops === 0 ? "pure data relay" : "transformed relay",
   ]);
@@ -1117,7 +1187,7 @@ function candidateEditsFor(sink) {
 function isProviderContextCandidate(sink) {
   return (
     hasContextHookRoot(sink) ||
-    sink.metrics.sourceDispersion > 2 ||
+    sink.metrics.reachableSinks > 5 ||
     sink.metrics.maximumPathDepth > 10 ||
     (sink.metrics.representationChurn > 1 && sink.metrics.mergeWidth > 1)
   );
@@ -1282,11 +1352,11 @@ function summarize(sinks, graph) {
 function fanOutRows(sinks) {
   return Object.entries(
     sinks.reduce((acc, sink) => {
-      for (const root of sink.roots) {
-        acc[root] ??= { sinks: 0, components: new Set(), operations: 0 };
-        acc[root].sinks += 1;
-        acc[root].components.add(sink.file);
-        acc[root].operations += sink.metrics.sliceSize;
+      for (const info of fanOutRootsFor(sink)) {
+        acc[info.label] ??= { sinks: 0, components: new Set(), operations: 0 };
+        acc[info.label].sinks += 1;
+        acc[info.label].components.add(sink.file);
+        acc[info.label].operations += sink.metrics.sliceSize;
       }
       return acc;
     }, {}),
@@ -1298,6 +1368,43 @@ function fanOutRows(sinks) {
       String(value.operations),
     ])
     .sort((left, right) => Number(right[1]) - Number(left[1]));
+}
+
+// Global identifiers and language keywords that the local file context cannot
+// resolve and that surface as `unknown-source` roots, but are never an ownable
+// domain "source" a developer could centralize. Excluded from fan-out ranking.
+const NON_FAN_OUT_GLOBALS = new Set([
+  "undefined",
+  "null",
+  "NaN",
+  "Infinity",
+  "Math",
+  "JSON",
+  "Object",
+  "Array",
+  "Number",
+  "String",
+  "Boolean",
+  "Date",
+  "console",
+  "window",
+  "document",
+  "globalThis",
+]);
+
+// Fan-out ranks the sources a value flows from. Literals/primitives (`0`,
+// `false`, `""`, `[]`) and bare parameter objects (`props`) are not actionable
+// "sources" — a developer cannot own or centralize them — so they are excluded,
+// as are unresolved language globals (`undefined`, `Math`). Property reads off
+// a parameter (`props.meta`) and named locals are kept.
+function fanOutRootsFor(sink) {
+  const infos = sink.rootInfos ?? sink.roots.map((root) => ({ label: root, kind: "source" }));
+  return infos.filter(
+    (info) =>
+      info.kind !== "literal" &&
+      info.kind !== "parameter" &&
+      !NON_FAN_OUT_GLOBALS.has(info.label),
+  );
 }
 
 function analyzeContextRelay(ts, sourceFiles, root) {
@@ -1507,9 +1614,25 @@ function signatureFor(sink) {
   const parts = [];
   if (sink.metrics.representationChurn > 0) parts.push("object-pack");
   if (sink.metrics.helperHops > 0) parts.push("call");
-  if (sink.metrics.defensiveOperationCount > 0) parts.push("fallback");
+  if (sink.metrics.controlDependencyCount > 0) parts.push("conditional");
+  if (sink.metrics.impossibleDefenseCount > 0) parts.push("impossible-defense");
+  else if (sink.metrics.defensiveOperationCount > 0) parts.push("fallback");
   parts.push("jsx-sink");
-  return parts.join(" -> ");
+  if (sink.metrics.unknownEdgeCount > 0) parts.push("(unknown)");
+  // Prefix a depth band so the otherwise-dominant bare `jsx-sink` bucket splits
+  // into recognizable shapes (a trivial direct read vs. a deep relayed path) and
+  // no single signature swamps the report.
+  return `${depthBand(sink.metrics.maximumPathDepth)} ${parts.join(" -> ")}`;
+}
+
+// Coarse depth bands. Boundaries chosen against the modeler corpus (median
+// depth 2, p90 6): a direct read lands in `trivial`, plain property reads in
+// `shallow`, helper/relay chains in `medium`, and architectural relays in `deep`.
+function depthBand(depth) {
+  if (depth <= 1) return "trivial";
+  if (depth <= 3) return "shallow";
+  if (depth <= 7) return "medium";
+  return "deep";
 }
 
 function tableReport(title, headers, rows) {
@@ -1542,11 +1665,15 @@ function confidenceFor(metrics, defenses) {
   return 88;
 }
 
-function queueFor(metrics, defenses) {
+function queueFor(metrics, defenses, reachThreshold = 3) {
   if (metrics.unknownEdgeCount > 0 || defenses.some((defense) => defense.verdict === "unknown")) {
     return "investigation";
   }
-  if (metrics.sourceDispersion > 2 || metrics.maximumPathDepth > 10) return "central-leverage";
+  // Central-leverage = a source that feeds many render sinks (top reach
+  // quartile for the report, passed in) or a pathologically deep relay path.
+  if (metrics.reachableSinks >= reachThreshold || metrics.maximumPathDepth > 10) {
+    return "central-leverage";
+  }
   return "peripheral-quick-win";
 }
 
@@ -1563,19 +1690,23 @@ function burdenScore(metrics) {
 }
 
 function centralityScore(metrics) {
+  // Grounded in true downstream reach (reachableSinks) rather than a constant
+  // base value: a source feeding many sinks now outranks an equally-deep but
+  // isolated one. Depth, helper hops, fan-in, and slice size remain secondary.
   return clamp01(
-    0.3 * normalized(1) +
-      0.2 * normalized(metrics.sourceDispersion) +
+    0.4 * normalized(metrics.reachableSinks) +
       0.2 * normalized(metrics.maximumPathDepth) +
       0.15 * normalized(metrics.helperHops) +
-      0.1 * normalized(metrics.mergeWidth) +
-      0.05 * normalized(metrics.sliceSize),
+      0.15 * normalized(metrics.mergeWidth) +
+      0.1 * normalized(metrics.sliceSize),
   );
 }
 
 function changeRiskScore(metrics) {
+  // Editing a widely-reaching source touches more render sinks, so reach is the
+  // dominant change-risk signal alongside unknown edges and control flow.
   return clamp01(
-    0.25 * normalized(metrics.sourceDispersion) +
+    0.25 * normalized(metrics.reachableSinks) +
       0.25 * normalized(metrics.unknownEdgeCount) +
       0.15 * normalized(metrics.controlDependencyCount) +
       0.1 * normalized(metrics.helperHops) +

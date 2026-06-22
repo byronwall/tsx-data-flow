@@ -297,12 +297,25 @@ This is why the tool can flag cases such as a `??` fallback on a plain `string` 
 | `defensiveOperationCount` | Count of `fallback` and `optional-read` edges. |
 | `impossibleDefenseCount` | Defense entries with verdict `impossible`. |
 | `controlDependencyCount` | Count of `conditional` edges. |
-| `mergeWidth` | Number of root sources. |
-| `sourceDispersion` | Same as root source count in the current implementation. |
+| `mergeWidth` | Number of distinct root sources feeding this sink (fan-in). |
+| `reachableSinks` | True downstream reach: how many render sinks this sink's most-central source also feeds, computed across the whole report by `groundReachability`. |
 | `repeatedNormalization` | Defensive operation count after the first defense. |
 | `unknownEdgeCount` | Count of unknown trace edges. |
 
-Some metrics are intentionally approximate. For example, `sourceDispersion` and `mergeWidth` both use root count today, and reachable sink count is not yet a whole-graph downstream reachability calculation in work packets. The tool is designed for ranked cleanup guidance, not formal proof.
+`reachableSinks` is the one metric that is not a single-trace property. The trace graph does not deduplicate nodes across sinks, so downstream reach cannot be read off the raw graph per source node. Instead `groundReachability` aggregates by source identity (label): a source's reach is the number of distinct render sinks its *actionable* roots feed (literals, bare parameter objects, and unresolved globals are excluded — see "Source Roots And Fan-Out"). Each sink inherits the reach of its most-central source. This grounds centrality and the queue split in real fan-out rather than a constant.
+
+The remaining metrics are intentionally approximate; the tool is designed for ranked cleanup guidance, not formal proof.
+
+## Source Roots And Fan-Out
+
+Each trace carries `rootInfos` alongside `roots`: a list of `{ label, kind }` descriptors where `kind` is the terminal node kind (`source`, `parameter`, `prop-read`, `literal`, `unknown-source`, `solid-accessor`, `cycle`). The first concrete property read off a parameter is refined into a qualified `prop-read` root (`props` → `props.meta`) so that fan-out keys on the value that actually flows rather than the whole props object.
+
+`fanOutRootsFor` defines what counts as an actionable fan-out "source" and is reused by both the `fan-out` view and reachability:
+
+- `literal` roots (`0`, `false`, `""`, `[]`, `null`) are excluded — they are not ownable.
+- bare `parameter` roots (a whole `props` object) are excluded — too coarse to be one source.
+- unresolved language globals (`undefined`, `Math`, `JSON`, …) are excluded.
+- `prop-read`, named `source`, and other `unknown-source` roots are kept.
 
 ## Ranking And Queues
 
@@ -324,22 +337,21 @@ Each raw value is normalized with `log1p(value) / log1p(20)` and clamped to `[0,
 
 ### Centrality Score
 
-`centralityScore` currently combines:
+`centralityScore` combines:
 
-- a constant base sink reach value
-- source dispersion
+- true downstream reach (`reachableSinks`, weighted highest)
 - path depth
 - helper hops
 - merge width
 - slice size
 
-The constant reach value exists because the current graph does not yet compute full downstream fan-out per source during ranking. This leaves room for a future true reachability pass.
+Reach is the dominant term, so a source that feeds many render sinks outranks an equally-deep but isolated one. This replaced an earlier constant base-reach term that existed before `groundReachability` computed real fan-out.
 
 ### Change Risk Score
 
 `changeRiskScore` increases with:
 
-- source dispersion
+- downstream reach (`reachableSinks`) — editing a widely-used source touches more sinks
 - unknown edges
 - control dependencies
 - helper hops
@@ -352,8 +364,10 @@ High-risk items can still rank highly, but they are less likely to be presented 
 `queueFor` assigns each sink:
 
 - `investigation` when unknown edges or unknown defense verdicts exist
-- `central-leverage` when source dispersion is high or maximum path depth is above 10
+- `central-leverage` when downstream reach is in the report's top quartile (a per-run relative threshold, floored at 3) or maximum path depth is above 10
 - `peripheral-quick-win` otherwise
+
+The reach cutoff is computed in `groundReachability` from the report's own `reachableSinks` distribution rather than a fixed constant, so it adapts to codebase size and keeps `central-leverage` a meaningful minority (about the top ~30% of ranked sinks on the modeler corpus) instead of the ~50% an absolute `> 2` cutoff produced.
 
 `rankSinks` then sorts:
 
@@ -440,7 +454,7 @@ The analyzer is useful but intentionally not a complete data-flow engine.
 - It is file-local for helper bodies. Imported helpers are unknown boundaries.
 - It does not bind local helper parameters to call arguments.
 - It does not deduplicate graph nodes for repeated identical syntax.
-- It does not compute whole-graph downstream reachability for ranking yet.
+- Downstream reachability (`reachableSinks`) is aggregated by source label, not by traversing a deduplicated graph, since nodes are not shared across sink traces.
 - It does not model all Solid primitives or router/server-action data APIs.
 - It treats element access coarsely.
 - It treats many method calls as unknown, even when they are common pure transforms.
@@ -455,7 +469,7 @@ Good next improvements:
 1. Add parameter binding for local helper calls so `helper(props.user)` can map `user` to `props.user` inside the helper body.
 2. Add imported helper summaries for same-project imports.
 3. Deduplicate graph nodes by source file and syntax span.
-4. Compute true source fan-out and sink reachability from the graph.
+4. Traverse a deduplicated graph for sink reachability instead of aggregating by source label (the current `groundReachability` approach), to capture reach through shared intermediate operations.
 5. Add SolidStart-specific source/sink kinds for resources, actions, route params, and server query outputs.
 6. Group work packets by shared helper or source root to reduce repeated adjacent findings.
 7. Improve representative path formatting for long expressions.

@@ -174,6 +174,102 @@ describe("render path data-flow analyzer", () => {
     expect(output).toContain("detail, selection, onSelect");
   });
 
+  it("excludes literals and bare parameters from fan-out, refining props to property reads", async () => {
+    const project = await createFixtureProject({
+      "src/FanOut.tsx": `
+        export function Badge(props: { meta: { label: string }; count: number }) {
+          return <span>
+            {props.meta.label}
+            {props.count ?? 0}
+            {props.meta.label || ""}
+            {false ? "a" : "b"}
+            {props.meta.label}
+          </span>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, {
+      ...project.args,
+      view: "fan-out",
+      format: "markdown",
+    });
+
+    const sourceCells = output
+      .split("\n")
+      .filter((line) => line.startsWith("| ") && !line.includes("---") && !line.includes("Source"))
+      .map((line) => line.split("|")[1].trim());
+
+    // Literals (0, "", false) and the bare `props` object must not rank as sources.
+    expect(sourceCells).not.toContain("0");
+    expect(sourceCells).not.toContain('""');
+    expect(sourceCells).not.toContain("false");
+    expect(sourceCells).not.toContain("props");
+    // The first concrete property read off the parameter is the real source.
+    expect(sourceCells).toContain("props.meta");
+  });
+
+  it("splits path families by depth band so trivial and deep paths differ", async () => {
+    const project = await createFixtureProject({
+      "src/Families.tsx": `
+        type User = { name: string };
+        function pack(user: User) { return { title: user.name }; }
+        export function Card(props: { user: User; label: string }) {
+          const model = pack(props.user);
+          const deep = { wrap: { inner: model.title ?? "x" } };
+          return <article>
+            <span>{props.label}</span>
+            <h2>{deep.wrap.inner}</h2>
+          </article>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, {
+      ...project.args,
+      view: "path-families",
+      format: "markdown",
+    });
+
+    const signatures = output
+      .split("\n")
+      .filter((line) => line.startsWith("| ") && !line.includes("---") && !line.includes("Signature"))
+      .map((line) => line.split("|")[1].trim());
+
+    // The shallow direct read and the deeper packed/defended path must not
+    // collapse into one bare `jsx-sink` family.
+    expect(signatures.some((sig) => sig.startsWith("shallow"))).toBe(true);
+    expect(signatures.some((sig) => /^(medium|deep)/.test(sig))).toBe(true);
+    expect(signatures).not.toContain("jsx-sink");
+  });
+
+  it("grounds centrality in real reach so a many-sink source outranks an isolated one", async () => {
+    const project = await createFixtureProject({
+      "src/Reach.tsx": `
+        export function Panel(props: { shared: string; lonely: string }) {
+          return <div>
+            <span>{props.shared}</span>
+            <span>{props.shared}</span>
+            <span>{props.shared}</span>
+            <span>{props.shared}</span>
+            <p>{props.lonely}</p>
+          </div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const shared = report.rankings.all.find((sink) => sink.expression === "props.shared");
+    const lonely = report.rankings.all.find((sink) => sink.expression === "props.lonely");
+
+    expect(shared.metrics.reachableSinks).toBe(4);
+    expect(lonely.metrics.reachableSinks).toBe(1);
+    // Equal-depth paths: the widely-reaching source must score more central.
+    expect(shared.scores.centrality).toBeGreaterThan(lonely.scores.centrality);
+    // ...and land in the central-leverage queue while the isolated one is a quick win.
+    expect(shared.queue).toBe("central-leverage");
+    expect(lonely.queue).toBe("peripheral-quick-win");
+  });
+
   it("compares baseline reports and marks regressions when requested", async () => {
     const project = await createFixtureProject({
       "src/baseline.tsx": `
