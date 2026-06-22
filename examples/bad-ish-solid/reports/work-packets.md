@@ -8,7 +8,7 @@
 
 | Feature area       | Sinks | Files | Max depth | Wrappers | Suggested first cut    |
 | ------------------ | ----- | ----- | --------- | -------- | ---------------------- |
-| DashboardShell.tsx | 38    | 1     | 14        | 313      | Provider/Context audit |
+| DashboardShell.tsx | 38    | 1     | 15        | 313      | Provider/Context audit |
 
 ## WORK ITEM DF-001
 Simplify JSX row.label ?? "Untitled" in src/DashboardShell.tsx
@@ -19,41 +19,50 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 
 **Scope**
 
-| Metric          | Value                                                  |
-| --------------- | ------------------------------------------------------ |
-| pivot           | `props.task, props.actor, props.preferences (+1 more)` |
-| files           | 1                                                      |
-| source inputs   | 10                                                     |
-| reachable sinks | 31                                                     |
-| confidence      | 99%                                                    |
+| Metric          | Value                                        |
+| --------------- | -------------------------------------------- |
+| pivot           | `props.task, props.actor, props.preferences` |
+| files           | 1                                            |
+| source inputs   | 7                                            |
+| reachable sinks | 31                                           |
+| confidence      | 99%                                          |
 
 - confidence reason: Single file, direct JSX sink, all hops statically resolved.
 - risk: low; behavior-preserving extraction likely.
 
 **Why this was selected**
 
-- path depth 14
+- path depth 15
 - 16 defensive operations
 - 26 representation-only transformations
 - 1 type-impossible fallbacks
 
 **Representative path**
 
+_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
+
 ```
--> preferences  [source]
--> accentColor  [property-read]
--> preferences.accentColor ?? "#3f7f6f"  [fallback]
--> { task, owner: user, swatch: preferences.accentColor ?? "#3f7f6f", }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> packed.task.estimateHours ?? 0  [fallback]
--> `${packed.task.estimateHours ?? 0}h`  [template]
--> { label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> label  [property-read]
--> row.label ?? "Untitled"  [fallback]
+F1:102   1. source   props
+F1:102   2. read     preferences
+                     ↘ enter F2
+F2:25    3. read     accentColor
+F2:25    4. default  «preferences.accentColor» ?? "#3f7f6f"
+F2:22    5. pack     …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }
+F2:31    6. alias    packed  — = { task, owner: user, swatch: preferences.…
+F2:31    7. read     task
+F2:31    8. read     estimateHours
+F2:31    9. default  «packed.task.estimateHours» ?? 0
+F2:31   10. format   `${«packed.task.estimateHours ?? 0»}h`
+F2:27   11. pack     … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }
+                     ↙ return to F1
+F1:102  12. helper   taskRowView()  — returns { label: packed.task.title.trim(), ownerLabel:…
+F1:110  13. alias    row  — = taskRowView(props.task, props.actor, props.…
+F1:110  14. read     label
+F1:110  15. default  «row.label» ?? "Untitled"
+
+Files:
+  F1 = src/DashboardShell.tsx
+  F2 = src/view-models.ts
 ```
 
 **Sink-family split**
@@ -62,6 +71,18 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
   Style: style
   Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
+```
+
+**Extraction proposal**
+
+```
+proposed: function renderModel(
+  task: /* type */,   // ⟵ props.task
+  actor: /* type */,   // ⟵ props.actor
+  preferences: /* type */   // ⟵ props.preferences
+): string
+moves ~DashboardShell.tsx:102–110
+after: JSX reads a field of renderModel(...) — a short path instead of 15 hops.
 ```
 
 **Candidate edits**
@@ -85,41 +106,50 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 
 **Scope**
 
-| Metric          | Value                                                  |
-| --------------- | ------------------------------------------------------ |
-| pivot           | `props.task, props.actor, props.preferences (+1 more)` |
-| files           | 1                                                      |
-| source inputs   | 10                                                     |
-| reachable sinks | 31                                                     |
-| confidence      | 99%                                                    |
+| Metric          | Value                                        |
+| --------------- | -------------------------------------------- |
+| pivot           | `props.task, props.actor, props.preferences` |
+| files           | 1                                            |
+| source inputs   | 7                                            |
+| reachable sinks | 31                                           |
+| confidence      | 99%                                          |
 
 - confidence reason: Single file, direct JSX sink, all hops statically resolved.
 - risk: low; behavior-preserving extraction likely.
 
 **Why this was selected**
 
-- path depth 14
+- path depth 15
 - 16 defensive operations
 - 26 representation-only transformations
 - 1 type-impossible fallbacks
 
 **Representative path**
 
+_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
+
 ```
--> preferences  [source]
--> accentColor  [property-read]
--> preferences.accentColor ?? "#3f7f6f"  [fallback]
--> { task, owner: user, swatch: preferences.accentColor ?? "#3f7f6f", }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> packed.task.estimateHours ?? 0  [fallback]
--> `${packed.task.estimateHours ?? 0}h`  [template]
--> { label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> ownerLabel  [property-read]
--> row.ownerLabel ?? "Unknown owner"  [fallback]
+F1:102   1. source   props
+F1:102   2. read     preferences
+                     ↘ enter F2
+F2:25    3. read     accentColor
+F2:25    4. default  «preferences.accentColor» ?? "#3f7f6f"
+F2:22    5. pack     …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }
+F2:31    6. alias    packed  — = { task, owner: user, swatch: preferences.…
+F2:31    7. read     task
+F2:31    8. read     estimateHours
+F2:31    9. default  «packed.task.estimateHours» ?? 0
+F2:31   10. format   `${«packed.task.estimateHours ?? 0»}h`
+F2:27   11. pack     … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }
+                     ↙ return to F1
+F1:102  12. helper   taskRowView()  — returns { label: packed.task.title.trim(), ownerLabel:…
+F1:111  13. alias    row  — = taskRowView(props.task, props.actor, props.…
+F1:111  14. read     ownerLabel
+F1:111  15. default  «row.ownerLabel» ?? "Unknown owner"
+
+Files:
+  F1 = src/DashboardShell.tsx
+  F2 = src/view-models.ts
 ```
 
 **Sink-family split**
@@ -128,6 +158,18 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
   Style: style
   Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
+```
+
+**Extraction proposal**
+
+```
+proposed: function renderModel(
+  task: /* type */,   // ⟵ props.task
+  actor: /* type */,   // ⟵ props.actor
+  preferences: /* type */   // ⟵ props.preferences
+): string
+moves ~DashboardShell.tsx:102–111
+after: JSX reads a field of renderModel(...) — a short path instead of 15 hops.
 ```
 
 **Candidate edits**
@@ -151,47 +193,51 @@ This sink mixes class/style packing and defaulting and normalization. A behavior
 
 **Scope**
 
-| Metric          | Value                                                  |
-| --------------- | ------------------------------------------------------ |
-| pivot           | `props.task, props.actor, props.preferences (+1 more)` |
-| files           | 1                                                      |
-| source inputs   | 9                                                      |
-| reachable sinks | 31                                                     |
-| confidence      | 88%                                                    |
+| Metric          | Value                                        |
+| --------------- | -------------------------------------------- |
+| pivot           | `props.task, props.actor, props.preferences` |
+| files           | 1                                            |
+| source inputs   | 6                                            |
+| reachable sinks | 31                                           |
+| confidence      | 88%                                          |
 
 - confidence reason: All hops statically resolved within one file.
 - risk: low.
 
 **Why this was selected**
 
-- path depth 14
+- path depth 15
 - 14 defensive operations
 - 26 representation-only transformations
 - 0 type-impossible fallbacks
 
 **Representative path**
 
-```
--> preferences  [source]
--> accentColor  [property-read]
--> preferences.accentColor ?? "#3f7f6f"  [fallback]
--> { task, owner: user, swatch: preferences.accentColor ?? "#3f7f6f", }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> packed.task.estimateHours ?? 0  [fallback]
--> `${packed.task.estimateHours ?? 0}h`  [template]
--> { label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> swatch  [property-read]
--> `--accent:${row.swatch}`  [template]
-```
-
-**Recommended boundaries**
+_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
 
 ```
-Recommended boundary after: defaults & normalization (step 8).
+F1:102   1. source   props
+F1:102   2. read     preferences
+                     ↘ enter F2
+F2:25    3. read     accentColor
+F2:25    4. default  «preferences.accentColor» ?? "#3f7f6f"
+F2:22    5. pack     …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }
+F2:31    6. alias    packed  — = { task, owner: user, swatch: preferences.…
+F2:31    7. read     task
+F2:31    8. read     estimateHours
+F2:31    9. default  «packed.task.estimateHours» ?? 0
+                     ▸ boundary: extract the defaults & normalization above into a named boundary memo
+F2:31   10. format   `${«packed.task.estimateHours ?? 0»}h`
+F2:27   11. pack     … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }
+                     ↙ return to F1
+F1:102  12. helper   taskRowView()  — returns { label: packed.task.title.trim(), ownerLabel:…
+F1:107  13. alias    row  — = taskRowView(props.task, props.actor, props.…
+F1:107  14. read     swatch
+F1:107  15. format   `--accent:${«row.swatch»}`
+
+Files:
+  F1 = src/DashboardShell.tsx
+  F2 = src/view-models.ts
 ```
 
 **Sink-family split**
@@ -200,6 +246,18 @@ Recommended boundary after: defaults & normalization (step 8).
 Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
   Style: style
   Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
+```
+
+**Extraction proposal**
+
+```
+proposed: function styleProps(
+  task: /* type */,   // ⟵ props.task
+  actor: /* type */,   // ⟵ props.actor
+  preferences: /* type */   // ⟵ props.preferences
+): string
+moves ~DashboardShell.tsx:102–107
+after: JSX reads a field of styleProps(...) — a short path instead of 15 hops.
 ```
 
 **Candidate edits**
@@ -222,46 +280,50 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 
 **Scope**
 
-| Metric          | Value                                                  |
-| --------------- | ------------------------------------------------------ |
-| pivot           | `props.task, props.actor, props.preferences (+1 more)` |
-| files           | 1                                                      |
-| source inputs   | 9                                                      |
-| reachable sinks | 31                                                     |
-| confidence      | 88%                                                    |
+| Metric          | Value                                        |
+| --------------- | -------------------------------------------- |
+| pivot           | `props.task, props.actor, props.preferences` |
+| files           | 1                                            |
+| source inputs   | 6                                            |
+| reachable sinks | 31                                           |
+| confidence      | 88%                                          |
 
 - confidence reason: All hops statically resolved within one file.
 - risk: low.
 
 **Why this was selected**
 
-- path depth 13
+- path depth 14
 - 14 defensive operations
 - 26 representation-only transformations
 - 0 type-impossible fallbacks
 
 **Representative path**
 
-```
--> preferences  [source]
--> accentColor  [property-read]
--> preferences.accentColor ?? "#3f7f6f"  [fallback]
--> { task, owner: user, swatch: preferences.accentColor ?? "#3f7f6f", }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> packed.task.estimateHours ?? 0  [fallback]
--> `${packed.task.estimateHours ?? 0}h`  [template]
--> { label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> priorityLabel  [property-read]
-```
-
-**Recommended boundaries**
+_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
 
 ```
-Recommended boundary after: defaults & normalization (step 8).
+F1:102   1. source   props
+F1:102   2. read     preferences
+                     ↘ enter F2
+F2:25    3. read     accentColor
+F2:25    4. default  «preferences.accentColor» ?? "#3f7f6f"
+F2:22    5. pack     …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }
+F2:31    6. alias    packed  — = { task, owner: user, swatch: preferences.…
+F2:31    7. read     task
+F2:31    8. read     estimateHours
+F2:31    9. default  «packed.task.estimateHours» ?? 0
+                     ▸ boundary: extract the defaults & normalization above into a named boundary memo
+F2:31   10. format   `${«packed.task.estimateHours ?? 0»}h`
+F2:27   11. pack     … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }
+                     ↙ return to F1
+F1:102  12. helper   taskRowView()  — returns { label: packed.task.title.trim(), ownerLabel:…
+F1:112  13. alias    row  — = taskRowView(props.task, props.actor, props.…
+F1:112  14. read     priorityLabel
+
+Files:
+  F1 = src/DashboardShell.tsx
+  F2 = src/view-models.ts
 ```
 
 **Sink-family split**
@@ -270,6 +332,18 @@ Recommended boundary after: defaults & normalization (step 8).
 Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
   Style: style
   Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
+```
+
+**Extraction proposal**
+
+```
+proposed: function renderModel(
+  task: /* type */,   // ⟵ props.task
+  actor: /* type */,   // ⟵ props.actor
+  preferences: /* type */   // ⟵ props.preferences
+): "low" | "normal" | "high"
+moves ~DashboardShell.tsx:102–112
+after: JSX reads a field of renderModel(...) — a short path instead of 14 hops.
 ```
 
 **Candidate edits**
@@ -292,46 +366,50 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 
 **Scope**
 
-| Metric          | Value                                                  |
-| --------------- | ------------------------------------------------------ |
-| pivot           | `props.task, props.actor, props.preferences (+1 more)` |
-| files           | 1                                                      |
-| source inputs   | 9                                                      |
-| reachable sinks | 31                                                     |
-| confidence      | 88%                                                    |
+| Metric          | Value                                        |
+| --------------- | -------------------------------------------- |
+| pivot           | `props.task, props.actor, props.preferences` |
+| files           | 1                                            |
+| source inputs   | 6                                            |
+| reachable sinks | 31                                           |
+| confidence      | 88%                                          |
 
 - confidence reason: All hops statically resolved within one file.
 - risk: low.
 
 **Why this was selected**
 
-- path depth 13
+- path depth 14
 - 14 defensive operations
 - 26 representation-only transformations
 - 0 type-impossible fallbacks
 
 **Representative path**
 
-```
--> preferences  [source]
--> accentColor  [property-read]
--> preferences.accentColor ?? "#3f7f6f"  [fallback]
--> { task, owner: user, swatch: preferences.accentColor ?? "#3f7f6f", }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> packed.task.estimateHours ?? 0  [fallback]
--> `${packed.task.estimateHours ?? 0}h`  [template]
--> { label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> estimateLabel  [property-read]
-```
-
-**Recommended boundaries**
+_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
 
 ```
-Recommended boundary after: defaults & normalization (step 8).
+F1:102   1. source   props
+F1:102   2. read     preferences
+                     ↘ enter F2
+F2:25    3. read     accentColor
+F2:25    4. default  «preferences.accentColor» ?? "#3f7f6f"
+F2:22    5. pack     …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }
+F2:31    6. alias    packed  — = { task, owner: user, swatch: preferences.…
+F2:31    7. read     task
+F2:31    8. read     estimateHours
+F2:31    9. default  «packed.task.estimateHours» ?? 0
+                     ▸ boundary: extract the defaults & normalization above into a named boundary memo
+F2:31   10. format   `${«packed.task.estimateHours ?? 0»}h`
+F2:27   11. pack     … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }
+                     ↙ return to F1
+F1:102  12. helper   taskRowView()  — returns { label: packed.task.title.trim(), ownerLabel:…
+F1:113  13. alias    row  — = taskRowView(props.task, props.actor, props.…
+F1:113  14. read     estimateLabel
+
+Files:
+  F1 = src/DashboardShell.tsx
+  F2 = src/view-models.ts
 ```
 
 **Sink-family split**
@@ -340,6 +418,18 @@ Recommended boundary after: defaults & normalization (step 8).
 Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — split it:
   Style: style
   Text: row.label ?? "Untitled", row.ownerLabel ?? "…, row.priorityLabel, row.estimateLabel
+```
+
+**Extraction proposal**
+
+```
+proposed: function renderModel(
+  task: /* type */,   // ⟵ props.task
+  actor: /* type */,   // ⟵ props.actor
+  preferences: /* type */   // ⟵ props.preferences
+): string
+moves ~DashboardShell.tsx:102–113
+after: JSX reads a field of renderModel(...) — a short path instead of 14 hops.
 ```
 
 **Candidate edits**
@@ -354,7 +444,7 @@ Object `{ task, owner: user, swatch: preferences.…` feeds 2 sink families — 
 - queue: central-leverage
 
 ## WORK ITEM DF-006
-Simplify data-theme={...} in src/DashboardShell.tsx
+Simplify task={...} in src/DashboardShell.tsx
 
 **Review summary**
 
@@ -366,7 +456,7 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 | --------------- | ------------------------------------------------------ |
 | pivot           | `props.user, props.tasks, props.preferences (+1 more)` |
 | files           | 1                                                      |
-| source inputs   | 8                                                      |
+| source inputs   | 7                                                      |
 | reachable sinks | 31                                                     |
 | confidence      | 99%                                                    |
 
@@ -376,26 +466,48 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 **Why this was selected**
 
 - path depth 13
-- 9 defensive operations
-- 10 representation-only transformations
-- 3 type-impossible fallbacks
+- 7 defensive operations
+- 11 representation-only transformations
+- 2 type-impossible fallbacks
 
 **Representative path**
 
+_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
+
 ```
--> props  [source]
--> tasks  [property-read]
--> props.tasks[0]  [property-read]
--> id  [optional-read]
--> props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
--> props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
--> selectedTaskId  [alias]
--> { actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…  [object-pack]
--> buildRouteModel  [call]
--> route  [alias]
--> toolbar  [property-read]
--> theme  [property-read]
--> route.toolbar.theme ?? "light"  [fallback]
+F1:5    1. source   props
+                    ↘ enter F2
+F2:7    2. read     tasks
+F2:7    3. read     «props.tasks»[0]
+F2:7    4. read?    id
+F2:7    5. default  props.selectedTaskId ?? «props.tasks[0]?.id»
+F2:7    6. default  «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"
+                    ▸ boundary: extract the defaults & normalization above into a named boundary memo
+F2:12   7. alias    selectedTaskId  — = props.selectedTaskId ?? props.tasks[0]?.id ?? "…
+F2:8    8. pack     …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…
+                    ↙ return to F1
+F1:5    9. helper   buildRouteModel()  — returns { actor: props.user, visibleTasks: props.tasks,…
+F1:6   10. alias    route  — = buildRouteModel(props)
+F1:6   11. read     visibleTasks
+F1:6   12. helper   find()  — route.visibleTasks.find( (task) => task.id === route.…
+F1:30  13. alias    selectedTask  — = route.visibleTasks.find( (task) => task.id ===…
+
+Files:
+  F1 = src/DashboardShell.tsx
+  F2 = src/view-models.ts
+```
+
+**Extraction proposal**
+
+```
+proposed: function renderModel(
+  user: /* type */,   // ⟵ props.user
+  tasks: /* type */,   // ⟵ props.tasks
+  preferences: /* type */,   // ⟵ props.preferences
+  selectedTaskId: /* type */   // ⟵ props.selectedTaskId
+): Task | undefined
+moves ~DashboardShell.tsx:5–30
+after: JSX reads a field of renderModel(...) — a short path instead of 13 hops.
 ```
 
 **Candidate edits**
@@ -411,7 +523,7 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 - queue: central-leverage
 
 ## WORK ITEM DF-007
-Simplify data-density={...} in src/DashboardShell.tsx
+Simplify data-theme={...} in src/DashboardShell.tsx
 
 **Review summary**
 
@@ -439,20 +551,41 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 
 **Representative path**
 
+_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
+
 ```
--> props  [source]
--> tasks  [property-read]
--> props.tasks[0]  [property-read]
--> id  [optional-read]
--> props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
--> props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
--> selectedTaskId  [alias]
--> { actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…  [object-pack]
--> buildRouteModel  [call]
--> route  [alias]
--> toolbar  [property-read]
--> density  [property-read]
--> route.toolbar.density ?? "comfortable"  [fallback]
+F1:5    1. source   props
+                    ↘ enter F2
+F2:7    2. read     tasks
+F2:7    3. read     «props.tasks»[0]
+F2:7    4. read?    id
+F2:7    5. default  props.selectedTaskId ?? «props.tasks[0]?.id»
+F2:7    6. default  «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"
+F2:12   7. alias    selectedTaskId  — = props.selectedTaskId ?? props.tasks[0]?.id ?? "…
+F2:8    8. pack     …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…
+                    ↙ return to F1
+F1:5    9. helper   buildRouteModel()  — returns { actor: props.user, visibleTasks: props.tasks,…
+F1:12  10. alias    route  — = buildRouteModel(props)
+F1:12  11. read     toolbar
+F1:12  12. read     theme
+F1:12  13. default  «route.toolbar.theme» ?? "light"
+
+Files:
+  F1 = src/DashboardShell.tsx
+  F2 = src/view-models.ts
+```
+
+**Extraction proposal**
+
+```
+proposed: function renderModel(
+  user: /* type */,   // ⟵ props.user
+  tasks: /* type */,   // ⟵ props.tasks
+  preferences: /* type */,   // ⟵ props.preferences
+  selectedTaskId: /* type */   // ⟵ props.selectedTaskId
+): "light" | "dark"
+moves ~DashboardShell.tsx:5–12
+after: JSX reads a field of renderModel(...) — a short path instead of 13 hops.
 ```
 
 **Candidate edits**
@@ -468,7 +601,7 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 - queue: central-leverage
 
 ## WORK ITEM DF-008
-Simplify task={...} in src/DashboardShell.tsx
+Simplify data-density={...} in src/DashboardShell.tsx
 
 **Review summary**
 
@@ -480,7 +613,7 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 | --------------- | ------------------------------------------------------ |
 | pivot           | `props.user, props.tasks, props.preferences (+1 more)` |
 | files           | 1                                                      |
-| source inputs   | 8                                                      |
+| source inputs   | 6                                                      |
 | reachable sinks | 31                                                     |
 | confidence      | 99%                                                    |
 
@@ -490,32 +623,47 @@ This sink mixes defaulting and normalization. A behavior-preserving fix is to re
 **Why this was selected**
 
 - path depth 13
-- 7 defensive operations
-- 11 representation-only transformations
-- 2 type-impossible fallbacks
+- 9 defensive operations
+- 10 representation-only transformations
+- 3 type-impossible fallbacks
 
 **Representative path**
 
-```
--> props  [source]
--> tasks  [property-read]
--> props.tasks[0]  [property-read]
--> id  [optional-read]
--> props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
--> props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
--> selectedTaskId  [alias]
--> { actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…  [object-pack]
--> buildRouteModel  [call]
--> route  [alias]
--> visibleTasks  [property-read]
--> find  [call]
--> selectedTask  [alias]
-```
-
-**Recommended boundaries**
+_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
 
 ```
-Recommended boundary after: defaults & normalization (step 6).
+F1:5    1. source   props
+                    ↘ enter F2
+F2:7    2. read     tasks
+F2:7    3. read     «props.tasks»[0]
+F2:7    4. read?    id
+F2:7    5. default  props.selectedTaskId ?? «props.tasks[0]?.id»
+F2:7    6. default  «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"
+F2:12   7. alias    selectedTaskId  — = props.selectedTaskId ?? props.tasks[0]?.id ?? "…
+F2:8    8. pack     …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…
+                    ↙ return to F1
+F1:5    9. helper   buildRouteModel()  — returns { actor: props.user, visibleTasks: props.tasks,…
+F1:13  10. alias    route  — = buildRouteModel(props)
+F1:13  11. read     toolbar
+F1:13  12. read     density
+F1:13  13. default  «route.toolbar.density» ?? "comfortable"
+
+Files:
+  F1 = src/DashboardShell.tsx
+  F2 = src/view-models.ts
+```
+
+**Extraction proposal**
+
+```
+proposed: function renderModel(
+  user: /* type */,   // ⟵ props.user
+  tasks: /* type */,   // ⟵ props.tasks
+  preferences: /* type */,   // ⟵ props.preferences
+  selectedTaskId: /* type */   // ⟵ props.selectedTaskId
+): "compact" | "comfortable"
+moves ~DashboardShell.tsx:5–13
+after: JSX reads a field of renderModel(...) — a short path instead of 13 hops.
 ```
 
 **Candidate edits**
@@ -536,5 +684,5 @@ Recommended boundary after: defaults & normalization (step 6).
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view work-packets --max-items 8
+tsx-dataflow --root examples/bad-ish-solid --view work-packets --max-items 8 --out examples/bad-ish-solid/reports/work-packets.md
 ```

@@ -4,8 +4,8 @@
 >
 > Each finding is one render **sink** (a value rendered into the DOM). _Sink_ is the rendered expression, _Source_ the actionable inputs it derives from, _path depth_ the number of transformation hops between them, and _severity/burden_ reflects how much data-flow plumbing sits on the path.
 
-## RPF-166-17 · HIGH · type-impossible defensive render path
-src/DashboardShell.tsx:166
+## RPF-110-17 · HIGH · type-impossible defensive render path
+src/DashboardShell.tsx:110
 
 **Sink**
 
@@ -16,343 +16,18 @@ row.label ?? "Untitled"
 **Source**
 
 ```
-props.task, props.actor, props.preferences, preferences.accentColor
+props.task, props.actor, props.preferences
 ```
 
 **Metrics**
 
 | Metric                 | Value |
 | ---------------------- | ----- |
-| path depth             | 14    |
-| helper hops            | 5     |
-| representation changes | 26    |
-| defensive operations   | 16    |
-| impossible defenses    | 1     |
-| downstream sink count  | 31    |
-| centrality percentile  | 88    |
-| analysis confidence    | 99%   |
-
-Confidence: 99%
-Reason: Single file, direct JSX sink, all hops statically resolved.
-Risk: low; behavior-preserving extraction likely.
-
-**Metric contributions**
-
-```
-defensive operations on this path: 3
-  - preferences.accentColor ?? "#3f7f6f"  [fallback]
-  - packed.task.estimateHours ?? 0  [fallback]
-  - row.label ?? "Untitled"  [fallback]
-helper hops on this path: 1
-  - taskRowView  [call]
-```
-
-**Representative path**
-
-```
--> preferences  [source]
--> accentColor  [property-read]
--> preferences.accentColor ?? "#3f7f6f"  [fallback]
--> { task, owner: user, swatch: preferences.accentColor ?? "#3f7f6f", }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> packed.task.estimateHours ?? 0  [fallback]
--> `${packed.task.estimateHours ?? 0}h`  [template]
--> { label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> label  [property-read]
--> row.label ?? "Untitled"  [fallback]
-```
-
-**Finding**
-
-A nullish fallback or optional access is unreachable under the checked TypeScript program.
-
-## RPF-167-16 · HIGH · type-impossible defensive render path
-src/DashboardShell.tsx:167
-
-**Sink**
-
-```
-row.ownerLabel ?? "Unknown owner"
-```
-
-**Source**
-
-```
-props.task, props.actor, props.preferences, preferences.accentColor
-```
-
-**Metrics**
-
-| Metric                 | Value |
-| ---------------------- | ----- |
-| path depth             | 14    |
-| helper hops            | 5     |
-| representation changes | 26    |
-| defensive operations   | 16    |
-| impossible defenses    | 1     |
-| downstream sink count  | 31    |
-| centrality percentile  | 88    |
-| analysis confidence    | 99%   |
-
-Confidence: 99%
-Reason: Single file, direct JSX sink, all hops statically resolved.
-Risk: low; behavior-preserving extraction likely.
-
-**Metric contributions**
-
-```
-defensive operations on this path: 3
-  - preferences.accentColor ?? "#3f7f6f"  [fallback]
-  - packed.task.estimateHours ?? 0  [fallback]
-  - row.ownerLabel ?? "Unknown owner"  [fallback]
-helper hops on this path: 1
-  - taskRowView  [call]
-```
-
-**Representative path**
-
-```
--> preferences  [source]
--> accentColor  [property-read]
--> preferences.accentColor ?? "#3f7f6f"  [fallback]
--> { task, owner: user, swatch: preferences.accentColor ?? "#3f7f6f", }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> packed.task.estimateHours ?? 0  [fallback]
--> `${packed.task.estimateHours ?? 0}h`  [template]
--> { label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> ownerLabel  [property-read]
--> row.ownerLabel ?? "Unknown owner"  [fallback]
-```
-
-**Finding**
-
-A nullish fallback or optional access is unreachable under the checked TypeScript program.
-
-## RPF-163-07 · MEDIUM · representation-heavy render path
-src/DashboardShell.tsx:163
-
-**Sink**
-
-```
-`--accent:${row.swatch}`
-```
-
-**Source**
-
-```
-props.task, props.actor, props.preferences, preferences.accentColor
-```
-
-**Metrics**
-
-| Metric                 | Value |
-| ---------------------- | ----- |
-| path depth             | 14    |
-| helper hops            | 5     |
-| representation changes | 26    |
-| defensive operations   | 14    |
-| impossible defenses    | 0     |
-| downstream sink count  | 31    |
-| centrality percentile  | 88    |
-| analysis confidence    | 88%   |
-
-Confidence: 88%
-Reason: All hops statically resolved within one file.
-Risk: low.
-
-**Metric contributions**
-
-```
-defensive operations on this path: 2
-  - preferences.accentColor ?? "#3f7f6f"  [fallback]
-  - packed.task.estimateHours ?? 0  [fallback]
-helper hops on this path: 1
-  - taskRowView  [call]
-```
-
-**Representative path**
-
-```
--> preferences  [source]
--> accentColor  [property-read]
--> preferences.accentColor ?? "#3f7f6f"  [fallback]
--> { task, owner: user, swatch: preferences.accentColor ?? "#3f7f6f", }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> packed.task.estimateHours ?? 0  [fallback]
--> `${packed.task.estimateHours ?? 0}h`  [template]
--> { label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> swatch  [property-read]
--> `--accent:${row.swatch}`  [template]
-```
-
-**Finding**
-
-This rendered value has more data-flow plumbing than nearby JSX should usually need.
-
-## RPF-168-15 · MEDIUM · representation-heavy render path
-src/DashboardShell.tsx:168
-
-**Sink**
-
-```
-row.priorityLabel
-```
-
-**Source**
-
-```
-props.task, props.actor, props.preferences, preferences.accentColor
-```
-
-**Metrics**
-
-| Metric                 | Value |
-| ---------------------- | ----- |
-| path depth             | 13    |
-| helper hops            | 5     |
-| representation changes | 26    |
-| defensive operations   | 14    |
-| impossible defenses    | 0     |
-| downstream sink count  | 31    |
-| centrality percentile  | 88    |
-| analysis confidence    | 88%   |
-
-Confidence: 88%
-Reason: All hops statically resolved within one file.
-Risk: low.
-
-**Metric contributions**
-
-```
-defensive operations on this path: 2
-  - preferences.accentColor ?? "#3f7f6f"  [fallback]
-  - packed.task.estimateHours ?? 0  [fallback]
-helper hops on this path: 1
-  - taskRowView  [call]
-```
-
-**Representative path**
-
-```
--> preferences  [source]
--> accentColor  [property-read]
--> preferences.accentColor ?? "#3f7f6f"  [fallback]
--> { task, owner: user, swatch: preferences.accentColor ?? "#3f7f6f", }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> packed.task.estimateHours ?? 0  [fallback]
--> `${packed.task.estimateHours ?? 0}h`  [template]
--> { label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> priorityLabel  [property-read]
-```
-
-**Finding**
-
-This rendered value has more data-flow plumbing than nearby JSX should usually need.
-
-## RPF-169-15 · MEDIUM · representation-heavy render path
-src/DashboardShell.tsx:169
-
-**Sink**
-
-```
-row.estimateLabel
-```
-
-**Source**
-
-```
-props.task, props.actor, props.preferences, preferences.accentColor
-```
-
-**Metrics**
-
-| Metric                 | Value |
-| ---------------------- | ----- |
-| path depth             | 13    |
-| helper hops            | 5     |
-| representation changes | 26    |
-| defensive operations   | 14    |
-| impossible defenses    | 0     |
-| downstream sink count  | 31    |
-| centrality percentile  | 88    |
-| analysis confidence    | 88%   |
-
-Confidence: 88%
-Reason: All hops statically resolved within one file.
-Risk: low.
-
-**Metric contributions**
-
-```
-defensive operations on this path: 2
-  - preferences.accentColor ?? "#3f7f6f"  [fallback]
-  - packed.task.estimateHours ?? 0  [fallback]
-helper hops on this path: 1
-  - taskRowView  [call]
-```
-
-**Representative path**
-
-```
--> preferences  [source]
--> accentColor  [property-read]
--> preferences.accentColor ?? "#3f7f6f"  [fallback]
--> { task, owner: user, swatch: preferences.accentColor ?? "#3f7f6f", }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> packed.task.estimateHours ?? 0  [fallback]
--> `${packed.task.estimateHours ?? 0}h`  [template]
--> { label: packed.task.title.trim(), ownerLabel: packed.owner.name, priorityLabel: packed.task.…  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> estimateLabel  [property-read]
-```
-
-**Finding**
-
-This rendered value has more data-flow plumbing than nearby JSX should usually need.
-
-## RPF-068-07 · HIGH · type-impossible defensive render path
-src/DashboardShell.tsx:68
-
-**Sink**
-
-```
-route.toolbar.theme ?? "light"
-```
-
-**Source**
-
-```
-props.user, props.tasks, props.preferences, props.selectedTaskId
-```
-
-**Metrics**
-
-| Metric                 | Value |
-| ---------------------- | ----- |
-| path depth             | 13    |
+| path depth             | 15    |
 | helper hops            | 2     |
-| representation changes | 10    |
-| defensive operations   | 9     |
-| impossible defenses    | 3     |
+| representation changes | 26    |
+| defensive operations   | 16    |
+| impossible defenses    | 1     |
 | downstream sink count  | 31    |
 | centrality percentile  | 84    |
 | analysis confidence    | 99%   |
@@ -364,63 +39,64 @@ Risk: low; behavior-preserving extraction likely.
 **Metric contributions**
 
 ```
-defensive operations on this path: 4
-  - id  [optional-read]
-  - props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
-  - props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
-  - route.toolbar.theme ?? "light"  [fallback]
+defensive operations on this path: 3
+  - «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+  - «packed.task.estimateHours» ?? 0  [fallback]
+  - «row.label» ?? "Untitled"  [fallback]
 helper hops on this path: 1
-  - buildRouteModel  [call]
+  - taskRowView  [call]
 ```
 
 **Representative path**
 
 ```
 -> props  [source]
--> tasks  [property-read]
--> props.tasks[0]  [property-read]
--> id  [optional-read]
--> props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
--> props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
--> selectedTaskId  [alias]
--> { actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…  [object-pack]
--> buildRouteModel  [call]
--> route  [alias]
--> toolbar  [property-read]
--> theme  [property-read]
--> route.toolbar.theme ?? "light"  [fallback]
+-> preferences  [property-read]
+-> accentColor  [property-read]
+-> «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+-> …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }  [object-pack]
+-> packed  [alias]
+-> task  [property-read]
+-> estimateHours  [property-read]
+-> «packed.task.estimateHours» ?? 0  [fallback]
+-> `${«packed.task.estimateHours ?? 0»}h`  [template]
+-> … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }  [object-pack]
+-> taskRowView  [call]
+-> row  [alias]
+-> label  [property-read]
+-> «row.label» ?? "Untitled"  [fallback]
 ```
 
 **Finding**
 
 A nullish fallback or optional access is unreachable under the checked TypeScript program.
 
-## RPF-069-07 · HIGH · type-impossible defensive render path
-src/DashboardShell.tsx:69
+## RPF-111-16 · HIGH · type-impossible defensive render path
+src/DashboardShell.tsx:111
 
 **Sink**
 
 ```
-route.toolbar.density ?? "comfortable"
+row.ownerLabel ?? "Unknown owner"
 ```
 
 **Source**
 
 ```
-props.user, props.tasks, props.preferences, props.selectedTaskId
+props.task, props.actor, props.preferences
 ```
 
 **Metrics**
 
 | Metric                 | Value |
 | ---------------------- | ----- |
-| path depth             | 13    |
+| path depth             | 15    |
 | helper hops            | 2     |
-| representation changes | 10    |
-| defensive operations   | 9     |
-| impossible defenses    | 3     |
+| representation changes | 26    |
+| defensive operations   | 16    |
+| impossible defenses    | 1     |
 | downstream sink count  | 31    |
-| centrality percentile  | 83    |
+| centrality percentile  | 84    |
 | analysis confidence    | 99%   |
 
 Confidence: 99%
@@ -430,39 +106,236 @@ Risk: low; behavior-preserving extraction likely.
 **Metric contributions**
 
 ```
-defensive operations on this path: 4
-  - id  [optional-read]
-  - props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
-  - props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
-  - route.toolbar.density ?? "comfortable"  [fallback]
+defensive operations on this path: 3
+  - «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+  - «packed.task.estimateHours» ?? 0  [fallback]
+  - «row.ownerLabel» ?? "Unknown owner"  [fallback]
 helper hops on this path: 1
-  - buildRouteModel  [call]
+  - taskRowView  [call]
 ```
 
 **Representative path**
 
 ```
 -> props  [source]
--> tasks  [property-read]
--> props.tasks[0]  [property-read]
--> id  [optional-read]
--> props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
--> props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
--> selectedTaskId  [alias]
--> { actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…  [object-pack]
--> buildRouteModel  [call]
--> route  [alias]
--> toolbar  [property-read]
--> density  [property-read]
--> route.toolbar.density ?? "comfortable"  [fallback]
+-> preferences  [property-read]
+-> accentColor  [property-read]
+-> «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+-> …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }  [object-pack]
+-> packed  [alias]
+-> task  [property-read]
+-> estimateHours  [property-read]
+-> «packed.task.estimateHours» ?? 0  [fallback]
+-> `${«packed.task.estimateHours ?? 0»}h`  [template]
+-> … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }  [object-pack]
+-> taskRowView  [call]
+-> row  [alias]
+-> ownerLabel  [property-read]
+-> «row.ownerLabel» ?? "Unknown owner"  [fallback]
 ```
 
 **Finding**
 
 A nullish fallback or optional access is unreachable under the checked TypeScript program.
 
-## RPF-086-09 · HIGH · type-impossible defensive render path
-src/DashboardShell.tsx:86
+## RPF-107-07 · MEDIUM · representation-heavy render path
+src/DashboardShell.tsx:107
+
+**Sink**
+
+```
+`--accent:${row.swatch}`
+```
+
+**Source**
+
+```
+props.task, props.actor, props.preferences
+```
+
+**Metrics**
+
+| Metric                 | Value |
+| ---------------------- | ----- |
+| path depth             | 15    |
+| helper hops            | 2     |
+| representation changes | 26    |
+| defensive operations   | 14    |
+| impossible defenses    | 0     |
+| downstream sink count  | 31    |
+| centrality percentile  | 83    |
+| analysis confidence    | 88%   |
+
+Confidence: 88%
+Reason: All hops statically resolved within one file.
+Risk: low.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 2
+  - «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+  - «packed.task.estimateHours» ?? 0  [fallback]
+helper hops on this path: 1
+  - taskRowView  [call]
+```
+
+**Representative path**
+
+```
+-> props  [source]
+-> preferences  [property-read]
+-> accentColor  [property-read]
+-> «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+-> …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }  [object-pack]
+-> packed  [alias]
+-> task  [property-read]
+-> estimateHours  [property-read]
+-> «packed.task.estimateHours» ?? 0  [fallback]
+-> `${«packed.task.estimateHours ?? 0»}h`  [template]
+-> … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }  [object-pack]
+-> taskRowView  [call]
+-> row  [alias]
+-> swatch  [property-read]
+-> `--accent:${«row.swatch»}`  [template]
+```
+
+**Finding**
+
+This rendered value has more data-flow plumbing than nearby JSX should usually need.
+
+## RPF-112-15 · MEDIUM · representation-heavy render path
+src/DashboardShell.tsx:112
+
+**Sink**
+
+```
+row.priorityLabel
+```
+
+**Source**
+
+```
+props.task, props.actor, props.preferences
+```
+
+**Metrics**
+
+| Metric                 | Value |
+| ---------------------- | ----- |
+| path depth             | 14    |
+| helper hops            | 2     |
+| representation changes | 26    |
+| defensive operations   | 14    |
+| impossible defenses    | 0     |
+| downstream sink count  | 31    |
+| centrality percentile  | 83    |
+| analysis confidence    | 88%   |
+
+Confidence: 88%
+Reason: All hops statically resolved within one file.
+Risk: low.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 2
+  - «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+  - «packed.task.estimateHours» ?? 0  [fallback]
+helper hops on this path: 1
+  - taskRowView  [call]
+```
+
+**Representative path**
+
+```
+-> props  [source]
+-> preferences  [property-read]
+-> accentColor  [property-read]
+-> «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+-> …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }  [object-pack]
+-> packed  [alias]
+-> task  [property-read]
+-> estimateHours  [property-read]
+-> «packed.task.estimateHours» ?? 0  [fallback]
+-> `${«packed.task.estimateHours ?? 0»}h`  [template]
+-> … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }  [object-pack]
+-> taskRowView  [call]
+-> row  [alias]
+-> priorityLabel  [property-read]
+```
+
+**Finding**
+
+This rendered value has more data-flow plumbing than nearby JSX should usually need.
+
+## RPF-113-15 · MEDIUM · representation-heavy render path
+src/DashboardShell.tsx:113
+
+**Sink**
+
+```
+row.estimateLabel
+```
+
+**Source**
+
+```
+props.task, props.actor, props.preferences
+```
+
+**Metrics**
+
+| Metric                 | Value |
+| ---------------------- | ----- |
+| path depth             | 14    |
+| helper hops            | 2     |
+| representation changes | 26    |
+| defensive operations   | 14    |
+| impossible defenses    | 0     |
+| downstream sink count  | 31    |
+| centrality percentile  | 83    |
+| analysis confidence    | 88%   |
+
+Confidence: 88%
+Reason: All hops statically resolved within one file.
+Risk: low.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 2
+  - «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+  - «packed.task.estimateHours» ?? 0  [fallback]
+helper hops on this path: 1
+  - taskRowView  [call]
+```
+
+**Representative path**
+
+```
+-> props  [source]
+-> preferences  [property-read]
+-> accentColor  [property-read]
+-> «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+-> …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }  [object-pack]
+-> packed  [alias]
+-> task  [property-read]
+-> estimateHours  [property-read]
+-> «packed.task.estimateHours» ?? 0  [fallback]
+-> `${«packed.task.estimateHours ?? 0»}h`  [template]
+-> … "normal", estimateLabel: «`${packed.task.estimateHours ?? 0}h`», swatch: packed.swatch, }  [object-pack]
+-> taskRowView  [call]
+-> row  [alias]
+-> estimateLabel  [property-read]
+```
+
+**Finding**
+
+This rendered value has more data-flow plumbing than nearby JSX should usually need.
+
+## RPF-030-09 · HIGH · type-impossible defensive render path
+src/DashboardShell.tsx:30
 
 **Sink**
 
@@ -481,12 +354,12 @@ props.user, props.tasks, props.preferences, props.selectedTaskId
 | Metric                 | Value |
 | ---------------------- | ----- |
 | path depth             | 13    |
-| helper hops            | 4     |
+| helper hops            | 3     |
 | representation changes | 11    |
 | defensive operations   | 7     |
 | impossible defenses    | 2     |
 | downstream sink count  | 31    |
-| centrality percentile  | 86    |
+| centrality percentile  | 84    |
 | analysis confidence    | 99%   |
 
 Confidence: 99%
@@ -498,8 +371,8 @@ Risk: low; behavior-preserving extraction likely.
 ```
 defensive operations on this path: 3
   - id  [optional-read]
-  - props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
-  - props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
+  - props.selectedTaskId ?? «props.tasks[0]?.id»  [fallback]
+  - «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"  [fallback]
 helper hops on this path: 2
   - buildRouteModel  [call]
   - find  [call]
@@ -510,17 +383,149 @@ helper hops on this path: 2
 ```
 -> props  [source]
 -> tasks  [property-read]
--> props.tasks[0]  [property-read]
+-> «props.tasks»[0]  [property-read]
 -> id  [optional-read]
--> props.selectedTaskId ?? props.tasks[0]?.id  [fallback]
--> props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"  [fallback]
+-> props.selectedTaskId ?? «props.tasks[0]?.id»  [fallback]
+-> «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"  [fallback]
 -> selectedTaskId  [alias]
--> { actor: props.user, visibleTasks: props.tasks, preferences: props.preferences, selectedTaskId,…  [object-pack]
+-> …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…  [object-pack]
 -> buildRouteModel  [call]
 -> route  [alias]
 -> visibleTasks  [property-read]
 -> find  [call]
 -> selectedTask  [alias]
+```
+
+**Finding**
+
+A nullish fallback or optional access is unreachable under the checked TypeScript program.
+
+## RPF-012-07 · HIGH · type-impossible defensive render path
+src/DashboardShell.tsx:12
+
+**Sink**
+
+```
+route.toolbar.theme ?? "light"
+```
+
+**Source**
+
+```
+props.user, props.tasks, props.preferences, props.selectedTaskId
+```
+
+**Metrics**
+
+| Metric                 | Value |
+| ---------------------- | ----- |
+| path depth             | 13    |
+| helper hops            | 1     |
+| representation changes | 10    |
+| defensive operations   | 9     |
+| impossible defenses    | 3     |
+| downstream sink count  | 31    |
+| centrality percentile  | 81    |
+| analysis confidence    | 99%   |
+
+Confidence: 99%
+Reason: Single file, direct JSX sink, all hops statically resolved.
+Risk: low; behavior-preserving extraction likely.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 4
+  - id  [optional-read]
+  - props.selectedTaskId ?? «props.tasks[0]?.id»  [fallback]
+  - «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"  [fallback]
+  - «route.toolbar.theme» ?? "light"  [fallback]
+helper hops on this path: 1
+  - buildRouteModel  [call]
+```
+
+**Representative path**
+
+```
+-> props  [source]
+-> tasks  [property-read]
+-> «props.tasks»[0]  [property-read]
+-> id  [optional-read]
+-> props.selectedTaskId ?? «props.tasks[0]?.id»  [fallback]
+-> «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"  [fallback]
+-> selectedTaskId  [alias]
+-> …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…  [object-pack]
+-> buildRouteModel  [call]
+-> route  [alias]
+-> toolbar  [property-read]
+-> theme  [property-read]
+-> «route.toolbar.theme» ?? "light"  [fallback]
+```
+
+**Finding**
+
+A nullish fallback or optional access is unreachable under the checked TypeScript program.
+
+## RPF-013-07 · HIGH · type-impossible defensive render path
+src/DashboardShell.tsx:13
+
+**Sink**
+
+```
+route.toolbar.density ?? "comfortable"
+```
+
+**Source**
+
+```
+props.user, props.tasks, props.preferences, props.selectedTaskId
+```
+
+**Metrics**
+
+| Metric                 | Value |
+| ---------------------- | ----- |
+| path depth             | 13    |
+| helper hops            | 1     |
+| representation changes | 10    |
+| defensive operations   | 9     |
+| impossible defenses    | 3     |
+| downstream sink count  | 31    |
+| centrality percentile  | 80    |
+| analysis confidence    | 99%   |
+
+Confidence: 99%
+Reason: Single file, direct JSX sink, all hops statically resolved.
+Risk: low; behavior-preserving extraction likely.
+
+**Metric contributions**
+
+```
+defensive operations on this path: 4
+  - id  [optional-read]
+  - props.selectedTaskId ?? «props.tasks[0]?.id»  [fallback]
+  - «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"  [fallback]
+  - «route.toolbar.density» ?? "comfortable"  [fallback]
+helper hops on this path: 1
+  - buildRouteModel  [call]
+```
+
+**Representative path**
+
+```
+-> props  [source]
+-> tasks  [property-read]
+-> «props.tasks»[0]  [property-read]
+-> id  [optional-read]
+-> props.selectedTaskId ?? «props.tasks[0]?.id»  [fallback]
+-> «props.selectedTaskId ?? props.tasks[0]?.id» ?? "empty"  [fallback]
+-> selectedTaskId  [alias]
+-> …sks, preferences: props.preferences, «selectedTaskId», toolbar: { title: `${props.user.nam…  [object-pack]
+-> buildRouteModel  [call]
+-> route  [alias]
+-> toolbar  [property-read]
+-> density  [property-read]
+-> «route.toolbar.density» ?? "comfortable"  [fallback]
 ```
 
 **Finding**
@@ -533,5 +538,5 @@ A nullish fallback or optional access is unreachable under the checked TypeScrip
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view findings --max-items 8
+tsx-dataflow --root examples/bad-ish-solid --view findings --max-items 8 --out examples/bad-ish-solid/reports/findings.md
 ```

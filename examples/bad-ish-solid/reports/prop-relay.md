@@ -6,19 +6,19 @@
 
 | Sink                       | Component boundaries | Wrappers | Classification    |
 | -------------------------- | -------------------- | -------- | ----------------- |
-| src/DashboardShell.tsx:166 | 9                    | 26       | transformed relay |
-| src/DashboardShell.tsx:167 | 9                    | 26       | transformed relay |
-| src/DashboardShell.tsx:163 | 8                    | 26       | transformed relay |
-| src/DashboardShell.tsx:168 | 8                    | 26       | transformed relay |
-| src/DashboardShell.tsx:169 | 8                    | 26       | transformed relay |
-| src/DashboardShell.tsx:68  | 7                    | 10       | transformed relay |
-| src/DashboardShell.tsx:69  | 6                    | 10       | transformed relay |
-| src/DashboardShell.tsx:86  | 7                    | 11       | transformed relay |
+| src/DashboardShell.tsx:110 | 6                    | 26       | transformed relay |
+| src/DashboardShell.tsx:111 | 6                    | 26       | transformed relay |
+| src/DashboardShell.tsx:107 | 5                    | 26       | transformed relay |
+| src/DashboardShell.tsx:112 | 5                    | 26       | transformed relay |
+| src/DashboardShell.tsx:113 | 5                    | 26       | transformed relay |
+| src/DashboardShell.tsx:30  | 6                    | 11       | transformed relay |
+| src/DashboardShell.tsx:12  | 6                    | 10       | transformed relay |
+| src/DashboardShell.tsx:13  | 5                    | 10       | transformed relay |
 
 ---
 
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view prop-relay --max-items 8
+tsx-dataflow --root examples/bad-ish-solid --view prop-relay --max-items 8 --out examples/bad-ish-solid/reports/prop-relay.md
 ```

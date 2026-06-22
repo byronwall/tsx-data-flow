@@ -8,28 +8,28 @@
 
 | Feature area       | Sinks | Files | Max depth | Wrappers | Suggested first cut    |
 | ------------------ | ----- | ----- | --------- | -------- | ---------------------- |
-| DashboardShell.tsx | 38    | 1     | 14        | 313      | Provider/Context audit |
+| DashboardShell.tsx | 38    | 1     | 15        | 313      | Provider/Context audit |
 
 ## Peripheral quick wins
 
-- **0.1** src/DashboardShell.tsx:162 — render-path data-flow hotspot _(local component cleanup)_
-- **0.2** src/DashboardShell.tsx:108 — type-impossible defensive render path _(feature hook extraction)_
-- **0.1** src/DashboardShell.tsx:138 — helper-heavy render path _(feature hook extraction)_
-- **0.1** src/DashboardShell.tsx:143 — render-path data-flow hotspot _(cross-component prop relay)_
-- **0.0** src/DashboardShell.tsx:140 — render-path data-flow hotspot _(local component cleanup)_
-- **0.1** src/DashboardShell.tsx:111 — render-path data-flow hotspot _(feature hook extraction)_
-- **0.1** src/DashboardShell.tsx:141 — render-path data-flow hotspot _(feature hook extraction)_
+- **0.1** src/DashboardShell.tsx:106 — render-path data-flow hotspot _(local component cleanup)_
+- **0.2** src/DashboardShell.tsx:52 — type-impossible defensive render path _(feature hook extraction)_
+- **0.1** src/DashboardShell.tsx:82 — helper-heavy render path _(feature hook extraction)_
+- **0.1** src/DashboardShell.tsx:87 — render-path data-flow hotspot _(feature hook extraction)_
+- **0.0** src/DashboardShell.tsx:84 — render-path data-flow hotspot _(local component cleanup)_
+- **0.1** src/DashboardShell.tsx:55 — render-path data-flow hotspot _(feature hook extraction)_
+- **0.1** src/DashboardShell.tsx:85 — render-path data-flow hotspot _(feature hook extraction)_
 
 ## Central leverage
 
-- **0.7** src/DashboardShell.tsx:166 — type-impossible defensive render path _(architectural fan-in)_
-- **0.7** src/DashboardShell.tsx:167 — type-impossible defensive render path _(architectural fan-in)_
-- **0.6** src/DashboardShell.tsx:86 — type-impossible defensive render path _(architectural fan-in)_
-- **0.6** src/DashboardShell.tsx:163 — representation-heavy render path _(architectural fan-in)_
-- **0.6** src/DashboardShell.tsx:168 — representation-heavy render path _(architectural fan-in)_
-- **0.6** src/DashboardShell.tsx:169 — representation-heavy render path _(architectural fan-in)_
-- **0.6** src/DashboardShell.tsx:68 — type-impossible defensive render path _(architectural fan-in)_
-- **0.6** src/DashboardShell.tsx:69 — type-impossible defensive render path _(architectural fan-in)_
+- **0.7** src/DashboardShell.tsx:110 — type-impossible defensive render path _(architectural fan-in)_
+- **0.7** src/DashboardShell.tsx:111 — type-impossible defensive render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:30 — type-impossible defensive render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:12 — type-impossible defensive render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:13 — type-impossible defensive render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:107 — representation-heavy render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:112 — representation-heavy render path _(architectural fan-in)_
+- **0.6** src/DashboardShell.tsx:113 — representation-heavy render path _(architectural fan-in)_
 
 ## Investigate
 
@@ -41,5 +41,5 @@
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view repair-map --max-items 8
+tsx-dataflow --root examples/bad-ish-solid --view repair-map --max-items 8 --out examples/bad-ish-solid/reports/repair-map.md
 ```

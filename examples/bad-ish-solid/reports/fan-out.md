@@ -4,21 +4,21 @@
 >
 > Ranks source values by how many render sinks consume them. _Sinks_ is that consumer count, _Files_ how many files reference the source, _Example sink_ a representative file:line to open first, and _Max depth_ the longest transformation path from that source to JSX.
 
-| Source                  | Sinks | Files | Example sink               | Max depth |
-| ----------------------- | ----- | ----- | -------------------------- | --------- |
-| props.preferences       | 31    | 1     | src/DashboardShell.tsx:163 | 14        |
-| props.actor             | 19    | 1     | src/DashboardShell.tsx:163 | 14        |
-| props.tasks             | 14    | 1     | src/DashboardShell.tsx:68  | 13        |
-| props.selectedTaskId    | 14    | 1     | src/DashboardShell.tsx:68  | 13        |
-| props.user              | 13    | 1     | src/DashboardShell.tsx:68  | 13        |
-| props.task              | 9     | 1     | src/DashboardShell.tsx:163 | 14        |
-| preferences.accentColor | 5     | 1     | src/DashboardShell.tsx:163 | 14        |
-| props.title             | 4     | 1     | src/DashboardShell.tsx:107 | 8         |
+| Source               | Sinks | Files | Example sink               | Max depth |
+| -------------------- | ----- | ----- | -------------------------- | --------- |
+| props.preferences    | 31    | 1     | src/DashboardShell.tsx:107 | 15        |
+| props.actor          | 19    | 1     | src/DashboardShell.tsx:107 | 15        |
+| props.tasks          | 14    | 1     | src/DashboardShell.tsx:12  | 13        |
+| props.selectedTaskId | 14    | 1     | src/DashboardShell.tsx:12  | 13        |
+| props.user           | 13    | 1     | src/DashboardShell.tsx:12  | 13        |
+| props.task           | 9     | 1     | src/DashboardShell.tsx:107 | 15        |
+| props.title          | 4     | 1     | src/DashboardShell.tsx:51  | 8         |
+| props.taskCount      | 4     | 1     | src/DashboardShell.tsx:51  | 8         |
 
 ---
 
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view fan-out --max-items 8
+tsx-dataflow --root examples/bad-ish-solid --view fan-out --max-items 8 --out examples/bad-ish-solid/reports/fan-out.md
 ```

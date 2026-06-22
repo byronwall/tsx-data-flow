@@ -6,19 +6,19 @@
 
 | Location                  | Expression                                              | Type                                    | Verdict    | Origin                   |
 | ------------------------- | ------------------------------------------------------- | --------------------------------------- | ---------- | ------------------------ |
-| src/DashboardShell.tsx:31 | `props.tasks[0]?.id`                                    | `Task`                                  | impossible | stale (type-impossible)  |
-| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id`            | `string \| undefined`                    | possible   | compatibility (optional) |
-| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"` | `string`                                | impossible | stale (type-impossible)  |
-| src/DashboardShell.tsx:40 | `props.preferences.density ?? "comfortable"`            | `"compact" \| "comfortable" \| undefined` | possible   | compatibility (optional) |
-| src/DashboardShell.tsx:68 | `route.toolbar.theme ?? "light"`                        | `"light" \| "dark"`                      | impossible | stale (type-impossible)  |
-| src/DashboardShell.tsx:31 | `props.tasks[0]?.id`                                    | `Task`                                  | impossible | stale (type-impossible)  |
-| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id`            | `string \| undefined`                    | possible   | compatibility (optional) |
-| src/DashboardShell.tsx:31 | `props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"` | `string`                                | impossible | stale (type-impossible)  |
+| src/DashboardShell.tsx:7  | `props.tasks[0]?.id`                                    | `Task`                                  | impossible | stale (type-impossible)  |
+| src/DashboardShell.tsx:7  | `props.selectedTaskId ?? props.tasks[0]?.id`            | `string \| undefined`                    | possible   | compatibility (optional) |
+| src/DashboardShell.tsx:7  | `props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"` | `string`                                | impossible | stale (type-impossible)  |
+| src/DashboardShell.tsx:16 | `props.preferences.density ?? "comfortable"`            | `"compact" \| "comfortable" \| undefined` | possible   | compatibility (optional) |
+| src/DashboardShell.tsx:12 | `route.toolbar.theme ?? "light"`                        | `"light" \| "dark"`                      | impossible | stale (type-impossible)  |
+| src/DashboardShell.tsx:7  | `props.tasks[0]?.id`                                    | `Task`                                  | impossible | stale (type-impossible)  |
+| src/DashboardShell.tsx:7  | `props.selectedTaskId ?? props.tasks[0]?.id`            | `string \| undefined`                    | possible   | compatibility (optional) |
+| src/DashboardShell.tsx:7  | `props.selectedTaskId ?? props.tasks[0]?.id ?? "empty"` | `string`                                | impossible | stale (type-impossible)  |
 
 ---
 
 _Regenerate this report:_
 
 ```sh
-tsx-dataflow --root examples/bad-ish-solid --view defensive-ledger --max-items 8
+tsx-dataflow --root examples/bad-ish-solid --view defensive-ledger --max-items 8 --out examples/bad-ish-solid/reports/defensive-ledger.md
 ```

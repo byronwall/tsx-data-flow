@@ -19,6 +19,9 @@ const reports = [
   ["fan-out", "markdown", "fan-out.md"],
   ["defensive-ledger", "markdown", "defensive-ledger.md"],
   ["repair-map", "markdown", "repair-map.md"],
+  ["boundary-report", "markdown", "boundary-report.md"],
+  ["junctions", "markdown", "junctions.md"],
+  ["inline-preview", "markdown", "inline-preview.md"],
   ["dossier", "json", "dossier.json"],
 ];
 

@@ -142,8 +142,22 @@ The more useful view for planning work is [`examples/bad-ish-solid/reports/work-
 | `path-gallery`          | Representative source-to-sink paths.                                                                                 |
 | `path-census`           | Aggregate source/sink/path-depth counts.                                                                             |
 | `path-families`         | Grouped path signatures.                                                                                             |
+| `boundary-report`       | First-party functions on render paths, scored as data-flow boundaries (clean pipe / pass-through / leaky / junction / messy). |
+| `junctions`             | Confluence functions where independent lineages fork in and re-spread — the load-bearing knots, with tributaries and distributaries. |
+| `inline-preview`        | Inline-vs-keep decision per helper: how the path changes if folded in, with a verdict (proposes, never rewrites).    |
 | `dossier`               | Graph-oriented JSON (nodes, edges, traces, metrics, omitted counts).                                                 |
 | `all`                   | Generate every view above in one run; pair with `--out <dir>` to write one file per view.                            |
+
+### Cross-file tracing
+
+By default the analyzer follows first-party imported helper calls into their
+definition files, so render paths continue across module boundaries: the
+representative path shows `↘ enter F2` / `↗ return` markers, each step carries an
+`F#:line` backlink, and the `boundary-report`, `junctions`, and `inline-preview`
+views light up. Hook/context accessors (`useX`) are kept opaque (they are
+intentional feature boundaries). Use `--no-trace-helpers` for the fastest
+single-file pass, or `--max-helper-depth <n>` (default 3) to tune how many import
+boundaries are followed.
 
 ## Agent skill
 

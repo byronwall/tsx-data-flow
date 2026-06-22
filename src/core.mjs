@@ -33,6 +33,9 @@ export const REPORT_VIEWS = [
   "prop-relay",
   "context-relay",
   "repair-map",
+  "boundary-report",
+  "junctions",
+  "inline-preview",
 ];
 // `all` is a meta-view: build the report once and emit every concrete view.
 const ALL_VIEWS = "all";
@@ -48,6 +51,8 @@ const TABLE_VIEWS = new Set([
   "defensive-ledger",
   "prop-relay",
   "context-relay",
+  "boundary-report",
+  "junctions",
 ]);
 const DEFAULT_TABLE_MAX_ITEMS = 12;
 const DEFAULT_REPORT_MAX_ITEMS = 5;
@@ -130,6 +135,15 @@ export function parseArgs(argv, defaults = {}) {
     maxItemsExplicit: defaults.maxItems != null,
     includeTests: defaults.includeTests ?? false,
     failOnRegression: defaults.failOnRegression ?? false,
+    // Follow first-party imported helper calls into their definition files so
+    // render paths continue across module boundaries (and the F2/F3 backlinks,
+    // boundary-report, junctions, and inline-preview views light up). On by
+    // default; disable for the cheapest/fastest single-file runs.
+    traceHelpers: defaults.traceHelpers ?? true,
+    // One import boundary by default: descend into helpers a render path calls
+    // directly, but not the helpers *those* call. Keeps cost linear on large
+    // codebases (deeper nesting branches combinatorially); raise deliberately.
+    maxHelperDepth: defaults.maxHelperDepth ?? 1,
     help: false,
   };
 
@@ -178,6 +192,15 @@ export function parseArgs(argv, defaults = {}) {
       case "--include-tests":
         args.includeTests = true;
         break;
+      case "--trace-helpers":
+        args.traceHelpers = true;
+        break;
+      case "--no-trace-helpers":
+        args.traceHelpers = false;
+        break;
+      case "--max-helper-depth":
+        args.maxHelperDepth = Number.parseInt(readValue(), 10);
+        break;
       case "--fail-on-regression":
         args.failOnRegression = true;
         break;
@@ -203,6 +226,9 @@ export function parseArgs(argv, defaults = {}) {
   }
   if (!Number.isFinite(args.maxItems) || args.maxItems < 1) {
     throw new Error("--max-items must be a positive number");
+  }
+  if (!Number.isFinite(args.maxHelperDepth) || args.maxHelperDepth < 0) {
+    throw new Error("--max-helper-depth must be a non-negative number");
   }
 
   args.root = path.resolve(args.root);
@@ -243,6 +269,10 @@ Options:
   --out <path>              Write report to a file instead of stdout. With
                             --view all, names a directory to fill (one file per view).
   --include-tests           Include *.test.* and *.spec.* files.
+  --no-trace-helpers        Stay single-file: do not follow imported helper calls
+                            into their definitions (faster; F2/F3 backlinks and the
+                            boundary-report/junctions/inline-preview views go dark).
+  --max-helper-depth <n>    How many import boundaries to follow. Defaults to 3.
   --help                    Show this help.
 
 Views:
@@ -378,6 +408,12 @@ function renderMarkdownView(report, args) {
       return renderContextRelay(report, args);
     case "repair-map":
       return renderRepairMap(report, args);
+    case "boundary-report":
+      return renderBoundaryReport(report, args);
+    case "junctions":
+      return renderJunctions(report, args);
+    case "inline-preview":
+      return renderInlinePreview(report, args);
     default:
       return renderWorkPackets(report, args);
   }
@@ -401,7 +437,9 @@ export function renderAllReports(report, args) {
     return {
       view,
       filename: `${view}.${extension}`,
-      text: renderReport(report, { ...args, view, maxItems }),
+      // regenAll marks the footer so each file in an --view all run regenerates
+      // the whole set into the same --out directory, rather than just itself.
+      text: renderReport(report, { ...args, view, maxItems, regenAll: true }),
     };
   });
 }
@@ -418,23 +456,36 @@ export async function writeAllReports(reports, outDir) {
   return written;
 }
 
-// A copy-pasteable command that regenerates exactly this report. Reports are
-// often read detached from the shell that produced them, so each one carries its
-// own provenance command. Only non-default flags are emitted to keep it short.
+// A copy-pasteable command that regenerates exactly this report — including the
+// `--out` that lands it back in the same place on disk, so re-running overwrites
+// the file rather than printing to stdout. Reports are often read detached from
+// the shell that produced them, so each carries its own provenance command. Only
+// non-default flags are emitted to keep it short.
+//
+// Two output shapes:
+//   - single view written to a file: `--view <view> --out <file>`
+//   - `--view all` written to a directory (regenAll): `--view all --out <dir>`,
+//     which rebuilds every file in that directory (this one included).
 function regenCommand(args, view) {
+  const regenAll = Boolean(args.regenAll);
   const parts = [
     "tsx-dataflow",
     "--root",
     shellQuote(commandPath(args.root)),
     "--view",
-    view,
+    regenAll ? "all" : view,
   ];
+  // Always echo --max-items so it is obvious the cap is tunable. (In all-mode
+  // this is the current view's cap; passing it back applies it to every view.)
   if (Number.isFinite(args.maxItems))
     parts.push("--max-items", String(args.maxItems));
   if (args.scope) parts.push("--scope", shellQuote(args.scope));
   if (args.format && args.format !== "markdown")
     parts.push("--format", args.format);
   if (args.includeTests) parts.push("--include-tests");
+  // args.out is the file (single view) or the directory (--view all); both are
+  // resolved absolute, so render them relative to cwd for a clean command.
+  if (args.out) parts.push("--out", shellQuote(commandPath(args.out)));
   return parts.join(" ");
 }
 
@@ -476,8 +527,23 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     .filter((sourceFile) => shouldAnalyzeFile(sourceFile.fileName, args));
   const sinks = [];
 
+  // Shared cross-file state: a static catalog of first-party functions, a
+  // per-file context cache, and the set of functions actually reached while
+  // tracing render paths. Built before tracing so descent can consult it.
+  const crossFile = {
+    args,
+    contextCache: new Map(),
+    catalog: new Map(),
+    reached: new Set(),
+    // Hard safety cap on total cross-file descents per report, so a pathological
+    // call graph can't run the graph out of memory regardless of depth.
+    budget: 20000,
+  };
+
   for (const sourceFile of sourceFiles) {
-    sinks.push(...analyzeSourceFile(ts, checker, graph, sourceFile, args));
+    sinks.push(
+      ...analyzeSourceFile(ts, checker, graph, sourceFile, args, crossFile),
+    );
   }
 
   const filteredSinks = applyScope(sinks, args.scope);
@@ -490,6 +556,7 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     filteredSinks.filter((sink) => sink.category !== "event-handler"),
   );
   const packGroups = computePackGroups(filteredSinks);
+  const helpers = buildHelperReport(ts, checker, crossFile, args, sourceFiles);
   const baseline = args.baseline
     ? compareBaseline(rankings, args.baseline)
     : null;
@@ -513,13 +580,16 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     contextRelay,
     rankings,
     packGroups,
+    helpers,
     baseline,
     summary: summarize(filteredSinks, graph),
   };
 }
 
-function analyzeSourceFile(ts, checker, graph, sourceFile, args) {
-  const context = buildFileContext(ts, sourceFile);
+function analyzeSourceFile(ts, checker, graph, sourceFile, args, crossFile) {
+  const context = crossFile
+    ? getFileContextCached(ts, sourceFile, crossFile)
+    : buildFileContext(ts, sourceFile);
   const sinks = [];
 
   const visit = (node) => {
@@ -535,6 +605,12 @@ function analyzeSourceFile(ts, checker, graph, sourceFile, args) {
           sourceFile,
           root: args.root,
           stack: new Set(),
+          // Cross-file descent state (Approach enabler). Null crossFile keeps the
+          // legacy single-file behavior for callers that don't supply it.
+          crossFile: crossFile ?? null,
+          crossDepth: 0,
+          visitedFns: new Set(),
+          paramBindings: null,
         },
       );
       const sinkNode = addNode(graph, {
@@ -636,6 +712,314 @@ function registerVariable(ts, node, variables, accessors) {
       }
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Cross-file tracing (shared enabler for the helper-boundary views)
+// ---------------------------------------------------------------------------
+
+// Per-file contexts are reused across every sink and every cross-file descent,
+// so build each at most once.
+function getFileContextCached(ts, sourceFile, crossFile) {
+  let context = crossFile.contextCache.get(sourceFile);
+  if (!context) {
+    context = buildFileContext(ts, sourceFile);
+    crossFile.contextCache.set(sourceFile, context);
+  }
+  return context;
+}
+
+// Given a function/variable symbol, find a traceable declaration: a function
+// declaration, or an arrow/function-expression bound to a name. Returns the
+// function node plus its naming identifier, or null.
+function traceableFromSymbol(ts, symbol) {
+  for (const decl of symbol.declarations ?? []) {
+    if (ts.isFunctionDeclaration(decl) && decl.name) {
+      return { fnNode: decl, nameNode: decl.name };
+    }
+    if (
+      ts.isVariableDeclaration(decl) &&
+      ts.isIdentifier(decl.name) &&
+      decl.initializer &&
+      (ts.isArrowFunction(decl.initializer) ||
+        ts.isFunctionExpression(decl.initializer))
+    ) {
+      return { fnNode: decl.initializer, nameNode: decl.name };
+    }
+  }
+  return null;
+}
+
+// True when a declaration lives in first-party source we analyze (not a .d.ts,
+// not node_modules, inside the project root) — the only helpers safe to descend.
+function isFirstPartyDecl(decl, args) {
+  const file = decl.getSourceFile();
+  if (file.isDeclarationFile) return false;
+  const relative = relativePath(args.root, file.fileName);
+  return !relative.startsWith("..") && !relative.includes("node_modules/");
+}
+
+// Cheap up-front record: signature shape only, no checker type queries and no
+// body tracing. The expensive parts (return type, internal metrics) are computed
+// lazily in buildHelperReport for functions actually reached on a render path —
+// tracing every function body in a large repo is what blows up memory.
+function makeCatalogRecord(ts, found, symbol, args) {
+  const { fnNode, nameNode } = found;
+  const sourceFile = fnNode.getSourceFile();
+  const location = locationOf(sourceFile, nameNode);
+  const params = fnNode.parameters
+    .filter((parameter) => ts.isIdentifier(parameter.name))
+    .map((parameter) => ({
+      name: parameter.name.text,
+      // Syntactic annotation only (cheap); unannotated params are left unknown.
+      type: parameter.type ? collapse(parameter.type.getText()) : "unknown",
+    }));
+  return {
+    symbol,
+    name: nameNode.text,
+    file: relativePath(args.root, sourceFile.fileName),
+    line: location.line,
+    params,
+    arity: params.length,
+    callerCount: 0,
+    callers: [],
+    fnNode,
+    returnExpr: getFunctionReturnExpression(ts, fnNode),
+    sourceFile,
+  };
+}
+
+// Compute a reached function's return type and internal body metrics on demand
+// (a throwaway graph, no descent), so only render-relevant functions pay for it.
+function enrichCatalogRecord(ts, checker, record, args, crossFile) {
+  const { fnNode, returnExpr, sourceFile } = record;
+  let returnType = "unknown";
+  try {
+    const signature = checker.getSignatureFromDeclaration(fnNode);
+    if (signature) {
+      returnType = safeTypeText(
+        checker.typeToString(checker.getReturnTypeOfSignature(signature)),
+      );
+    }
+  } catch {
+    // Some synthetic declarations have no resolvable signature; leave "unknown".
+  }
+
+  let internal = {
+    maximumPathDepth: 0,
+    representationChurn: 0,
+    defensiveOperationCount: 0,
+    impossibleDefenseCount: 0,
+  };
+  let inSources = 0;
+  let inRoots = [];
+  if (returnExpr) {
+    const throwawayGraph = createGraph(args.root);
+    const bodyTrace = traceExpression(ts, checker, throwawayGraph, returnExpr, {
+      ...getFileContextCached(ts, sourceFile, crossFile),
+      sourceFile,
+      root: args.root,
+      stack: new Set(),
+      crossFile: null,
+      crossDepth: 0,
+      visitedFns: new Set(),
+      paramBindings: null,
+    });
+    internal = metricsFor(bodyTrace);
+    inSources = bodyTrace.roots.length;
+    inRoots = fanOutRootsFor({
+      rootInfos: bodyTrace.rootInfos,
+      roots: bodyTrace.roots,
+    })
+      .map((info) => info.label)
+      .slice(0, 8);
+  }
+  const paramNames = new Set(record.params.map((parameter) => parameter.name));
+  return {
+    returnType,
+    inRoots,
+    inSources,
+    passThrough: returnExpr ? isPassThrough(ts, returnExpr, paramNames) : false,
+    typeLeak:
+      isTypeLeak(returnType) ||
+      record.params.some((parameter) => isTypeLeak(parameter.type)),
+    internalDepth: internal.maximumPathDepth,
+    internalChurn: internal.representationChurn,
+    internalDefenses: internal.defensiveOperationCount,
+    internalImpossible: internal.impossibleDefenseCount,
+  };
+}
+
+// Lazily resolve a callee identifier to a catalog record for a first-party
+// function, creating and caching the (cheap) record the first time. Follows
+// import aliases so `import { groupBarSeries }` lands on the definition. Returns
+// null for library/builtin/unresolvable callees; that null is cached too so the
+// same call site isn't re-resolved. The catalog only ever holds functions a
+// render path actually calls, keeping memory bounded on large repos.
+//
+// The checker calls are wrapped because type resolution on a pathologically deep
+// expression can overflow TypeScript's own recursion; treat as unresolved.
+function resolveCatalogFn(ts, checker, calleeIdent, crossFile, args) {
+  if (!calleeIdent) return null;
+  let symbol;
+  try {
+    symbol = checker.getSymbolAtLocation(calleeIdent);
+    if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+      symbol = checker.getAliasedSymbol(symbol);
+    }
+  } catch {
+    return null;
+  }
+  if (!symbol) return null;
+  if (crossFile.catalog.has(symbol)) return crossFile.catalog.get(symbol);
+
+  const found = traceableFromSymbol(ts, symbol);
+  const record =
+    found && isFirstPartyDecl(found.fnNode, args ?? crossFile.args)
+      ? makeCatalogRecord(ts, found, symbol, args ?? crossFile.args)
+      : null;
+  crossFile.catalog.set(symbol, record);
+  return record;
+}
+
+// A pass-through body forwards or renames a parameter with no transformation
+// (no call, operator, or object construction) — a prime inline candidate.
+function isPassThrough(ts, expression, paramNames) {
+  let current = expression;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression;
+  }
+  if (ts.isIdentifier(current)) return paramNames.has(current.text);
+  if (ts.isPropertyAccessExpression(current)) {
+    let receiver = current;
+    while (ts.isPropertyAccessExpression(receiver)) receiver = receiver.expression;
+    return ts.isIdentifier(receiver) && paramNames.has(receiver.text);
+  }
+  return false;
+}
+
+// A boundary "leaks" when its type doesn't actually contain anything: `any`,
+// `unknown`, or an over-wide union that downstream code must re-narrow.
+function isTypeLeak(typeText) {
+  if (!typeText) return false;
+  if (/\b(any|unknown)\b/.test(typeText)) return true;
+  return typeText.split("|").length > 4;
+}
+
+// Count call sites for the reached functions, mutating each record's
+// callerCount/callers in place. Resolution is symbol-precise (so two different
+// `format` functions are not conflated) but only attempted at sites whose callee
+// *name* matches a reached function — and capped by a budget so a ubiquitous
+// short name (`h`, `_`) can't trigger tens of thousands of checker resolutions.
+function countCallers(ts, checker, sourceFiles, reached, crossFile, args) {
+  const bySymbol = new Map(reached.map((record) => [record.symbol, record]));
+  const names = new Set(reached.map((record) => record.name));
+  let budget = 6000;
+  for (const sourceFile of sourceFiles) {
+    const fileRel = relativePath(args.root, sourceFile.fileName);
+    const visit = (node) => {
+      if (budget > 0 && ts.isCallExpression(node)) {
+        const ident = ts.isIdentifier(node.expression)
+          ? node.expression
+          : ts.isPropertyAccessExpression(node.expression)
+            ? node.expression.name
+            : null;
+        if (ident && names.has(ident.text)) {
+          budget -= 1;
+          const record = resolveCatalogFn(ts, checker, ident, crossFile, args);
+          if (record && bySymbol.has(record.symbol)) {
+            record.callerCount += 1;
+            if (record.callers.length < 8) {
+              record.callers.push({
+                file: fileRel,
+                line: locationOf(sourceFile, node).line,
+              });
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+}
+
+// Build the serializable list of functions reached on render paths, each scored
+// as a boundary and tagged with a verdict. Backs the boundary-report, junctions,
+// and inline-preview views. TS nodes/symbols are dropped so the result is JSON.
+function buildHelperReport(ts, checker, crossFile, args, sourceFiles) {
+  const reached = [];
+  for (const record of crossFile.catalog.values()) {
+    if (record && crossFile.reached.has(record.symbol)) reached.push(record);
+  }
+  if (reached.length === 0) return [];
+
+  // Symbol-precise caller counts at name-matching sites only (budgeted).
+  countCallers(ts, checker, sourceFiles, reached, crossFile, args);
+
+  const records = [];
+  for (const record of reached) {
+    // Enrich only now (return type + body metrics), for reached functions only.
+    const enriched = { ...record, ...enrichCatalogRecord(ts, checker, record, args, crossFile) };
+    records.push({
+      name: enriched.name,
+      file: enriched.file,
+      line: enriched.line,
+      params: enriched.params,
+      arity: enriched.arity,
+      returnType: enriched.returnType,
+      inRoots: enriched.inRoots,
+      inSources: enriched.inSources,
+      callerCount: enriched.callerCount,
+      callers: enriched.callers,
+      passThrough: enriched.passThrough,
+      typeLeak: enriched.typeLeak,
+      internalDepth: enriched.internalDepth,
+      internalChurn: enriched.internalChurn,
+      internalDefenses: enriched.internalDefenses,
+      internalImpossible: enriched.internalImpossible,
+      verdict: classifyBoundary(enriched),
+      debt: boundaryDebt(enriched),
+    });
+  }
+  return records.sort((left, right) => right.debt - left.debt);
+}
+
+// A function's primary verdict as a data-flow boundary (see the boundary-report
+// view). Ordered so the most actionable label wins when several apply.
+function classifyBoundary(record) {
+  const isJunction = record.inSources >= 3 && record.callerCount >= 2;
+  const messyInternals =
+    record.internalDepth >= 6 ||
+    record.internalChurn >= 4 ||
+    record.internalDefenses >= 3 ||
+    record.internalImpossible > 0;
+  if (record.passThrough && record.internalDepth <= 1) {
+    return "thin pass-through (inline)";
+  }
+  if (isJunction) return "confluence / junction";
+  if (record.typeLeak) return "leaky boundary";
+  if (messyInternals) return "messy internals";
+  return "clean pipe";
+}
+
+// A single "boundary debt" number used only to rank the report — higher means a
+// more tangled / leaky / load-bearing function worth attention first.
+function boundaryDebt(record) {
+  const isJunction = record.inSources >= 3 && record.callerCount >= 2;
+  return (
+    record.inSources +
+    record.internalChurn +
+    record.internalDefenses * 2 +
+    record.internalImpossible * 3 +
+    record.internalDepth * 0.5 +
+    (record.typeLeak ? 4 : 0) +
+    (isJunction ? record.callerCount * 2 : 0)
+  );
 }
 
 function getSinkExpression(ts, node) {
@@ -744,6 +1128,12 @@ function traceExpression(ts, checker, graph, expression, context) {
 
 function traceIdentifier(ts, checker, graph, expression, context) {
   const name = expression.text;
+  // Inside a helper body reached by cross-file descent, a parameter reference
+  // resolves to the caller's argument trace, stitching the lineage across the
+  // boundary. Checked first so it wins over the callee file's own bindings.
+  if (context.paramBindings && context.paramBindings.has(name)) {
+    return context.paramBindings.get(name);
+  }
   const accessor = context.accessors.get(name);
   if (accessor)
     return traceAccessor(ts, checker, graph, expression, accessor, context);
@@ -759,6 +1149,7 @@ function traceIdentifier(ts, checker, graph, expression, context) {
     );
     return addOperationTrace(ts, graph, "alias", expression, [trace], {
       label: name,
+      detail: `= ${formatExpression(declaration.initializer.getText(), 52)}`,
     });
   }
 
@@ -806,6 +1197,7 @@ function traceAccessor(ts, checker, graph, expression, accessor, context) {
         [trace],
         {
           label: `${expression.text}() memo`,
+          detail: `= ${formatExpression(body.getText(), 52)}`,
         },
       );
     }
@@ -873,9 +1265,77 @@ function tracePropertyAccess(ts, checker, graph, expression, context) {
   return operation;
 }
 
+// Mark a callee's catalog function as reached on a render path, so the boundary
+// report only lists functions that actually participate in rendering.
+function markReached(ts, checker, calleeIdent, context) {
+  if (!context.crossFile) return;
+  const record = resolveCatalogFn(ts, checker, calleeIdent, context.crossFile);
+  if (record) context.crossFile.reached.add(record.symbol);
+}
+
+// Descend into a first-party imported helper, or return null to fall through to
+// the opaque generic-call handling (imported-but-not-first-party, depth/recursion
+// limits hit, no resolvable body, or helper tracing disabled).
+function traceCrossFileCall(ts, checker, graph, expression, callee, context) {
+  const crossFile = context.crossFile;
+  if (!crossFile?.args?.traceHelpers) return null;
+  if (!ts.isIdentifier(expression.expression)) return null;
+  // Hooks / context accessors (`useX`) are intentional feature-model boundaries,
+  // not helpers to dissolve — descending into them would erase the very signal
+  // the prop-relay / context-relay views rely on. Keep them opaque.
+  if (/^use[A-Z]/.test(callee)) return null;
+  if (context.crossDepth >= crossFile.args.maxHelperDepth) return null;
+
+  const record = resolveCatalogFn(ts, checker, expression.expression, crossFile);
+  if (!record || !record.returnExpr) return null;
+  if (context.visitedFns.has(record.symbol)) return null;
+  if (crossFile.budget <= 0) return null;
+  crossFile.budget -= 1;
+
+  markReached(ts, checker, expression.expression, context);
+
+  // Trace the argument lineage and the helper body on a *throwaway* graph, not
+  // the persistent report graph. Cross-file descent across thousands of sinks
+  // would otherwise accumulate millions of nodes and exhaust memory. The step
+  // data we render (label/kind/file/line, roots, packs) lives on the returned
+  // trace, independent of which graph held the nodes; only graph-wide counts
+  // (summary/dossier) lose the descended interior, which is an acceptable trade.
+  const subGraph = createGraph(context.root);
+  const paramBindings = new Map();
+  record.params.forEach((parameter, index) => {
+    const argument = expression.arguments[index];
+    if (argument) {
+      paramBindings.set(
+        parameter.name,
+        traceExpression(ts, checker, subGraph, argument, context),
+      );
+    }
+  });
+
+  const defFile = record.fnNode.getSourceFile();
+  const bodyTrace = traceExpression(ts, checker, subGraph, record.returnExpr, {
+    ...getFileContextCached(ts, defFile, crossFile),
+    sourceFile: defFile,
+    root: context.root,
+    stack: new Set(),
+    crossFile,
+    crossDepth: context.crossDepth + 1,
+    visitedFns: new Set([...context.visitedFns, record.symbol]),
+    paramBindings,
+  });
+
+  return addOperationTrace(ts, graph, "call", expression, [bodyTrace], {
+    label: callee,
+    detail: `returns ${formatExpression(record.returnExpr.getText(), 52)}`,
+  });
+}
+
 function traceCallExpression(ts, checker, graph, expression, context) {
   const callee = getCallName(ts, expression);
   if (ts.isIdentifier(expression.expression) && context.functions.has(callee)) {
+    // Same-file helper: record that it was reached (for the boundary report) and
+    // trace through its body inline, as before.
+    markReached(ts, checker, expression.expression, context);
     const fn = context.functions.get(callee);
     const returnExpression = getFunctionReturnExpression(ts, fn);
     const traces = expression.arguments.map((argument) =>
@@ -888,6 +1348,9 @@ function traceCallExpression(ts, checker, graph, expression, context) {
     }
     return addOperationTrace(ts, graph, "call", expression, traces, {
       label: callee,
+      detail: returnExpression
+        ? `returns ${formatExpression(returnExpression.getText(), 52)}`
+        : `${callee}(${expression.arguments.length ? "…" : ""})`,
     });
   }
 
@@ -901,6 +1364,20 @@ function traceCallExpression(ts, checker, graph, expression, context) {
       context,
     );
   }
+
+  // Cross-file descent: an imported first-party helper. Follow it into its
+  // definition file, binding the call's arguments to the helper's parameters so
+  // the traced lineage continues through the body (and its nodes pick up the F2
+  // file/line). Bounded by --max-helper-depth and a per-branch visited set.
+  const crossFileTrace = traceCrossFileCall(
+    ts,
+    checker,
+    graph,
+    expression,
+    callee,
+    context,
+  );
+  if (crossFileTrace) return crossFileTrace;
 
   const traces = [];
   if (ts.isPropertyAccessExpression(expression.expression)) {
@@ -922,6 +1399,9 @@ function traceCallExpression(ts, checker, graph, expression, context) {
   return addOperationTrace(ts, graph, "call", expression, traces, {
     label: callee || "call",
     unknown: !callee || !context.functions.has(callee),
+    // The full call expression as written — for a method (`x.toUpperCase()`) or
+    // an imported helper, this is the only thing that conveys what it does.
+    detail: formatExpression(expression.getText(), 60),
   });
 }
 
@@ -963,12 +1443,23 @@ function traceBinaryExpression(ts, checker, graph, expression, context) {
 }
 
 function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
-  const label = options.label ?? formatExpression(expression.getText());
+  const explicit = options.label != null;
+  const fullText = collapse(expression.getText());
+  const nodeLabel = options.label ?? formatExpression(fullText);
+  // A short gloss of what this step evaluates, for kinds whose label alone is
+  // ambiguous (a helper/method/memo/alias name says nothing about its body).
+  // Defaults to the full expression text for calls; explicit callers override.
+  const detail = options.detail ?? null;
+  // File + line of this hop, threaded onto the step so the path can show where
+  // each piece of logic lives (same file vs. scattered) and an agent can grep it.
+  const sourceFile = expression.getSourceFile();
+  const file = relativePath(graph.root, sourceFile.fileName);
+  const location = locationOf(sourceFile, expression);
   const node = addNode(graph, {
     kind,
-    label,
-    file: relativePath(graph.root, expression.getSourceFile().fileName),
-    location: locationOf(expression.getSourceFile(), expression),
+    label: nodeLabel,
+    file,
+    location,
     type: safeTypeText(options.type),
   });
   const edges = [];
@@ -983,7 +1474,8 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
   // Each path step carries its operation kind so the transformation ledger and
   // path renderers can name the real operation (property-read, fallback, call,
   // object-pack, …) instead of a constant placeholder.
-  let longest = [{ label, kind }];
+  let winnerChild = null;
+  let longest = [{ label: nodeLabel, kind, detail, file, line: location.line }];
   for (const trace of traces.filter(Boolean)) {
     addEdge(
       graph,
@@ -1001,15 +1493,32 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
     defenses.push(...trace.defenses);
     packs.push(...(trace.packs ?? []));
     if (trace.longestPath.length + 1 > longest.length) {
-      longest = [...trace.longestPath, { label, kind }];
+      winnerChild = trace;
+      longest = [
+        ...trace.longestPath,
+        { label: nodeLabel, kind, detail, file, line: location.line },
+      ];
     }
   }
-  if (kind === "object-pack") {
-    const where = locationOf(expression.getSourceFile(), expression);
-    const file = relativePath(graph.root, expression.getSourceFile().fileName);
-    packs.push({ key: `${file}:${where.line}:${where.column}`, label });
+  // Re-center an inline expression's label on the sub-expression that actually
+  // flows in from the previous step (the "via"), marking it with « » so long
+  // compute/pack/ternary expressions show the traced piece instead of
+  // truncating an unrelated front. Steps with an explicit label (calls, memos,
+  // reads) already carry their own gloss and keep their name.
+  if (!explicit) {
+    const focused = focusSnippet(fullText, winnerChild?.headText ?? null, 90);
+    longest[longest.length - 1] = {
+      ...longest[longest.length - 1],
+      label: focused,
+    };
   }
-  if (traces.length === 0) rootInfos.push({ label, kind: "operation" });
+  if (kind === "object-pack") {
+    packs.push({
+      key: `${file}:${location.line}:${location.column}`,
+      label: nodeLabel,
+    });
+  }
+  if (traces.length === 0) rootInfos.push({ label: nodeLabel, kind: "operation" });
   const dedupedRoots = uniqueRootInfos(rootInfos);
   return {
     lastNodeId: node.id,
@@ -1019,6 +1528,9 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
     defenses,
     longestPath: longest,
     packs: uniquePacks(packs),
+    // The collapsed full text of this expression, so a parent operation can mark
+    // exactly which sub-expression the traced value flowed in through.
+    headText: fullText,
   };
 }
 
@@ -1044,11 +1556,14 @@ function uniqueRootInfos(rootInfos) {
 }
 
 function sourceTrace(graph, expression, kind, label, unknown, rootKind = kind) {
+  const sourceFile = expression.getSourceFile();
+  const file = relativePath(graph.root, sourceFile.fileName);
+  const location = locationOf(sourceFile, expression);
   const node = addNode(graph, {
     kind,
     label,
-    file: relativePath(graph.root, expression.getSourceFile().fileName),
-    location: locationOf(expression.getSourceFile(), expression),
+    file,
+    location,
     type: safeTypeText(),
   });
   return {
@@ -1057,9 +1572,10 @@ function sourceTrace(graph, expression, kind, label, unknown, rootKind = kind) {
     rootInfos: [{ label, kind: rootKind }],
     edges: [],
     defenses: [],
-    longestPath: [{ label, kind }],
+    longestPath: [{ label, kind, detail: null, file, line: location.line }],
     packs: [],
     unknown,
+    headText: collapse(expression.getText()),
   };
 }
 
@@ -1098,6 +1614,9 @@ function buildSinkRecord(
     representativeSteps: trace.longestPath.map((step) => ({
       label: step.label,
       kind: step.kind,
+      detail: step.detail ?? null,
+      file: step.file ?? null,
+      line: step.line ?? null,
     })),
     packs: trace.packs ?? [],
     nodeId: sinkNode.id,
@@ -1449,19 +1968,23 @@ function renderWorkPackets(report, args) {
     lines.push("");
     lines.push("**Representative path**");
     lines.push("");
-    lines.push(...fenced(representativePathLines(sink)));
+    lines.push(
+      "_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._",
+    );
     lines.push("");
-    const hints = extractionHintsFor(sink);
-    if (hints.length > 0) {
-      lines.push("**Recommended boundaries**");
-      lines.push("");
-      lines.push(...fenced(hints));
-      lines.push("");
-    }
+    lines.push(...fenced(representativePathWithBoundaries(sink)));
+    lines.push("");
     if (group) {
       lines.push("**Sink-family split**");
       lines.push("");
       lines.push(...fenced(overpackedSplitLines(group)));
+      lines.push("");
+    }
+    const proposal = extractionProposalFor(sink);
+    if (proposal) {
+      lines.push("**Extraction proposal**");
+      lines.push("");
+      lines.push(...fenced(proposal));
       lines.push("");
     }
     lines.push("**Candidate edits**");
@@ -1716,6 +2239,173 @@ function renderRepairMap(report, args) {
   }
   appendBaseline(lines, report);
   return `${lines.join("\n")}\n`;
+}
+
+// Approach 2 — classify every function reached on a render path as a data-flow
+// boundary, ranked by "boundary debt".
+function renderBoundaryReport(report, args) {
+  const helpers = (report.helpers ?? []).slice(0, args.maxItems);
+  if (helpers.length === 0) {
+    return `# Boundary Report\n\n${viewIntro("boundary-report", report).join("\n")}No first-party helper functions were reached on a render path.\n(Imported library calls stay opaque; try --max-helper-depth.)\n`;
+  }
+  const rows = helpers.map((helper) => [
+    `${helper.name}()`,
+    `${helper.file}:${helper.line}`,
+    String(helper.arity),
+    String(helper.inSources),
+    String(helper.callerCount),
+    `${helper.internalDepth}/${helper.internalChurn}`,
+    code(formatExpression(helper.returnType, 36)),
+    helper.verdict,
+  ]);
+  const lines = [
+    ...tableReport(
+      "Boundary Report",
+      ["Function", "Where", "Arity", "In-src", "Callers", "Internal d/churn", "Return type", "Verdict"],
+      rows,
+      viewIntro("boundary-report", report),
+    ).split("\n"),
+  ];
+  lines.push("## Worst boundary debt");
+  lines.push("");
+  for (const helper of helpers.slice(0, 5)) {
+    lines.push(`- **${helper.name}** (${helper.verdict}) — ${boundaryNote(helper)}`);
+  }
+  lines.push("");
+  return `${lines.join("\n")}`;
+}
+
+// A one-line, human reason for a function's verdict.
+function boundaryNote(helper) {
+  switch (helper.verdict) {
+    case "thin pass-through (inline)":
+      return `forwards a parameter with no transformation across ${helper.callerCount} call site(s); inlining removes a hop for free.`;
+    case "confluence / junction":
+      return `${helper.inSources} source lineages converge here and the result feeds ${helper.callerCount} call sites — a load-bearing knot (see Junctions).`;
+    case "leaky boundary":
+      return `collapses ${helper.inSources} sources into \`${formatExpression(helper.returnType, 40)}\`; downstream code must re-narrow it. Tighten the type or split the return.`;
+    case "messy internals":
+      return `internal depth ${helper.internalDepth}, churn ${helper.internalChurn}, ${helper.internalDefenses} defensive op(s) behind a narrow signature.`;
+    default:
+      return `narrow signature, concrete return type — a healthy boundary; leave it.`;
+  }
+}
+
+// Approach 5 — where independent lineages fork in and re-spread. A junction has
+// ≥3 in-sources and ≥2 callers; a heavy confluence has many in-sources but one
+// consumer.
+function renderJunctions(report, args) {
+  const helpers = report.helpers ?? [];
+  const score = (helper) => helper.inSources * Math.max(1, helper.callerCount);
+  const junctions = helpers
+    .filter((helper) => helper.inSources >= 3 && helper.callerCount >= 2)
+    .sort((left, right) => score(right) - score(left))
+    .slice(0, args.maxItems);
+  const confluences = helpers
+    .filter((helper) => helper.inSources >= 3 && helper.callerCount < 2)
+    .sort((left, right) => right.inSources - left.inSources)
+    .slice(0, args.maxItems);
+
+  const lines = ["# Junctions — where independent lineages meet and re-spread", "", ...viewIntro("junctions", report)];
+  if (junctions.length === 0 && confluences.length === 0) {
+    lines.push("No confluence functions found on render paths (no helper merges ≥3 source lineages).");
+    lines.push("");
+    return `${lines.join("\n")}`;
+  }
+  for (const helper of junctions) {
+    lines.push(`## ${helper.name}   ${helper.file}:${helper.line}   score ${score(helper)}  (${helper.inSources} in × ${helper.callerCount} out)`);
+    lines.push("");
+    lines.push(...fenced(junctionBody(helper)));
+    lines.push("");
+  }
+  if (confluences.length > 0) {
+    lines.push("## Heavy confluences (many sources in, one consumer)");
+    lines.push("");
+    for (const helper of confluences) {
+      lines.push(`- **${helper.name}** (${helper.file}:${helper.line}) — ${helper.inSources} lineages → \`${formatExpression(helper.returnType, 40)}\`. Treat as a boundary to tighten, not a junction to split.`);
+    }
+    lines.push("");
+  }
+  return `${lines.join("\n")}`;
+}
+
+function junctionBody(helper) {
+  const lines = ["tributaries (independent lineages flowing in)"];
+  const tribs = (helper.inRoots ?? []).length
+    ? helper.inRoots
+    : helper.params.map((parameter) => parameter.name);
+  for (const trib of tribs.slice(0, 8)) lines.push(`  ${formatExpression(trib, 48)}`);
+  lines.push("distributaries (where the result re-spreads)");
+  for (const caller of (helper.callers ?? []).slice(0, 8)) {
+    lines.push(`  ${caller.file}:${caller.line}`);
+  }
+  lines.push("");
+  lines.push(
+    `Read: ${helper.inSources} source families converge; the result feeds ${helper.callerCount} call sites.`,
+  );
+  lines.push(
+    "Options: formalize as a typed module boundary, or split by distributary if consumers need different shapes.",
+  );
+  return lines;
+}
+
+// Approach 3 — inline-vs-keep decision per reached helper, from its internal
+// metrics and caller count (a heuristic preview, not a codemod).
+function renderInlinePreview(report, args) {
+  const helpers = (report.helpers ?? []).slice(0, args.maxItems);
+  const lines = ["# Inline Preview", "", ...viewIntro("inline-preview", report)];
+  if (helpers.length === 0) {
+    lines.push("No first-party helpers were reached on a render path.");
+    lines.push("");
+    return `${lines.join("\n")}`;
+  }
+  for (const helper of helpers) {
+    const decision = inlineDecision(helper);
+    lines.push(`## ${helper.name}  (${helper.file}:${helper.line} · ${helper.callerCount} caller(s) · ${helper.verdict})`);
+    lines.push("");
+    lines.push(...fenced([
+      `as a step:   1 hop`,
+      `if inlined:  ~${Math.max(1, helper.internalDepth)} hop(s)   Δ depth ${formatDelta(helper.internalDepth - 1)}, churn ${formatDelta(helper.internalChurn)}, defenses ${formatDelta(helper.internalDefenses)}`,
+      `verdict: ${decision.verdict} — ${decision.why}`,
+    ]));
+    lines.push("");
+  }
+  return `${lines.join("\n")}`;
+}
+
+function inlineDecision(helper) {
+  if (helper.inSources >= 3 && helper.callerCount >= 2) {
+    return {
+      verdict: "KEEP & FORMALIZE",
+      why: `${helper.callerCount} callers + real internal work; inlining would duplicate logic. Make it a typed boundary (see Junctions).`,
+    };
+  }
+  if (helper.passThrough && helper.internalDepth <= 1) {
+    return {
+      verdict: "INLINE",
+      why: `pure forwarding hop${helper.callerCount > 2 ? ` (note: ${helper.callerCount} callers — a codemod, flagged not done)` : ""}.`,
+    };
+  }
+  if (helper.callerCount <= 2 && helper.internalDepth <= 2 && !helper.typeLeak) {
+    return {
+      verdict: "INLINE",
+      why: `shallow body, few callers — the helper adds indirection without consolidating much.`,
+    };
+  }
+  if (helper.typeLeak) {
+    return {
+      verdict: "KEEP (fix boundary)",
+      why: `inlining dumps the body into the render leaf; the helper should exist but its type leaks — tighten it instead (see Repair Map).`,
+    };
+  }
+  return {
+    verdict: "KEEP",
+    why: `genuine transformation (${helper.callerCount} callers, internal depth ${helper.internalDepth}); inlining would relocate the mess, not remove it.`,
+  };
+}
+
+function formatDelta(value) {
+  return value > 0 ? `+${value}` : String(value);
 }
 
 function appendFeatureClusters(lines, report, args) {
@@ -2091,13 +2781,15 @@ function overpackedSplitLines(group) {
   return lines;
 }
 
-// Phase 5 — turn the representative path into extraction-boundary hints plus a
-// suggested render-model shape. Boundaries are placed after the last
+// Phase 5 — locate recommended extraction boundaries on the representative path
+// plus a suggested render-model shape. A boundary is placed after the last
 // normalization step and after a contiguous geometry/arithmetic sub-chain; the
-// model shape comes from the sink family.
-function extractionHintsFor(sink) {
+// model shape comes from the sink family. Boundaries are returned by the step
+// index they sit *after* so the path renderer can mark them in place rather
+// than referring to an opaque "step N".
+function extractionBoundariesFor(sink) {
   const steps = sink.representativeSteps ?? [];
-  const hints = [];
+  const boundaries = [];
 
   let lastNormalization = -1;
   let lastGeometry = -1;
@@ -2114,27 +2806,225 @@ function extractionHintsFor(sink) {
   });
 
   if (lastNormalization >= 0 && lastNormalization < steps.length - 1) {
-    hints.push(
-      `Recommended boundary after: defaults & normalization (step ${lastNormalization + 1}).`,
-    );
+    boundaries.push({
+      afterIndex: lastNormalization,
+      text: "extract the defaults & normalization above into a named boundary memo",
+    });
   }
   if (
     classifyPathShape(sink).includes("geometry-chain") &&
     lastGeometry >= 0 &&
-    lastGeometry < steps.length - 1
+    lastGeometry < steps.length - 1 &&
+    lastGeometry !== lastNormalization
   ) {
-    hints.push(
-      `Recommended boundary after: layout/geometry math (step ${lastGeometry + 1}).`,
-    );
+    boundaries.push({
+      afterIndex: lastGeometry,
+      text: "extract the layout/geometry math above into a sizing memo",
+    });
   }
 
   const family = sinkFamilyOf(sink);
+  let modelShape = null;
   if (family === "geometry" || family === "svg-shell") {
-    hints.push("Recommended sink model: { x, y, width, height }.");
+    modelShape = "{ x, y, width, height }";
   } else if (classifyPathShape(sink).includes("collection-render-model")) {
-    hints.push("Recommended sink model: Array<ItemModel>.");
+    modelShape = "Array<ItemModel>";
   }
-  return hints;
+  return { boundaries, modelShape };
+}
+
+// Approach 4 — synthesize the clean helper a messy boundary implies: inputs are
+// the source lineages crossing the cut (with where they come from), output is the
+// value/model at the sink, named from the render shape. A proposal, not a rewrite.
+function extractionProposalFor(sink) {
+  // Only worth proposing for paths deep enough that a boundary actually helps.
+  if ((sink.metrics?.maximumPathDepth ?? 0) < 4) return null;
+  const inputs = fanOutRootsFor(sink).slice(0, 5);
+  if (inputs.length === 0) return null;
+
+  const steps = sink.representativeSteps ?? [];
+  const originOf = (label) => {
+    const step = steps.find((candidate) => candidate.label === label);
+    return step?.file && step?.line ? `${step.file}:${step.line}` : null;
+  };
+  const { modelShape } = extractionBoundariesFor(sink);
+  const name = proposedHelperName(sink);
+  const outType =
+    modelShape ??
+    (sink.type && sink.type !== "unknown" ? formatExpression(sink.type, 40) : "/* result */");
+
+  const ownLines = steps
+    .filter((step) => step.file === sink.file && step.line)
+    .map((step) => step.line);
+  const lo = ownLines.length ? Math.min(...ownLines) : null;
+  const hi = ownLines.length ? Math.max(...ownLines) : null;
+
+  const lines = [`proposed: function ${name}(`];
+  inputs.forEach((info, index) => {
+    const origin = originOf(info.label);
+    const comma = index < inputs.length - 1 ? "," : "";
+    const where = origin ? `  (${origin})` : "";
+    lines.push(
+      `  ${paramNameFor(info.label)}: /* type */${comma}   // ⟵ ${formatExpression(info.label, 40)}${where}`,
+    );
+  });
+  lines.push(`): ${outType}`);
+  if (lo != null && hi != null && hi > lo) {
+    lines.push(`moves ~${sink.file.split("/").pop()}:${lo}–${hi}`);
+  }
+  lines.push(
+    `after: JSX reads a field of ${name}(...) — a short path instead of ${sink.metrics.maximumPathDepth} hops.`,
+  );
+  return lines;
+}
+
+// A domain-flavored helper name from the sink's render family — never a banned
+// catch-all (`layout`, `viewModel`, …).
+function proposedHelperName(sink) {
+  switch (sinkFamilyOf(sink)) {
+    case "geometry":
+    case "svg-shell":
+      return "geometryModel";
+    case "control-flow":
+      return "visibleWhen";
+    case "style":
+      return "styleProps";
+    default:
+      return classifyPathShape(sink).includes("collection-render-model")
+        ? "itemModels"
+        : "renderModel";
+  }
+}
+
+// Turn a source label into a plausible parameter name: the last identifier of a
+// property chain (`props.profile` → `profile`), else a safe fallback.
+function paramNameFor(label) {
+  const segments = String(label)
+    .split(/[^A-Za-z0-9_$]+/)
+    .filter(Boolean);
+  const last = segments[segments.length - 1];
+  return last && /^[A-Za-z_$]/.test(last) ? last : "input";
+}
+
+// A plain-English verb for each operation kind, so the path reads as a sequence
+// of actions ("read", "default", "compute", "helper", "format") instead of bare
+// analyzer kinds. The exact kind vocabulary still lives in the
+// transformation-ledger view for anyone who wants it.
+const STEP_KIND_VERBS = {
+  source: "source",
+  "unknown-source": "source?",
+  "property-read": "read",
+  "optional-read": "read?",
+  fallback: "default",
+  conditional: "compute",
+  call: "helper",
+  "object-pack": "pack",
+  "object-spread": "spread",
+  alias: "alias",
+  template: "format",
+  "solid-accessor": "memo",
+  "jsx-sink": "render",
+  literal: "literal",
+  cycle: "cycle",
+  unknown: "external",
+};
+
+function stepVerb(kind) {
+  return STEP_KIND_VERBS[kind] ?? (kind || "step");
+}
+
+// Render the representative path as a derivation chain: each numbered row is
+// built from the row above it, the last row is the value JSX renders. A leading
+// `F#:line` column backlinks each hop to its source location (so it is clear
+// whether the logic is in one file or scattered, and an agent can grep it); a
+// verb column names what each hop does; recommended extraction boundaries are
+// marked inline, exactly where they apply (show, don't tell); a closing line
+// names the suggested sink-model shape. A `Files` legend maps each F# to a path.
+function representativePathWithBoundaries(sink) {
+  const steps =
+    sink.representativeSteps ??
+    sink.representativePath.map((label) => ({ label, kind: null }));
+  if (steps.length === 0) return ["(no path)"];
+
+  const { boundaries, modelShape } = extractionBoundariesFor(sink);
+  const byIndex = new Map();
+  for (const boundary of boundaries) {
+    if (!byIndex.has(boundary.afterIndex)) byIndex.set(boundary.afterIndex, []);
+    byIndex.get(boundary.afterIndex).push(boundary.text);
+  }
+
+  // Assign short file ids. F1 is always the sink's own file so the common
+  // single-file case reads as F1 throughout; other files get F2, F3, … in the
+  // order the path first visits them.
+  const fileIds = new Map();
+  if (sink.file) fileIds.set(sink.file, "F1");
+  for (const step of steps) {
+    if (step.file && !fileIds.has(step.file)) {
+      fileIds.set(step.file, `F${fileIds.size + 1}`);
+    }
+  }
+  const refFor = (step) =>
+    step.file && step.line ? `${fileIds.get(step.file)}:${step.line}` : "";
+
+  const refWidth = Math.max(...steps.map((step) => refFor(step).length), 2);
+  const numberWidth = String(steps.length).length;
+  const verbWidth = Math.max(
+    ...steps.map((step) => stepVerb(step.kind).length),
+  );
+  const noteIndent = " ".repeat(refWidth + 2 + numberWidth + 2 + verbWidth + 2);
+  const lines = [];
+  // Track the file stack so a change between consecutive steps reads as entering
+  // a helper's file (push) or returning from it (pop) — Approach 1 markers.
+  const fileStack = [];
+  steps.forEach((step, index) => {
+    if (step.file && fileIds.has(step.file)) {
+      const top = fileStack[fileStack.length - 1];
+      if (top !== step.file) {
+        if (fileStack.includes(step.file)) {
+          while (fileStack.length && fileStack[fileStack.length - 1] !== step.file) {
+            fileStack.pop();
+          }
+          if (index > 0) {
+            lines.push(`${noteIndent}↙ return to ${fileIds.get(step.file)}`);
+          }
+        } else {
+          fileStack.push(step.file);
+          if (index > 0) {
+            lines.push(`${noteIndent}↘ enter ${fileIds.get(step.file)}`);
+          }
+        }
+      }
+    }
+    const ref = refFor(step).padEnd(refWidth, " ");
+    const number = String(index + 1).padStart(numberWidth, " ");
+    const verb = stepVerb(step.kind).padEnd(verbWidth, " ");
+    // A call's name reads as a value without parens; add them so a helper/method
+    // step is unmistakably an invocation. The `memo` verb already labels a memo
+    // accessor, so drop the redundant trailing " memo" from its expression.
+    const baseLabel = formatExpression(step.label).replace(/\s+memo$/, "");
+    const label =
+      step.kind === "call" && !baseLabel.includes("(")
+        ? `${baseLabel}()`
+        : baseLabel;
+    // The detail gloss (what the step evaluates) only adds signal when it is not
+    // already what the label shows.
+    const detail =
+      step.detail && step.detail !== baseLabel ? `  — ${step.detail}` : "";
+    lines.push(`${ref}  ${number}. ${verb}  ${label}${detail}`);
+    for (const text of byIndex.get(index) ?? []) {
+      lines.push(`${noteIndent}▸ boundary: ${text}`);
+    }
+  });
+  if (modelShape) {
+    lines.push(`${noteIndent}▸ suggested sink model: ${modelShape}`);
+  }
+
+  lines.push("");
+  lines.push("Files:");
+  for (const [file, id] of fileIds) {
+    lines.push(`  ${id} = ${file}`);
+  }
+  return lines;
 }
 
 // Phase 6 — a compact PR-review framing: what the sink mixes, the headline fix,
@@ -2195,6 +3085,11 @@ function selectViewPayload(report, args) {
       args.view === "dossier"
         ? boundedGraph(report.graph, args.maxItems)
         : undefined,
+    helpers: ["boundary-report", "junctions", "inline-preview"].includes(
+      args.view,
+    )
+      ? (report.helpers ?? []).slice(0, args.maxItems)
+      : undefined,
     baseline: report.baseline,
   };
 }
@@ -2807,6 +3702,22 @@ const VIEW_BLURBS = {
     "A triage board grouping sinks into _peripheral quick wins_, _central leverage_ " +
     "(sources feeding many sinks), and _investigate_ (paths with unknowns). The " +
     "leading bold number is the burden score (higher = more plumbing).",
+  "boundary-report":
+    "First-party functions reached while tracing render paths, scored as data-flow " +
+    "boundaries. _In-src_ = distinct values reaching the return; _Callers_ = call " +
+    "sites across analyzed files; _Internal d/churn_ = depth/representation churn " +
+    "inside the body. _Verdict_ flags clean pipes, thin pass-throughs (inline), " +
+    "leaky boundaries, confluence/junctions, and hidden-mess internals.",
+  junctions:
+    "Functions where independent source lineages fork in (_tributaries_) and the " +
+    "result re-spreads to multiple call sites (_distributaries_) — the load-bearing " +
+    "knots. Ranked by in-sources × callers. These are the highest-leverage targets " +
+    "for either formalizing a typed boundary or splitting by consumer.",
+  "inline-preview":
+    "An inline-vs-keep call for each helper on a render path: how the path shortens " +
+    "(or lengthens) if the helper were folded in, plus a verdict. INLINE removes a " +
+    "needless hop; KEEP/FORMALIZE means the helper consolidates real work. Proposes, " +
+    "never rewrites.",
 };
 
 // Render a GitHub-flavored Markdown table with prettier-style column alignment:
@@ -2891,6 +3802,38 @@ function formatExpression(value, max = 100) {
   const cut =
     boundary && boundary[0].length >= max * 0.6 ? boundary[0].length : max;
   return `${collapsed.slice(0, cut).trimEnd()}…`;
+}
+
+// Collapse all whitespace to single spaces without truncating — used to compare
+// a child sub-expression against its parent's text by substring.
+function collapse(value) {
+  return String(value).replace(/\s+/g, " ").trim();
+}
+
+// Render `full` as a snippet centered on `via` (the sub-expression that flowed
+// in from the previous step), marking `via` with « » and trimming surrounding
+// context with ellipses to fit `max`. Falls back to a plain truncation when
+// `via` is absent, unlocatable, or spans essentially the whole expression.
+function focusSnippet(full, via, max) {
+  if (!via) return formatExpression(full, max);
+  const idx = full.indexOf(via);
+  if (idx < 0 || (idx === 0 && via.length >= full.length)) {
+    return formatExpression(full, max);
+  }
+  const before = full.slice(0, idx);
+  const after = full.slice(idx + via.length);
+  let viaShown = via;
+  if (viaShown.length > max - 4) viaShown = `${viaShown.slice(0, max - 5)}…`;
+  const budget = Math.max(8, max - viaShown.length - 2); // 2 for the guillemets
+  const leftBudget = Math.ceil(budget / 2);
+  const rightBudget = budget - leftBudget;
+  const left =
+    before.length > leftBudget
+      ? `…${before.slice(before.length - leftBudget)}`
+      : before;
+  const right =
+    after.length > rightBudget ? `${after.slice(0, rightBudget)}…` : after;
+  return `${left}«${viaShown}»${right}`;
 }
 
 function appendBaseline(lines, report) {
