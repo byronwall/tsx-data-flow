@@ -1327,6 +1327,106 @@ describe("work-packet variety & coverage", () => {
   });
 });
 
+describe("--file path filtering", () => {
+  it("accumulates repeated --file patterns", () => {
+    const args = parseArgs(["--file", "src/a.tsx", "--file", "src/b.tsx"]);
+    expect(args.file).toEqual(["src/a.tsx", "src/b.tsx"]);
+    expect(parseArgs([]).file).toEqual([]);
+  });
+
+  async function twoFileProject() {
+    return createFixtureProject({
+      "src/widgets/Card.tsx": `
+        export function Card(props: { label: string }) {
+          const text = props.label.trim();
+          return <div title={text}>{text}</div>;
+        }
+      `,
+      "src/panels/Panel.tsx": `
+        export function Panel(props: { name: string }) {
+          const shown = props.name.toUpperCase();
+          return <section aria-label={shown}>{shown}</section>;
+        }
+      `,
+    });
+  }
+
+  it("limits the report to an exact file path", async () => {
+    const project = await twoFileProject();
+    const report = await analyzeProject({
+      ...project.args,
+      file: ["src/widgets/Card.tsx"],
+    });
+    expect(report.sinks.length).toBeGreaterThan(0);
+    expect(report.sinks.every((sink) => sink.file === "src/widgets/Card.tsx")).toBe(true);
+    expect(report.meta.file).toEqual(["src/widgets/Card.tsx"]);
+  });
+
+  it("matches a bare filename at a path-segment boundary", async () => {
+    const project = await twoFileProject();
+    const report = await analyzeProject({ ...project.args, file: ["Panel.tsx"] });
+    expect(report.sinks.length).toBeGreaterThan(0);
+    expect(report.sinks.every((sink) => sink.file === "src/panels/Panel.tsx")).toBe(true);
+  });
+
+  it("supports glob patterns and directory prefixes", async () => {
+    const project = await twoFileProject();
+    const glob = await analyzeProject({ ...project.args, file: ["src/**/*.tsx"] });
+    expect(new Set(glob.sinks.map((sink) => sink.file)).size).toBe(2);
+
+    const dir = await analyzeProject({ ...project.args, file: ["src/widgets"] });
+    expect(dir.sinks.every((sink) => sink.file === "src/widgets/Card.tsx")).toBe(true);
+  });
+
+  it("ORs multiple patterns and yields nothing when none match", async () => {
+    const project = await twoFileProject();
+    const both = await analyzeProject({
+      ...project.args,
+      file: ["Card.tsx", "Panel.tsx"],
+    });
+    expect(new Set(both.sinks.map((sink) => sink.file)).size).toBe(2);
+
+    const none = await analyzeProject({ ...project.args, file: ["Missing.tsx"] });
+    expect(none.sinks).toEqual([]);
+    expect(none.rankings.all).toEqual([]);
+  });
+
+  it("hints at --file on multi-file aggregate reports and drops the hint once focused", async () => {
+    const project = await twoFileProject();
+    const report = await analyzeProject(project.args);
+
+    const spread = renderReport(report, {
+      ...project.args,
+      view: "hotspots",
+      format: "markdown",
+    });
+    expect(spread).toContain("Focus on one file or region:");
+    expect(spread).toContain("--file");
+
+    const focused = renderReport(report, {
+      ...project.args,
+      view: "hotspots",
+      format: "markdown",
+      file: ["src/widgets/Card.tsx"],
+    });
+    // The hint keys off how many files the report spans, not the args, so a
+    // genuinely focused report (built with the filter) suppresses it.
+    const focusedReport = await analyzeProject({
+      ...project.args,
+      file: ["src/widgets/Card.tsx"],
+    });
+    const focusedText = renderReport(focusedReport, {
+      ...project.args,
+      view: "hotspots",
+      format: "markdown",
+      file: ["src/widgets/Card.tsx"],
+    });
+    expect(focusedText).not.toContain("Focus on one file or region:");
+    // Regenerate command still round-trips the active --file filter.
+    expect(focused).toContain("--file src/widgets/Card.tsx");
+  });
+});
+
 async function createFixtureProject(files) {
   const root = await mkdtemp(resolve(tmpdir(), "render-path-dataflow-"));
   await mkdir(resolve(root, "src"), { recursive: true });

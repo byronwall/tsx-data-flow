@@ -143,6 +143,9 @@ export function parseArgs(argv, defaults = {}) {
     format: defaults.format ?? "markdown",
     view: defaults.view ?? "work-packets",
     scope: defaults.scope ?? null,
+    // Path-only, glob-aware filter (repeatable). Narrows every view to the
+    // matching files so an agent can pull the full detail for one file/region.
+    file: defaults.file ? [...defaults.file] : [],
     out: defaults.out ?? null,
     baseline: defaults.baseline ?? null,
     // Resolved per-view after parsing unless the caller/CLI sets it explicitly.
@@ -207,6 +210,9 @@ export function parseArgs(argv, defaults = {}) {
         break;
       case "--scope":
         args.scope = readValue();
+        break;
+      case "--file":
+        args.file.push(readValue());
         break;
       case "--max-items":
         args.maxItems = Number.parseInt(readValue(), 10);
@@ -339,6 +345,10 @@ Options:
   --format <json|markdown>  Output format. Defaults to markdown.
   --view <name>             Report view, or "all" for every view. Defaults to work-packets.
   --scope <value>           Limit report to a file, component, or symbol substring.
+  --file <pattern>          Limit report to matching files (path-only, glob-aware,
+                            repeatable). Examples: src/components/Button.tsx,
+                            Button.tsx, src/components, src/**/*.tsx. Combine with
+                            --scope to dig into one file or region.
   --max-items <number>      Limit displayed findings or rows. Defaults to 20.
   --sort <mode>             Selection lens for work-packets/findings:
                             burden (default, worst-first), spread (diversity
@@ -465,7 +475,7 @@ export function renderReport(report, args) {
   if (args.format === "json") {
     return `${JSON.stringify(selectViewPayload(report, args), null, 2)}\n`;
   }
-  return `${renderMarkdownView(report, args)}\n${regenFooter(args, args.view)}`;
+  return `${renderMarkdownView(report, args)}\n${regenFooter(args, args.view, report)}`;
 }
 
 function renderMarkdownView(report, args) {
@@ -570,6 +580,8 @@ function regenCommand(args, view) {
   if (Number.isFinite(args.maxItems))
     parts.push("--max-items", String(args.maxItems));
   if (args.scope) parts.push("--scope", shellQuote(args.scope));
+  for (const pattern of args.file ?? [])
+    parts.push("--file", shellQuote(pattern));
   // Echo selection lenses so a regenerated command reproduces the same spread.
   if (args.sort && args.sort !== "burden") parts.push("--sort", args.sort);
   if (args.diversity != null) parts.push("--diversity", String(args.diversity));
@@ -596,8 +608,8 @@ function commandPath(targetPath) {
   return targetPath;
 }
 
-function regenFooter(args, view) {
-  return [
+function regenFooter(args, view, report) {
+  const lines = [
     "---",
     "",
     "_Regenerate this report:_",
@@ -606,7 +618,35 @@ function regenFooter(args, view) {
     regenCommand(args, view),
     "```",
     "",
-  ].join("\n");
+  ];
+  // Aggregate reports mix findings from many files. When more than one file is
+  // still represented, point the reader at --file so they can re-run focused on
+  // a single file or region rather than re-reading the whole spread.
+  if (spansMultipleFiles(report)) {
+    lines.push(
+      "_Focus on one file or region:_ append `--file <path|glob>` (repeatable) — " +
+        "e.g. `--file Button.tsx`, `--file src/components/Button.tsx`, or " +
+        "`--file 'src/dashboard/**'`. Combine with `--scope` to target a symbol within it.",
+      "",
+    );
+  }
+  return lines.join("\n");
+}
+
+// How many distinct files the report's findings touch, used to decide whether a
+// per-file focus hint is worth showing. Counts ranked sinks first (what most
+// views list) and falls back to context-relay findings for relay-only reports.
+function spansMultipleFiles(report) {
+  if (!report) return false;
+  const files = new Set();
+  for (const sink of report.rankings?.all ?? []) files.add(sink.file);
+  if (files.size === 0) {
+    for (const finding of report.contextRelay ?? []) {
+      files.add(finding.parentFile);
+      files.add(finding.childFile);
+    }
+  }
+  return files.size > 1;
 }
 
 function shellQuote(value) {
@@ -645,12 +685,22 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     );
   }
 
-  const filteredSinks = applyScope(sinks, args.scope);
+  const fileMatch = makeFileMatcher(args.file);
+  const scopedSinks = applyScope(sinks, args.scope);
+  const filteredSinks = fileMatch
+    ? scopedSinks.filter((sink) => fileMatch(sink.file))
+    : scopedSinks;
   groundReachability(filteredSinks);
-  const contextRelay = applyContextRelayScope(
+  const scopedRelay = applyContextRelayScope(
     analyzeContextRelay(ts, sourceFiles, args.root),
     args.scope,
   );
+  const contextRelay = fileMatch
+    ? scopedRelay.filter(
+        (finding) =>
+          fileMatch(finding.parentFile) || fileMatch(finding.childFile),
+      )
+    : scopedRelay;
   const packGroups = computePackGroups(filteredSinks);
   applyPackEvidence(filteredSinks, packGroups);
   const rankings = rankSinks(
@@ -661,7 +711,10 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
   // every view projects from the same data.
   const workUnits = computeWorkUnits(rankings.all);
   const concentration = computeConcentration(rankings.all);
-  const helpers = buildHelperReport(ts, checker, crossFile, args, sourceFiles);
+  const allHelpers = buildHelperReport(ts, checker, crossFile, args, sourceFiles);
+  const helpers = fileMatch
+    ? allHelpers.filter((helper) => fileMatch(helper.file))
+    : allHelpers;
   const baseline = args.baseline
     ? compareBaseline(rankings, args.baseline)
     : null;
@@ -675,6 +728,7 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
       tsconfig: args.tsconfig ?? null,
       typescript: typescriptModulePath,
       scope: args.scope,
+      file: args.file.length ? args.file : null,
     },
     graph: {
       nodes: graph.nodes,
@@ -4209,6 +4263,58 @@ function applyScope(sinks, scope) {
       sink.label.includes(scope) ||
       sink.roots.some((root) => root.includes(scope)),
   );
+}
+
+// Translate one `--file` pattern into a RegExp matched against a relative file
+// path. Unlike `--scope` (a fuzzy substring over file/label/symbol), this is
+// path-only and glob-aware so an agent can pin a report to exactly one file,
+// directory, or glob region:
+//   src/components/Button.tsx   exact file
+//   Button.tsx                  any path ending in /Button.tsx
+//   src/components              a directory (everything under it)
+//   src/components/**           same, explicit glob
+//   src/**/*.tsx                all .tsx anywhere under src
+// Globs: `*` matches within a path segment, `**` across segments, `?` one char.
+function fileFilterToRegExp(pattern) {
+  let p = pattern.trim().replace(/^\.\//, "").replace(/^\/+/, "");
+  const hasGlob = /[*?]/.test(p);
+  // A bare directory-ish pattern (no glob, no extension on the final segment)
+  // is treated as a prefix so `--file src/components` digs into the whole dir.
+  const lastSegment = p.split("/").pop() ?? "";
+  if (!hasGlob && !lastSegment.includes(".")) {
+    p = p.replace(/\/+$/, "") + "/**";
+  } else if (p.endsWith("/")) {
+    p += "**";
+  }
+
+  let body = "";
+  for (let index = 0; index < p.length; index += 1) {
+    const char = p[index];
+    if (char === "*") {
+      if (p[index + 1] === "*") {
+        body += ".*";
+        index += 1;
+        if (p[index + 1] === "/") index += 1; // let `a/**/b` match `a/b`
+      } else {
+        body += "[^/]*";
+      }
+    } else if (char === "?") {
+      body += "[^/]";
+    } else {
+      body += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+  // Anchor to the path end and to a segment boundary at the front, so a bare
+  // `Button.tsx` matches `src/ui/Button.tsx` but not `MyButton.tsx`.
+  return new RegExp(`(^|/)${body}$`);
+}
+
+// Build a predicate over relative file paths from zero or more `--file`
+// patterns (OR within the set). Returns null when no patterns were given.
+function makeFileMatcher(patterns) {
+  if (!patterns || patterns.length === 0) return null;
+  const regexps = patterns.map(fileFilterToRegExp);
+  return (file) => regexps.some((regexp) => regexp.test(file));
 }
 
 function summarize(sinks, graph) {
