@@ -446,8 +446,11 @@ Several work-packet decisions are intentionally evidence-gated:
 
 - Provider/Context advice requires provider/context API evidence, a context hook root, an imported feature boundary, or broad same-feature relay evidence. Depth, reachable sink count, or wrapper count alone are not enough.
 - Grouped render recommendations are report-layer rollups over same-file, same-component SVG/collection sinks that share a rendered thing. They keep raw findings visible while showing the cohesive fix once.
+- Local scalar SVG geometry such as repeated circle center/radius/dash math is separated from repeated item extraction. Reports recommend local aliases like `center`, `radius`, or `circumference` before helper functions or helper types.
+- Optional Solid component prop defaults are classified separately from generic defensive logic. Repeated `props.foo ?? default` render paths recommend one `mergeProps(defaults, props)` boundary, while caller-precedence fallbacks such as `tooltipContent ?? user.displayName` are labeled as fallbacks to keep.
 - Proposed helper names use render context from JSX tag, attribute, and enclosing component names. Generic analyzer identifiers such as `geometryModel`, `renderValue`, `selectedValue`, and `ItemModel` are banned from generated code names.
 - Extraction shape checks distinguish cohesive repeated items from mirror singleton risks before recommending object extraction.
+- Defensive-ledger rows include an action column so valid optional/parser fallbacks can read as certainty boundaries while type-impossible defenses still point toward removal after a contract check.
 - Low-value scalar helpers and healthy shared layout boundaries are burden-penalized and rendered as `Background Findings` instead of actionable work packets.
 - `Stop Recommendation` appears in `work-packets`, `repair-map`, and compare output when no defensive entries remain, the highest actionable score is low, high-risk pack verdicts are absent, and remaining findings are mostly background scalar/shared-boundary paths.
 

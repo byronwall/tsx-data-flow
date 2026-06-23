@@ -953,6 +953,61 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(packets).not.toContain("proposed: function computeViewBox");
   });
 
+  it("recommends local scalar geometry instead of helper extraction for fixed circles", async () => {
+    const project = await createFixtureProject({
+      "src/CircularProgress.tsx": `
+        export function CircularProgress(props: { size?: number; strokeWidth?: number; progress: number }) {
+          const size = props.size ?? 32;
+          const strokeWidth = props.strokeWidth ?? 4;
+          const radius = (size - strokeWidth) / 2;
+          const circumference = 2 * Math.PI * radius;
+          const progressLength = circumference * props.progress;
+          return <svg width={size} height={size} viewBox={\`0 0 \${size} \${size}\`}>
+            <circle cx={size / 2} cy={size / 2} r={radius} stroke-dasharray={\`\${circumference} \${circumference}\`} />
+            <circle cx={size / 2} cy={size / 2} r={radius} stroke-dasharray={\`\${progressLength} \${circumference}\`} />
+          </svg>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const centerSink = report.sinks.find(
+      (sink) =>
+        sink.renderContext?.attribute === "cx" &&
+        sink.expression.includes("size / 2"),
+    );
+
+    expect(centerSink).toBeTruthy();
+    expect(classifyPathShape(centerSink)).toContain("local-scalar-geometry");
+
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      maxItems: 20,
+      format: "markdown",
+    });
+
+    expect(packets).toContain(
+      "verdict: repeated scalar; prefer local variable",
+    );
+    expect(packets).toContain("center, radius, circumference");
+    expect(packets).toContain(
+      "do not introduce a helper type/function just to avoid repeated arithmetic",
+    );
+    expect(packets).toContain("name repeated local scalars");
+    expect(packets).not.toContain("proposed: function computeCircularCircle");
+    expect(packets).not.toContain("Extract circular circles");
+    expect(packets).not.toContain("extract render item data");
+
+    const hotspots = renderReport(report, {
+      ...project.args,
+      view: "hotspots",
+      maxItems: 20,
+      format: "markdown",
+    });
+    expect(hotspots).toContain("name repeated local scalars");
+    expect(hotspots).not.toContain("extract render item data");
+  });
+
   it("keeps fallback advice focused on certainty boundaries instead of helper args", async () => {
     const project = await createFixtureProject({
       "src/FallbackBoundary.tsx": `
@@ -971,10 +1026,76 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       format: "markdown",
     });
 
-    expect(packets).toContain("boundary that truly owns the uncertainty");
     expect(packets).toContain(
-      "do not contort the code so the fallback becomes a helper argument",
+      "Use Solid mergeProps once near the component boundary",
     );
+    expect(packets).toContain("for label");
+    expect(packets).toContain("props.foo ?? default");
+    expect(packets).toContain(
+      "Do not move valid prop defaults into helper arguments merely to shorten the analyzer path",
+    );
+  });
+
+  it("promotes repeated optional Solid prop defaults to mergeProps", async () => {
+    const project = await createFixtureProject({
+      "src/Avatar.tsx": `
+        export function Avatar(props: { label?: string; variant?: "primary" | "secondary" }) {
+          return <div title={props.label ?? "?"} data-variant={props.variant ?? "secondary"}>{props.label ?? "?"}</div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      maxItems: 20,
+      format: "markdown",
+    });
+    const ledger = renderReport(report, {
+      ...project.args,
+      view: "defensive-ledger",
+      maxItems: 20,
+      format: "markdown",
+    });
+    const hotspots = renderReport(report, {
+      ...project.args,
+      view: "hotspots",
+      maxItems: 20,
+      format: "markdown",
+    });
+
+    expect(classifyPathShape(report.rankings.all[0])).toContain(
+      "solid-prop-default-boundary",
+    );
+    expect(packets).toContain(
+      "mergeProps({ size: 32, strokeWidth: 4 }, props)",
+    );
+    expect(ledger).toContain('props.label ?? "?"');
+    expect(ledger).toContain('props.variant ?? "secondary"');
+    expect(ledger).toContain("solid prop default (optional prop)");
+    expect(ledger).toContain("promote to mergeProps default");
+    expect(hotspots).toContain("promote prop defaults to mergeProps");
+  });
+
+  it("keeps API-choice fallbacks instead of promoting them to mergeProps", async () => {
+    const project = await createFixtureProject({
+      "src/UserAvatar.tsx": `
+        export function UserAvatar(props: { tooltipContent?: string; user: { displayName: string } }) {
+          return <span title={props.tooltipContent ?? props.user.displayName}>{props.user.displayName}</span>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const ledger = renderReport(report, {
+      ...project.args,
+      view: "defensive-ledger",
+      maxItems: 20,
+      format: "markdown",
+    });
+
+    expect(ledger).toContain("api-choice fallback");
+    expect(ledger).toContain("keep caller-precedence fallback");
+    expect(ledger).not.toContain("promote to mergeProps default");
   });
 
   it("downranks harmless scalar helpers into background findings", async () => {
@@ -1009,6 +1130,29 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
     expect(packets).toContain("## Background Findings");
     expect(packets).toContain("already readable");
+  });
+
+  it("labels small same-component scalar helpers as local scalar math boundaries", async () => {
+    const project = await createFixtureProject({
+      "src/CircularMath.tsx": `
+        function progressLength(circumference: number, progress: number): number {
+          return circumference * progress;
+        }
+        export function CircularMath(props: { circumference: number; progress: number }) {
+          return <circle stroke-dasharray={\`\${progressLength(props.circumference, props.progress)} \${props.circumference}\`} />;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, {
+      ...project.args,
+      view: "boundary-report",
+      maxItems: 20,
+      format: "markdown",
+    });
+
+    expect(output).toContain("local scalar math");
+    expect(output).toContain("small same-component scalar calculation");
   });
 
   it("treats cohesive shared layout helpers as background boundaries", async () => {
@@ -1412,7 +1556,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(path).toMatch(/F1 = .*Loc\.tsx/);
   });
 
-  it("labels defensive fallback origin and adds an Origin column (Phase 9)", async () => {
+  it("labels defensive fallback origin and action (Phase 9)", async () => {
     const project = await createFixtureProject({
       "src/Defenses.tsx": `
         export function Card(props: { sure: string; maybe?: string }) {
@@ -1431,8 +1575,11 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
 
     expect(output).toContain("Origin");
+    expect(output).toContain("Action");
     expect(output).toContain("stale (type-impossible)");
-    expect(output).toContain("compatibility (optional)");
+    expect(output).toContain("solid prop default (optional prop)");
+    expect(output).toContain("remove after contract check");
+    expect(output).toContain("promote to mergeProps default");
   });
 
   it("does not call parser-boundary indexed extraction fallbacks type-impossible", async () => {
@@ -1462,6 +1609,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
 
     expect(output).toContain("parser-boundary fallback");
+    expect(output).toContain("keep as certainty boundary");
     expect(output).not.toContain("stale (type-impossible)");
     expect(
       report.sinks.every((sink) => sink.metrics.impossibleDefenseCount === 0),
@@ -1485,6 +1633,8 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
 
     expect(output).toContain("Sinks");
+    expect(output).toContain("Action");
+    expect(output).toContain("promote to mergeProps default");
     // The single `?? "default"` fallback reaches multiple JSX sinks but appears once.
     const occurrences = output.split('props.size ?? "default"').length - 1;
     expect(occurrences).toBe(1);

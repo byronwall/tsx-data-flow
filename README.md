@@ -197,6 +197,7 @@ additive.
 - Feature clusters only recommend `Provider/Context audit` when the trace contains provider/context, feature-hook, or same-feature relay evidence. Local SVG/chart renderers fall back to local render-data guidance.
 - Related SVG/collection sinks are grouped by rendered thing, such as `BarTick[]` or `BarRectangle[]`, so one cohesive extraction is visible above the individual findings.
 - Extraction proposals use render-context names from JSX tags, attributes, and component names instead of generic analyzer names like `geometryModel` or `renderValue`.
+- Optional Solid component prop defaults get Solid-specific guidance: repeated `props.foo ?? default` paths are reported as candidates for one `mergeProps(defaults, props)` boundary, while caller-precedence fallbacks remain keep-worthy API choices.
 - Small named scalar helpers and healthy shared layout helpers move to `Background Findings`, with a short reason and a leave-it-alone action.
 - `Stop Recommendation` says when the remaining local cleanup is likely counterproductive.
 

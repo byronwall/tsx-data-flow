@@ -71,6 +71,8 @@ Read the report-layer guidance before choosing work:
 - **Grouped Recommendations** show cohesive fixes such as `BarTick[]`, `BarRectangle[]`, or rendered rows. Prefer these over editing each attribute sink separately.
 - **Extraction proposal** names should be concrete rendered nouns. Treat generic names such as `geometryModel`, `renderValue`, `selectedValue`, or `ItemModel` as stale output or a reason to rerun with the current analyzer.
 - **Extraction shape check** distinguishes `cohesive repeated item` from `mirror singleton risk`. Do not create a broad singleton object when the shape check warns against it.
+- **Solid prop defaults** should usually use one `mergeProps(defaults, props)` boundary when repeated optional component props are defaulted in render paths. Keep caller-precedence fallbacks such as `tooltipContent ?? user.displayName` close to the API decision instead of promoting them to defaults.
+- **Repeated scalar geometry** such as `size() / 2` across two local SVG circles should usually become local aliases/accessors (`center`, `radius`, `circumference`, `trackDasharray`), not a helper type or helper function. Only extract a typed helper boundary when several rendered surfaces or call sites consume the same cohesive geometry contract.
 - **SVG shell attributes** (`width`, `height`, `viewBox`) size the root SVG/HTML shell, not the repeated rendered item. Prefer a simple inline expression or tiny local thunk immediately above the render block; do not extract a standalone helper just to pass defaulted shell values into it.
 - **Background Findings** are true paths but not recommended cleanup work.
 - **Stop Recommendation** tells you when more local cleanup is likely counterproductive.
@@ -240,6 +242,8 @@ Before editing, verify a finding by reading the source path:
 - The path reaches the reported JSX sink.
 - Defensive operations are truly redundant or can be moved to a better boundary.
 - The finding is not just a compact local parser or style object near JSX.
+- Repeated SVG scalar math is a real rendered-item model, not just a couple of local values such as `center = size() / 2` shared by fixed sibling elements.
+- Repeated optional Solid component prop fallbacks should become a `mergeProps` boundary before JSX; one-off caller-precedence fallbacks should stay where they express API priority.
 - Prop relay/fan-out evidence corresponds to real component ownership pressure in source code.
 - The existing behavior has an observable purpose, such as incomplete drafts, external JSON, missing capture data, SSR first render, or user-entered text.
 - A proposed object pack is supported by the packet's pack verdict. Do not create a broad `view`, `ready`, or `itemView` object when the evidence points to overpacked/mirror/relay behavior.

@@ -57,18 +57,18 @@ sink it stores:
 
 The key metric function is `metricsFor`. It derives:
 
-| Metric | What It Means | Smell Signal |
-| --- | --- | --- |
-| `maximumPathDepth` | Longest traced operation chain to JSX. | Review burden; hard-to-scan render path. |
-| `helperHops` | Number of call operations. | Indirection; helper-heavy derivation. |
-| `representationChurn` | Object packs, spreads, and aliases. | Packing/repacking without clear semantic boundary. |
-| `defensiveOperationCount` | Fallbacks and optional reads. | Normalization pressure; possibly stale guards. |
-| `impossibleDefenseCount` | Defenses that cannot fire under checked types. | Dead defensive code; strongest smell. |
-| `controlDependencyCount` | Conditional operations. | Branching mixed into render derivation. |
-| `mergeWidth` | Number of distinct roots feeding the sink. | Fan-in / many inputs. |
-| `reachableSinks` | How many sinks the same actionable source feeds. | Centrality and change risk. |
-| `repeatedNormalization` | Defensive operations after the first. | Same path repeatedly normalizes/defaults. |
-| `unknownEdgeCount` | Unresolved dynamic or external hops. | Investigation risk rather than direct cleanup. |
+| Metric                    | What It Means                                    | Smell Signal                                       |
+| ------------------------- | ------------------------------------------------ | -------------------------------------------------- |
+| `maximumPathDepth`        | Longest traced operation chain to JSX.           | Review burden; hard-to-scan render path.           |
+| `helperHops`              | Number of call operations.                       | Indirection; helper-heavy derivation.              |
+| `representationChurn`     | Object packs, spreads, and aliases.              | Packing/repacking without clear semantic boundary. |
+| `defensiveOperationCount` | Fallbacks and optional reads.                    | Normalization pressure; possibly stale guards.     |
+| `impossibleDefenseCount`  | Defenses that cannot fire under checked types.   | Dead defensive code; strongest smell.              |
+| `controlDependencyCount`  | Conditional operations.                          | Branching mixed into render derivation.            |
+| `mergeWidth`              | Number of distinct roots feeding the sink.       | Fan-in / many inputs.                              |
+| `reachableSinks`          | How many sinks the same actionable source feeds. | Centrality and change risk.                        |
+| `repeatedNormalization`   | Defensive operations after the first.            | Same path repeatedly normalizes/defaults.          |
+| `unknownEdgeCount`        | Unresolved dynamic or external hops.             | Investigation risk rather than direct cleanup.     |
 
 The default burden score is a weighted blend:
 
@@ -100,11 +100,11 @@ it can always prove intent.
 
 Each defense gets a TypeScript verdict:
 
-| Verdict | Meaning | Default Interpretation |
-| --- | --- | --- |
-| `possible` | The guarded type can include `null` or `undefined`. | Likely legitimate fallback or compatibility guard. |
-| `impossible` | The guarded type excludes `null` and `undefined`. | Stale guard; dead defensive code. |
-| `unknown` | The type is `any`, `unknown`, or a type parameter. | Needs investigation. |
+| Verdict      | Meaning                                             | Default Interpretation                             |
+| ------------ | --------------------------------------------------- | -------------------------------------------------- |
+| `possible`   | The guarded type can include `null` or `undefined`. | Likely legitimate fallback or compatibility guard. |
+| `impossible` | The guarded type excludes `null` and `undefined`.   | Stale guard; dead defensive code.                  |
+| `unknown`    | The type is `any`, `unknown`, or a type parameter.  | Needs investigation.                               |
 
 The additional `origin` label is where the tool is most careful:
 
@@ -178,14 +178,14 @@ The tool does not say every object model is bad. It distinguishes between:
 
 Sink families are derived from JSX target attributes:
 
-| Family | Examples | Meaning |
-| --- | --- | --- |
-| `svg-shell` | `width`, `height`, `viewBox` | Shell sizing. |
-| `geometry` | `x`, `y`, `d`, `transform`, `points`, `r` | Element geometry. |
-| `control-flow` | `when`, `each`, `fallback` | Render gating or iteration. |
-| `style` | `class`, `className`, `style` | Presentation. |
-| `text` | Rendered value children. | Text/content output. |
-| `other` | Everything else. | Attribute not otherwise classified. |
+| Family         | Examples                                  | Meaning                             |
+| -------------- | ----------------------------------------- | ----------------------------------- |
+| `svg-shell`    | `width`, `height`, `viewBox`              | Shell sizing.                       |
+| `geometry`     | `x`, `y`, `d`, `transform`, `points`, `r` | Element geometry.                   |
+| `control-flow` | `when`, `each`, `fallback`                | Render gating or iteration.         |
+| `style`        | `class`, `className`, `style`             | Presentation.                       |
+| `text`         | Rendered value children.                  | Text/content output.                |
+| `other`        | Everything else.                          | Attribute not otherwise classified. |
 
 When one object feeds multiple families, the work packet renders a
 `Sink-family split` block. This is one of the tool's better taste mechanisms: it
@@ -239,14 +239,15 @@ interleaved in one packed model.
 
 Shape classification drives the proposed fix:
 
-| Shape Tag | Signal | Default Suggested Direction |
-| --- | --- | --- |
-| `geometry-chain` | Geometry attributes or arithmetic/template geometry. | Extract render-ready geometry model. |
-| `collection-render-model` | `each` or collection methods. | Extract item models into a memo. |
-| `control-flow-gate` | `when`, `fallback`, or defensive render-control branch. | Name predicate or shown value. |
-| `presentation-pack` | Class/style sink or style object pack. | Build class/style object in a small memo. |
-| `domain-normalization` | Defensive ops or prop-driven conditional normalization. | Resolve defaults at a named boundary. |
-| `cross-component-relay` | Multiple prop roots relayed without helper hops. | Consider Provider/Context or feature boundary. |
+| Shape Tag                 | Signal                                                                      | Default Suggested Direction                                                                                         |
+| ------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `local-scalar-geometry`   | Fixed SVG circle/dash scalar math such as center, radius, or circumference. | Prefer local scalar aliases/accessors; do not introduce a helper type/function just to avoid repeated `size() / 2`. |
+| `geometry-chain`          | Geometry attributes or arithmetic/template geometry.                        | Extract render-ready geometry model.                                                                                |
+| `collection-render-model` | `each` or collection methods.                                               | Extract item models into a memo.                                                                                    |
+| `control-flow-gate`       | `when`, `fallback`, or defensive render-control branch.                     | Name predicate or shown value.                                                                                      |
+| `presentation-pack`       | Class/style sink or style object pack.                                      | Build class/style object in a small memo.                                                                           |
+| `domain-normalization`    | Defensive ops or prop-driven conditional normalization.                     | Resolve defaults at a named boundary.                                                                               |
+| `cross-component-relay`   | Multiple prop roots relayed without helper hops.                            | Consider Provider/Context or feature boundary.                                                                      |
 
 This means a chart, SVG layout, table, or formatting-heavy domain is not
 automatically bad. The tool wants the calculation to have a named output shape:
@@ -325,14 +326,14 @@ cross-file helper tracing.
 
 Each sink receives a confidence score and queue:
 
-| Condition | Confidence / Queue Effect |
-| --- | --- |
-| Unknown edge exists. | Confidence 72; queue `investigation`. |
-| Defense verdict unknown. | Confidence 80; queue `investigation`. |
-| Impossible defense exists. | Confidence 99; low-risk cleanup. |
-| All hops resolved. | Confidence 88; low risk. |
-| High reach or path depth > 10. | Queue `central-leverage`. |
-| Otherwise resolved and local. | Queue `peripheral-quick-win`. |
+| Condition                      | Confidence / Queue Effect             |
+| ------------------------------ | ------------------------------------- |
+| Unknown edge exists.           | Confidence 72; queue `investigation`. |
+| Defense verdict unknown.       | Confidence 80; queue `investigation`. |
+| Impossible defense exists.     | Confidence 99; low-risk cleanup.      |
+| All hops resolved.             | Confidence 88; low risk.              |
+| High reach or path depth > 10. | Queue `central-leverage`.             |
+| Otherwise resolved and local.  | Queue `peripheral-quick-win`.         |
 
 The queue model is sound: unknowns do not become "fix now" items; they become
 investigation items. The main weakness is language. Some work packets can read

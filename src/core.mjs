@@ -96,6 +96,13 @@ const GEOMETRY_FAMILY_ATTRIBUTES = new Set([
   "rx",
   "ry",
 ]);
+const LOCAL_SCALAR_GEOMETRY_ATTRIBUTES = new Set([
+  ...GEOMETRY_FAMILY_ATTRIBUTES,
+  "stroke-dasharray",
+  "strokeDasharray",
+  "stroke-dashoffset",
+  "strokeDashoffset",
+]);
 // The union is what "this path computes geometry" keys off of (Phase 1).
 const GEOMETRY_ATTRIBUTES = new Set([
   ...SVG_SHELL_ATTRIBUTES,
@@ -1190,16 +1197,32 @@ function classifyBoundary(record) {
   if (record.passThrough && record.internalDepth <= 1) {
     return "thin pass-through (inline)";
   }
+  if (isLocalScalarMathBoundary(record)) return "local scalar math";
   if (isJunction) return "confluence / junction";
   if (record.typeLeak) return "leaky boundary";
   if (messyInternals) return "messy internals";
   return "clean pipe";
 }
 
+function isLocalScalarMathBoundary(record) {
+  if (record.typeLeak) return false;
+  if (record.internalImpossible > 0 || record.internalDefenses > 0)
+    return false;
+  if (record.callerCount > 2) return false;
+  if (record.internalDepth > 5 || record.internalChurn > 2) return false;
+  if (!/^(?:number|string|boolean|bigint)$/.test(record.returnType ?? "")) {
+    return false;
+  }
+  return /^(?:get|compute)?(?:center|radius|circumference|dash|progress|track|size|width|height|x|y|cx|cy|r|axis|tick|title|label)/i.test(
+    record.name ?? "",
+  );
+}
+
 // A single "boundary debt" number used only to rank the report — higher means a
 // more tangled / leaky / load-bearing function worth attention first.
 function boundaryDebt(record) {
   const isJunction = record.inSources >= 3 && record.callerCount >= 2;
+  const scalarPenalty = isLocalScalarMathBoundary(record) ? -3 : 0;
   return (
     record.inSources +
     record.internalChurn +
@@ -1207,7 +1230,8 @@ function boundaryDebt(record) {
     record.internalImpossible * 3 +
     record.internalDepth * 0.5 +
     (record.typeLeak ? 4 : 0) +
-    (isJunction ? record.callerCount * 2 : 0)
+    (isJunction ? record.callerCount * 2 : 0) +
+    scalarPenalty
   );
 }
 
@@ -1887,6 +1911,13 @@ function metricsFor(trace) {
   const edgeCounts = countBy(trace.edges);
   const defensiveOperationCount =
     (edgeCounts.fallback ?? 0) + (edgeCounts["optional-read"] ?? 0);
+  const certaintyBoundaryDefenseCount = trace.defenses.filter((defense) =>
+    isCertaintyBoundaryDefense(defense),
+  ).length;
+  const actionableDefensiveOperationCount = Math.max(
+    0,
+    defensiveOperationCount - certaintyBoundaryDefenseCount,
+  );
   const representationChurn =
     (edgeCounts["object-pack"] ?? 0) +
     (edgeCounts["object-spread"] ?? 0) +
@@ -1904,6 +1935,8 @@ function metricsFor(trace) {
     helperHops,
     representationChurn,
     defensiveOperationCount,
+    actionableDefensiveOperationCount,
+    certaintyBoundaryDefenseCount,
     impossibleDefenseCount,
     controlDependencyCount: edgeCounts.conditional ?? 0,
     mergeWidth: trace.roots.length,
@@ -1911,12 +1944,18 @@ function metricsFor(trace) {
     // sink's sources also feed), so it cannot be known from a single trace.
     // Seeded to 1 here and filled in by groundReachability once all sinks exist.
     reachableSinks: 1,
-    repeatedNormalization: Math.max(0, defensiveOperationCount - 1),
+    repeatedNormalization: Math.max(0, actionableDefensiveOperationCount - 1),
     unknownEdgeCount,
     packFamilyDiversity: 0,
     packRisk: 0,
     suspiciousPackCount: 0,
   };
+}
+
+function isCertaintyBoundaryDefense(defense) {
+  return /parser-boundary|compatibility|optional|solid prop default|api-choice/i.test(
+    defense.origin ?? "",
+  );
 }
 
 // Whole-graph grounding pass. The trace graph does not deduplicate nodes across
@@ -1996,6 +2035,10 @@ function fallbackOrigin(
   if (runtimeBoundary) return runtimeBoundary.origin;
   if (verdict === "impossible") return "stale (type-impossible)";
   if (verdict === "unknown") return "unknown";
+  if (isApiChoiceFallback(ts, node)) return "api-choice fallback";
+  if (isOptionalPropRead(ts, checker, guardedExpression)) {
+    return "solid prop default (optional prop)";
+  }
   const comment = leadingCommentText(ts, node);
   if (/persist|legacy|back[ -]?compat|compat|migrat|deprecat/i.test(comment)) {
     return "compatibility (documented)";
@@ -2012,6 +2055,67 @@ function fallbackOrigin(
     return "compatibility (optional)";
   }
   return "defensive (review)";
+}
+
+function isOptionalPropRead(ts, checker, expression) {
+  const unwrapped = unwrapExpression(ts, expression);
+  if (!ts.isPropertyAccessExpression(unwrapped)) return false;
+  if (!ts.isIdentifier(unwrapped.expression)) return false;
+  if (!isParameterIdentifier(ts, checker, unwrapped.expression)) return false;
+
+  const receiverType = checker.getTypeAtLocation(unwrapped.expression);
+  const property = checker.getPropertyOfType(receiverType, unwrapped.name.text);
+  if (!property) return false;
+  if ((property.flags & ts.SymbolFlags.Optional) !== 0) return true;
+
+  const propertyType = checker.getTypeOfSymbolAtLocation(property, unwrapped);
+  const members = propertyType.isUnion() ? propertyType.types : [propertyType];
+  return members.some(
+    (member) => (member.flags & ts.TypeFlags.Undefined) !== 0,
+  );
+}
+
+function isParameterIdentifier(ts, checker, identifier) {
+  const symbol = checker.getSymbolAtLocation(identifier);
+  const declaration = symbol?.valueDeclaration;
+  return Boolean(declaration && ts.isParameter(declaration));
+}
+
+function isApiChoiceFallback(ts, node) {
+  if (!ts.isBinaryExpression(node)) return false;
+  const operator = node.operatorToken.kind;
+  if (
+    operator !== ts.SyntaxKind.QuestionQuestionToken &&
+    operator !== ts.SyntaxKind.BarBarToken
+  ) {
+    return false;
+  }
+  const right = unwrapExpression(ts, node.right);
+  if (
+    ts.isStringLiteral(right) ||
+    ts.isNoSubstitutionTemplateLiteral(right) ||
+    ts.isNumericLiteral(right) ||
+    right.kind === ts.SyntaxKind.TrueKeyword ||
+    right.kind === ts.SyntaxKind.FalseKeyword ||
+    right.kind === ts.SyntaxKind.NullKeyword
+  ) {
+    return false;
+  }
+  return expressionHasIdentifierOrPropertyRead(ts, right);
+}
+
+function expressionHasIdentifierOrPropertyRead(ts, expression) {
+  let found = false;
+  const visit = (node) => {
+    if (found) return;
+    if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(expression);
+  return found;
 }
 
 // TypeScript usually reports `array[index]` as the element type unless the
@@ -2220,6 +2324,12 @@ function primaryAdviceShape(sink, shapes = classifyPathShape(sink)) {
     shapes.includes("control-flow-gate")
   ) {
     return "control-flow-gate";
+  }
+  if (
+    shapes.includes("solid-prop-default-boundary") &&
+    (shapes[0] === "domain-normalization" || shapes.length === 1)
+  ) {
+    return "solid-prop-default-boundary";
   }
   return shapes[0] ?? null;
 }
@@ -2805,6 +2915,14 @@ function extractionShapeCheckFor(sink, packGroup, renderGroups = []) {
       "recommendation: keep the calculation inline or as a tiny local thunk above the render block unless several render surfaces share one typed size boundary.",
     ];
   }
+  if (classifyPathShape(sink).includes("local-scalar-geometry")) {
+    return [
+      "verdict: repeated scalar; prefer local variable",
+      `attribute: ${sinkAttributeName(sink) ?? "SVG scalar"}`,
+      "reason: this is fixed local SVG scalar math, not a repeated rendered item model or shared helper boundary.",
+      "recommendation: name the scalar near JSX, for example center, radius, circumference, trackDasharray, or indicatorDasharray; do not introduce a helper type/function just to avoid repeated arithmetic.",
+    ];
+  }
   const renderGroup = renderGroups.find((group) =>
     group.sinks.some((member) => member.id === sink.id),
   );
@@ -2851,6 +2969,53 @@ function mirrorSingletonRiskFor(sink) {
     !classifyPathShape(sink).includes("collection-render-model") &&
     !sink.packVerdicts?.includes("cohesive-render-model")
   );
+}
+
+function isLocalScalarGeometry(sink) {
+  const attribute = sinkAttributeName(sink);
+  if (!attribute || !LOCAL_SCALAR_GEOMETRY_ATTRIBUTES.has(attribute)) {
+    return false;
+  }
+  if (
+    ![
+      "cx",
+      "cy",
+      "r",
+      "stroke-dasharray",
+      "strokeDasharray",
+      "stroke-dashoffset",
+      "strokeDashoffset",
+    ].includes(attribute)
+  ) {
+    return false;
+  }
+  if (sinkFamilyOf(sink) === "svg-shell") return false;
+  if (sink.packVerdicts?.includes("cohesive-render-model")) return false;
+  if (
+    classifyPathText(sink).match(
+      /\b(?:map|filter|flatMap|reduce|For|each|index\s*\(|value\s*=>)\b/,
+    )
+  ) {
+    return false;
+  }
+  const metrics = sink.metrics ?? {};
+  if ((metrics.packRisk ?? 0) > 0) return false;
+  const text = classifyPathText(sink);
+  const hasScalarMath =
+    /[-+*/%]/.test(text) ||
+    /\b(?:Math\.|PI|circumference|radius|center|dash|size|strokeWidth|stroke-width)\b/i.test(
+      text,
+    );
+  if (!hasScalarMath) return false;
+  return true;
+}
+
+function classifyPathText(sink) {
+  return [
+    sink.label,
+    sink.expression,
+    ...(sink.representativeSteps ?? []).map((step) => step.label),
+  ].join(" ");
 }
 
 function appendGroupedRecommendations(lines, report, args) {
@@ -2913,7 +3078,7 @@ function groupedRenderRecommendations(sinks) {
         reason: `${roots.join(", ") || "the same local inputs"} feed ${fields.join("/")} for one ${group.renderedThing}.`,
       };
     })
-    .filter((group) => group.sinkCount >= 3 && group.fields.length >= 3)
+    .filter((group) => group.sinkCount >= 2 && group.fields.length >= 2)
     .sort(
       (left, right) =>
         right.sinkCount - left.sinkCount ||
@@ -2926,6 +3091,8 @@ function isRenderItemGroupingCandidate(sink) {
   const family = sinkFamilyOf(sink);
   const tag = sink.renderContext?.tag;
   return (
+    !classifyPathShape(sink).includes("local-scalar-geometry") &&
+    String(tag ?? "").toLowerCase() !== "line" &&
     ["geometry", "style", "identity", "text"].includes(family) &&
     (isSvgLikeTag(tag) || sink.category === "rendered-value") &&
     sink.metrics.maximumPathDepth >= 3
@@ -3132,13 +3299,29 @@ function renderDefensiveLedger(report, args) {
       String(count),
       defense.verdict,
       defense.origin ?? "—",
+      defensiveActionFor(defense),
     ]);
   return tableReport(
     "Defensive Logic",
-    ["Location", "Expression", "Type", "Sinks", "Verdict", "Origin"],
+    ["Location", "Expression", "Type", "Sinks", "Verdict", "Origin", "Action"],
     rows,
     viewIntro("defensive-ledger", report),
   );
+}
+
+function defensiveActionFor(defense) {
+  if (defense.verdict === "impossible") return "remove after contract check";
+  if (/solid prop default/i.test(defense.origin ?? "")) {
+    return "promote to mergeProps default";
+  }
+  if (/api-choice/i.test(defense.origin ?? "")) {
+    return "keep caller-precedence fallback";
+  }
+  if (/parser-boundary|compatibility|optional/i.test(defense.origin ?? "")) {
+    return "keep as certainty boundary";
+  }
+  if (defense.verdict === "unknown") return "inspect runtime shape";
+  return "review boundary placement";
 }
 
 function renderPropRelay(report, args) {
@@ -3203,11 +3386,14 @@ function renderRepairMap(report, args) {
 
 // Concise "suggested first cut" per shape — the headline action for a hotspot.
 const SHAPE_FIRST_CUT = {
+  "svg-shell": "keep shell sizing inline",
+  "local-scalar-geometry": "name repeated local scalars",
   "geometry-chain": "extract render item geometry",
   "collection-render-model": "extract rendered items",
   "control-flow-gate": "name the predicate",
   "presentation-pack": "split the class/style object",
   "domain-normalization": "normalize at the boundary",
+  "solid-prop-default-boundary": "promote prop defaults to mergeProps",
   "cross-component-relay": "move state behind context",
 };
 
@@ -3381,6 +3567,8 @@ function boundaryNote(helper) {
       return `collapses ${helper.inSources} sources into \`${formatExpression(helper.returnType, 40)}\`; downstream code must re-narrow it. Tighten the type or split the return.`;
     case "messy internals":
       return `internal depth ${helper.internalDepth}, churn ${helper.internalChurn}, ${helper.internalDefenses} defensive op(s) behind a narrow signature.`;
+    case "local scalar math":
+      return `small same-component scalar calculation; leave it alone or inline into a nearby local if adjacent JSX becomes clearer.`;
     default:
       return `narrow signature, concrete return type — a healthy boundary; leave it.`;
   }
@@ -3563,6 +3751,7 @@ function featureClusterRows(sinks) {
       providerContextSignals: 0,
       evidence: [],
       localSignals: 0,
+      shapes: [],
     };
     cluster.sinks += 1;
     cluster.files.add(sink.file);
@@ -3575,6 +3764,7 @@ function featureClusterRows(sinks) {
     if (evidence.eligible) cluster.providerContextSignals += 1;
     else cluster.localSignals += 1;
     cluster.evidence.push(evidence.reason);
+    cluster.shapes.push(primaryShapeOf(sink));
     clusters.set(key, cluster);
   }
   return Array.from(clusters.entries())
@@ -3641,6 +3831,10 @@ export function classifyPathShape(sink) {
     tags.push("svg-shell");
   }
 
+  if (isLocalScalarGeometry(sink)) {
+    tags.push("local-scalar-geometry");
+  }
+
   const hasArithmetic = /[-+*/%]/.test(labelText) || kinds.has("template");
   if (
     (attribute && GEOMETRY_FAMILY_ATTRIBUTES.has(attribute)) ||
@@ -3682,6 +3876,10 @@ export function classifyPathShape(sink) {
     tags.push("domain-normalization");
   }
 
+  if (hasSolidPropDefaultBoundary(sink)) {
+    tags.push("solid-prop-default-boundary");
+  }
+
   if (
     metrics.mergeWidth > 1 &&
     metrics.helperHops === 0 &&
@@ -3699,11 +3897,13 @@ export function classifyPathShape(sink) {
 // Plain-English noun for a shape tag — used in reviewer summaries (Phase 6).
 const SHAPE_PHRASES = {
   "svg-shell": "SVG shell sizing",
+  "local-scalar-geometry": "local SVG scalar geometry",
   "geometry-chain": "SVG/layout geometry",
   "collection-render-model": "collection rendering",
   "control-flow-gate": "control-flow gating",
   "presentation-pack": "class/style packing",
   "domain-normalization": "defaulting and normalization",
+  "solid-prop-default-boundary": "Solid optional prop defaults",
   "cross-component-relay": "cross-component prop relay",
 };
 
@@ -3712,6 +3912,8 @@ const SHAPE_PHRASES = {
 const SHAPE_HEADLINE_FIX = {
   "svg-shell":
     "keep root shell sizing inline or in a tiny local thunk unless it is a shared typed boundary",
+  "local-scalar-geometry":
+    "name the repeated scalar locally before JSX instead of introducing a helper type or helper function",
   "geometry-chain":
     "compute cohesive render-item geometry in a memo, then read named fields in JSX",
   "collection-render-model":
@@ -3722,6 +3924,8 @@ const SHAPE_HEADLINE_FIX = {
     "split style/class values by render responsibility before considering a packed object",
   "domain-normalization":
     "resolve defaults and normalization at a named boundary before JSX",
+  "solid-prop-default-boundary":
+    "use mergeProps once near the Solid component boundary, then read merged local props in JSX",
   "cross-component-relay":
     "move shared state behind a Provider/Context instead of threading props",
 };
@@ -3760,15 +3964,33 @@ function candidateEditsFor(sink, group = null) {
     return providerContextEdits(sink);
   }
 
+  if (primaryAdviceShape(sink, shapes) === "solid-prop-default-boundary") {
+    const defaults = solidPropDefaultNames(sink);
+    const defaultsText = defaults.length ? ` for ${defaults.join(", ")}` : "";
+    return [
+      `Use Solid mergeProps once near the component boundary${defaultsText}, for example const local = mergeProps({ size: 32, strokeWidth: 4 }, props).`,
+      "Let JSX and local geometry/style calculations read the merged local props object instead of repeating props.foo ?? default at render leaves.",
+      "Keep caller-precedence fallbacks separate when the right-hand side is another real API choice, such as tooltipContent ?? user.displayName.",
+      "Do not move valid prop defaults into helper arguments merely to shorten the analyzer path.",
+      reminder,
+    ];
+  }
+
   const shapeEdits = {
     "svg-shell": [
       "Keep SVG shell attributes such as width, height, and viewBox as root-level values; prefer a simple inline expression or a tiny local thunk immediately above the render block.",
+      "If shell sizing depends on optional Solid props, default those props once with mergeProps before the shell calculation.",
       "Do not extract a separate helper function only to pass defaulted shell values as arguments.",
       "Only move shell sizing into a named boundary when the same typed sizing object is shared by several render surfaces.",
     ],
+    "local-scalar-geometry": [
+      "Name repeated local SVG scalar math once near the JSX, such as center, radius, circumference, trackDasharray, or indicatorDasharray.",
+      "Do not introduce a helper type or helper function solely to avoid repeating size() / 2 across a pair of SVG elements.",
+      "Keep valid prop defaults as explicit mergeProps certainty boundaries before the geometry math; do not move those fallbacks into helper arguments just to shorten the path.",
+    ],
     "geometry-chain": [
-      `Extract a createMemo returning ${articleFor(renderedThingFor(sink))} ${renderedThingFor(sink)} value (for example { x, y, width, height }); keep the SVG attribute reading named fields.`,
-      `Name the memo for what it renders (${pluralRenderedThing(renderedThingFor(sink))}, visibleRows), not a catch-all like layout/view.`,
+      `For repeated rendered items, extract a createMemo returning ${articleFor(renderedThingFor(sink))} ${renderedThingFor(sink)} value (for example { x, y, width, height }); keep the SVG attribute reading named fields.`,
+      `Name the memo for what it renders (${pluralRenderedThing(renderedThingFor(sink))}, visibleRows), not a catch-all like layout/view; for fixed sibling scalar math, prefer local aliases instead.`,
       "Do not combine geometry with aria text, labels, control-flow, or styles unless the pack verdict is cohesive.",
       "Resolve unknown or nullable input into a certain value at the nearest true boundary before the geometry math; do not move a legitimate fallback into function arguments just to shorten a path.",
     ],
@@ -3788,6 +4010,7 @@ function candidateEditsFor(sink, group = null) {
     ],
     "domain-normalization": [
       "Resolve defaults, optional reads, and union narrowing at the boundary that truly owns the uncertainty, before JSX reads it.",
+      "When the uncertainty is optional Solid component props, prefer a single mergeProps(defaults, props) boundary over repeated leaf fallbacks.",
       "If a fallback is the boundary, keep it close and explicit; do not contort the code so the fallback becomes a helper argument.",
       "Inline representation-only wrappers that have no semantic role.",
     ],
@@ -3809,6 +4032,25 @@ function candidateEditsFor(sink, group = null) {
   }
   edits.push(reminder);
   return edits;
+}
+
+function hasSolidPropDefaultBoundary(sink) {
+  return (sink.defenses ?? []).some((defense) =>
+    /solid prop default/i.test(defense.origin ?? ""),
+  );
+}
+
+function solidPropDefaultNames(sink) {
+  return unique(
+    (sink.defenses ?? [])
+      .filter((defense) => /solid prop default/i.test(defense.origin ?? ""))
+      .map((defense) => propNameFromExpression(defense.guardedExpression)),
+  ).slice(0, 4);
+}
+
+function propNameFromExpression(expression) {
+  const match = /\.([A-Za-z_$][A-Za-z0-9_$]*)$/.exec(String(expression ?? ""));
+  return match?.[1] ?? null;
 }
 
 function providerContextEdits(sink) {
@@ -3894,12 +4136,25 @@ function hasImportedFeatureBoundary(sink) {
 }
 
 function localFirstCutForCluster(cluster) {
-  if (
-    cluster.evidence.some((reason) => reason === "no provider/context signals")
-  ) {
-    return "extract render item data";
+  const dominantShape = modalValue(cluster.shapes ?? []);
+  switch (dominantShape) {
+    case "local-scalar-geometry":
+      return "name repeated local scalars";
+    case "svg-shell":
+      return "keep shell sizing inline";
+    case "collection-render-model":
+      return "extract rendered items";
+    case "geometry-chain":
+      return "extract render item geometry";
+    case "control-flow-gate":
+      return "name the predicate";
+    case "presentation-pack":
+      return "split the class/style object";
+    case "domain-normalization":
+      return "normalize at the boundary";
+    default:
+      return "local boundary cleanup";
   }
-  return "local boundary cleanup";
 }
 
 function providerEvidenceSummary(evidence) {
@@ -4018,9 +4273,14 @@ function packEvidenceFor(entry, families) {
     ...sinks.map((sink) => sink.metrics.reachableSinks),
   );
   const propRoots = roots.filter((root) => /^props\./.test(root));
+  const geometryOnly = families.every((family) =>
+    ["geometry", "svg-shell", "other"].includes(family),
+  );
   const sourceFamilies = new Set(roots.map(sourceFamilyKey));
   const mirrorLike =
-    roots.length >= 3 &&
+    roots.length >= 2 &&
+    geometryOnly &&
+    !helperBoundary &&
     propRoots.length / roots.length >= 0.75 &&
     helperHops <= sinks.length &&
     defensiveOps === 0 &&
@@ -4209,6 +4469,7 @@ function extractionBoundariesFor(sink) {
   }
   if (
     classifyPathShape(sink).includes("geometry-chain") &&
+    !classifyPathShape(sink).includes("local-scalar-geometry") &&
     lastGeometry >= 0 &&
     lastGeometry < steps.length - 1 &&
     lastGeometry !== lastNormalization
@@ -4221,7 +4482,9 @@ function extractionBoundariesFor(sink) {
 
   const family = sinkFamilyOf(sink);
   let modelShape = null;
-  if (family === "geometry" || family === "svg-shell") {
+  if (classifyPathShape(sink).includes("local-scalar-geometry")) {
+    modelShape = null;
+  } else if (family === "geometry" || family === "svg-shell") {
     modelShape = "{ x, y, width, height }";
   } else if (
     !sink.packVerdicts?.includes("normalization-boundary") &&
@@ -4239,6 +4502,7 @@ function extractionProposalFor(sink) {
   // Only worth proposing for paths deep enough that a boundary actually helps.
   if ((sink.metrics?.maximumPathDepth ?? 0) < 4) return null;
   if (sinkFamilyOf(sink) === "svg-shell") return null;
+  if (classifyPathShape(sink).includes("local-scalar-geometry")) return null;
   const inputs = fanOutRootsFor(sink).slice(0, 5);
   if (inputs.length === 0) return null;
 
@@ -4914,6 +5178,19 @@ function uniqueDefenseEntries(sinks) {
   );
 }
 
+function uniqueActionableDefenseEntries(sinks) {
+  return unique(
+    sinks.flatMap((sink) =>
+      (sink.defenses ?? [])
+        .filter((defense) => !isCertaintyBoundaryDefense(defense))
+        .map(
+          (defense) =>
+            `${defense.file}:${defense.line}:${defense.expression}:${defense.verdict}`,
+        ),
+    ),
+  );
+}
+
 function removedFindingFamilies(baseline, current) {
   return (baseline.families ?? []).filter(
     (family) => !(current.families ?? []).includes(family),
@@ -4951,6 +5228,9 @@ function formatDeltaLabel(before, after, lowerIsBetter) {
 function stopRecommendationFor(report) {
   const topActionable = report.rankings.all.find((sink) => !sink.background);
   const defensiveEntries = uniqueDefenseEntries(report.sinks).length;
+  const actionableDefensiveEntries = uniqueActionableDefenseEntries(
+    report.sinks,
+  ).length;
   const highRiskPacks = report.packGroups.filter((group) =>
     ["overpacked-bag", "relay-bag", "mirror-object"].includes(group.verdict),
   );
@@ -4963,7 +5243,7 @@ function stopRecommendationFor(report) {
     backgroundCount >= Math.max(1, report.rankings.all.length * 0.2);
 
   if (
-    defensiveEntries === 0 &&
+    actionableDefensiveEntries === 0 &&
     highRiskPacks.length === 0 &&
     lowTop &&
     mostlyBackground
@@ -4971,13 +5251,15 @@ function stopRecommendationFor(report) {
     return {
       recommend: true,
       reason:
-        "No defensive entries remain; highest actionable score is low; remaining paths are mostly scalar helpers or cohesive shared-boundary reads.",
+        defensiveEntries === 0
+          ? "No defensive entries remain; highest actionable score is low; remaining paths are mostly scalar helpers or cohesive shared-boundary reads."
+          : "No actionable defensive entries remain; remaining fallbacks are certainty/API-choice boundaries; highest actionable score is low.",
     };
   }
-  if (defensiveEntries > 0) {
+  if (actionableDefensiveEntries > 0) {
     return {
       recommend: false,
-      reason: `${defensiveEntries} defensive entr${defensiveEntries === 1 ? "y remains" : "ies remain"}.`,
+      reason: `${actionableDefensiveEntries} actionable defensive entr${actionableDefensiveEntries === 1 ? "y remains" : "ies remain"}.`,
     };
   }
   if (highRiskPacks.length > 0) {
@@ -5618,7 +5900,7 @@ const VIEW_BLURBS = {
     "paths. _Verdict_ is whether the guard can ever fire given the TypeScript " +
     "types: _impossible_ means the guarded value is never nullish, so the defense " +
     "is dead code; _possible_ means it can; _unknown_ means the type is too loose " +
-    "to tell.",
+    "to tell. _Action_ separates stale guards from fallbacks that establish certainty.",
   "prop-relay":
     "Render sinks that mostly relay data across component boundaries. _Component " +
     "boundaries_ counts prop hand-offs, _Wrappers_ representation-only repacks, and " +
@@ -5874,7 +6156,11 @@ function burdenScore(metrics) {
     0.15 * normalized(metrics.maximumPathDepth) +
       0.13 * normalized(metrics.helperHops) +
       0.16 * normalized(metrics.representationChurn) +
-      0.15 * normalized(metrics.defensiveOperationCount) +
+      0.15 *
+        normalized(
+          metrics.actionableDefensiveOperationCount ??
+            metrics.defensiveOperationCount,
+        ) +
       0.15 * normalized(metrics.impossibleDefenseCount) +
       0.1 * normalized(metrics.controlDependencyCount) +
       0.08 * normalized(metrics.repeatedNormalization) +
@@ -5954,7 +6240,6 @@ function healthySharedBoundaryFor(sink) {
   const metrics = sink.metrics ?? {};
   if ((metrics.impossibleDefenseCount ?? 0) > 0) return null;
   if ((metrics.defensiveOperationCount ?? 0) > 0) return null;
-  if ((metrics.packRisk ?? 0) > 0) return null;
   if ((metrics.unknownEdgeCount ?? 0) > 0) return null;
   const steps = sink.representativeSteps ?? [];
   const helper = steps.find(
