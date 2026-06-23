@@ -27,35 +27,36 @@ pnpm test
 
 Supported views:
 
-| View | Purpose |
-| --- | --- |
-| `work-packets` | Ranked implementation items with scope, reason, representative path, candidate edits, and risk queue. |
-| `findings` | Compact finding report with severity, source, sink, metrics, and explanation. |
-| `dossier` | Markdown summary or bounded JSON graph payload for downstream inspection. |
-| `fan-out` | Sources that reach many sinks. |
-| `fan-in` | Sinks with many upstream roots or predicates. |
-| `path-gallery` | Representative source-to-sink paths. |
-| `path-census` | Aggregate source/sink/path-depth counts. |
-| `path-families` | Grouped signatures such as `object-pack -> call -> fallback -> jsx-sink`. |
-| `transformation-ledger` | Step-by-step path transformations for the top finding. |
-| `defensive-ledger` | Defensive operations and their nullish type verdict. |
-| `prop-relay` | Relay-like paths and wrapper counts. |
-| `repair-map` | Ranked quick-win, central-leverage, and investigation queues. |
+| View                    | Purpose                                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------------------- |
+| `work-packets`          | Ranked implementation items with scope, reason, representative path, candidate edits, and risk queue. |
+| `findings`              | Compact finding report with severity, source, sink, metrics, and explanation.                         |
+| `dossier`               | Markdown summary or bounded JSON graph payload for downstream inspection.                             |
+| `fan-out`               | Sources that reach many sinks.                                                                        |
+| `fan-in`                | Sinks with many upstream roots or predicates.                                                         |
+| `path-gallery`          | Representative source-to-sink paths.                                                                  |
+| `path-census`           | Aggregate source/sink/path-depth counts.                                                              |
+| `path-families`         | Grouped signatures such as `object-pack -> call -> fallback -> jsx-sink`.                             |
+| `transformation-ledger` | Step-by-step path transformations for the top finding.                                                |
+| `defensive-ledger`      | Defensive operations and their nullish type verdict.                                                  |
+| `prop-relay`            | Relay-like paths and wrapper counts.                                                                  |
+| `repair-map`            | Ranked quick-win, central-leverage, and investigation queues.                                         |
 
 Common options:
 
-| Option | Behavior |
-| --- | --- |
-| `--root <path>` | Project root. Defaults to the current working directory. |
-| `--source <path>` | Source root. Defaults to `./src`, then `./app/src`, then the root. |
-| `--tsconfig <path>` | TypeScript config. Defaults to the nearest tsconfig.json. |
-| `--typescript-from <path>` | Extra location used to resolve the TypeScript package. |
-| `--format json\|markdown` | Output format. |
-| `--scope <text>` | Filters output by file, sink label, or root source substring. |
-| `--max-items <n>` | Bounds displayed findings and JSON graph rows. |
-| `--baseline <path>` | Compares current worst burden score to a prior JSON report. |
-| `--fail-on-regression` | Makes the CLI exit nonzero only when the baseline regresses. |
-| `--include-tests` | Includes `.test.*` and `.spec.*` files. |
+| Option                     | Behavior                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `--root <path>`            | Project root. Defaults to the current working directory.                                                |
+| `--source <path>`          | Source root. Defaults to `./src`, then `./app/src`, then the root.                                      |
+| `--tsconfig <path>`        | TypeScript config. Defaults to the nearest tsconfig.json.                                               |
+| `--typescript-from <path>` | Extra location used to resolve the TypeScript package.                                                  |
+| `--format json\|markdown`  | Output format.                                                                                          |
+| `--scope <text>`           | Filters output by file, sink label, or root source substring.                                           |
+| `--max-items <n>`          | Bounds displayed findings and JSON graph rows.                                                          |
+| `--baseline <path>`        | Compares current worst burden score to a prior JSON report.                                             |
+| `--compare <dir>`          | Compares this run to a prior `--view all` report directory and renders a markdown before/after summary. |
+| `--fail-on-regression`     | Makes the CLI exit nonzero only when the baseline regresses.                                            |
+| `--include-tests`          | Includes `.test.*` and `.spec.*` files.                                                                 |
 
 ## High-Level Pipeline
 
@@ -79,7 +80,7 @@ The implementation deliberately uses the TypeScript compiler API directly rather
 
 ## Source Loading
 
-`parseArgs` normalizes every path early. Relative `--source` and `--tsconfig` paths are resolved against `--root`; `--out` and `--baseline` are resolved against the current working directory because those are operator outputs, not source inputs.
+`parseArgs` normalizes every path early. Relative `--source` and `--tsconfig` paths are resolved against `--root`; `--out`, `--baseline`, and `--compare` are resolved against the current working directory because those are operator outputs, not source inputs.
 
 `loadTypescript` tries to resolve the `typescript` package from several target-local locations:
 
@@ -137,21 +138,21 @@ The graph is intentionally append-only during a run. It does not deduplicate equ
 
 Important node/edge kinds:
 
-| Kind | Meaning |
-| --- | --- |
-| `source` | Known source identifier such as a prop, parameter, or local value. |
-| `unknown-source` | Identifier or operation source the local file context cannot resolve. |
-| `literal` | Literal or untraced terminal expression. |
-| `alias` | Local variable indirection. |
-| `property-read` | `.property` or element access. |
-| `optional-read` | Optional property access with a defensive nullish check. |
-| `call` | Function or method call. Local helpers are partially inlined. |
-| `object-pack` | Object literal or spread aggregation. |
-| `fallback` | Nullish coalescing or logical fallback. |
-| `conditional` | Conditional expressions and boolean/control expressions. |
-| `template` | Template expression composition. |
+| Kind             | Meaning                                                                    |
+| ---------------- | -------------------------------------------------------------------------- |
+| `source`         | Known source identifier such as a prop, parameter, or local value.         |
+| `unknown-source` | Identifier or operation source the local file context cannot resolve.      |
+| `literal`        | Literal or untraced terminal expression.                                   |
+| `alias`          | Local variable indirection.                                                |
+| `property-read`  | `.property` or element access.                                             |
+| `optional-read`  | Optional property access with a defensive nullish check.                   |
+| `call`           | Function or method call. Local helpers are partially inlined.              |
+| `object-pack`    | Object literal or spread aggregation.                                      |
+| `fallback`       | Nullish coalescing or logical fallback.                                    |
+| `conditional`    | Conditional expressions and boolean/control expressions.                   |
+| `template`       | Template expression composition.                                           |
 | `solid-accessor` | Solid `createMemo`, `createSignal`, or `createResource` accessor boundary. |
-| `jsx-sink` | Final JSX rendered value, attribute, style, or render-control sink. |
+| `jsx-sink`       | Final JSX rendered value, attribute, style, or render-control sink.        |
 
 ## File Context
 
@@ -185,12 +186,7 @@ The core algorithm is `traceExpression`. It walks upstream from a sink expressio
 
 ```ts
 {
-  lastNodeId,
-  roots,
-  edges,
-  defenses,
-  longestPath,
-  unknown
+  (lastNodeId, roots, edges, defenses, longestPath, unknown);
 }
 ```
 
@@ -288,21 +284,21 @@ This is why the tool can flag cases such as a `??` fallback on a plain `string` 
 
 `metricsFor` converts the trace into numeric features:
 
-| Metric | Source |
-| --- | --- |
-| `sliceSize` | Number of trace edges plus representative path length. |
-| `maximumPathDepth` | Length of the longest representative path. |
-| `helperHops` | Count of `call` edges. |
-| `representationChurn` | Count of `object-pack`, `object-spread`, and `alias` edges. |
-| `defensiveOperationCount` | Count of `fallback` and `optional-read` edges. |
-| `impossibleDefenseCount` | Defense entries with verdict `impossible`. |
-| `controlDependencyCount` | Count of `conditional` edges. |
-| `mergeWidth` | Number of distinct root sources feeding this sink (fan-in). |
-| `reachableSinks` | True downstream reach: how many render sinks this sink's most-central source also feeds, computed across the whole report by `groundReachability`. |
-| `repeatedNormalization` | Defensive operation count after the first defense. |
-| `unknownEdgeCount` | Count of unknown trace edges. |
+| Metric                    | Source                                                                                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sliceSize`               | Number of trace edges plus representative path length.                                                                                             |
+| `maximumPathDepth`        | Length of the longest representative path.                                                                                                         |
+| `helperHops`              | Count of `call` edges.                                                                                                                             |
+| `representationChurn`     | Count of `object-pack`, `object-spread`, and `alias` edges.                                                                                        |
+| `defensiveOperationCount` | Count of `fallback` and `optional-read` edges.                                                                                                     |
+| `impossibleDefenseCount`  | Defense entries with verdict `impossible`.                                                                                                         |
+| `controlDependencyCount`  | Count of `conditional` edges.                                                                                                                      |
+| `mergeWidth`              | Number of distinct root sources feeding this sink (fan-in).                                                                                        |
+| `reachableSinks`          | True downstream reach: how many render sinks this sink's most-central source also feeds, computed across the whole report by `groundReachability`. |
+| `repeatedNormalization`   | Defensive operation count after the first defense.                                                                                                 |
+| `unknownEdgeCount`        | Count of unknown trace edges.                                                                                                                      |
 
-`reachableSinks` is the one metric that is not a single-trace property. The trace graph does not deduplicate nodes across sinks, so downstream reach cannot be read off the raw graph per source node. Instead `groundReachability` aggregates by source identity (label): a source's reach is the number of distinct render sinks its *actionable* roots feed (literals, bare parameter objects, and unresolved globals are excluded — see "Source Roots And Fan-Out"). Each sink inherits the reach of its most-central source. This grounds centrality and the queue split in real fan-out rather than a constant.
+`reachableSinks` is the one metric that is not a single-trace property. The trace graph does not deduplicate nodes across sinks, so downstream reach cannot be read off the raw graph per source node. Instead `groundReachability` aggregates by source identity (label): a source's reach is the number of distinct render sinks its _actionable_ roots feed (literals, bare parameter objects, and unresolved globals are excluded — see "Source Roots And Fan-Out"). Each sink inherits the reach of its most-central source. This grounds centrality and the queue split in real fan-out rather than a constant.
 
 The remaining metrics are intentionally approximate; the tool is designed for ranked cleanup guidance, not formal proof.
 
@@ -428,7 +424,7 @@ Two presentation conventions keep reports readable:
 - **Code-like payloads** (sink expressions, source roots, the representative path, ledger/defensive expressions) are rendered as fenced code blocks or backtick code spans. `formatExpression` first collapses internal whitespace/newlines to a single line and truncates on a token boundary with a trailing `…`, so a multi-line object literal never shatters the layout and nothing is cut mid-identifier. `code()` picks a backtick-run delimiter longer than any run inside the value, so expressions that embed template literals still render as a single code span.
 - **Metric/value payloads** render as small two-column tables (`metricTable`) or bulleted lists rather than fenced text, because aligned numbers read better as a table than as monospaced prose.
 
-`formatMarkdownTable` lays out every table prettier-style: each column is padded to its widest cell and the separator dashes fill the same width, computed on *visible* width so an escaped pipe (`\|`, which GFM renders as one character) still aligns. `formatTableCell` escapes newlines and pipe characters so tables stay valid when cells contain multi-line code or union types.
+`formatMarkdownTable` lays out every table prettier-style: each column is padded to its widest cell and the separator dashes fill the same width, computed on _visible_ width so an escaped pipe (`\|`, which GFM renders as one character) still aligns. `formatTableCell` escapes newlines and pipe characters so tables stay valid when cells contain multi-line code or union types.
 
 The `fan-out` view reports `Source | Sinks | Files | Example sink | Max depth`: an example `file:line` and file count let a reader open the right file without re-grepping, replacing the former opaque `Operations` slice-size sum.
 
@@ -441,6 +437,19 @@ Baseline comparison is intentionally simple:
 3. Mark `regressed: true` when current worst is larger.
 
 This supports a lightweight guardrail for cleanup campaigns. It does not compare individual findings by stable identity yet.
+
+`--compare <dir>` is the markdown-first cleanup-loop comparison. It reads a prior `--view all` directory, analyzes the current target, and reports worst score, hotspot count, defensive entries, wrapper count, remaining finding families, and the current stop recommendation. Missing optional report files degrade to `n/a` with a note rather than failing the run.
+
+## Report Guidance Gates
+
+Several work-packet decisions are intentionally evidence-gated:
+
+- Provider/Context advice requires provider/context API evidence, a context hook root, an imported feature boundary, or broad same-feature relay evidence. Depth, reachable sink count, or wrapper count alone are not enough.
+- Grouped render recommendations are report-layer rollups over same-file, same-component SVG/collection sinks that share a rendered thing. They keep raw findings visible while showing the cohesive fix once.
+- Proposed helper names use render context from JSX tag, attribute, and enclosing component names. Generic analyzer identifiers such as `geometryModel`, `renderValue`, `selectedValue`, and `ItemModel` are banned from generated code names.
+- Extraction shape checks distinguish cohesive repeated items from mirror singleton risks before recommending object extraction.
+- Low-value scalar helpers and healthy shared layout boundaries are burden-penalized and rendered as `Background Findings` instead of actionable work packets.
+- `Stop Recommendation` appears in `work-packets`, `repair-map`, and compare output when no defensive entries remain, the highest actionable score is low, high-risk pack verdicts are absent, and remaining findings are mostly background scalar/shared-boundary paths.
 
 ## Test Coverage
 

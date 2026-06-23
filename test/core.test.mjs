@@ -23,8 +23,12 @@ const appRoot = resolve(__dirname, "..");
 
 describe("render path data-flow analyzer", () => {
   it("validates CLI formats and report views", () => {
-    expect(() => parseArgs(["--format", "xml"])).toThrow("--format must be json or markdown");
-    expect(() => parseArgs(["--view", "unknown"])).toThrow("--view must be one of");
+    expect(() => parseArgs(["--format", "xml"])).toThrow(
+      "--format must be json or markdown",
+    );
+    expect(() => parseArgs(["--view", "unknown"])).toThrow(
+      "--view must be one of",
+    );
 
     const args = parseArgs(["--view", "findings", "--format", "json"]);
     expect(args.view).toBe("findings");
@@ -47,9 +51,17 @@ describe("render path data-flow analyzer", () => {
 
     const report = await analyzeProject(project.args);
     expect(report.sinks.map((sink) => sink.category)).toEqual(
-      expect.arrayContaining(["style", "attribute", "render-control", "rendered-value", "event-handler"]),
+      expect.arrayContaining([
+        "style",
+        "attribute",
+        "render-control",
+        "rendered-value",
+        "event-handler",
+      ]),
     );
-    expect(report.rankings.all.some((sink) => sink.category === "event-handler")).toBe(false);
+    expect(
+      report.rankings.all.some((sink) => sink.category === "event-handler"),
+    ).toBe(false);
   });
 
   it("builds shared graph nodes, traces local helpers, and marks unknown imported helpers", async () => {
@@ -66,11 +78,14 @@ describe("render path data-flow analyzer", () => {
           return <h2>{title ?? "Unknown"} {externalTitle(props.user)}</h2>;
         }
       `,
-      "src/external.ts": "export function externalTitle(value: unknown) { return String(value); }",
+      "src/external.ts":
+        "export function externalTitle(value: unknown) { return String(value); }",
     });
 
     const report = await analyzeProject(project.args);
-    const titleSink = report.rankings.all.find((sink) => sink.expression.includes("title ??"));
+    const titleSink = report.rankings.all.find((sink) =>
+      sink.expression.includes("title ??"),
+    );
 
     expect(titleSink).toBeTruthy();
     expect(titleSink.metrics.helperHops).toBeGreaterThan(0);
@@ -93,8 +108,12 @@ describe("render path data-flow analyzer", () => {
     });
 
     const report = await analyzeProject(project.args);
-    const memoSink = report.rankings.all.find((sink) => sink.representativePath.join(" ").includes("memo"));
-    const resourceSink = report.sinks.find((sink) => sink.representativePath.join(" ").includes("resource"));
+    const memoSink = report.rankings.all.find((sink) =>
+      sink.representativePath.join(" ").includes("memo"),
+    );
+    const resourceSink = report.sinks.find((sink) =>
+      sink.representativePath.join(" ").includes("resource"),
+    );
 
     expect(memoSink).toBeTruthy();
     expect(resourceSink).toBeTruthy();
@@ -119,10 +138,28 @@ describe("render path data-flow analyzer", () => {
     });
     const report = await analyzeProject(project.args);
 
-    const findings = renderReport(report, { ...project.args, view: "findings", format: "markdown" });
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
-    const ledger = renderReport(report, { ...project.args, view: "transformation-ledger", format: "markdown" });
-    const dossier = JSON.parse(renderReport(report, { ...project.args, view: "dossier", format: "json" }));
+    const findings = renderReport(report, {
+      ...project.args,
+      view: "findings",
+      format: "markdown",
+    });
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
+    const ledger = renderReport(report, {
+      ...project.args,
+      view: "transformation-ledger",
+      format: "markdown",
+    });
+    const dossier = JSON.parse(
+      renderReport(report, {
+        ...project.args,
+        view: "dossier",
+        format: "json",
+      }),
+    );
 
     expect(findings).toContain("type-impossible defensive render path");
     expect(packets).toContain("WORK ITEM DF-001");
@@ -156,7 +193,11 @@ describe("render path data-flow analyzer", () => {
     // Code/path blocks are fenced; the transformation ledger renders steps as a
     // table with code-tick cells instead, so it carries no fences.
     for (const view of ["findings", "work-packets", "path-gallery"]) {
-      const output = renderReport(report, { ...project.args, view, format: "markdown" });
+      const output = renderReport(report, {
+        ...project.args,
+        view,
+        format: "markdown",
+      });
       // Every such report opens at least one fenced block.
       expect(output).toContain("```");
       // A balanced number of fences (no dangling open fence).
@@ -165,9 +206,20 @@ describe("render path data-flow analyzer", () => {
 
     // No rendered path step carries a raw newline mid-expression: the
     // object-literal arg must be collapsed onto a single line in every view.
-    for (const view of ["findings", "work-packets", "path-gallery", "transformation-ledger"]) {
-      const output = renderReport(report, { ...project.args, view, format: "markdown" });
-      const stepLines = output.split("\n").filter((line) => /->|readings:/.test(line));
+    for (const view of [
+      "findings",
+      "work-packets",
+      "path-gallery",
+      "transformation-ledger",
+    ]) {
+      const output = renderReport(report, {
+        ...project.args,
+        view,
+        format: "markdown",
+      });
+      const stepLines = output
+        .split("\n")
+        .filter((line) => /->|readings:/.test(line));
       for (const line of stepLines) {
         expect(line).not.toMatch(/readings:\s*$/);
       }
@@ -175,7 +227,8 @@ describe("render path data-flow analyzer", () => {
   });
 
   it("truncates long expressions on a token boundary with an ellipsis", async () => {
-    const longName = "averyveryveryverylongidentifiernamethatwillexceedthelimit";
+    const longName =
+      "averyveryveryverylongidentifiernamethatwillexceedthelimit";
     const project = await createFixtureProject({
       "src/Long.tsx": `
         export function Long(props: { ${longName}: string; other: string }) {
@@ -184,7 +237,11 @@ describe("render path data-flow analyzer", () => {
       `,
     });
     const report = await analyzeProject(project.args);
-    const output = renderReport(report, { ...project.args, view: "findings", format: "markdown" });
+    const output = renderReport(report, {
+      ...project.args,
+      view: "findings",
+      format: "markdown",
+    });
     const truncated = output.split("\n").filter((line) => line.includes("…"));
     expect(truncated.length).toBeGreaterThan(0);
     // A truncated line must not end mid-identifier (the char before `…` is a
@@ -208,7 +265,11 @@ describe("render path data-flow analyzer", () => {
       `,
     });
     const report = await analyzeProject(project.args);
-    const output = renderReport(report, { ...project.args, view: "fan-out", format: "markdown" });
+    const output = renderReport(report, {
+      ...project.args,
+      view: "fan-out",
+      format: "markdown",
+    });
 
     expect(output).toContain("Example sink");
     expect(output).toContain("Files");
@@ -226,7 +287,11 @@ describe("render path data-flow analyzer", () => {
       `,
     });
     const report = await analyzeProject(project.args);
-    const output = renderReport(report, { ...project.args, view: "findings", format: "markdown" });
+    const output = renderReport(report, {
+      ...project.args,
+      view: "findings",
+      format: "markdown",
+    });
     const sourceBlock = output.split("**Source**")[1].split("```")[1];
 
     expect(sourceBlock).toContain("props.meta");
@@ -256,10 +321,19 @@ describe("render path data-flow analyzer", () => {
     // The third column carries real operation kinds, not a constant "data-flow".
     const kinds = output
       .split("\n")
-      .filter((line) => line.startsWith("| ") && !line.includes("---") && !line.includes("Operation"))
+      .filter(
+        (line) =>
+          line.startsWith("| ") &&
+          !line.includes("---") &&
+          !line.includes("Operation"),
+      )
       .map((line) => line.split("|").at(-2).trim());
     expect(kinds).not.toContain("data-flow");
-    expect(kinds.some((kind) => ["fallback", "call", "object-pack", "property-read"].includes(kind))).toBe(true);
+    expect(
+      kinds.some((kind) =>
+        ["fallback", "call", "object-pack", "property-read"].includes(kind),
+      ),
+    ).toBe(true);
   });
 
   it("aligns markdown table columns prettier-style", async () => {
@@ -271,8 +345,14 @@ describe("render path data-flow analyzer", () => {
       `,
     });
     const report = await analyzeProject(project.args);
-    const output = renderReport(report, { ...project.args, view: "fan-out", format: "markdown" });
-    const tableLines = output.split("\n").filter((line) => line.startsWith("|"));
+    const output = renderReport(report, {
+      ...project.args,
+      view: "fan-out",
+      format: "markdown",
+    });
+    const tableLines = output
+      .split("\n")
+      .filter((line) => line.startsWith("|"));
     // Every rendered table row has the same character width (columns padded).
     const widths = new Set(tableLines.map((line) => line.length));
     expect(widths.size).toBe(1);
@@ -303,7 +383,11 @@ describe("render path data-flow analyzer", () => {
       expect(output).toContain("--max-items 5");
     }
     // The footer is markdown-only; JSON payloads stay clean.
-    const json = renderReport(report, { ...project.args, view: "findings", format: "json" });
+    const json = renderReport(report, {
+      ...project.args,
+      view: "findings",
+      format: "json",
+    });
     expect(json).not.toContain("Regenerate this report");
   });
 
@@ -324,7 +408,9 @@ describe("render path data-flow analyzer", () => {
       out: resolve(project.root, "reports/work-packets.md"),
       format: "markdown",
     });
-    expect(single).toMatch(/--view work-packets\b.*--out \S*reports\/work-packets\.md/);
+    expect(single).toMatch(
+      /--view work-packets\b.*--out \S*reports\/work-packets\.md/,
+    );
 
     // --view all written to a directory → each file regenerates the whole set
     // into that directory (so it overwrites itself), not just one view.
@@ -339,7 +425,11 @@ describe("render path data-flow analyzer", () => {
     expect(wp.text).not.toContain("--view work-packets --out");
 
     // No --out (stdout) → no --out flag, so the command reproduces stdout.
-    const stdoutRun = renderReport(report, { ...project.args, view: "fan-out", format: "markdown" });
+    const stdoutRun = renderReport(report, {
+      ...project.args,
+      view: "fan-out",
+      format: "markdown",
+    });
     expect(stdoutRun).not.toContain("--out");
   });
 
@@ -361,10 +451,20 @@ describe("render path data-flow analyzer", () => {
 
     expect(reports.map((entry) => entry.view)).toEqual(REPORT_VIEWS);
     expect(reports.every((entry) => entry.filename.endsWith(".md"))).toBe(true);
-    expect(reports.every((entry) => entry.text.includes("_Regenerate this report:_"))).toBe(true);
+    expect(
+      reports.every((entry) =>
+        entry.text.includes("_Regenerate this report:_"),
+      ),
+    ).toBe(true);
     // JSON format yields .json filenames and parseable payloads.
-    const jsonReports = renderAllReports(report, { ...project.args, view: "all", format: "json" });
-    expect(jsonReports.every((entry) => entry.filename.endsWith(".json"))).toBe(true);
+    const jsonReports = renderAllReports(report, {
+      ...project.args,
+      view: "all",
+      format: "json",
+    });
+    expect(jsonReports.every((entry) => entry.filename.endsWith(".json"))).toBe(
+      true,
+    );
     expect(() => JSON.parse(jsonReports[0].text)).not.toThrow();
   });
 
@@ -441,7 +541,12 @@ describe("render path data-flow analyzer", () => {
 
     const sourceCells = output
       .split("\n")
-      .filter((line) => line.startsWith("| ") && !line.includes("---") && !line.includes("Source"))
+      .filter(
+        (line) =>
+          line.startsWith("| ") &&
+          !line.includes("---") &&
+          !line.includes("Source"),
+      )
       .map((line) => line.split("|")[1].trim());
 
     // Literals (0, "", false) and the bare `props` object must not rank as sources.
@@ -477,7 +582,12 @@ describe("render path data-flow analyzer", () => {
 
     const signatures = output
       .split("\n")
-      .filter((line) => line.startsWith("| ") && !line.includes("---") && !line.includes("Signature"))
+      .filter(
+        (line) =>
+          line.startsWith("| ") &&
+          !line.includes("---") &&
+          !line.includes("Signature"),
+      )
       // Signatures are wrapped in backticks (code) and padded for alignment;
       // strip both to read the bare signature.
       .map((line) => line.split("|")[1].trim().replaceAll("`", ""));
@@ -504,8 +614,12 @@ describe("render path data-flow analyzer", () => {
       `,
     });
     const report = await analyzeProject(project.args);
-    const shared = report.rankings.all.find((sink) => sink.expression === "props.shared");
-    const lonely = report.rankings.all.find((sink) => sink.expression === "props.lonely");
+    const shared = report.rankings.all.find(
+      (sink) => sink.expression === "props.shared",
+    );
+    const lonely = report.rankings.all.find(
+      (sink) => sink.expression === "props.lonely",
+    );
 
     expect(shared.metrics.reachableSinks).toBe(4);
     expect(lonely.metrics.reachableSinks).toBe(1);
@@ -529,12 +643,64 @@ describe("render path data-flow analyzer", () => {
       `,
     });
     const baselinePath = resolve(project.root, "baseline.json");
-    await writeFile(baselinePath, JSON.stringify({ sinks: [{ scores: { burden: 0 } }] }));
+    await writeFile(
+      baselinePath,
+      JSON.stringify({ sinks: [{ scores: { burden: 0 } }] }),
+    );
 
-    const report = await analyzeProject({ ...project.args, baseline: baselinePath });
+    const report = await analyzeProject({
+      ...project.args,
+      baseline: baselinePath,
+    });
 
     expect(report.baseline.regressed).toBe(true);
     expect(report.baseline.currentWorst).toBeGreaterThan(0);
+  });
+
+  it("renders markdown compare output from a prior report directory", async () => {
+    const project = await createFixtureProject({
+      "src/CompareChart.tsx": `
+        export function CompareChart(props: { width: number; height: number }) {
+          const x = props.width / 2;
+          return <svg><line x1={x} x2={props.width} y1={props.height} /></svg>;
+        }
+      `,
+    });
+    const baselineDir = resolve(project.root, "baseline-reports");
+    await mkdir(baselineDir, { recursive: true });
+    await writeFile(
+      resolve(baselineDir, "dossier.md"),
+      "| Nodes | Edges | Sources | Sinks | Path families | Unknown edges |\n| --- | --- | --- | --- | --- | --- |\n| 1 | 1 | 1 | 9 | 1 | 0 |\n\n| Pivot | Sink reach | Burden score |\n| --- | --- | --- |\n| `props.width` | 9 | 0.73 |\n",
+    );
+    await writeFile(
+      resolve(baselineDir, "defensive-ledger.md"),
+      "| Location | Expression | Type | Sinks | Verdict | Origin |\n| --- | --- | --- | --- | --- | --- |\n| src/a.tsx:1 | x ?? 0 | number | 1 | impossible | local |\n",
+    );
+    await writeFile(
+      resolve(baselineDir, "transformation-ledger.md"),
+      "| Metric | Value |\n| --- | --- |\n| representation-only steps | 4 |\n",
+    );
+    await writeFile(
+      resolve(baselineDir, "work-packets.md"),
+      "type-impossible fallback\nProvider/Context audit\n",
+    );
+    await writeFile(
+      resolve(baselineDir, "findings.md"),
+      "## RPF-001 · HIGH · type-impossible defensive render path\n",
+    );
+
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, {
+      ...project.args,
+      compare: baselineDir,
+      view: "work-packets",
+      format: "markdown",
+    });
+
+    expect(output).toContain("# tsx-dataflow Compare");
+    expect(output).toContain("Worst score");
+    expect(output).toContain("Removed finding families");
+    expect(output).toContain("Verdict:");
   });
 });
 
@@ -562,7 +728,9 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
     const report = await analyzeProject(project.args);
     const shapeOf = (match) =>
-      classifyPathShape(report.sinks.find((sink) => sink.expression.includes(match)));
+      classifyPathShape(
+        report.sinks.find((sink) => sink.expression.includes(match)),
+      );
 
     expect(shapeOf("translate")).toContain("geometry-chain");
     expect(shapeOf(".map(")).toContain("collection-render-model");
@@ -581,7 +749,11 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
 
     const edits = packets.split("**Candidate edits**")[1].split("**Risk**")[0];
     expect(edits).toContain("geometry");
@@ -607,7 +779,11 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
     expect(packets).toContain("Provider/Context");
   });
 
@@ -626,18 +802,28 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
     const report = await analyzeProject(project.args);
 
-    const widthSink = report.sinks.find((sink) => sink.label.startsWith("width="));
-    const transformSink = report.sinks.find((sink) => sink.label.startsWith("transform="));
+    const widthSink = report.sinks.find((sink) =>
+      sink.label.startsWith("width="),
+    );
+    const transformSink = report.sinks.find((sink) =>
+      sink.label.startsWith("transform="),
+    );
     expect(sinkFamilyOf(widthSink)).toBe("svg-shell");
     expect(sinkFamilyOf(transformSink)).toBe("geometry");
 
-    const overpacked = report.packGroups.find((group) => group.verdict === "overpacked-bag");
+    const overpacked = report.packGroups.find(
+      (group) => group.verdict === "overpacked-bag",
+    );
     expect(overpacked).toBeTruthy();
     expect(overpacked.families).toEqual(
       expect.arrayContaining(["svg-shell", "geometry", "control-flow"]),
     );
 
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
     expect(packets).toContain("Pack verdict");
     expect(packets).toContain("Sink-family split");
     expect(packets).toContain("feeds 3 sink families");
@@ -654,9 +840,13 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const overpacked = report.packGroups.find((group) => group.verdict === "overpacked-bag");
+    const overpacked = report.packGroups.find(
+      (group) => group.verdict === "overpacked-bag",
+    );
     expect(overpacked).toBeUndefined();
-    const renderModel = report.packGroups.find((group) => group.verdict === "cohesive-render-model");
+    const renderModel = report.packGroups.find(
+      (group) => group.verdict === "cohesive-render-model",
+    );
     expect(renderModel).toBeTruthy();
     expect(renderModel.families).toEqual(["text"]);
   });
@@ -685,11 +875,136 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(boundary).toBeTruthy();
     expect(boundary.families.length).toBeGreaterThan(1);
 
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
     expect(packets).toContain("normalization boundary");
     expect(packets).toContain("keep this as a named boundary");
     expect(packets).toContain("proposed: function parsedValue(");
     expect(packets).not.toContain("item models");
+  });
+
+  it("adds extraction shape checks for repeated SVG items and mirror singleton risks", async () => {
+    const project = await createFixtureProject({
+      "src/BarRects.tsx": `
+        declare function For<T>(props: { each: T[]; children: unknown }): unknown;
+        export function BarRects(props: { values: number[]; width: number; height: number }) {
+          const barWidth = props.width / props.values.length;
+          const axisModel = {
+            y: props.height - 10,
+            endX: props.width,
+            titleX: props.width / 2,
+          };
+          return <svg>
+            <For each={props.values}>{(value, index) => <rect x={index() * barWidth} y={props.height - value} width={barWidth} height={value} />}</For>
+            <line y1={axisModel.y} y2={axisModel.y} x2={axisModel.endX} />
+          </svg>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      maxItems: 20,
+      format: "markdown",
+    });
+
+    expect(packets).toContain("Extract bar rectangles");
+    expect(packets).toContain("verdict: cohesive repeated item");
+    expect(packets).toContain("BarRectangle[]");
+    expect(packets).toContain("verdict: mirror singleton risk");
+  });
+
+  it("downranks harmless scalar helpers into background findings", async () => {
+    const project = await createFixtureProject({
+      "src/ScalarChart.tsx": `
+        export function ScalarChart(props: { top: number; height: number; label?: string }) {
+          const axisY = () => props.top + props.height;
+          const tickY = () => axisY() + 4;
+          const titleX = () => props.height / 2;
+          const label = props.label ?? "missing";
+          return <svg><line y1={tickY()} y2={tickY()} /><text x={titleX()}>{label}</text></svg>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const scalar = report.rankings.all.find((sink) =>
+      sink.expression.includes("tickY"),
+    );
+    const fallback = report.rankings.all.find(
+      (sink) => sink.expression === "label",
+    );
+
+    expect(scalar.background?.label).toBe("already readable");
+    expect(scalar.scores.burden).toBeLessThan(scalar.scores.rawBurden);
+    expect(fallback.background).toBeFalsy();
+
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      maxItems: 20,
+      format: "markdown",
+    });
+    expect(packets).toContain("## Background Findings");
+    expect(packets).toContain("already readable");
+  });
+
+  it("treats cohesive shared layout helpers as background boundaries", async () => {
+    const project = await createFixtureProject({
+      "src/layout.ts": `
+        export type ChartLayout = { innerWidth: number; innerHeight: number; innerLeft: number; innerTop: number };
+        export function computeChartLayout(width: number, height: number): ChartLayout {
+          return { innerWidth: width - 20, innerHeight: height - 20, innerLeft: 10, innerTop: 10 };
+        }
+      `,
+      "src/Chart.tsx": `
+        import { computeChartLayout } from "./layout";
+        export function Chart(props: { width: number; height: number }) {
+          const layout = computeChartLayout(props.width, props.height);
+          return <svg width={layout.innerWidth} height={layout.innerHeight} />;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const layoutSink = report.rankings.all.find((sink) =>
+      sink.expression.includes("innerWidth"),
+    );
+
+    expect(layoutSink.background?.label).toBe("healthy shared boundary");
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      maxItems: 20,
+      format: "markdown",
+    });
+    expect(packets).toContain("healthy shared boundary");
+    expect(packets).toContain("computeChartLayout");
+  });
+
+  it("adds a stop recommendation when remaining work is low-value background", async () => {
+    const project = await createFixtureProject({
+      "src/StopChart.tsx": `
+        export function StopChart(props: { top: number; height: number }) {
+          const axisY = () => props.top + props.height;
+          const tickY = () => axisY() + 4;
+          const titleY = () => axisY() + 12;
+          return <svg><line y1={tickY()} y2={tickY()} /><text y={titleY()}>ok</text></svg>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      maxItems: 20,
+      format: "markdown",
+    });
+
+    expect(packets).toContain("## Stop Recommendation");
+    expect(packets).toContain("Stop recommendation: yes");
   });
 
   it("flags broad item view packs that mix render responsibilities", async () => {
@@ -723,7 +1038,11 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     );
     expect(suspicious.evidence.familyCount).toBeGreaterThanOrEqual(3);
 
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
     expect(packets).toContain("Pack verdict");
     expect(packets).toMatch(/overpacked bag|relay bag/);
     expect(packets).toContain("avoid broadening");
@@ -744,12 +1063,17 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
 
     expect(packets).toContain("Prefer a scalar predicate or selected value");
     expect(packets).toContain("avoid creating a broad ready object");
-    expect(packets).toContain("proposed: function selectedValue(");
+    expect(packets).toContain("proposed: function selectedSize(");
     expect(packets).not.toContain("renderModel");
+    expect(packets).not.toContain("selectedValue");
   });
 
   it("renders human-readable confidence, reviewer summary, ownership, and boundaries", async () => {
@@ -768,7 +1092,11 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
 
     expect(packets).toContain("Review summary");
     expect(packets).toContain("confidence reason:");
@@ -779,7 +1107,11 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(packets).toContain("▸ boundary:");
     expect(packets).not.toMatch(/\(step \d+\)/);
 
-    const findings = renderReport(report, { ...project.args, view: "findings", format: "markdown" });
+    const findings = renderReport(report, {
+      ...project.args,
+      view: "findings",
+      format: "markdown",
+    });
     expect(findings).toContain("Reason:");
     expect(findings).toContain("Risk:");
     expect(findings).toContain("Metric contributions");
@@ -797,8 +1129,14 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
-    const path = packets.split("Representative path")[1].split("**Candidate edits**")[0];
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
+    const path = packets
+      .split("Representative path")[1]
+      .split("**Candidate edits**")[0];
 
     // A local helper shows what it returns; a method call shows its full shape;
     // a memo shows its body. Each carries the `— ` gloss separator.
@@ -819,8 +1157,14 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
-    const path = packets.split("Representative path")[1].split("**Candidate edits**")[0];
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
+    const path = packets
+      .split("Representative path")[1]
+      .split("**Candidate edits**")[0];
 
     // The traced sub-expression (here the ternary condition, the deepest branch)
     // is marked in place; the rest of the ternary stays visible around it rather
@@ -846,8 +1190,14 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
-    const path = packets.split("Representative path")[1].split("**Candidate edits**")[0];
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
+    const path = packets
+      .split("Representative path")[1]
+      .split("**Candidate edits**")[0];
 
     // The path crosses into series.ts (F2), with enter/return markers and both
     // files in the legend.
@@ -867,9 +1217,19 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
         }
       `,
     });
-    const report = await analyzeProject({ ...project.args, traceHelpers: false });
-    const packets = renderReport(report, { ...project.args, traceHelpers: false, view: "work-packets", format: "markdown" });
-    const path = packets.split("Representative path")[1].split("**Candidate edits**")[0];
+    const report = await analyzeProject({
+      ...project.args,
+      traceHelpers: false,
+    });
+    const packets = renderReport(report, {
+      ...project.args,
+      traceHelpers: false,
+      view: "work-packets",
+      format: "markdown",
+    });
+    const path = packets
+      .split("Representative path")[1]
+      .split("**Candidate edits**")[0];
     expect(path).not.toContain("F2");
     expect(path).not.toContain("↘ enter");
   });
@@ -879,7 +1239,9 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(args.traceHelpers).toBe(false);
     expect(parseArgs(["--trace-helpers"]).traceHelpers).toBe(true);
     expect(parseArgs(["--max-helper-depth", "2"]).maxHelperDepth).toBe(2);
-    expect(() => parseArgs(["--max-helper-depth", "-1"])).toThrow("non-negative");
+    expect(() => parseArgs(["--max-helper-depth", "-1"])).toThrow(
+      "non-negative",
+    );
   });
 
   it("classifies functions in the boundary report (junction, pass-through)", async () => {
@@ -912,17 +1274,29 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(group.callerCount).toBe(2);
     expect(ident.verdict).toContain("pass-through");
 
-    const boundary = renderReport(report, { ...project.args, view: "boundary-report", format: "markdown" });
+    const boundary = renderReport(report, {
+      ...project.args,
+      view: "boundary-report",
+      format: "markdown",
+    });
     expect(boundary).toContain("Boundary Report");
     expect(boundary).toContain("groupBarSeries");
     expect(boundary).toContain("confluence / junction");
 
-    const junctions = renderReport(report, { ...project.args, view: "junctions", format: "markdown" });
+    const junctions = renderReport(report, {
+      ...project.args,
+      view: "junctions",
+      format: "markdown",
+    });
     expect(junctions).toContain("tributaries");
     expect(junctions).toContain("distributaries");
     expect(junctions).toMatch(/3 in × 2 out/);
 
-    const inline = renderReport(report, { ...project.args, view: "inline-preview", format: "markdown" });
+    const inline = renderReport(report, {
+      ...project.args,
+      view: "inline-preview",
+      format: "markdown",
+    });
     expect(inline).toContain("KEEP & FORMALIZE");
     expect(inline).toContain("INLINE");
   });
@@ -943,7 +1317,11 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
     expect(packets).toContain("Extraction proposal");
     expect(packets).toMatch(/proposed: function \w+\(/);
     // Inputs are named from the source lineages crossing the cut.
@@ -959,8 +1337,14 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
-    const path = packets.split("Representative path")[1].split("**Candidate edits**")[0];
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
+    const path = packets
+      .split("Representative path")[1]
+      .split("**Candidate edits**")[0];
 
     // Every step carries an F#:line backlink, F1 is the sink's own file, and a
     // Files legend maps the id back to a grep-able path.
@@ -981,7 +1365,11 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const output = renderReport(report, { ...project.args, view: "defensive-ledger", format: "markdown" });
+    const output = renderReport(report, {
+      ...project.args,
+      view: "defensive-ledger",
+      format: "markdown",
+    });
 
     expect(output).toContain("Origin");
     expect(output).toContain("stale (type-impossible)");
@@ -1008,11 +1396,17 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const output = renderReport(report, { ...project.args, view: "defensive-ledger", format: "markdown" });
+    const output = renderReport(report, {
+      ...project.args,
+      view: "defensive-ledger",
+      format: "markdown",
+    });
 
     expect(output).toContain("parser-boundary fallback");
     expect(output).not.toContain("stale (type-impossible)");
-    expect(report.sinks.every((sink) => sink.metrics.impossibleDefenseCount === 0)).toBe(true);
+    expect(
+      report.sinks.every((sink) => sink.metrics.impossibleDefenseCount === 0),
+    ).toBe(true);
   });
 
   it("dedupes a defense across reachable sinks into one row with a Sinks count", async () => {
@@ -1025,7 +1419,11 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const output = renderReport(report, { ...project.args, view: "defensive-ledger", format: "markdown" });
+    const output = renderReport(report, {
+      ...project.args,
+      view: "defensive-ledger",
+      format: "markdown",
+    });
 
     expect(output).toContain("Sinks");
     // The single `?? "default"` fallback reaches multiple JSX sinks but appears once.
@@ -1054,16 +1452,31 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       JSON.stringify({
         sinks: [
           { ...top, scores: { burden: 0.99 } },
-          { file: "src/Gone.tsx", signature: "deep call -> jsx-sink", label: "gone={...}", metrics: { maximumPathDepth: 9 }, scores: { burden: 0.5 } },
+          {
+            file: "src/Gone.tsx",
+            signature: "deep call -> jsx-sink",
+            label: "gone={...}",
+            metrics: { maximumPathDepth: 9 },
+            scores: { burden: 0.5 },
+          },
         ],
       }),
     );
 
-    const report = await analyzeProject({ ...project.args, baseline: baselinePath });
+    const report = await analyzeProject({
+      ...project.args,
+      baseline: baselinePath,
+    });
     expect(report.baseline.improved.length).toBeGreaterThan(0);
-    expect(report.baseline.removed.some((item) => item.label === "gone={...}")).toBe(true);
+    expect(
+      report.baseline.removed.some((item) => item.label === "gone={...}"),
+    ).toBe(true);
 
-    const output = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    const output = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      format: "markdown",
+    });
     expect(output).toContain("Removed:");
     expect(output).toContain("Improved:");
   });
@@ -1096,13 +1509,21 @@ describe("general CLI defaults and project discovery", () => {
     const source = resolve(root, "src");
     await mkdir(source, { recursive: true });
     await writeFile(resolve(root, "tsconfig.json"), "{}");
-    expect(findDefaultTsconfig(root, source)).toBe(resolve(root, "tsconfig.json"));
+    expect(findDefaultTsconfig(root, source)).toBe(
+      resolve(root, "tsconfig.json"),
+    );
   });
 
   it("emits help text naming the CLI and listing every view", () => {
     const text = helpText();
     expect(text).toContain("tsx-dataflow");
-    for (const view of ["work-packets", "prop-relay", "context-relay", "fan-out", "dossier"]) {
+    for (const view of [
+      "work-packets",
+      "prop-relay",
+      "context-relay",
+      "fan-out",
+      "dossier",
+    ]) {
       expect(text).toContain(view);
     }
   });
@@ -1135,7 +1556,14 @@ describe("general CLI defaults and project discovery", () => {
     );
 
     // Only --root is provided; --source and --tsconfig must auto-discover.
-    const args = parseArgs(["--root", root, "--typescript-from", appRoot, "--format", "json"]);
+    const args = parseArgs([
+      "--root",
+      root,
+      "--typescript-from",
+      appRoot,
+      "--format",
+      "json",
+    ]);
     expect(args.source).toBe(resolve(root, "src"));
     expect(args.tsconfig).toBe(resolve(root, "tsconfig.json"));
 
@@ -1184,7 +1612,9 @@ describe("work-packet variety & coverage", () => {
     expect(parseArgs(["--view", "coverage"]).view).toBe("hotspots");
     expect(parseArgs(["--by", "feature"]).by).toBe("feature");
 
-    expect(() => parseArgs(["--sort", "nope"])).toThrow("--sort must be one of");
+    expect(() => parseArgs(["--sort", "nope"])).toThrow(
+      "--sort must be one of",
+    );
     expect(() => parseArgs(["--diversity", "2"])).toThrow(
       "--diversity must be between 0 and 1",
     );
@@ -1252,9 +1682,7 @@ describe("work-packet variety & coverage", () => {
     const chartHeadings = output
       .split("\n")
       .filter((line) => line.startsWith("## WORK ITEM")).length;
-    expect(chartHeadings).toBeLessThanOrEqual(
-      report.rankings.all.length,
-    );
+    expect(chartHeadings).toBeLessThanOrEqual(report.rankings.all.length);
   });
 
   it("coverage sort reaches more distinct files than pure burden", async () => {
@@ -1282,7 +1710,9 @@ describe("work-packet variety & coverage", () => {
     const project = await spreadProject();
     const report = await analyzeProject(project.args);
     expect(report.workUnits.length).toBeGreaterThan(0);
-    expect(report.workUnits.length).toBeLessThanOrEqual(report.rankings.all.length);
+    expect(report.workUnits.length).toBeLessThanOrEqual(
+      report.rankings.all.length,
+    );
     const output = renderReport(report, {
       ...project.args,
       view: "work-packets",
@@ -1358,24 +1788,39 @@ describe("--file path filtering", () => {
       file: ["src/widgets/Card.tsx"],
     });
     expect(report.sinks.length).toBeGreaterThan(0);
-    expect(report.sinks.every((sink) => sink.file === "src/widgets/Card.tsx")).toBe(true);
+    expect(
+      report.sinks.every((sink) => sink.file === "src/widgets/Card.tsx"),
+    ).toBe(true);
     expect(report.meta.file).toEqual(["src/widgets/Card.tsx"]);
   });
 
   it("matches a bare filename at a path-segment boundary", async () => {
     const project = await twoFileProject();
-    const report = await analyzeProject({ ...project.args, file: ["Panel.tsx"] });
+    const report = await analyzeProject({
+      ...project.args,
+      file: ["Panel.tsx"],
+    });
     expect(report.sinks.length).toBeGreaterThan(0);
-    expect(report.sinks.every((sink) => sink.file === "src/panels/Panel.tsx")).toBe(true);
+    expect(
+      report.sinks.every((sink) => sink.file === "src/panels/Panel.tsx"),
+    ).toBe(true);
   });
 
   it("supports glob patterns and directory prefixes", async () => {
     const project = await twoFileProject();
-    const glob = await analyzeProject({ ...project.args, file: ["src/**/*.tsx"] });
+    const glob = await analyzeProject({
+      ...project.args,
+      file: ["src/**/*.tsx"],
+    });
     expect(new Set(glob.sinks.map((sink) => sink.file)).size).toBe(2);
 
-    const dir = await analyzeProject({ ...project.args, file: ["src/widgets"] });
-    expect(dir.sinks.every((sink) => sink.file === "src/widgets/Card.tsx")).toBe(true);
+    const dir = await analyzeProject({
+      ...project.args,
+      file: ["src/widgets"],
+    });
+    expect(
+      dir.sinks.every((sink) => sink.file === "src/widgets/Card.tsx"),
+    ).toBe(true);
   });
 
   it("ORs multiple patterns and yields nothing when none match", async () => {
@@ -1386,7 +1831,10 @@ describe("--file path filtering", () => {
     });
     expect(new Set(both.sinks.map((sink) => sink.file)).size).toBe(2);
 
-    const none = await analyzeProject({ ...project.args, file: ["Missing.tsx"] });
+    const none = await analyzeProject({
+      ...project.args,
+      file: ["Missing.tsx"],
+    });
     expect(none.sinks).toEqual([]);
     expect(none.rankings.all).toEqual([]);
   });

@@ -123,6 +123,11 @@ export const BANNED_SUGGESTION_IDENTIFIERS = [
   "viewModel",
   "renderModel",
   "layout",
+  "geometryModel",
+  "renderValue",
+  "selectedValue",
+  "profileData",
+  "ItemModel",
 ];
 // This package's own directory (one level up from src/). Used as a last-resort
 // location for resolving the bundled `typescript` dependency.
@@ -148,6 +153,7 @@ export function parseArgs(argv, defaults = {}) {
     file: defaults.file ? [...defaults.file] : [],
     out: defaults.out ?? null,
     baseline: defaults.baseline ?? null,
+    compare: defaults.compare ?? null,
     // Resolved per-view after parsing unless the caller/CLI sets it explicitly.
     maxItems: defaults.maxItems ?? null,
     maxItemsExplicit: defaults.maxItems != null,
@@ -245,6 +251,9 @@ export function parseArgs(argv, defaults = {}) {
       case "--baseline":
         args.baseline = readValue();
         break;
+      case "--compare":
+        args.compare = readValue();
+        break;
       case "--include-tests":
         args.includeTests = true;
         break;
@@ -327,6 +336,9 @@ export function parseArgs(argv, defaults = {}) {
   args.baseline = args.baseline
     ? path.resolve(process.cwd(), args.baseline)
     : null;
+  args.compare = args.compare
+    ? path.resolve(process.cwd(), args.compare)
+    : null;
 
   return args;
 }
@@ -363,6 +375,7 @@ Options:
                             one work unit ("fix once, N sinks improve").
   --by <file|feature>       Hotspots roll-up granularity. Defaults to file.
   --baseline <path>         Compare against a prior JSON report.
+  --compare <dir>           Compare this run against a prior --view all report directory.
   --fail-on-regression      Exit non-zero only when baseline comparison regresses.
   --out <path>              Write report to a file instead of stdout. With
                             --view all, names a directory to fill (one file per view).
@@ -472,6 +485,9 @@ export function analyzeProgram(ts, program, args = {}) {
 }
 
 export function renderReport(report, args) {
+  if (args.compare) {
+    return `${renderCompareReport(report, args)}\n${regenFooter(args, "compare", report)}`;
+  }
   if (args.format === "json") {
     return `${JSON.stringify(selectViewPayload(report, args), null, 2)}\n`;
   }
@@ -573,7 +589,7 @@ function regenCommand(args, view) {
     "--root",
     shellQuote(commandPath(args.root)),
     "--view",
-    regenAll ? "all" : view,
+    view === "compare" ? args.view : regenAll ? "all" : view,
   ];
   // Always echo --max-items so it is obvious the cap is tunable. (In all-mode
   // this is the current view's cap; passing it back applies it to every view.)
@@ -593,6 +609,8 @@ function regenCommand(args, view) {
     parts.push("--by", args.by);
   if (args.format && args.format !== "markdown")
     parts.push("--format", args.format);
+  if (args.compare)
+    parts.push("--compare", shellQuote(commandPath(args.compare)));
   if (args.includeTests) parts.push("--include-tests");
   // args.out is the file (single view) or the directory (--view all); both are
   // resolved absolute, so render them relative to cwd for a clean command.
@@ -711,7 +729,13 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
   // every view projects from the same data.
   const workUnits = computeWorkUnits(rankings.all);
   const concentration = computeConcentration(rankings.all);
-  const allHelpers = buildHelperReport(ts, checker, crossFile, args, sourceFiles);
+  const allHelpers = buildHelperReport(
+    ts,
+    checker,
+    crossFile,
+    args,
+    sourceFiles,
+  );
   const helpers = fileMatch
     ? allHelpers.filter((helper) => fileMatch(helper.file))
     : allHelpers;
@@ -1057,7 +1081,8 @@ function isPassThrough(ts, expression, paramNames) {
   if (ts.isIdentifier(current)) return paramNames.has(current.text);
   if (ts.isPropertyAccessExpression(current)) {
     let receiver = current;
-    while (ts.isPropertyAccessExpression(receiver)) receiver = receiver.expression;
+    while (ts.isPropertyAccessExpression(receiver))
+      receiver = receiver.expression;
     return ts.isIdentifier(receiver) && paramNames.has(receiver.text);
   }
   return false;
@@ -1125,7 +1150,10 @@ function buildHelperReport(ts, checker, crossFile, args, sourceFiles) {
   const records = [];
   for (const record of reached) {
     // Enrich only now (return type + body metrics), for reached functions only.
-    const enriched = { ...record, ...enrichCatalogRecord(ts, checker, record, args, crossFile) };
+    const enriched = {
+      ...record,
+      ...enrichCatalogRecord(ts, checker, record, args, crossFile),
+    };
     records.push({
       name: enriched.name,
       file: enriched.file,
@@ -1187,10 +1215,12 @@ function getSinkExpression(ts, node) {
   if (ts.isJsxExpression(node) && node.expression) {
     const parent = node.parent;
     if (parent && ts.isJsxAttribute(parent)) return null;
+    const jsx = jsxElementContext(ts, node);
     return {
       expression: node.expression,
       category: "rendered-value",
       label: `JSX ${formatExpression(node.expression.getText())}`,
+      jsx,
     };
   }
 
@@ -1203,11 +1233,61 @@ function getSinkExpression(ts, node) {
     if (!expression) return null;
     const name = node.name.getText();
     const event = /^on[A-Z]/.test(name);
+    const jsx = jsxElementContext(ts, node);
     return {
       expression,
       category: event ? "event-handler" : classifyAttribute(name),
       label: `${name}={...}`,
+      jsx: { ...jsx, attribute: name },
     };
+  }
+  return null;
+}
+
+function jsxElementContext(ts, node) {
+  let current = node;
+  while (current) {
+    if (ts.isJsxElement(current)) {
+      return { tag: jsxTagNameText(current.openingElement.tagName) };
+    }
+    if (ts.isJsxSelfClosingElement(current)) {
+      return { tag: jsxTagNameText(current.tagName) };
+    }
+    if (ts.isJsxOpeningElement(current)) {
+      return { tag: jsxTagNameText(current.tagName) };
+    }
+    if (ts.isJsxAttribute(current)) {
+      const owner = current.parent?.parent;
+      if (owner && ts.isJsxSelfClosingElement(owner)) {
+        return { tag: jsxTagNameText(owner.tagName) };
+      }
+      if (owner && ts.isJsxOpeningElement(owner)) {
+        return { tag: jsxTagNameText(owner.tagName) };
+      }
+    }
+    current = current.parent;
+  }
+  return { tag: null };
+}
+
+function jsxTagNameText(tagName) {
+  return tagName ? collapse(tagName.getText()) : null;
+}
+
+function enclosingFunctionName(ts, node) {
+  let current = node;
+  while (current) {
+    if (ts.isFunctionDeclaration(current) && current.name)
+      return current.name.text;
+    if (
+      (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
+      current.parent &&
+      ts.isVariableDeclaration(current.parent) &&
+      ts.isIdentifier(current.parent.name)
+    ) {
+      return current.parent.name.text;
+    }
+    current = current.parent;
   }
   return null;
 }
@@ -1447,7 +1527,12 @@ function traceCrossFileCall(ts, checker, graph, expression, callee, context) {
   if (/^use[A-Z]/.test(callee)) return null;
   if (context.crossDepth >= crossFile.args.maxHelperDepth) return null;
 
-  const record = resolveCatalogFn(ts, checker, expression.expression, crossFile);
+  const record = resolveCatalogFn(
+    ts,
+    checker,
+    expression.expression,
+    crossFile,
+  );
   if (!record || !record.returnExpr) return null;
   if (context.visitedFns.has(record.symbol)) return null;
   if (crossFile.budget <= 0) return null;
@@ -1679,7 +1764,8 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
       label: nodeLabel,
     });
   }
-  if (traces.length === 0) rootInfos.push({ label: nodeLabel, kind: "operation" });
+  if (traces.length === 0)
+    rootInfos.push({ label: nodeLabel, kind: "operation" });
   const dedupedRoots = uniqueRootInfos(rootInfos);
   return {
     lastNodeId: node.id,
@@ -1762,6 +1848,13 @@ function buildSinkRecord(
     category: sinkExpression.category,
     label: sinkExpression.label,
     expression: sinkExpression.expression.getText(),
+    renderContext: {
+      tag: sinkExpression.jsx?.tag ?? null,
+      attribute:
+        sinkExpression.jsx?.attribute ??
+        sinkAttributeName({ label: sinkExpression.label }),
+      component: enclosingFunctionName(ts, node),
+    },
     type: safeTypeText(
       checker.typeToString(
         checker.getTypeAtLocation(sinkExpression.expression),
@@ -1861,7 +1954,11 @@ function groundReachability(sinks) {
 }
 
 function defenseRecord(ts, checker, guardedExpression, node, operation) {
-  const runtimeBoundary = runtimeBoundaryFallback(ts, checker, guardedExpression);
+  const runtimeBoundary = runtimeBoundaryFallback(
+    ts,
+    checker,
+    guardedExpression,
+  );
   const typeVerdict = getNullishStatus(ts, checker, guardedExpression);
   const verdict =
     typeVerdict === "impossible" && runtimeBoundary ? "possible" : typeVerdict;
@@ -2016,7 +2113,8 @@ function unwrapExpression(ts, expression) {
 function leadingCommentText(ts, node) {
   const sourceFile = node.getSourceFile();
   const fullText = sourceFile.getFullText();
-  const ranges = ts.getLeadingCommentRanges(fullText, node.getFullStart()) ?? [];
+  const ranges =
+    ts.getLeadingCommentRanges(fullText, node.getFullStart()) ?? [];
   return ranges.map((range) => fullText.slice(range.pos, range.end)).join(" ");
 }
 
@@ -2041,15 +2139,19 @@ function getNullishStatus(ts, checker, expression) {
 
 function rankSinks(sinks) {
   const enriched = sinks.map((sink) => {
-    const burden = burdenScore(sink.metrics);
+    const background = backgroundClassificationFor(sink);
+    const rawBurden = burdenScore(sink.metrics);
+    const burden = background ? rawBurden * background.penalty : rawBurden;
     const centrality = centralityScore(sink.metrics);
     const changeRisk = changeRiskScore(sink.metrics);
     const confidence = sink.confidence / 100;
     return {
       ...sink,
       signature: signatureFor(sink),
+      background,
       scores: {
         burden,
+        rawBurden,
         centrality,
         changeRisk,
         quickWin:
@@ -2303,12 +2405,18 @@ function selectWorkItems(report, args) {
   const mode = args.sort ?? "burden";
   const useUnits = Boolean(args.units) && mode !== "quick-win";
   let pool = useUnits ? report.workUnits : report.rankings.all;
+  if (args.view === "work-packets") {
+    const actionable = pool.filter((item) => !item.background);
+    if (actionable.length > 0) pool = actionable;
+  }
 
   if (mode === "quick-win") {
     const quickIds = new Set(report.rankings.quickWins.map((sink) => sink.id));
-    pool = report.rankings.quickWins.concat(
-      report.rankings.all.filter((sink) => !quickIds.has(sink.id)),
-    );
+    pool = report.rankings.quickWins
+      .filter((sink) => !sink.background)
+      .concat(report.rankings.all.filter((sink) => !quickIds.has(sink.id)));
+    if (args.view === "work-packets")
+      pool = pool.filter((sink) => !sink.background);
   }
 
   let result;
@@ -2393,13 +2501,14 @@ function concentrationLines(report, shownCount) {
   if (!concentration || concentration.fileCount === 0) return [];
   const pct = (value) => `${Math.round(value * 100)}%`;
   const topFiles = Math.min(5, concentration.fileCount);
-  let sentence =
-    `_${shownCount} shown. Ranked burden is concentrated: top ${plural(topFiles, "file")} = ${pct(concentration.top5)}`;
-  if (concentration.fileCount > 9) sentence += `, top 9 = ${pct(concentration.top9)}`;
+  let sentence = `_${shownCount} shown. Ranked burden is concentrated: top ${plural(topFiles, "file")} = ${pct(concentration.top5)}`;
+  if (concentration.fileCount > 9)
+    sentence += `, top 9 = ${pct(concentration.top9)}`;
   sentence += `. ${plural(concentration.fileCount, "file")} ${concentration.fileCount === 1 ? "carries" : "carry"} ≥1 finding`;
   if (concentration.hot4Plus > 0)
     sentence += `, ${concentration.hot4Plus} have ≥4`;
-  sentence += ". Use --spread / --diversity to widen, or `--view hotspots` for the full per-file map._";
+  sentence +=
+    ". Use --spread / --diversity to widen, or `--view hotspots` for the full per-file map._";
   return ["**Coverage**", "", sentence, ""];
 }
 
@@ -2524,6 +2633,7 @@ function actionableSourceLabels(sink, max = 6) {
 function renderWorkPackets(report, args) {
   const selection = selectWorkItems(report, args);
   const sinks = selection.selected;
+  const renderGroups = groupedRenderRecommendations(report.rankings.all);
   const lines = [
     "# Render-Path Data-Flow Work Packets",
     "",
@@ -2533,6 +2643,7 @@ function renderWorkPackets(report, args) {
   if (banner) lines.push(banner, "");
   lines.push(...suppressionLines(selection.suppressed));
   appendFeatureClusters(lines, report, args);
+  appendGroupedRecommendations(lines, report, args);
   lines.push(...concentrationLines(report, sinks.length));
   const itemKind = selection.useUnits ? "WORK UNIT" : "WORK ITEM";
   sinks.forEach((sink, index) => {
@@ -2627,6 +2738,13 @@ function renderWorkPackets(report, args) {
       lines.push(...fenced(proposal));
       lines.push("");
     }
+    const shapeCheck = extractionShapeCheckFor(sink, group, renderGroups);
+    if (shapeCheck) {
+      lines.push("**Extraction shape check**");
+      lines.push("");
+      lines.push(...fenced(shapeCheck));
+      lines.push("");
+    }
     lines.push("**Candidate edits**");
     lines.push("");
     candidateEditsFor(sink, group).forEach((edit, editIndex) => {
@@ -2644,8 +2762,185 @@ function renderWorkPackets(report, args) {
     }
     lines.push("");
   });
+  appendStopRecommendation(lines, report);
+  appendBackgroundFindings(lines, report, args);
   appendBaseline(lines, report);
   return `${lines.join("\n")}\n`;
+}
+
+function appendBackgroundFindings(lines, report, args) {
+  const rows = report.rankings.all
+    .filter((sink) => sink.background)
+    .slice(0, Math.min(5, args.maxItems));
+  if (rows.length === 0) return;
+  lines.push("## Background Findings");
+  lines.push("");
+  lines.push("These paths are true but not recommended as cleanup work:");
+  lines.push("");
+  lines.push(
+    ...formatMarkdownTable(
+      ["Location", "Expression", "Classification", "Reason"],
+      rows.map((sink) => [
+        `${sink.file}:${sink.line}`,
+        formatExpression(sink.expression, 28),
+        sink.background.label,
+        sink.background.reason,
+      ]),
+    ),
+  );
+  lines.push("");
+  lines.push("Action: leave these unless adjacent edits make them redundant.");
+  lines.push("");
+}
+
+function extractionShapeCheckFor(sink, packGroup, renderGroups = []) {
+  const renderGroup = renderGroups.find((group) =>
+    group.sinks.some((member) => member.id === sink.id),
+  );
+  const representative = renderGroup?.sinks
+    .slice()
+    .sort((left, right) => right.scores.burden - left.scores.burden)[0];
+  if (renderGroup && representative?.id === sink.id) {
+    return [
+      "verdict: cohesive repeated item",
+      `rendered thing: ${renderGroup.renderedThing}`,
+      `suggested shape: ${renderGroup.shape}`,
+      `reason: ${renderGroup.fields.join(", ")} are consumed together for repeated ${pluralRenderedThing(renderGroup.renderedThing)}.`,
+    ];
+  }
+  if (packGroup?.verdict === "mirror-object") {
+    return [
+      "verdict: mirror singleton risk",
+      `candidate: ${packGroup.label}`,
+      "reason: this object mostly gathers source fields without shared render-item consumption.",
+      "recommendation: prefer narrow scalar helpers or inline reads unless a rerun shows multiple fields consumed together.",
+    ];
+  }
+  if (mirrorSingletonRiskFor(sink)) {
+    return [
+      "verdict: mirror singleton risk",
+      `candidate: ${renderedThingFor(sink)}`,
+      "reason: this looks like local scalar or coordinate plumbing, not repeated item data.",
+      "recommendation: avoid a broad singleton object; prefer narrow scalar helpers unless related fields are consumed together.",
+    ];
+  }
+  return null;
+}
+
+function mirrorSingletonRiskFor(sink) {
+  const family = sinkFamilyOf(sink);
+  if ((sink.metrics.maximumPathDepth ?? 0) < 4) return false;
+  return (
+    ["geometry", "svg-shell", "other"].includes(family) &&
+    classifyPathShape(sink).some((shape) =>
+      ["geometry-chain", "domain-normalization"].includes(shape),
+    ) &&
+    (sink.metrics.representationChurn >= 3 || sink.metrics.mergeWidth >= 3) &&
+    !classifyPathShape(sink).includes("collection-render-model") &&
+    !sink.packVerdicts?.includes("cohesive-render-model")
+  );
+}
+
+function appendGroupedRecommendations(lines, report, args) {
+  const groups = groupedRenderRecommendations(report.rankings.all).slice(0, 5);
+  if (groups.length === 0) return;
+  lines.push("## Grouped Recommendations");
+  lines.push("");
+  for (const group of groups) {
+    lines.push(`**${group.title}**`);
+    lines.push("");
+    lines.push(
+      ...formatMarkdownTable(
+        ["Component", "Rendered thing", "Sinks", "Fields", "Suggested shape"],
+        [
+          [
+            group.component,
+            group.renderedThing,
+            String(group.sinkCount),
+            group.fields.join(", "),
+            group.shape,
+          ],
+        ],
+      ),
+    );
+    lines.push("");
+    lines.push(`Why: ${group.reason}`);
+    lines.push("");
+  }
+}
+
+function groupedRenderRecommendations(sinks) {
+  const buckets = new Map();
+  for (const sink of sinks) {
+    if (!isRenderItemGroupingCandidate(sink)) continue;
+    const component = sink.renderContext?.component ?? "local render";
+    const renderedThing = groupedRenderedThing(sink);
+    const key = `${sink.file}::${component}::${renderedThing}`;
+    let group = buckets.get(key);
+    if (!group) {
+      group = { file: sink.file, component, renderedThing, sinks: [] };
+      buckets.set(key, group);
+    }
+    group.sinks.push(sink);
+  }
+  return Array.from(buckets.values())
+    .map((group) => {
+      const fields = unique(group.sinks.map(groupedFieldName)).filter(Boolean);
+      const roots = unique(
+        group.sinks.flatMap((sink) =>
+          fanOutRootsFor(sink).map((info) => formatExpression(info.label, 32)),
+        ),
+      ).slice(0, 4);
+      const plural = pluralRenderedThing(group.renderedThing);
+      return {
+        ...group,
+        title: `Extract ${plural}`,
+        sinkCount: group.sinks.length,
+        fields,
+        shape: `${pascalCase(singularRenderedThing(group.renderedThing))}[]`,
+        reason: `${roots.join(", ") || "the same local inputs"} feed ${fields.join("/")} for one ${group.renderedThing}.`,
+      };
+    })
+    .filter((group) => group.sinkCount >= 3 && group.fields.length >= 3)
+    .sort(
+      (left, right) =>
+        right.sinkCount - left.sinkCount ||
+        right.fields.length - left.fields.length ||
+        left.file.localeCompare(right.file),
+    );
+}
+
+function isRenderItemGroupingCandidate(sink) {
+  const family = sinkFamilyOf(sink);
+  const tag = sink.renderContext?.tag;
+  return (
+    ["geometry", "style", "identity", "text"].includes(family) &&
+    (isSvgLikeTag(tag) || sink.category === "rendered-value") &&
+    sink.metrics.maximumPathDepth >= 3
+  );
+}
+
+function isSvgLikeTag(tag) {
+  return ["rect", "text", "title", "line", "path", "circle", "g"].includes(
+    String(tag ?? "").toLowerCase(),
+  );
+}
+
+function groupedRenderedThing(sink) {
+  const component = sink.renderContext?.component ?? "";
+  if (/BarRects?$/i.test(component) || /Bars?$/i.test(component))
+    return "bar rectangle";
+  if (/Ticks?|Axis/i.test(component)) return "bar tick";
+  return renderedThingFor(sink);
+}
+
+function groupedFieldName(sink) {
+  return (
+    sink.renderContext?.attribute ??
+    sinkAttributeName(sink) ??
+    sink.renderContext?.tag ??
+    "text"
+  );
 }
 
 function renderDossier(report) {
@@ -2889,14 +3184,15 @@ function renderRepairMap(report, args) {
     });
     lines.push("");
   }
+  appendStopRecommendation(lines, report);
   appendBaseline(lines, report);
   return `${lines.join("\n")}\n`;
 }
 
 // Concise "suggested first cut" per shape — the headline action for a hotspot.
 const SHAPE_FIRST_CUT = {
-  "geometry-chain": "extract geometry model",
-  "collection-render-model": "extract item models",
+  "geometry-chain": "extract render item geometry",
+  "collection-render-model": "extract rendered items",
   "control-flow-gate": "name the predicate",
   "presentation-pack": "split the class/style object",
   "domain-normalization": "normalize at the boundary",
@@ -2908,10 +3204,26 @@ function firstCutFor(sink) {
   return SHAPE_FIRST_CUT[primaryShapeOf(sink)] ?? "local boundary cleanup";
 }
 
+function appendStopRecommendation(lines, report) {
+  const stop = stopRecommendationFor(report);
+  lines.push("## Stop Recommendation");
+  lines.push("");
+  lines.push(`Stop recommendation: ${stop.recommend ? "yes" : "no"}`);
+  lines.push(`Reason: ${stop.reason}`);
+  if (stop.recommend) {
+    lines.push(
+      "Next useful work would require broader architecture changes, not local cleanup.",
+    );
+  }
+  lines.push("");
+}
+
 // The most common value in a list (for dominant shape/ownership columns).
 function modalValue(values) {
   const counts = countBy(values);
-  const entries = Object.entries(counts).sort((left, right) => right[1] - left[1]);
+  const entries = Object.entries(counts).sort(
+    (left, right) => right[1] - left[1],
+  );
   return entries[0]?.[0] ?? "—";
 }
 
@@ -2968,7 +3280,14 @@ function renderHotspots(report, args) {
   ]);
   const lines = tableReport(
     `Hotspots  (by ${by})`,
-    [columnLabel, "Hotspots", "Worst", "Dominant shape", "Ownership", "First cut"],
+    [
+      columnLabel,
+      "Hotspots",
+      "Worst",
+      "Dominant shape",
+      "Ownership",
+      "First cut",
+    ],
     rows,
     viewIntro("hotspots", report),
   ).split("\n");
@@ -3014,7 +3333,16 @@ function renderBoundaryReport(report, args) {
   const lines = [
     ...tableReport(
       "Boundary Report",
-      ["Function", "Where", "Arity", "In-src", "Callers", "Internal d/churn", "Return type", "Verdict"],
+      [
+        "Function",
+        "Where",
+        "Arity",
+        "In-src",
+        "Callers",
+        "Internal d/churn",
+        "Return type",
+        "Verdict",
+      ],
       rows,
       viewIntro("boundary-report", report),
     ).split("\n"),
@@ -3022,7 +3350,9 @@ function renderBoundaryReport(report, args) {
   lines.push("## Worst boundary debt");
   lines.push("");
   for (const helper of helpers.slice(0, 5)) {
-    lines.push(`- **${helper.name}** (${helper.verdict}) — ${boundaryNote(helper)}`);
+    lines.push(
+      `- **${helper.name}** (${helper.verdict}) — ${boundaryNote(helper)}`,
+    );
   }
   lines.push("");
   return `${lines.join("\n")}`;
@@ -3059,14 +3389,22 @@ function renderJunctions(report, args) {
     .sort((left, right) => right.inSources - left.inSources)
     .slice(0, args.maxItems);
 
-  const lines = ["# Junctions — where independent lineages meet and re-spread", "", ...viewIntro("junctions", report)];
+  const lines = [
+    "# Junctions — where independent lineages meet and re-spread",
+    "",
+    ...viewIntro("junctions", report),
+  ];
   if (junctions.length === 0 && confluences.length === 0) {
-    lines.push("No confluence functions found on render paths (no helper merges ≥3 source lineages).");
+    lines.push(
+      "No confluence functions found on render paths (no helper merges ≥3 source lineages).",
+    );
     lines.push("");
     return `${lines.join("\n")}`;
   }
   for (const helper of junctions) {
-    lines.push(`## ${helper.name}   ${helper.file}:${helper.line}   score ${score(helper)}  (${helper.inSources} in × ${helper.callerCount} out)`);
+    lines.push(
+      `## ${helper.name}   ${helper.file}:${helper.line}   score ${score(helper)}  (${helper.inSources} in × ${helper.callerCount} out)`,
+    );
     lines.push("");
     lines.push(...fenced(junctionBody(helper)));
     lines.push("");
@@ -3075,7 +3413,9 @@ function renderJunctions(report, args) {
     lines.push("## Heavy confluences (many sources in, one consumer)");
     lines.push("");
     for (const helper of confluences) {
-      lines.push(`- **${helper.name}** (${helper.file}:${helper.line}) — ${helper.inSources} lineages → \`${formatExpression(helper.returnType, 40)}\`. Treat as a boundary to tighten, not a junction to split.`);
+      lines.push(
+        `- **${helper.name}** (${helper.file}:${helper.line}) — ${helper.inSources} lineages → \`${formatExpression(helper.returnType, 40)}\`. Treat as a boundary to tighten, not a junction to split.`,
+      );
     }
     lines.push("");
   }
@@ -3087,7 +3427,8 @@ function junctionBody(helper) {
   const tribs = (helper.inRoots ?? []).length
     ? helper.inRoots
     : helper.params.map((parameter) => parameter.name);
-  for (const trib of tribs.slice(0, 8)) lines.push(`  ${formatExpression(trib, 48)}`);
+  for (const trib of tribs.slice(0, 8))
+    lines.push(`  ${formatExpression(trib, 48)}`);
   lines.push("distributaries (where the result re-spreads)");
   for (const caller of (helper.callers ?? []).slice(0, 8)) {
     lines.push(`  ${caller.file}:${caller.line}`);
@@ -3106,7 +3447,11 @@ function junctionBody(helper) {
 // metrics and caller count (a heuristic preview, not a codemod).
 function renderInlinePreview(report, args) {
   const helpers = (report.helpers ?? []).slice(0, args.maxItems);
-  const lines = ["# Inline Preview", "", ...viewIntro("inline-preview", report)];
+  const lines = [
+    "# Inline Preview",
+    "",
+    ...viewIntro("inline-preview", report),
+  ];
   if (helpers.length === 0) {
     lines.push("No first-party helpers were reached on a render path.");
     lines.push("");
@@ -3114,13 +3459,17 @@ function renderInlinePreview(report, args) {
   }
   for (const helper of helpers) {
     const decision = inlineDecision(helper);
-    lines.push(`## ${helper.name}  (${helper.file}:${helper.line} · ${helper.callerCount} caller(s) · ${helper.verdict})`);
+    lines.push(
+      `## ${helper.name}  (${helper.file}:${helper.line} · ${helper.callerCount} caller(s) · ${helper.verdict})`,
+    );
     lines.push("");
-    lines.push(...fenced([
-      `as a step:   1 hop`,
-      `if inlined:  ~${Math.max(1, helper.internalDepth)} hop(s)   Δ depth ${formatDelta(helper.internalDepth - 1)}, churn ${formatDelta(helper.internalChurn)}, defenses ${formatDelta(helper.internalDefenses)}`,
-      `verdict: ${decision.verdict} — ${decision.why}`,
-    ]));
+    lines.push(
+      ...fenced([
+        `as a step:   1 hop`,
+        `if inlined:  ~${Math.max(1, helper.internalDepth)} hop(s)   Δ depth ${formatDelta(helper.internalDepth - 1)}, churn ${formatDelta(helper.internalChurn)}, defenses ${formatDelta(helper.internalDefenses)}`,
+        `verdict: ${decision.verdict} — ${decision.why}`,
+      ]),
+    );
     lines.push("");
   }
   return `${lines.join("\n")}`;
@@ -3139,7 +3488,11 @@ function inlineDecision(helper) {
       why: `pure forwarding hop${helper.callerCount > 2 ? ` (note: ${helper.callerCount} callers — a codemod, flagged not done)` : ""}.`,
     };
   }
-  if (helper.callerCount <= 2 && helper.internalDepth <= 2 && !helper.typeLeak) {
+  if (
+    helper.callerCount <= 2 &&
+    helper.internalDepth <= 2 &&
+    !helper.typeLeak
+  ) {
     return {
       verdict: "INLINE",
       why: `shallow body, few callers — the helper adds indirection without consolidating much.`,
@@ -3178,6 +3531,7 @@ function appendFeatureClusters(lines, report, args) {
         "Max depth",
         "Wrappers",
         "Suggested first cut",
+        "Evidence",
       ],
       rows,
     ),
@@ -3195,6 +3549,8 @@ function featureClusterRows(sinks) {
       maxDepth: 0,
       wrappers: 0,
       providerContextSignals: 0,
+      evidence: [],
+      localSignals: 0,
     };
     cluster.sinks += 1;
     cluster.files.add(sink.file);
@@ -3203,20 +3559,33 @@ function featureClusterRows(sinks) {
       sink.metrics.maximumPathDepth,
     );
     cluster.wrappers += sink.metrics.representationChurn;
-    if (isProviderContextCandidate(sink)) cluster.providerContextSignals += 1;
+    const evidence = providerContextEvidenceFor(sink);
+    if (evidence.eligible) cluster.providerContextSignals += 1;
+    else cluster.localSignals += 1;
+    cluster.evidence.push(evidence.reason);
     clusters.set(key, cluster);
   }
   return Array.from(clusters.entries())
-    .map(([feature, cluster]) => [
-      feature,
-      String(cluster.sinks),
-      String(cluster.files.size),
-      String(cluster.maxDepth),
-      String(cluster.wrappers),
-      cluster.providerContextSignals > 0
-        ? "Provider/Context audit"
-        : "local boundary cleanup",
-    ])
+    .map(([feature, cluster]) => {
+      const providerShare =
+        cluster.providerContextSignals / Math.max(1, cluster.sinks);
+      const providerContext =
+        cluster.providerContextSignals >= 2 ||
+        (cluster.providerContextSignals > 0 && providerShare >= 0.35);
+      return [
+        feature,
+        String(cluster.sinks),
+        String(cluster.files.size),
+        String(cluster.maxDepth),
+        String(cluster.wrappers),
+        providerContext
+          ? "Provider/Context audit"
+          : localFirstCutForCluster(cluster),
+        providerContext
+          ? providerEvidenceSummary(cluster.evidence)
+          : "no provider/context signals",
+      ];
+    })
     .sort(
       (left, right) =>
         Number(right[1]) - Number(left[1]) ||
@@ -3259,7 +3628,9 @@ export function classifyPathShape(sink) {
   const hasArithmetic = /[-+*/%]/.test(labelText) || kinds.has("template");
   if (
     (attribute && GEOMETRY_ATTRIBUTES.has(attribute)) ||
-    (kinds.has("template") && hasArithmetic && metrics.controlDependencyCount > 0)
+    (kinds.has("template") &&
+      hasArithmetic &&
+      metrics.controlDependencyCount > 0)
   ) {
     tags.push("geometry-chain");
   }
@@ -3323,9 +3694,9 @@ const SHAPE_PHRASES = {
 // summary (Phase 6) and the spine of the candidate edits (Phase 2).
 const SHAPE_HEADLINE_FIX = {
   "geometry-chain":
-    "compute a cohesive geometry value in a memo, then read named fields in JSX",
+    "compute cohesive render-item geometry in a memo, then read named fields in JSX",
   "collection-render-model":
-    "extract the item models into a memo and render one component per item",
+    "extract rendered items into a memo and render one component per item",
   "control-flow-gate":
     "name the scalar predicate or selected value so the gate reads as a sentence",
   "presentation-pack":
@@ -3350,7 +3721,10 @@ function candidateEditsFor(sink, group = null) {
     ];
   }
 
-  if (group && ["overpacked-bag", "mirror-object", "relay-bag"].includes(group.verdict)) {
+  if (
+    group &&
+    ["overpacked-bag", "mirror-object", "relay-bag"].includes(group.verdict)
+  ) {
     return [
       "Split the packed object by render responsibility instead of widening it.",
       "Keep style, geometry, identity, text, and control-flow values in separate narrow selectors unless the same consumers use them together.",
@@ -3363,19 +3737,19 @@ function candidateEditsFor(sink, group = null) {
 
   // Provider/Context advice is reserved for genuine cross-component relays (or
   // flows already rooted at a feature hook), not local geometry/normalization.
-  if (shapes.includes("cross-component-relay") || hasContextHookRoot(sink)) {
+  if (isProviderContextCandidate(sink)) {
     return providerContextEdits(sink);
   }
 
   const shapeEdits = {
     "geometry-chain": [
-      "Extract a createMemo returning a cohesive geometry value (e.g. { x, y, width, height }); keep the SVG attribute reading named fields.",
-      "Name the memo for what it positions (barSizing, nullBar), not a catch-all like layout/view.",
+      `Extract a createMemo returning ${articleFor(renderedThingFor(sink))} ${renderedThingFor(sink)} value (for example { x, y, width, height }); keep the SVG attribute reading named fields.`,
+      `Name the memo for what it renders (${pluralRenderedThing(renderedThingFor(sink))}, visibleRows), not a catch-all like layout/view.`,
       "Do not combine geometry with aria text, labels, control-flow, or styles unless the pack verdict is cohesive.",
       "Resolve any defaults/normalization in a separate boundary before the geometry math.",
     ],
     "collection-render-model": [
-      "Extract the item models into a createMemo that returns the array; feed <For each={...}> and render one component per item.",
+      `Extract ${pluralRenderedThing(renderedThingFor(sink))} into a createMemo that returns the array; feed <For each={...}> and render one component per item.`,
       "Name the memo with a plural noun for what is rendered (realBars, visibleRows).",
     ],
     "control-flow-gate": [
@@ -3389,7 +3763,7 @@ function candidateEditsFor(sink, group = null) {
       "Use the pack verdict after rerun: overpacked/mirror/relay means split, cohesive/normalization means keep or formalize.",
     ],
     "domain-normalization": [
-      "Resolve defaults, optional reads, and union narrowing at a named boundary memo (e.g. profileData) before any JSX reads it.",
+      "Resolve defaults, optional reads, and union narrowing at a named boundary memo before any JSX reads it.",
       "Inline representation-only wrappers that have no semantic role.",
     ],
   };
@@ -3445,12 +3819,69 @@ function providerContextEdits(sink) {
 }
 
 function isProviderContextCandidate(sink) {
-  return (
-    hasContextHookRoot(sink) ||
-    sink.metrics.reachableSinks > 5 ||
-    sink.metrics.maximumPathDepth > 10 ||
-    (sink.metrics.representationChurn > 1 && sink.metrics.mergeWidth > 1)
+  return providerContextEvidenceFor(sink).eligible;
+}
+
+function providerContextEvidenceFor(sink) {
+  if (hasContextHookRoot(sink)) {
+    return { eligible: true, reason: "context hook root" };
+  }
+  const text = pathTextFor(sink);
+  if (/\b(?:createContext|useContext)\b/.test(text)) {
+    return { eligible: true, reason: "context API call" };
+  }
+  if (/\b[A-Za-z][A-Za-z0-9_$.]*\.Provider\b/.test(text)) {
+    return { eligible: true, reason: "Provider JSX" };
+  }
+  if (hasImportedFeatureBoundary(sink)) {
+    return { eligible: true, reason: "imported feature boundary" };
+  }
+  const crossComponentRelay = classifyPathShape(sink).includes(
+    "cross-component-relay",
   );
+  if (
+    crossComponentRelay &&
+    sink.metrics.mergeWidth > 1 &&
+    (sink.metrics.reachableSinks > 3 || sink.metrics.representationChurn > 0)
+  ) {
+    return { eligible: true, reason: "same-feature prop relay" };
+  }
+  return { eligible: false, reason: "no provider/context signals" };
+}
+
+function pathTextFor(sink) {
+  return [
+    sink.label,
+    sink.expression,
+    ...(sink.roots ?? []),
+    ...(sink.representativeSteps ?? []).map((step) => step.label),
+  ].join(" ");
+}
+
+function hasImportedFeatureBoundary(sink) {
+  const roots = sink.roots ?? [];
+  return (
+    roots.some((root) => /^use[A-Z]/.test(root)) ||
+    roots.some((root) =>
+      /(?:Store|Context|Provider|Feature|State|Model)$/.test(root),
+    )
+  );
+}
+
+function localFirstCutForCluster(cluster) {
+  if (
+    cluster.evidence.some((reason) => reason === "no provider/context signals")
+  ) {
+    return "extract render item data";
+  }
+  return "local boundary cleanup";
+}
+
+function providerEvidenceSummary(evidence) {
+  const concrete = unique(
+    evidence.filter((reason) => reason !== "no provider/context signals"),
+  );
+  return concrete.length ? concrete.join(", ") : "provider/context signals";
 }
 
 function hasContextHookRoot(sink) {
@@ -3465,7 +3896,8 @@ export function sinkFamilyOf(sink) {
   const attribute = sinkAttributeName(sink);
   if (attribute && SVG_SHELL_ATTRIBUTES.has(attribute)) return "svg-shell";
   if (attribute && GEOMETRY_FAMILY_ATTRIBUTES.has(attribute)) return "geometry";
-  if (attribute && CONTROL_FLOW_ATTRIBUTES.has(attribute)) return "control-flow";
+  if (attribute && CONTROL_FLOW_ATTRIBUTES.has(attribute))
+    return "control-flow";
   if (attribute && STYLE_ATTRIBUTES.has(attribute)) return "style";
   if (attribute && IDENTITY_ATTRIBUTES.has(attribute)) return "identity";
   if (sink.category === "rendered-value") return "text";
@@ -3539,16 +3971,27 @@ function packEvidenceFor(entry, families) {
     .map((step) => step.label)
     .join(" ");
   const packText = `${entry.label} ${callText}`;
-  const parserBoundary = /\b(?:parse|parser|extract|decode|token|match|css|shadow|normalize|normalise)\b/iu.test(
-    packText,
+  const parserBoundary =
+    /\b(?:parse|parser|extract|decode|token|match|css|shadow|normalize|normalise)\b/iu.test(
+      packText,
+    );
+  const helperBoundary =
+    /\b(?:selection|choices?|model|view|derive|build|create)\b/iu.test(
+      callText,
+    );
+  const defensiveOps = sum(
+    sinks,
+    (sink) => sink.metrics.defensiveOperationCount,
   );
-  const helperBoundary = /\b(?:selection|choices?|model|view|derive|build|create)\b/iu.test(
-    callText,
+  const representationChurn = sum(
+    sinks,
+    (sink) => sink.metrics.representationChurn,
   );
-  const defensiveOps = sum(sinks, (sink) => sink.metrics.defensiveOperationCount);
-  const representationChurn = sum(sinks, (sink) => sink.metrics.representationChurn);
   const helperHops = sum(sinks, (sink) => sink.metrics.helperHops);
-  const maxReach = Math.max(0, ...sinks.map((sink) => sink.metrics.reachableSinks));
+  const maxReach = Math.max(
+    0,
+    ...sinks.map((sink) => sink.metrics.reachableSinks),
+  );
   const propRoots = roots.filter((root) => /^props\./.test(root));
   const sourceFamilies = new Set(roots.map(sourceFamilyKey));
   const mirrorLike =
@@ -3639,11 +4082,11 @@ function packGroupForSink(sink, packGroups) {
       .filter((group) => keys.has(group.key))
       .sort(
         (left, right) =>
-          packRiskForVerdict(right.verdict) - packRiskForVerdict(left.verdict) ||
+          packRiskForVerdict(right.verdict) -
+            packRiskForVerdict(left.verdict) ||
           right.families.length - left.families.length ||
           right.sinkCount - left.sinkCount,
-      )[0] ??
-    null
+      )[0] ?? null
   );
 }
 
@@ -3759,7 +4202,7 @@ function extractionBoundariesFor(sink) {
     !sink.packVerdicts?.includes("normalization-boundary") &&
     classifyPathShape(sink).includes("collection-render-model")
   ) {
-    modelShape = "Array<ItemModel>";
+    modelShape = `${pascalCase(singularRenderedThing(renderedThingFor(sink)))}[]`;
   }
   return { boundaries, modelShape };
 }
@@ -3782,7 +4225,9 @@ function extractionProposalFor(sink) {
   const name = proposedHelperName(sink);
   const outType =
     modelShape ??
-    (sink.type && sink.type !== "unknown" ? formatExpression(sink.type, 40) : "/* result */");
+    (sink.type && sink.type !== "unknown"
+      ? formatExpression(sink.type, 40)
+      : "/* result */");
 
   const ownLines = steps
     .filter((step) => step.file === sink.file && step.line)
@@ -3824,21 +4269,122 @@ function proposedHelperName(sink) {
   if (sink.packVerdicts?.includes("normalization-boundary")) {
     return "parsedValue";
   }
+  const renderedThing = renderedThingFor(sink);
   switch (sinkFamilyOf(sink)) {
     case "geometry":
     case "svg-shell":
-      return "geometryModel";
+      return `compute${pascalCase(singularRenderedThing(renderedThing))}`;
     case "control-flow":
-      return "selectedValue";
+      return predicateNameFor(sink);
     case "style":
-      return "styleProps";
+      return `${camelCase(singularRenderedThing(renderedThing))}Style`;
     case "identity":
-      return "elementRef";
+      return `${camelCase(singularRenderedThing(renderedThing))}Ref`;
     default:
-      return classifyPathShape(sink).includes("collection-render-model")
-        ? "itemModels"
-        : "renderValue";
+      if (classifyPathShape(sink).includes("collection-render-model")) {
+        return pluralRenderedThing(renderedThing);
+      }
+      if (
+        sink.category === "rendered-value" &&
+        String(sink.renderContext?.tag).toLowerCase() === "title"
+      ) {
+        return `format${pascalCase(singularRenderedThing(renderedThing))}`;
+      }
+      return `${camelCase(singularRenderedThing(renderedThing))}Text`;
   }
+}
+
+function renderedThingFor(sink) {
+  const component = sink.renderContext?.component ?? "";
+  const tag = String(sink.renderContext?.tag ?? "").toLowerCase();
+  const attribute = sink.renderContext?.attribute ?? sinkAttributeName(sink);
+  const componentWords = wordsFromIdentifier(component).filter(
+    (word) => !["chart", "svg", "render", "component"].includes(word),
+  );
+  const domain = componentWords.includes("bar") ? "bar" : componentWords[0];
+  if (tag === "rect") return domain ? `${domain} rectangle` : "rectangle";
+  if (tag === "text" && /tick|axis/i.test(component))
+    return domain ? `${domain} tick` : "axis tick";
+  if (tag === "title") return domain ? `${domain} title` : "title";
+  if (tag && !/^[A-Z]/.test(sink.renderContext?.tag ?? ""))
+    return domain ? `${domain} ${tag}` : tag;
+  if (attribute)
+    return `${camelWords(attribute).join(" ") || "rendered"} value`;
+  return domain ? `${domain} value` : "rendered value";
+}
+
+function predicateNameFor(sink) {
+  const alias = [...(sink.representativeSteps ?? [])]
+    .reverse()
+    .find(
+      (step) =>
+        step.kind === "alias" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(step.label),
+    );
+  if (alias) return alias.label;
+  const helper = [...(sink.representativeSteps ?? [])]
+    .reverse()
+    .find(
+      (step) =>
+        step.kind === "call" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(step.label),
+    );
+  if (helper) return helper.label;
+  const root = fanOutRootsFor(sink)[0]?.label ?? "render";
+  const words = camelWords(root.split(".").at(-1) ?? root);
+  const noun = pascalCase(words.join(" ")) || "Content";
+  return `has${noun}`;
+}
+
+function singularRenderedThing(text) {
+  const words = String(text).split(/\s+/);
+  if (words.length === 0) return String(text);
+  const last = words.at(-1);
+  const singularLast = last
+    .replace(/^(rectangles|rects)$/i, "rectangle")
+    .replace(/^ticks$/i, "tick")
+    .replace(/ies$/i, "y")
+    .replace(/s$/i, "");
+  return [...words.slice(0, -1), singularLast].join(" ");
+}
+
+function pluralRenderedThing(text) {
+  const value = String(text);
+  if (/rectangle$/i.test(value)) return `${value}s`;
+  if (/tick$/i.test(value)) return `${value}s`;
+  if (/y$/i.test(value)) return value.replace(/y$/i, "ies");
+  if (/s$/i.test(value)) return value;
+  return `${value}s`;
+}
+
+function articleFor(text) {
+  return /^[aeiou]/i.test(String(text)) ? "an" : "a";
+}
+
+function wordsFromIdentifier(value) {
+  return camelWords(value).map((word) => word.toLowerCase());
+}
+
+function camelWords(value) {
+  return String(value)
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean);
+}
+
+function camelCase(value) {
+  const words = camelWords(value);
+  if (words.length === 0) return "value";
+  return [
+    words[0].toLowerCase(),
+    ...words
+      .slice(1)
+      .map((word) => word[0].toUpperCase() + word.slice(1).toLowerCase()),
+  ].join("");
+}
+
+function pascalCase(value) {
+  return camelWords(value)
+    .map((word) => word[0].toUpperCase() + word.slice(1).toLowerCase())
+    .join("");
 }
 
 // Turn a source label into a plausible parameter name: the last identifier of a
@@ -3926,7 +4472,10 @@ function representativePathWithBoundaries(sink) {
       const top = fileStack[fileStack.length - 1];
       if (top !== step.file) {
         if (fileStack.includes(step.file)) {
-          while (fileStack.length && fileStack[fileStack.length - 1] !== step.file) {
+          while (
+            fileStack.length &&
+            fileStack[fileStack.length - 1] !== step.file
+          ) {
             fileStack.pop();
           }
           if (index > 0) {
@@ -4076,8 +4625,7 @@ function selectViewPayload(report, args) {
               firstCut: firstCutFor(group.worstSink),
             }))
         : undefined,
-    concentration:
-      args.view === "hotspots" ? report.concentration : undefined,
+    concentration: args.view === "hotspots" ? report.concentration : undefined,
     baseline: report.baseline,
   };
 }
@@ -4101,6 +4649,321 @@ function compareBaseline(rankings, baselinePath) {
     baselineWorst,
     regressed: currentWorst > baselineWorst,
     ...diffBaselineSinks(rankings.all, baseline.sinks ?? []),
+  };
+}
+
+function renderCompareReport(report, args) {
+  const baseline = readReportDirectorySummary(args.compare);
+  const current = reportSummaryForCompare(report);
+  const lines = [
+    "# tsx-dataflow Compare",
+    "",
+    `Baseline: ${commandPath(args.compare)}`,
+    "After: current run",
+    "",
+    "## Summary",
+    "",
+    ...formatMarkdownTable(
+      ["Metric", "Baseline", "After", "Delta"],
+      [
+        [
+          "Worst score",
+          formatWorstMetric(baseline),
+          formatWorstMetric(current),
+          compareNumberLabel(baseline.worstScore, current.worstScore, true),
+        ],
+        [
+          "Hotspots",
+          formatOptionalNumber(baseline.hotspots),
+          String(current.hotspots),
+          formatDeltaLabel(baseline.hotspots, current.hotspots, true),
+        ],
+        [
+          "Defensive entries",
+          formatOptionalNumber(baseline.defensiveEntries),
+          String(current.defensiveEntries),
+          formatDeltaLabel(
+            baseline.defensiveEntries,
+            current.defensiveEntries,
+            true,
+          ),
+        ],
+        [
+          "Wrappers",
+          formatOptionalNumber(baseline.wrappers),
+          String(current.wrappers),
+          formatDeltaLabel(baseline.wrappers, current.wrappers, true),
+        ],
+      ],
+    ),
+    "",
+  ];
+
+  const removed = removedFindingFamilies(baseline, current);
+  if (removed.length > 0) {
+    lines.push("## Removed finding families", "");
+    for (const item of removed) lines.push(`- ${item}`);
+    lines.push("");
+  }
+
+  const remaining = remainingFindingFamilies(current);
+  if (remaining.length > 0) {
+    lines.push("## Remaining finding families", "");
+    for (const item of remaining) lines.push(`- ${item}`);
+    lines.push("");
+  }
+
+  const stop = stopRecommendationFor(report);
+  lines.push("## Verdict", "");
+  lines.push(
+    stop.recommend
+      ? `Verdict: improvement; stop local cleanup. ${stop.reason}`
+      : `Verdict: continue cleanup. ${stop.reason}`,
+  );
+  lines.push("");
+  if (baseline.missing.length > 0) {
+    lines.push(
+      `Note: baseline was missing ${baseline.missing.join(", ")}; omitted metrics are shown as n/a.`,
+      "",
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function reportSummaryForCompare(report) {
+  const top = report.rankings.all[0];
+  return {
+    worstScore: top?.scores.burden ?? 0,
+    worstSeverity: top ? severityFor(top) : "LOW",
+    hotspots: report.rankings.all.length,
+    defensiveEntries: uniqueDefenseEntries(report.sinks).length,
+    wrappers: sum(
+      report.rankings.all,
+      (sink) => sink.metrics.representationChurn,
+    ),
+    families: findingFamiliesFor(report),
+    backgroundLabels: unique(
+      report.rankings.all.map((sink) => sink.background?.label).filter(Boolean),
+    ),
+  };
+}
+
+function readReportDirectorySummary(directory) {
+  const missing = [];
+  const read = (name) => {
+    const file = path.join(directory, name);
+    if (!fs.existsSync(file)) {
+      missing.push(name);
+      return "";
+    }
+    return fs.readFileSync(file, "utf8");
+  };
+  const dossier = read("dossier.md");
+  const findings = read("findings.md");
+  const defensive = read("defensive-ledger.md");
+  const transform = read("transformation-ledger.md");
+  const workPackets = read("work-packets.md");
+  return {
+    worstScore:
+      parsePrimaryPivotScore(dossier) ?? parseWorstFindingScore(findings),
+    worstSeverity: parseWorstSeverity(findings),
+    hotspots:
+      parseDossierSinkCount(dossier) ??
+      countMarkdownHeadings(findings, /^## RPF-/),
+    defensiveEntries: countMarkdownTableRows(defensive),
+    wrappers: parseTransformationWrappers(transform),
+    families: parseFindingFamilies(workPackets, defensive),
+    missing,
+  };
+}
+
+function parsePrimaryPivotScore(text) {
+  const match = /\|\s*`[^`]*`\s*\|\s*\d+\s*\|\s*([0-9.]+)\s*\|/.exec(text);
+  return match ? Number(match[1]) : null;
+}
+
+function parseWorstFindingScore(text) {
+  const match = /burden score\s*\|\s*([0-9.]+)/i.exec(text);
+  return match ? Number(match[1]) : null;
+}
+
+function parseWorstSeverity(text) {
+  const match = /^## RPF-[^·]+·\s*([A-Z]+)/m.exec(text);
+  return match?.[1] ?? "n/a";
+}
+
+function parseDossierSinkCount(text) {
+  const match = /\|\s*\d+\s*\|\s*\d+\s*\|\s*\d+\s*\|\s*(\d+)\s*\|/.exec(text);
+  return match ? Number(match[1]) : null;
+}
+
+function countMarkdownHeadings(text, pattern) {
+  return text.split("\n").filter((line) => pattern.test(line)).length;
+}
+
+function countMarkdownTableRows(text) {
+  return text
+    .split("\n")
+    .filter(
+      (line) =>
+        /^\|/.test(line) &&
+        !/^\|\s*-/.test(line) &&
+        !/^\|\s*Location\s*\|/.test(line) &&
+        !/^\|\s*#\s*\|/.test(line),
+    ).length;
+}
+
+function parseTransformationWrappers(text) {
+  const match = /representation-only steps\s*\|\s*(\d+)/i.exec(text);
+  return match ? Number(match[1]) : null;
+}
+
+function parseFindingFamilies(text, defensiveText = "") {
+  const families = [];
+  if (
+    /\|[^\n|]+\|[^\n|]+\|[^\n|]+\|[^\n|]+\|\s*impossible\s*\|/i.test(
+      defensiveText,
+    )
+  )
+    families.push("type-impossible fallback");
+  if (
+    /Provider\/Context audit|Check whether this feature already has or needs a Provider\/Context boundary/i.test(
+      text,
+    )
+  )
+    families.push("provider/context advice");
+  if (/Grouped Recommendations|Extract bar|BarRect|BarTick/i.test(text))
+    families.push("render-item extraction");
+  if (/already readable|Background Findings/i.test(text))
+    families.push("background scalar helpers");
+  if (/healthy shared boundary|computeChartLayout/i.test(text))
+    families.push("healthy shared boundary");
+  if (/mirror singleton risk|mirror object/i.test(text))
+    families.push("mirror singleton risk");
+  return unique(families);
+}
+
+function findingFamiliesFor(report) {
+  const families = [];
+  if (
+    report.rankings.all.some((sink) => sink.metrics.impossibleDefenseCount > 0)
+  )
+    families.push("type-impossible fallback");
+  if (report.rankings.all.some((sink) => isProviderContextCandidate(sink)))
+    families.push("provider/context advice");
+  if (groupedRenderRecommendations(report.rankings.all).length > 0)
+    families.push("render-item extraction");
+  if (
+    report.rankings.all.some(
+      (sink) => sink.background?.label === "already readable",
+    )
+  )
+    families.push("background scalar helpers");
+  if (
+    report.rankings.all.some(
+      (sink) => sink.background?.label === "healthy shared boundary",
+    )
+  )
+    families.push("healthy shared boundary");
+  if (
+    report.rankings.all.some(
+      (sink) =>
+        mirrorSingletonRiskFor(sink) ||
+        sink.packVerdicts?.includes("mirror-object"),
+    )
+  )
+    families.push("mirror singleton risk");
+  return unique(families);
+}
+
+function uniqueDefenseEntries(sinks) {
+  return unique(
+    sinks.flatMap((sink) =>
+      (sink.defenses ?? []).map(
+        (defense) =>
+          `${defense.file}:${defense.line}:${defense.expression}:${defense.verdict}`,
+      ),
+    ),
+  );
+}
+
+function removedFindingFamilies(baseline, current) {
+  return (baseline.families ?? []).filter(
+    (family) => !(current.families ?? []).includes(family),
+  );
+}
+
+function remainingFindingFamilies(current) {
+  return current.families ?? [];
+}
+
+function formatWorstMetric(summary) {
+  if (!Number.isFinite(summary.worstScore)) return "n/a";
+  return `${summary.worstScore.toFixed(2)} ${summary.worstSeverity ?? ""}`.trim();
+}
+
+function formatOptionalNumber(value) {
+  return Number.isFinite(value) ? String(value) : "n/a";
+}
+
+function compareNumberLabel(before, after, lowerIsBetter) {
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return "n/a";
+  const improved = lowerIsBetter ? after < before : after > before;
+  const regressed = lowerIsBetter ? after > before : after < before;
+  if (Math.abs(after - before) < 0.001) return "same";
+  return improved ? "improved" : regressed ? "regressed" : "changed";
+}
+
+function formatDeltaLabel(before, after, lowerIsBetter) {
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return "n/a";
+  const delta = after - before;
+  const label = compareNumberLabel(before, after, lowerIsBetter);
+  return `${delta > 0 ? "+" : ""}${delta} ${label}`;
+}
+
+function stopRecommendationFor(report) {
+  const topActionable = report.rankings.all.find((sink) => !sink.background);
+  const defensiveEntries = uniqueDefenseEntries(report.sinks).length;
+  const highRiskPacks = report.packGroups.filter((group) =>
+    ["overpacked-bag", "relay-bag", "mirror-object"].includes(group.verdict),
+  );
+  const backgroundCount = report.rankings.all.filter(
+    (sink) => sink.background,
+  ).length;
+  const topScore = topActionable?.scores.burden ?? 0;
+  const lowTop = topScore < 0.35;
+  const mostlyBackground =
+    backgroundCount >= Math.max(1, report.rankings.all.length * 0.2);
+
+  if (
+    defensiveEntries === 0 &&
+    highRiskPacks.length === 0 &&
+    lowTop &&
+    mostlyBackground
+  ) {
+    return {
+      recommend: true,
+      reason:
+        "No defensive entries remain; highest actionable score is low; remaining paths are mostly scalar helpers or cohesive shared-boundary reads.",
+    };
+  }
+  if (defensiveEntries > 0) {
+    return {
+      recommend: false,
+      reason: `${defensiveEntries} defensive entr${defensiveEntries === 1 ? "y remains" : "ies remain"}.`,
+    };
+  }
+  if (highRiskPacks.length > 0) {
+    return {
+      recommend: false,
+      reason: `${highRiskPacks.length} high-risk pack verdict${highRiskPacks.length === 1 ? " remains" : "s remain"}.`,
+    };
+  }
+  return {
+    recommend: false,
+    reason: topActionable
+      ? `Highest actionable score is ${topScore.toFixed(2)}; review ${findingTitle(topActionable)} before stopping.`
+      : "No actionable findings remain.",
   };
 }
 
@@ -4834,7 +5697,11 @@ function code(value) {
 // (`` `link-${id}` ``) read as stray markdown ticks rather than signal — and a
 // stray "```" line would otherwise close the fence early.
 function fenced(content) {
-  return ["```", ...content.map((line) => String(line).replaceAll("`", "")), "```"];
+  return [
+    "```",
+    ...content.map((line) => String(line).replaceAll("`", "")),
+    "```",
+  ];
 }
 
 // Collapse an expression/path-step/label to a single line and truncate on a
@@ -4946,8 +5813,7 @@ function confidenceFor(metrics, defenses) {
   if (metrics.impossibleDefenseCount > 0) {
     return {
       score: 99,
-      reason:
-        "Single file, direct JSX sink, all hops statically resolved.",
+      reason: "Single file, direct JSX sink, all hops statically resolved.",
       risk: "low; behavior-preserving extraction likely.",
     };
   }
@@ -5035,6 +5901,95 @@ function severityFor(sink) {
   if (sink.metrics.impossibleDefenseCount > 0) return "HIGH";
   if (sink.scores.burden > 0.55) return "MEDIUM";
   return "LOW";
+}
+
+function backgroundClassificationFor(sink) {
+  const healthyBoundary = healthySharedBoundaryFor(sink);
+  if (healthyBoundary) {
+    return {
+      label: "healthy shared boundary",
+      reason: `${healthyBoundary} returns cohesive layout data; sink reads an expected field`,
+      penalty: 0.25,
+    };
+  }
+  if (isLowValueScalarHelper(sink)) {
+    return {
+      label: "already readable",
+      reason:
+        "local scalar helper; simple reads/arithmetic; no defenses or object packing",
+      penalty: 0.35,
+    };
+  }
+  return null;
+}
+
+function healthySharedBoundaryFor(sink) {
+  const metrics = sink.metrics ?? {};
+  if ((metrics.impossibleDefenseCount ?? 0) > 0) return null;
+  if ((metrics.defensiveOperationCount ?? 0) > 0) return null;
+  if ((metrics.packRisk ?? 0) > 0) return null;
+  if ((metrics.unknownEdgeCount ?? 0) > 0) return null;
+  const steps = sink.representativeSteps ?? [];
+  const helper = steps.find(
+    (step) =>
+      step.kind === "call" &&
+      /^(?:compute|build|create|derive)[A-Z].*(?:Layout|Geometry|Bounds|Scale|Chart)/.test(
+        step.label,
+      ),
+  );
+  if (!helper) return null;
+  const finalRead = [...steps]
+    .reverse()
+    .find((step) => step.kind === "property-read");
+  const field = finalRead?.label ?? "";
+  if (
+    !/^(?:inner|outer|width|height|left|right|top|bottom|x|y|scale|padding|domain|range)/i.test(
+      field,
+    )
+  ) {
+    return null;
+  }
+  const text = `${helper.label} ${helper.detail ?? ""}`;
+  return /Layout|Geometry|Bounds|Scale|Chart/.test(text) ? helper.label : null;
+}
+
+function isLowValueScalarHelper(sink) {
+  const metrics = sink.metrics ?? {};
+  if ((metrics.maximumPathDepth ?? 0) > 7) return false;
+  if ((metrics.impossibleDefenseCount ?? 0) > 0) return false;
+  if ((metrics.defensiveOperationCount ?? 0) > 0) return false;
+  if ((metrics.representationChurn ?? 0) > 0) return false;
+  if ((metrics.packRisk ?? 0) > 0) return false;
+  if ((metrics.unknownEdgeCount ?? 0) > 0) return false;
+  if ((metrics.mergeWidth ?? 0) > 3) return false;
+  const steps = sink.representativeSteps ?? [];
+  if (steps.some((step) => !SCALAR_HELPER_STEP_KINDS.has(step.kind)))
+    return false;
+  const text = steps.map((step) => step.label).join(" ");
+  if (!/[-+*/%<>!]|\b(?:Math|max|min|round|floor|ceil)\b/.test(text))
+    return false;
+  const finalStep = finalLocalStepFor(sink);
+  if (!finalStep || !["call", "alias"].includes(finalStep.kind)) return false;
+  const finalName = String(finalStep.label ?? "").replace(/\(\)$/g, "");
+  return /^(?:has|show|is|axis|tick|title|label|inner|outer|start|end|x|y|width|height|left|right|top|bottom)/i.test(
+    finalName,
+  );
+}
+
+const SCALAR_HELPER_STEP_KINDS = new Set([
+  "source",
+  "property-read",
+  "conditional",
+  "call",
+  "alias",
+  "solid-accessor",
+]);
+
+function finalLocalStepFor(sink) {
+  const steps = sink.representativeSteps ?? [];
+  return [...steps]
+    .reverse()
+    .find((step) => ["call", "alias", "property-read"].includes(step.kind));
 }
 
 function percentile(values, target) {
