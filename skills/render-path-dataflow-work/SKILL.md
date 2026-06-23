@@ -71,6 +71,7 @@ Read the report-layer guidance before choosing work:
 - **Grouped Recommendations** show cohesive fixes such as `BarTick[]`, `BarRectangle[]`, or rendered rows. Prefer these over editing each attribute sink separately.
 - **Extraction proposal** names should be concrete rendered nouns. Treat generic names such as `geometryModel`, `renderValue`, `selectedValue`, or `ItemModel` as stale output or a reason to rerun with the current analyzer.
 - **Extraction shape check** distinguishes `cohesive repeated item` from `mirror singleton risk`. Do not create a broad singleton object when the shape check warns against it.
+- **SVG shell attributes** (`width`, `height`, `viewBox`) size the root SVG/HTML shell, not the repeated rendered item. Prefer a simple inline expression or tiny local thunk immediately above the render block; do not extract a standalone helper just to pass defaulted shell values into it.
 - **Background Findings** are true paths but not recommended cleanup work.
 - **Stop Recommendation** tells you when more local cleanup is likely counterproductive.
 
@@ -243,6 +244,8 @@ Before editing, verify a finding by reading the source path:
 - The existing behavior has an observable purpose, such as incomplete drafts, external JSON, missing capture data, SSR first render, or user-entered text.
 - A proposed object pack is supported by the packet's pack verdict. Do not create a broad `view`, `ready`, or `itemView` object when the evidence points to overpacked/mirror/relay behavior.
 - A proposed extraction is supported by the **Extraction shape check**. Prefer cohesive repeated item shapes; avoid mirror singleton objects.
+- Root shell values such as `viewBox` are not render-item fields. Keep them inline, or use a tiny local thunk above JSX if the expression is too noisy; only extract a reusable helper when several render surfaces share one typed sizing boundary.
+- A fallback is valid when it converts a genuinely unknown, optional, external, or runtime-derived value into certainty. Do not contort code to move such fallbacks into helper arguments. Remove a fallback only when TypeScript and the actual runtime contract both prove it is stale.
 - A Provider/Context recommendation has concrete evidence in Feature Clusters or the path. Do not infer provider work from depth or hotspot count alone.
 
 Treat reports as candidate evidence, not truth. If a finding is noisy, skip it and choose the next grounded item.
@@ -257,10 +260,11 @@ Prefer these fixes when the source supports them:
 - Parse/normalize once at the data boundary or feature-model boundary instead of repeatedly inside render code.
 - Replace repeated nullish defaults with a typed non-null domain or view object.
 - Extract cohesive repeated render items when Grouped Recommendations identify a shared rendered thing, such as `BarRect[]`, `BarTick[]`, path labels, visible rows, or cards.
+- Keep SVG shell sizing (`viewBox`, root `width`, root `height`) separate from repeated render-item shapes. Inline the simple calculation or place a tiny thunk above the render block instead of adding a helper function in another section of the file.
 - Keep object packs when they are `normalization boundary` or `cohesive render model`; those usually want clearer names/tests, not automatic splitting.
 - Split object packs when they are `overpacked bag`, `mirror object`, or `relay bag`; prefer scalar gates and family-specific values such as `selectedSize`, `swatchStyle`, `buttonShadow`, or `spacingLabel`.
 - Keep clear scalar helpers and healthy shared layout helpers when they appear in `Background Findings`; do not flatten them simply to reduce a path count.
-- Remove type-impossible fallbacks after confirming TypeScript and runtime invariants.
+- Remove type-impossible fallbacks after confirming TypeScript and runtime invariants; keep compatibility, parser-boundary, optional-prop, and external-data fallbacks when they establish a real invariant for downstream code.
 - Collapse representation-only wrappers that do not express product behavior.
 - Replace prop relays with a feature-scoped Provider/Context or nearer ownership boundary when siblings/descendants share the same model.
 - Move pure parsing/formatting helpers out of TSX when that reduces render-path churn.

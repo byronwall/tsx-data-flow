@@ -918,6 +918,65 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(packets).toContain("verdict: mirror singleton risk");
   });
 
+  it("treats SVG shell attributes as inline root values, not helper extraction targets", async () => {
+    const project = await createFixtureProject({
+      "src/Circular.tsx": `
+        export function Circular(props: { size?: number; progress: number }) {
+          const size = props.size ?? 32;
+          const viewBox = \`0 0 \${size} \${size}\`;
+          const radius = (size - 4) / 2;
+          return <svg width={size} height={size} viewBox={viewBox}>
+            <circle cx={size / 2} cy={size / 2} r={radius} />
+          </svg>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const viewBoxSink = report.sinks.find(
+      (sink) => sink.renderContext?.attribute === "viewBox",
+    );
+
+    expect(viewBoxSink).toBeTruthy();
+    expect(sinkFamilyOf(viewBoxSink)).toBe("svg-shell");
+
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      maxItems: 20,
+      format: "markdown",
+    });
+
+    expect(packets).toContain("verdict: root shell scalar");
+    expect(packets).toContain(
+      "prefer a simple inline expression or a tiny local thunk",
+    );
+    expect(packets).not.toContain("proposed: function computeViewBox");
+  });
+
+  it("keeps fallback advice focused on certainty boundaries instead of helper args", async () => {
+    const project = await createFixtureProject({
+      "src/FallbackBoundary.tsx": `
+        export function FallbackBoundary(props: { label?: string; prefix: string }) {
+          const label = props.label ?? "unknown";
+          const display = props.prefix + ": " + label;
+          return <section aria-label={display}>{display}</section>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      maxItems: 20,
+      format: "markdown",
+    });
+
+    expect(packets).toContain("boundary that truly owns the uncertainty");
+    expect(packets).toContain(
+      "do not contort the code so the fallback becomes a helper argument",
+    );
+  });
+
   it("downranks harmless scalar helpers into background findings", async () => {
     const project = await createFixtureProject({
       "src/ScalarChart.tsx": `

@@ -2209,6 +2209,9 @@ function primaryShapeOf(sink) {
 }
 
 function primaryAdviceShape(sink, shapes = classifyPathShape(sink)) {
+  if (sinkFamilyOf(sink) === "svg-shell" && shapes.includes("svg-shell")) {
+    return "svg-shell";
+  }
   if (sink.category === "style" && shapes.includes("presentation-pack")) {
     return "presentation-pack";
   }
@@ -2794,6 +2797,14 @@ function appendBackgroundFindings(lines, report, args) {
 }
 
 function extractionShapeCheckFor(sink, packGroup, renderGroups = []) {
+  if (sinkFamilyOf(sink) === "svg-shell") {
+    return [
+      "verdict: root shell scalar",
+      `attribute: ${sinkAttributeName(sink) ?? "svg shell"}`,
+      "reason: this sizes or frames the root SVG/HTML shell, not a repeated rendered item.",
+      "recommendation: keep the calculation inline or as a tiny local thunk above the render block unless several render surfaces share one typed size boundary.",
+    ];
+  }
   const renderGroup = renderGroups.find((group) =>
     group.sinks.some((member) => member.id === sink.id),
   );
@@ -2829,6 +2840,7 @@ function extractionShapeCheckFor(sink, packGroup, renderGroups = []) {
 
 function mirrorSingletonRiskFor(sink) {
   const family = sinkFamilyOf(sink);
+  if (family === "svg-shell") return false;
   if ((sink.metrics.maximumPathDepth ?? 0) < 4) return false;
   return (
     ["geometry", "svg-shell", "other"].includes(family) &&
@@ -3625,9 +3637,13 @@ export function classifyPathShape(sink) {
   const rootInfos = sink.rootInfos ?? [];
   const tags = [];
 
+  if (attribute && SVG_SHELL_ATTRIBUTES.has(attribute)) {
+    tags.push("svg-shell");
+  }
+
   const hasArithmetic = /[-+*/%]/.test(labelText) || kinds.has("template");
   if (
-    (attribute && GEOMETRY_ATTRIBUTES.has(attribute)) ||
+    (attribute && GEOMETRY_FAMILY_ATTRIBUTES.has(attribute)) ||
     (kinds.has("template") &&
       hasArithmetic &&
       metrics.controlDependencyCount > 0)
@@ -3682,6 +3698,7 @@ export function classifyPathShape(sink) {
 
 // Plain-English noun for a shape tag — used in reviewer summaries (Phase 6).
 const SHAPE_PHRASES = {
+  "svg-shell": "SVG shell sizing",
   "geometry-chain": "SVG/layout geometry",
   "collection-render-model": "collection rendering",
   "control-flow-gate": "control-flow gating",
@@ -3693,6 +3710,8 @@ const SHAPE_PHRASES = {
 // One-line headline fix per primary shape — the lead sentence of the reviewer
 // summary (Phase 6) and the spine of the candidate edits (Phase 2).
 const SHAPE_HEADLINE_FIX = {
+  "svg-shell":
+    "keep root shell sizing inline or in a tiny local thunk unless it is a shared typed boundary",
   "geometry-chain":
     "compute cohesive render-item geometry in a memo, then read named fields in JSX",
   "collection-render-model":
@@ -3742,11 +3761,16 @@ function candidateEditsFor(sink, group = null) {
   }
 
   const shapeEdits = {
+    "svg-shell": [
+      "Keep SVG shell attributes such as width, height, and viewBox as root-level values; prefer a simple inline expression or a tiny local thunk immediately above the render block.",
+      "Do not extract a separate helper function only to pass defaulted shell values as arguments.",
+      "Only move shell sizing into a named boundary when the same typed sizing object is shared by several render surfaces.",
+    ],
     "geometry-chain": [
       `Extract a createMemo returning ${articleFor(renderedThingFor(sink))} ${renderedThingFor(sink)} value (for example { x, y, width, height }); keep the SVG attribute reading named fields.`,
       `Name the memo for what it renders (${pluralRenderedThing(renderedThingFor(sink))}, visibleRows), not a catch-all like layout/view.`,
       "Do not combine geometry with aria text, labels, control-flow, or styles unless the pack verdict is cohesive.",
-      "Resolve any defaults/normalization in a separate boundary before the geometry math.",
+      "Resolve unknown or nullable input into a certain value at the nearest true boundary before the geometry math; do not move a legitimate fallback into function arguments just to shorten a path.",
     ],
     "collection-render-model": [
       `Extract ${pluralRenderedThing(renderedThingFor(sink))} into a createMemo that returns the array; feed <For each={...}> and render one component per item.`,
@@ -3755,7 +3779,7 @@ function candidateEditsFor(sink, group = null) {
     "control-flow-gate": [
       "Prefer a scalar predicate or selected value for when={...}; avoid creating a broad ready object just to collapse nested gates.",
       "Only pack multiple selected fields when the same consumers use them together and the pack verdict stays cohesive.",
-      "Resolve fallbacks before the gate, not inside the JSX condition.",
+      "Keep fallbacks only when they convert an unknown or optional input into a certain value; avoid wrapping that fallback in a new helper call unless the helper owns the boundary.",
     ],
     "presentation-pack": [
       "Extract narrow style values by responsibility (for example swatchStyle, buttonShadow, spacingLabel) instead of one itemView object.",
@@ -3763,7 +3787,8 @@ function candidateEditsFor(sink, group = null) {
       "Use the pack verdict after rerun: overpacked/mirror/relay means split, cohesive/normalization means keep or formalize.",
     ],
     "domain-normalization": [
-      "Resolve defaults, optional reads, and union narrowing at a named boundary memo before any JSX reads it.",
+      "Resolve defaults, optional reads, and union narrowing at the boundary that truly owns the uncertainty, before JSX reads it.",
+      "If a fallback is the boundary, keep it close and explicit; do not contort the code so the fallback becomes a helper argument.",
       "Inline representation-only wrappers that have no semantic role.",
     ],
   };
@@ -3779,7 +3804,7 @@ function candidateEditsFor(sink, group = null) {
 
   if (sink.metrics.impossibleDefenseCount > 0) {
     edits.push(
-      "Remove the type-impossible fallback(s) — unreachable under the checked types.",
+      "Remove the type-impossible fallback(s) only after confirming the checked type is the real runtime contract.",
     );
   }
   edits.push(reminder);
@@ -4213,6 +4238,7 @@ function extractionBoundariesFor(sink) {
 function extractionProposalFor(sink) {
   // Only worth proposing for paths deep enough that a boundary actually helps.
   if ((sink.metrics?.maximumPathDepth ?? 0) < 4) return null;
+  if (sinkFamilyOf(sink) === "svg-shell") return null;
   const inputs = fanOutRootsFor(sink).slice(0, 5);
   if (inputs.length === 0) return null;
 
@@ -4272,8 +4298,9 @@ function proposedHelperName(sink) {
   const renderedThing = renderedThingFor(sink);
   switch (sinkFamilyOf(sink)) {
     case "geometry":
-    case "svg-shell":
       return `compute${pascalCase(singularRenderedThing(renderedThing))}`;
+    case "svg-shell":
+      return `${camelCase(singularRenderedThing(renderedThing))}`;
     case "control-flow":
       return predicateNameFor(sink);
     case "style":
