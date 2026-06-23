@@ -638,6 +638,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     );
 
     const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    expect(packets).toContain("Pack verdict");
     expect(packets).toContain("Sink-family split");
     expect(packets).toContain("feeds 3 sink families");
   });
@@ -655,9 +656,100 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     const report = await analyzeProject(project.args);
     const overpacked = report.packGroups.find((group) => group.verdict === "overpacked-bag");
     expect(overpacked).toBeUndefined();
-    const renderModel = report.packGroups.find((group) => group.verdict === "render-model");
+    const renderModel = report.packGroups.find((group) => group.verdict === "cohesive-render-model");
     expect(renderModel).toBeTruthy();
     expect(renderModel.families).toEqual(["text"]);
+  });
+
+  it("keeps parser-owned object packs as normalization boundaries", async () => {
+    const project = await createFixtureProject({
+      "src/ParserPack.tsx": `
+        declare function createMemo<T>(fn: () => T): () => T;
+        function parseToken(value: string) {
+          const parts = value.match(/[a-z]+/gi) ?? [];
+          return {
+            color: parts[0] ?? "red",
+            label: parts[1] ?? "missing",
+          };
+        }
+        export function Chip(props: { value: string }) {
+          const parsed = createMemo(() => parseToken(props.value));
+          return <div title={parsed().label} style={{ color: parsed().color }}>{parsed().label}</div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const boundary = report.packGroups.find(
+      (group) => group.verdict === "normalization-boundary",
+    );
+    expect(boundary).toBeTruthy();
+    expect(boundary.families.length).toBeGreaterThan(1);
+
+    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    expect(packets).toContain("normalization boundary");
+    expect(packets).toContain("keep this as a named boundary");
+    expect(packets).toContain("proposed: function parsedValue(");
+    expect(packets).not.toContain("item models");
+  });
+
+  it("flags broad item view packs that mix render responsibilities", async () => {
+    const project = await createFixtureProject({
+      "src/Legend.tsx": `
+        declare function createMemo<T>(fn: () => T): () => T;
+        declare function Show(props: { when: unknown; children: unknown }): unknown;
+        export function LegendItem(props: { active: boolean; item: { label: string; color: string; size: number } }) {
+          const view = createMemo(() => ({
+            ariaLabel: \`Highlight \${props.item.label}\`,
+            buttonShadow: props.active ? \`0 0 0 2px \${props.item.color}\` : "none",
+            label: props.item.label,
+            swatchColor: props.item.color,
+            swatchSize: props.item.size,
+            visible: props.active,
+          }));
+          return <button aria-label={view().ariaLabel} style={{ "box-shadow": view().buttonShadow }}>
+            <span style={{ width: \`\${view().swatchSize}px\`, color: view().swatchColor }}>{view().label}</span>
+            <Show when={view().visible}>active</Show>
+          </button>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const suspicious = report.packGroups.find((group) =>
+      ["overpacked-bag", "relay-bag"].includes(group.verdict),
+    );
+    expect(suspicious).toBeTruthy();
+    expect(suspicious.families).toEqual(
+      expect.arrayContaining(["style", "text", "control-flow"]),
+    );
+    expect(suspicious.evidence.familyCount).toBeGreaterThanOrEqual(3);
+
+    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+    expect(packets).toContain("Pack verdict");
+    expect(packets).toMatch(/overpacked bag|relay bag/);
+    expect(packets).toContain("avoid broadening");
+  });
+
+  it("steers control-flow gates toward scalar values instead of ready bags", async () => {
+    const project = await createFixtureProject({
+      "src/Ready.tsx": `
+        declare function Show(props: { when: unknown; children: unknown }): unknown;
+        function choose<T>(items: T[], fallback: T | undefined) {
+          return items[0] ?? fallback;
+        }
+        export function Ready(props: { sizes: string[]; weights: string[] }) {
+          const selectedSize = choose(props.sizes, props.sizes[0]);
+          const selectedWeight = choose(props.weights, props.weights[0]);
+          return <Show when={selectedSize}>{selectedWeight}</Show>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const packets = renderReport(report, { ...project.args, view: "work-packets", format: "markdown" });
+
+    expect(packets).toContain("Prefer a scalar predicate or selected value");
+    expect(packets).toContain("avoid creating a broad ready object");
+    expect(packets).toContain("proposed: function selectedValue(");
+    expect(packets).not.toContain("renderModel");
   });
 
   it("renders human-readable confidence, reviewer summary, ownership, and boundaries", async () => {
@@ -894,6 +986,33 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(output).toContain("Origin");
     expect(output).toContain("stale (type-impossible)");
     expect(output).toContain("compatibility (optional)");
+  });
+
+  it("does not call parser-boundary indexed extraction fallbacks type-impossible", async () => {
+    const project = await createFixtureProject({
+      "src/ParserBoundary.tsx": `
+        function extractCssColorValues(value: string) {
+          return value.match(/#[0-9a-f]+/gi) ?? [];
+        }
+        function parseBoxShadow(value: string) {
+          const rawColor = extractCssColorValues(value)[0];
+          const color = rawColor ?? "rgba(0, 0, 0, 0.25)";
+          const parts = value.match(/-?\\d+(?:\\.\\d+)?(?:px|rem|em|%)?/gu) ?? [];
+          const spread = parts[3] ?? "0px";
+          return { color, spread };
+        }
+        export function ShadowChip(props: { value: string }) {
+          const shadow = parseBoxShadow(props.value);
+          return <div style={{ color: shadow.color }} data-spread={shadow.spread} />;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, { ...project.args, view: "defensive-ledger", format: "markdown" });
+
+    expect(output).toContain("parser-boundary fallback");
+    expect(output).not.toContain("stale (type-impossible)");
+    expect(report.sinks.every((sink) => sink.metrics.impossibleDefenseCount === 0)).toBe(true);
   });
 
   it("dedupes a defense across reachable sinks into one row with a Sinks count", async () => {

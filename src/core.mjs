@@ -103,6 +103,14 @@ const GEOMETRY_ATTRIBUTES = new Set([
 ]);
 const STYLE_ATTRIBUTES = new Set(["class", "className", "style"]);
 const CONTROL_FLOW_ATTRIBUTES = new Set(["when", "each", "fallback"]);
+const IDENTITY_ATTRIBUTES = new Set([
+  "id",
+  "href",
+  "xlink:href",
+  "for",
+  "name",
+  "headers",
+]);
 
 // Analyzer jargon and tidy-but-vague names that must never be suggested as code
 // identifiers. Reports may use these words in prose; generated code names must
@@ -113,6 +121,7 @@ export const BANNED_SUGGESTION_IDENTIFIERS = [
   "fanInResult",
   "transformedProps",
   "viewModel",
+  "renderModel",
   "layout",
 ];
 // This package's own directory (one level up from src/). Used as a last-resort
@@ -642,10 +651,11 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     analyzeContextRelay(ts, sourceFiles, args.root),
     args.scope,
   );
+  const packGroups = computePackGroups(filteredSinks);
+  applyPackEvidence(filteredSinks, packGroups);
   const rankings = rankSinks(
     filteredSinks.filter((sink) => sink.category !== "event-handler"),
   );
-  const packGroups = computePackGroups(filteredSinks);
   // Shared-cause work units (Approach 3) and the concentration profile
   // (Approach 5) are pure roll-ups over the burden ranking; compute once so
   // every view projects from the same data.
@@ -1756,6 +1766,9 @@ function metricsFor(trace) {
     reachableSinks: 1,
     repeatedNormalization: Math.max(0, defensiveOperationCount - 1),
     unknownEdgeCount,
+    packFamilyDiversity: 0,
+    packRisk: 0,
+    suspiciousPackCount: 0,
   };
 }
 
@@ -1794,7 +1807,10 @@ function groundReachability(sinks) {
 }
 
 function defenseRecord(ts, checker, guardedExpression, node, operation) {
-  const verdict = getNullishStatus(ts, checker, guardedExpression);
+  const runtimeBoundary = runtimeBoundaryFallback(ts, checker, guardedExpression);
+  const typeVerdict = getNullishStatus(ts, checker, guardedExpression);
+  const verdict =
+    typeVerdict === "impossible" && runtimeBoundary ? "possible" : typeVerdict;
   return {
     operation,
     expression: node.getText(),
@@ -1803,7 +1819,14 @@ function defenseRecord(ts, checker, guardedExpression, node, operation) {
       checker.typeToString(checker.getTypeAtLocation(guardedExpression)),
     ),
     verdict,
-    origin: fallbackOrigin(ts, checker, guardedExpression, node, verdict),
+    origin: fallbackOrigin(
+      ts,
+      checker,
+      guardedExpression,
+      node,
+      verdict,
+      runtimeBoundary,
+    ),
     location: locationOf(node.getSourceFile(), node),
   };
 }
@@ -1811,7 +1834,15 @@ function defenseRecord(ts, checker, guardedExpression, node, operation) {
 // Phase 9 — distinguish stale defensive code from intentional compatibility
 // guards, using only local signals: the guard's type/optionality and any
 // leading comment on the AST node (no repo scanning).
-function fallbackOrigin(ts, checker, guardedExpression, node, verdict) {
+function fallbackOrigin(
+  ts,
+  checker,
+  guardedExpression,
+  node,
+  verdict,
+  runtimeBoundary = null,
+) {
+  if (runtimeBoundary) return runtimeBoundary.origin;
   if (verdict === "impossible") return "stale (type-impossible)";
   if (verdict === "unknown") return "unknown";
   const comment = leadingCommentText(ts, node);
@@ -1830,6 +1861,102 @@ function fallbackOrigin(ts, checker, guardedExpression, node, verdict) {
     return "compatibility (optional)";
   }
   return "defensive (review)";
+}
+
+// TypeScript usually reports `array[index]` as the element type unless the
+// target enables noUncheckedIndexedAccess. Parser code often defaults indexed
+// regex/extraction results precisely because a valid broad string may yield no
+// token, so do not promote those fallbacks to "type-impossible".
+function runtimeBoundaryFallback(ts, checker, expression, seen = new Set()) {
+  const unwrapped = unwrapExpression(ts, expression);
+  if (seen.has(unwrapped)) return null;
+  seen.add(unwrapped);
+
+  if (ts.isIdentifier(unwrapped)) {
+    const initializer = declarationInitializer(ts, checker, unwrapped);
+    if (initializer) {
+      return runtimeBoundaryFallback(ts, checker, initializer, seen);
+    }
+  }
+
+  if (!ts.isElementAccessExpression(unwrapped)) return null;
+  if (!looksLikeNumericIndex(ts, unwrapped.argumentExpression)) return null;
+  if (!isRuntimeOptionalSequence(ts, checker, unwrapped.expression, seen)) {
+    return null;
+  }
+  return { origin: "parser-boundary fallback" };
+}
+
+function declarationInitializer(ts, checker, identifier) {
+  const symbol = checker.getSymbolAtLocation(identifier);
+  const declaration = symbol?.valueDeclaration;
+  if (!declaration || !ts.isVariableDeclaration(declaration)) return null;
+  if (!ts.isIdentifier(declaration.name)) return null;
+  return declaration.initializer ?? null;
+}
+
+function isRuntimeOptionalSequence(ts, checker, expression, seen) {
+  const unwrapped = unwrapExpression(ts, expression);
+  if (seen.has(unwrapped)) return false;
+  seen.add(unwrapped);
+
+  if (ts.isCallExpression(unwrapped)) {
+    return isParserLikeCall(ts, unwrapped);
+  }
+  if (ts.isBinaryExpression(unwrapped)) {
+    return (
+      unwrapped.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken &&
+      isRuntimeOptionalSequence(ts, checker, unwrapped.left, seen)
+    );
+  }
+  if (ts.isIdentifier(unwrapped)) {
+    const initializer = declarationInitializer(ts, checker, unwrapped);
+    if (initializer) {
+      return isRuntimeOptionalSequence(ts, checker, initializer, seen);
+    }
+  }
+  return isArrayLikeExtractionType(ts, checker, unwrapped);
+}
+
+function isParserLikeCall(ts, call) {
+  const callee = call.expression;
+  if (ts.isPropertyAccessExpression(callee)) {
+    return /^(exec|filter|flatMap|map|match|matchAll|split)$/u.test(
+      callee.name.text,
+    );
+  }
+  if (ts.isIdentifier(callee)) {
+    return /(?:extract|find|match|parse|token|split)/iu.test(callee.text);
+  }
+  return false;
+}
+
+function isArrayLikeExtractionType(ts, checker, expression) {
+  const typeText = checker.typeToString(checker.getTypeAtLocation(expression));
+  return /\b(?:Array|ReadonlyArray|RegExpMatchArray|string)\b|\[\]/u.test(
+    typeText,
+  );
+}
+
+function looksLikeNumericIndex(ts, expression) {
+  if (!expression) return true;
+  if (ts.isNumericLiteral(expression)) return true;
+  return (
+    ts.isPrefixUnaryExpression(expression) &&
+    ts.isNumericLiteral(expression.operand)
+  );
+}
+
+function unwrapExpression(ts, expression) {
+  let current = expression;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
 }
 
 function leadingCommentText(ts, node) {
@@ -1922,7 +2049,20 @@ function primaryPivotOf(sink) {
   return roots.length ? formatExpression(roots[0].label, 40) : null;
 }
 function primaryShapeOf(sink) {
-  return classifyPathShape(sink)[0] ?? "uncategorized";
+  return primaryAdviceShape(sink) ?? "uncategorized";
+}
+
+function primaryAdviceShape(sink, shapes = classifyPathShape(sink)) {
+  if (sink.category === "style" && shapes.includes("presentation-pack")) {
+    return "presentation-pack";
+  }
+  if (
+    sink.category === "render-control" &&
+    shapes.includes("control-flow-gate")
+  ) {
+    return "control-flow-gate";
+  }
+  return shapes[0] ?? null;
 }
 
 // Approach 3 — collapse file-local sinks that share a cause into one work unit.
@@ -2241,6 +2381,7 @@ function renderFindings(report, args) {
         ["representation changes", sink.metrics.representationChurn],
         ["defensive operations", sink.metrics.defensiveOperationCount],
         ["impossible defenses", sink.metrics.impossibleDefenseCount],
+        ["pack risk", sink.metrics.packRisk],
         ["downstream sink count", sink.metrics.reachableSinks],
         ["centrality percentile", Math.round(sink.scores.centrality * 100)],
         ["analysis confidence", `${sink.confidence}%`],
@@ -2341,7 +2482,7 @@ function renderWorkPackets(report, args) {
   lines.push(...concentrationLines(report, sinks.length));
   const itemKind = selection.useUnits ? "WORK UNIT" : "WORK ITEM";
   sinks.forEach((sink, index) => {
-    const group = overpackedGroupForSink(sink, report.packGroups);
+    const group = packGroupForSink(sink, report.packGroups);
     lines.push(
       `## ${itemKind} DF-${String(index + 1).padStart(3, "0")}  ·  ${sink.id}`,
     );
@@ -2401,6 +2542,9 @@ function renderWorkPackets(report, args) {
     lines.push(
       `- ${sink.metrics.impossibleDefenseCount} type-impossible fallbacks`,
     );
+    if (sink.metrics.packRisk > 0) {
+      lines.push(`- pack risk ${sink.metrics.packRisk}`);
+    }
     lines.push("");
     lines.push("**Representative path**");
     lines.push("");
@@ -2411,6 +2555,12 @@ function renderWorkPackets(report, args) {
     lines.push(...fenced(representativePathWithBoundaries(sink)));
     lines.push("");
     if (group) {
+      lines.push("**Pack verdict**");
+      lines.push("");
+      lines.push(...fenced(packVerdictLines(group)));
+      lines.push("");
+    }
+    if (group?.verdict === "overpacked-bag") {
       lines.push("**Sink-family split**");
       lines.push("");
       lines.push(...fenced(overpackedSplitLines(group)));
@@ -2425,7 +2575,7 @@ function renderWorkPackets(report, args) {
     }
     lines.push("**Candidate edits**");
     lines.push("");
-    candidateEditsFor(sink).forEach((edit, editIndex) => {
+    candidateEditsFor(sink, group).forEach((edit, editIndex) => {
       lines.push(`${editIndex + 1}. ${edit}`);
     });
     lines.push("");
@@ -3119,23 +3269,43 @@ const SHAPE_PHRASES = {
 // summary (Phase 6) and the spine of the candidate edits (Phase 2).
 const SHAPE_HEADLINE_FIX = {
   "geometry-chain":
-    "compute a render-ready geometry model in a memo, then read named fields in JSX",
+    "compute a cohesive geometry value in a memo, then read named fields in JSX",
   "collection-render-model":
     "extract the item models into a memo and render one component per item",
   "control-flow-gate":
-    "name the predicate (or the shown value) in a memo so the gate reads as a sentence",
+    "name the scalar predicate or selected value so the gate reads as a sentence",
   "presentation-pack":
-    "build the class/style object in a small memo split by responsibility",
+    "split style/class values by render responsibility before considering a packed object",
   "domain-normalization":
     "resolve defaults and normalization at a named boundary before JSX",
   "cross-component-relay":
     "move shared state behind a Provider/Context instead of threading props",
 };
 
-function candidateEditsFor(sink) {
+function candidateEditsFor(sink, group = null) {
   const shapes = classifyPathShape(sink);
   const reminder =
     "Keep JSX scannable — attributes should read named values, not derive them.";
+
+  if (group?.verdict === "normalization-boundary") {
+    return [
+      "Keep the parser/model object as the normalization boundary; move defaults, parsing fragments, and derived fields there.",
+      "Let JSX read the typed parsed fields directly instead of recomputing or slicing around the raw input.",
+      "Do not split this pack just because it is an object; rerun only to confirm the verdict stays a normalization boundary.",
+      reminder,
+    ];
+  }
+
+  if (group && ["overpacked-bag", "mirror-object", "relay-bag"].includes(group.verdict)) {
+    return [
+      "Split the packed object by render responsibility instead of widening it.",
+      "Keep style, geometry, identity, text, and control-flow values in separate narrow selectors unless the same consumers use them together.",
+      group.verdict === "relay-bag"
+        ? "Move broad shared state closer to consumers, or expose focused selectors from the feature boundary."
+        : "Inline mirror fields or extract only the derived values that remove repeated work.",
+      reminder,
+    ];
+  }
 
   // Provider/Context advice is reserved for genuine cross-component relays (or
   // flows already rooted at a feature hook), not local geometry/normalization.
@@ -3145,8 +3315,9 @@ function candidateEditsFor(sink) {
 
   const shapeEdits = {
     "geometry-chain": [
-      "Extract a createMemo returning the render-ready geometry (e.g. { x, y, width, height }); keep the SVG attribute reading named fields.",
-      "Name the memo for what it positions (barSizing, nullBar), not a catch-all like layout.",
+      "Extract a createMemo returning a cohesive geometry value (e.g. { x, y, width, height }); keep the SVG attribute reading named fields.",
+      "Name the memo for what it positions (barSizing, nullBar), not a catch-all like layout/view.",
+      "Do not combine geometry with aria text, labels, control-flow, or styles unless the pack verdict is cohesive.",
       "Resolve any defaults/normalization in a separate boundary before the geometry math.",
     ],
     "collection-render-model": [
@@ -3154,12 +3325,14 @@ function candidateEditsFor(sink) {
       "Name the memo with a plural noun for what is rendered (realBars, visibleRows).",
     ],
     "control-flow-gate": [
-      "Name the predicate or the shown value in a memo so the when={...} reads as a sentence.",
+      "Prefer a scalar predicate or selected value for when={...}; avoid creating a broad ready object just to collapse nested gates.",
+      "Only pack multiple selected fields when the same consumers use them together and the pack verdict stays cohesive.",
       "Resolve fallbacks before the gate, not inside the JSX condition.",
     ],
     "presentation-pack": [
-      "Build the class/style object in a small memo split by responsibility.",
-      "Avoid packing unrelated attributes into one object that several sinks then share.",
+      "Extract narrow style values by responsibility (for example swatchStyle, buttonShadow, spacingLabel) instead of one itemView object.",
+      "Keep aria/text/identity fields separate from style and geometry unless consumers always use them together.",
+      "Use the pack verdict after rerun: overpacked/mirror/relay means split, cohesive/normalization means keep or formalize.",
     ],
     "domain-normalization": [
       "Resolve defaults, optional reads, and union narrowing at a named boundary memo (e.g. profileData) before any JSX reads it.",
@@ -3167,7 +3340,7 @@ function candidateEditsFor(sink) {
     ],
   };
 
-  const primary = shapes[0];
+  const primary = primaryAdviceShape(sink, shapes);
   const edits = shapeEdits[primary]
     ? [...shapeEdits[primary]]
     : [
@@ -3232,21 +3405,24 @@ function hasContextHookRoot(sink) {
 
 // Phase 3a — the render region a sink belongs to. width/height/viewBox are the
 // SVG/HTML *shell*; coordinate attributes are *geometry*; when/each/fallback are
-// *control-flow*; class/style are *style*; bare values are *text*.
+// *control-flow*; class/style are *style*; id/href-like fields are *identity*;
+// bare values are *text*.
 export function sinkFamilyOf(sink) {
   const attribute = sinkAttributeName(sink);
   if (attribute && SVG_SHELL_ATTRIBUTES.has(attribute)) return "svg-shell";
   if (attribute && GEOMETRY_FAMILY_ATTRIBUTES.has(attribute)) return "geometry";
   if (attribute && CONTROL_FLOW_ATTRIBUTES.has(attribute)) return "control-flow";
   if (attribute && STYLE_ATTRIBUTES.has(attribute)) return "style";
+  if (attribute && IDENTITY_ATTRIBUTES.has(attribute)) return "identity";
   if (sink.category === "rendered-value") return "text";
   return "other";
 }
 
 // Phase 3b/3c — group sinks that flow through the same packed object (a
-// createMemo/object literal). A pack feeding ≥2 sinks is a "render model" when
-// every consumer shares one family (benign wrapper / shape noise) and an
-// "overpacked bag" when it feeds ≥2 families (mixed responsibility — split it).
+// createMemo/object literal). The verdict is evidence-based: a pack can be a
+// useful normalization boundary or cohesive render model, not just wrapper
+// churn; it becomes suspicious when it mixes sink families, mirrors props, or
+// expands one source into broad relay work.
 function computePackGroups(sinks) {
   const byPack = new Map();
   for (const sink of sinks) {
@@ -3272,6 +3448,7 @@ function computePackGroups(sinks) {
         .add(sinkAttributeName(sink) ?? formatExpression(sink.expression, 24));
     }
     const families = Array.from(familyMembers.keys());
+    const evidence = packEvidenceFor(entry, families);
     groups.push({
       key: entry.key,
       label: formatExpression(entry.label, 48),
@@ -3283,26 +3460,135 @@ function computePackGroups(sinks) {
           Array.from(members),
         ]),
       ),
-      verdict: families.length >= 2 ? "overpacked-bag" : "render-model",
+      evidence,
+      verdict: packVerdictFor(evidence),
     });
   }
   return groups.sort(
     (left, right) =>
+      packRiskForVerdict(right.verdict) - packRiskForVerdict(left.verdict) ||
       right.families.length - left.families.length ||
       right.sinkCount - left.sinkCount,
   );
 }
 
-// The overpacked-bag group (if any) that a given sink flows through — the one
-// with the most families wins when a sink touches several packs.
-function overpackedGroupForSink(sink, packGroups) {
+function packEvidenceFor(entry, families) {
+  const sinks = entry.sinks;
+  const roots = unique(
+    sinks.flatMap((sink) =>
+      fanOutRootsFor(sink).map((info) => formatExpression(info.label, 48)),
+    ),
+  );
+  const steps = sinks.flatMap((sink) => sink.representativeSteps ?? []);
+  const callText = steps
+    .filter((step) => step.kind === "call")
+    .map((step) => step.label)
+    .join(" ");
+  const packText = `${entry.label} ${callText}`;
+  const parserBoundary = /\b(?:parse|parser|extract|decode|token|match|css|shadow|normalize|normalise)\b/iu.test(
+    packText,
+  );
+  const helperBoundary = /\b(?:selection|choices?|model|view|derive|build|create)\b/iu.test(
+    callText,
+  );
+  const defensiveOps = sum(sinks, (sink) => sink.metrics.defensiveOperationCount);
+  const representationChurn = sum(sinks, (sink) => sink.metrics.representationChurn);
+  const helperHops = sum(sinks, (sink) => sink.metrics.helperHops);
+  const maxReach = Math.max(0, ...sinks.map((sink) => sink.metrics.reachableSinks));
+  const propRoots = roots.filter((root) => /^props\./.test(root));
+  const sourceFamilies = new Set(roots.map(sourceFamilyKey));
+  const mirrorLike =
+    roots.length >= 3 &&
+    propRoots.length / roots.length >= 0.75 &&
+    helperHops <= sinks.length &&
+    defensiveOps === 0 &&
+    families.length <= 2;
+
+  return {
+    familyCount: families.length,
+    sourceRootCount: roots.length,
+    sourceFamilyCount: sourceFamilies.size,
+    defensiveOps,
+    representationChurn,
+    helperHops,
+    maxReach,
+    parserBoundary,
+    helperBoundary,
+    mirrorLike,
+    relayLike: maxReach >= 6 && families.length >= 2 && roots.length >= 2,
+  };
+}
+
+function packVerdictFor(evidence) {
+  if (
+    evidence.parserBoundary &&
+    (evidence.defensiveOps > 0 || evidence.helperHops > 0)
+  ) {
+    return "normalization-boundary";
+  }
+  if (evidence.mirrorLike) return "mirror-object";
+  if (evidence.relayLike) return "relay-bag";
+  if (evidence.familyCount >= 2) return "overpacked-bag";
+  return "cohesive-render-model";
+}
+
+function sourceFamilyKey(root) {
+  const parts = String(root).split(".");
+  return parts.slice(0, Math.min(parts.length, 2)).join(".");
+}
+
+function packRiskForVerdict(verdict) {
+  switch (verdict) {
+    case "relay-bag":
+      return 12;
+    case "overpacked-bag":
+      return 9;
+    case "mirror-object":
+      return 7;
+    case "cohesive-render-model":
+      return 0;
+    case "normalization-boundary":
+      return 0;
+    default:
+      return 4;
+  }
+}
+
+function applyPackEvidence(sinks, packGroups) {
+  const groupsByKey = new Map(packGroups.map((group) => [group.key, group]));
+  for (const sink of sinks) {
+    const groups = (sink.packs ?? [])
+      .map((pack) => groupsByKey.get(pack.key))
+      .filter(Boolean);
+    if (groups.length === 0) continue;
+    sink.packVerdicts = unique(groups.map((group) => group.verdict));
+    sink.metrics.packFamilyDiversity = Math.max(
+      0,
+      ...groups.map((group) => group.families.length),
+    );
+    sink.metrics.packRisk = Math.max(
+      0,
+      ...groups.map((group) => packRiskForVerdict(group.verdict)),
+    );
+    sink.metrics.suspiciousPackCount = groups.filter(
+      (group) => packRiskForVerdict(group.verdict) > 0,
+    ).length;
+  }
+}
+
+// The pack group (if any) that a given sink flows through — suspicious groups
+// win, then broader family spread, then larger sink count.
+function packGroupForSink(sink, packGroups) {
   const keys = new Set((sink.packs ?? []).map((pack) => pack.key));
   return (
     (packGroups ?? [])
-      .filter(
-        (group) => group.verdict === "overpacked-bag" && keys.has(group.key),
-      )
-      .sort((left, right) => right.families.length - left.families.length)[0] ??
+      .filter((group) => keys.has(group.key))
+      .sort(
+        (left, right) =>
+          packRiskForVerdict(right.verdict) - packRiskForVerdict(left.verdict) ||
+          right.families.length - left.families.length ||
+          right.sinkCount - left.sinkCount,
+      )[0] ??
     null
   );
 }
@@ -3313,9 +3599,48 @@ const FAMILY_LABELS = {
   geometry: "Geometry",
   "control-flow": "Control flow",
   style: "Style",
+  identity: "Identity",
   text: "Text",
   other: "Other",
 };
+
+const PACK_VERDICT_LABELS = {
+  "cohesive-render-model": "cohesive render model",
+  "normalization-boundary": "normalization boundary",
+  "overpacked-bag": "overpacked bag",
+  "mirror-object": "mirror object",
+  "relay-bag": "relay bag",
+};
+
+function packVerdictLines(group) {
+  const evidence = group.evidence;
+  const lines = [
+    `verdict: ${PACK_VERDICT_LABELS[group.verdict] ?? group.verdict}`,
+    `evidence: ${group.sinkCount} sinks, ${evidence.familyCount} sink families, ${evidence.sourceRootCount} source roots, reach ${evidence.maxReach}`,
+  ];
+  if (group.verdict === "normalization-boundary") {
+    lines.push(
+      "direction: keep this as a named boundary; move parser/defaulting work here, then let JSX read typed fields.",
+    );
+  } else if (group.verdict === "cohesive-render-model") {
+    lines.push(
+      "direction: this pack is cohesive; formalize or narrow it rather than splitting solely because it is an object.",
+    );
+  } else if (group.verdict === "overpacked-bag") {
+    lines.push(
+      "direction: split by render responsibility; avoid one object feeding unrelated JSX concerns.",
+    );
+  } else if (group.verdict === "mirror-object") {
+    lines.push(
+      "direction: this mostly mirrors source fields; prefer narrow derived values or inline reads.",
+    );
+  } else if (group.verdict === "relay-bag") {
+    lines.push(
+      "direction: this broad pack fans out through the feature; move ownership closer to consumers or split selectors.",
+    );
+  }
+  return lines;
+}
 
 // The "split this object by sink family" block shown under a work item whose
 // packed object feeds more than one family (Phase 3d).
@@ -3376,7 +3701,10 @@ function extractionBoundariesFor(sink) {
   let modelShape = null;
   if (family === "geometry" || family === "svg-shell") {
     modelShape = "{ x, y, width, height }";
-  } else if (classifyPathShape(sink).includes("collection-render-model")) {
+  } else if (
+    !sink.packVerdicts?.includes("normalization-boundary") &&
+    classifyPathShape(sink).includes("collection-render-model")
+  ) {
     modelShape = "Array<ItemModel>";
   }
   return { boundaries, modelShape };
@@ -3421,27 +3749,41 @@ function extractionProposalFor(sink) {
   if (lo != null && hi != null && hi > lo) {
     lines.push(`moves ~${sink.file.split("/").pop()}:${lo}–${hi}`);
   }
+  const resultPhrase =
+    sinkFamilyOf(sink) === "control-flow" || sink.category === "rendered-value"
+      ? `JSX reads ${name}(...)`
+      : `JSX reads a field of ${name}(...)`;
   lines.push(
-    `after: JSX reads a field of ${name}(...) — a short path instead of ${sink.metrics.maximumPathDepth} hops.`,
+    `after: ${resultPhrase} — a short path instead of ${sink.metrics.maximumPathDepth} hops.`,
   );
+  if (sink.metrics.packRisk > 0 || sink.category === "render-control") {
+    lines.push(
+      "avoid: do not introduce a broad packed object unless a rerun reports it as cohesive.",
+    );
+  }
   return lines;
 }
 
 // A domain-flavored helper name from the sink's render family — never a banned
 // catch-all (`layout`, `viewModel`, …).
 function proposedHelperName(sink) {
+  if (sink.packVerdicts?.includes("normalization-boundary")) {
+    return "parsedValue";
+  }
   switch (sinkFamilyOf(sink)) {
     case "geometry":
     case "svg-shell":
       return "geometryModel";
     case "control-flow":
-      return "visibleWhen";
+      return "selectedValue";
     case "style":
       return "styleProps";
+    case "identity":
+      return "elementRef";
     default:
       return classifyPathShape(sink).includes("collection-render-model")
         ? "itemModels"
-        : "renderModel";
+        : "renderValue";
   }
 }
 
@@ -3585,15 +3927,29 @@ function reviewerSummaryFor(sink, group) {
     phrases.length > 0
       ? `This sink mixes ${joinList(phrases)}.`
       : "This sink has more data-flow plumbing than nearby JSX should need.";
-  const fix = SHAPE_HEADLINE_FIX[shapes[0]];
-  const fixSentence = fix
+  const primary = primaryAdviceShape(sink, shapes);
+  const fix = SHAPE_HEADLINE_FIX[primary];
+  let fixSentence = fix
     ? `A behavior-preserving fix is to ${fix}.`
-    : "A behavior-preserving fix is to compute a render model before JSX.";
+    : "A behavior-preserving fix is to compute a named value before JSX.";
+  if (group?.verdict === "normalization-boundary") {
+    fixSentence =
+      "A behavior-preserving fix is to keep the parser/model boundary and make JSX read its typed fields.";
+  } else if (group && packRiskForVerdict(group.verdict) > 0) {
+    fixSentence =
+      "A behavior-preserving fix is to split or relocate the pack before adding any broader render object.";
+  }
   const sentences = [mixed, fixSentence];
-  if (group?.verdict === "overpacked-bag") {
-    sentences.push(
-      `Watch for overpacking \`${group.label}\` across ${group.families.length} sink families.`,
-    );
+  if (group) {
+    if (packRiskForVerdict(group.verdict) > 0) {
+      sentences.push(
+        `Pack verdict: ${PACK_VERDICT_LABELS[group.verdict] ?? group.verdict}; avoid broadening \`${group.label}\`.`,
+      );
+    } else {
+      sentences.push(
+        `Pack verdict: ${PACK_VERDICT_LABELS[group.verdict] ?? group.verdict}; object packing is not the issue by itself.`,
+      );
+    }
   }
   return sentences.join(" ");
 }
@@ -3624,6 +3980,10 @@ function joinList(items) {
   return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
 }
 
+function sum(items, project) {
+  return items.reduce((total, item) => total + project(item), 0);
+}
+
 function selectViewPayload(report, args) {
   return {
     analysisVersion: report.analysisVersion,
@@ -3643,6 +4003,9 @@ function selectViewPayload(report, args) {
       args.view,
     )
       ? (report.helpers ?? []).slice(0, args.maxItems)
+      : undefined,
+    packGroups: ["work-packets", "findings", "dossier"].includes(args.view)
+      ? (report.packGroups ?? []).slice(0, args.maxItems)
       : undefined,
     hotspots:
       args.view === "hotspots"
@@ -4510,12 +4873,13 @@ function queueFor(metrics, defenses, reachThreshold = 3) {
 function burdenScore(metrics) {
   return clamp01(
     0.15 * normalized(metrics.maximumPathDepth) +
-      0.15 * normalized(metrics.helperHops) +
-      0.2 * normalized(metrics.representationChurn) +
+      0.13 * normalized(metrics.helperHops) +
+      0.16 * normalized(metrics.representationChurn) +
       0.15 * normalized(metrics.defensiveOperationCount) +
       0.15 * normalized(metrics.impossibleDefenseCount) +
       0.1 * normalized(metrics.controlDependencyCount) +
-      0.1 * normalized(metrics.repeatedNormalization),
+      0.08 * normalized(metrics.repeatedNormalization) +
+      0.08 * normalized(metrics.packRisk),
   );
 }
 

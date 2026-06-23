@@ -43,6 +43,13 @@ tsx-dataflow --view fan-out    --format markdown --out .tsx-dataflow/fan-out.md
 tsx-dataflow --view repair-map --format markdown --out .tsx-dataflow/repair-map.md
 ```
 
+When the user asks for a broad inventory, a handoff bundle, or "all functionality",
+generate every report in one analyzer pass:
+
+```bash
+tsx-dataflow --view all --format markdown --out .tsx-dataflow
+```
+
 When a target already has a feature Provider/Context, or the likely fix is to add one, also run the Provider/Context completion report scoped to the feature:
 
 ```bash
@@ -57,36 +64,67 @@ Use work packets as supporting detail after choosing a likely ownership/relay ta
 tsx-dataflow --view work-packets --format markdown --out .tsx-dataflow/work-packets.md
 ```
 
+Read the **Pack verdict** block before creating or deleting a render model:
+
+- `normalization boundary`: keep or formalize the parser/model boundary; move defaulting/parsing there and let JSX read typed fields.
+- `cohesive render model`: object packing is not the problem by itself; narrow or name the model instead of splitting solely because it is an object.
+- `overpacked bag`, `mirror object`, or `relay bag`: split by render responsibility, inline mirror fields, or move ownership closer to consumers.
+
 Use JSON when comparing baselines, scripting, or handing structured evidence to another agent:
 
 ```bash
 tsx-dataflow --view dossier --format json --out .tsx-dataflow/dossier.json
 ```
 
+To preserve a baseline before cleanup, save a JSON dossier first, then compare later reports against it:
+
+```bash
+tsx-dataflow --view dossier --format json --out .tsx-dataflow/baseline.json
+tsx-dataflow --view work-packets --baseline .tsx-dataflow/baseline.json --out .tsx-dataflow/work-packets-after.md
+tsx-dataflow --view work-packets --baseline .tsx-dataflow/baseline.json --fail-on-regression
+```
+
+Baseline output reports current vs baseline worst burden and lists removed,
+improved, regressed, and new-top sinks. Use `--fail-on-regression` in CI or
+before a commit when the goal is "do not make render-path burden worse"; it exits
+nonzero only when the comparison regresses.
+
 ## Available Views
 
 - `work-packets`: implementation-ready ranked work items. Use as supporting detail after triage; it can over-rank local parser/helper churn.
 - `findings`: compact ranked findings for triage.
 - `repair-map`: grouped remediation areas and likely edit strategy. Good for identifying central-leverage clusters.
-- `defensive-ledger`: nullish/default/logical defenses, including type-impossible defenses.
-- `transformation-ledger`: representation-only wrappers and conversions.
 - `prop-relay`: prop pass-through and relay paths. Best signal for broad prop bundles and missing context/store ownership.
 - `context-relay`: same-feature children receiving shared-looking props from parents that already use a local context hook. Use as the Provider/Context completion audit; expect some presentational leaf false positives and classify them explicitly.
 - `fan-out`: sources that reach many render sinks. Use to find values that should be owned once and read by consumers.
 - `fan-in`: sinks fed by many upstream inputs. Use to spot local render surfaces that may need a smaller typed view model.
+- `defensive-ledger`: nullish/default/logical defenses, including type-impossible defenses. Recent output deduplicates a defense across reachable sinks and shows sink count, so one row may represent a repeated cleanup.
+- `transformation-ledger`: representation-only wrappers and conversions on the heaviest path.
 - `path-gallery`: representative source-to-sink paths.
 - `path-census`: counts and distributions.
 - `path-families`: related path groups.
+- `boundary-report`: first-party functions on render paths, scored as boundaries such as clean pipe, pass-through, leaky, junction, or messy. Use it to decide whether a helper should stay as a typed boundary or be simplified.
+- `junctions`: helper functions where independent source lineages converge and re-spread to multiple callers. Use for high-leverage helper formalization or splitting work.
+- `inline-preview`: per-helper inline-vs-keep verdict. It proposes whether folding a helper would shorten a path; it never rewrites code.
+- `hotspots`: breadth map by file, or by feature with `--by feature`, showing finding count, worst burden, dominant shape/ownership hint, first-cut suggestion, and concentration. `coverage` is an alias.
 - `dossier`: graph-oriented JSON with nodes, edges, traces, metrics, and omitted counts.
+- `all`: meta-view that writes every concrete report in one run when paired with `--out <dir>`.
 
 Common options:
 
 - `--source <path>` / `--tsconfig <path>` override layout auto-discovery.
 - `--scope <text>` narrows report rows by file/component/sink text.
 - `--max-items <n>` limits output.
+- `--sort burden|spread|coverage|quick-win` changes the selection lens for `work-packets` and `findings`.
+- `--spread` is shorthand for `--sort spread`; pair with `--per-file <n>` and `--per-feature <n>` when one hot file dominates the top rows.
+- `--diversity <0..1>` re-ranks by burden plus novelty; use it when a report is too clustered but you still want the worst item preserved.
+- `--units` collapses file-local sinks sharing a cause into "fix once, N sinks improve" work units. Use for planning a larger slice; spot-check before editing because units are heuristic.
+- `--by file|feature` controls `hotspots` rollup granularity.
 - `--include-tests` includes test files.
 - `--baseline <json>` compares against a prior JSON report.
 - `--fail-on-regression` exits nonzero when a baseline comparison regresses.
+- `--no-trace-helpers` keeps analysis single-file and disables cross-file helper evidence; `boundary-report`, `junctions`, and `inline-preview` become less useful or empty.
+- `--max-helper-depth <n>` controls how many import boundaries helper tracing follows.
 - `--typescript-from <path>` overrides TypeScript resolution when needed.
 
 ## Work Modes
@@ -102,7 +140,7 @@ Use for ordinary requests like "run this", "fix a data-flow finding", or "start 
 3. Use `work-packets`, `path-gallery`, or scoped reports only to inspect the chosen target in detail.
 4. Skip tiny local helpers, style object sinks, parser-only findings, unchecked-array-index false positives, and isolated JSX formatting unless no architectural targets are present.
 5. Inspect source code and confirm the data is being pushed through components or repeatedly reshaped instead of owned near its consumers.
-6. Fix one bounded ownership/relay slice. Prefer a feature-scoped Provider/Context, `createStore`/feature model, typed selector hook, or colocated normalized view model over broad prop forwarding.
+6. Fix one bounded ownership/relay slice. Prefer a feature-scoped Provider/Context, `createStore`/feature model, typed selector hook, or colocated normalized view model over broad prop forwarding. If the packet is a control-flow gate, prefer scalar predicates/selected values before packing a broad `ready` object.
 7. If a Provider/Context was added or reused, run `context-relay` scoped to the feature and perform a Provider/Context completion audit: no Provider/Context-owned model state/actions should be relayed through props to same-feature children. For every remaining row, classify it as converted, intentionally presentational leaf, or deferred follow-up.
 8. Add or update focused tests when the change touches parsing, normalization, state transitions, URL state, selection, pagination, or shared helpers.
 9. Run the project's checks (lint, typecheck, and tests).
@@ -138,6 +176,26 @@ Use when the user explicitly asks for a report, summary, ranking, or spot check 
 2. Spot-check at least one high-ranked item against source.
 3. Explain confidence, likely false positives, and the best next work mode.
 
+### Full Inventory Or Handoff
+
+Use when the user asks for all reports, a current capability sweep, or a bundle another agent/person can inspect.
+
+1. Run `tsx-dataflow --view all --format markdown --out .tsx-dataflow`.
+2. Start the summary with `hotspots`/`coverage` for breadth, then `repair-map` for strategy, then `work-packets` for concrete next edits.
+3. Mention helper-boundary evidence from `boundary-report`, `junctions`, and `inline-preview` only when helper tracing was enabled and those views contain rows.
+4. Use `prop-relay`, `context-relay`, `fan-out`, and `fan-in` to explain ownership pressure. Use ledgers and path views as supporting evidence.
+5. Do not paste every report. Link report files, summarize the highest-confidence themes, and call out false-positive classes.
+
+### Baseline And Regression Check
+
+Use when the user asks to establish a baseline, compare before/after work, or guard against regressions.
+
+1. Before edits, save `tsx-dataflow --view dossier --format json --out .tsx-dataflow/baseline.json`.
+2. After edits, run the selected human report with `--baseline .tsx-dataflow/baseline.json`.
+3. Read the baseline section: current worst, baseline worst, `Removed`, `Improved`, `Regressed`, and `New top`.
+4. Use `--fail-on-regression` for CI-style verification or when the user specifically wants a pass/fail guard.
+5. In the final report, state both qualitative changes (ownership/relay/helper boundary) and baseline delta. If a new top appears, inspect it before claiming the cleanup improved the overall project.
+
 ### Loop Until Clean
 
 Use only when the user explicitly asks to run in a loop and solve all findings.
@@ -158,6 +216,7 @@ Before editing, verify a finding by reading the source path:
 - The finding is not just a compact local parser or style object near JSX.
 - Prop relay/fan-out evidence corresponds to real component ownership pressure in source code.
 - The existing behavior has an observable purpose, such as incomplete drafts, external JSON, missing capture data, SSR first render, or user-entered text.
+- A proposed object pack is supported by the packet's pack verdict. Do not create a broad `view`, `ready`, or `itemView` object when the evidence points to overpacked/mirror/relay behavior.
 
 Treat reports as candidate evidence, not truth. If a finding is noisy, skip it and choose the next grounded item.
 
@@ -170,6 +229,8 @@ Prefer these fixes when the source supports them:
 - After adding a feature Provider/Context, replace same-feature pass-through props with hook reads in the consuming children; do not stop at moving the top-level bundle into context.
 - Parse/normalize once at the data boundary or feature-model boundary instead of repeatedly inside render code.
 - Replace repeated nullish defaults with a typed non-null domain or view object.
+- Keep object packs when they are `normalization boundary` or `cohesive render model`; those usually want clearer names/tests, not automatic splitting.
+- Split object packs when they are `overpacked bag`, `mirror object`, or `relay bag`; prefer scalar gates and family-specific values such as `selectedSize`, `swatchStyle`, `buttonShadow`, or `spacingLabel`.
 - Remove type-impossible fallbacks after confirming TypeScript and runtime invariants.
 - Collapse representation-only wrappers that do not express product behavior.
 - Replace prop relays with a feature-scoped Provider/Context or nearer ownership boundary when siblings/descendants share the same model.
