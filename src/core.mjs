@@ -17,6 +17,15 @@ const DEFAULT_IGNORED_PARTS = new Set([
   "styled-system",
 ]);
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
+// Representation-only hops: steps that repackage a value without changing it
+// (aliases, object packs/spreads). Tracked so the report can list exactly which
+// transforms it counts, and deduped per sink so a shared hop isn't counted once
+// per render sub-path that crosses it.
+const REPRESENTATION_KINDS = new Set(["alias", "object-pack", "object-spread"]);
+// Upper bound on enumerated reached-sinks stored per source, to keep the
+// reachedVia structure from going O(n^2) on a very high fan-out source. The
+// true count is kept separately so the UI can show "+N more".
+const REACHED_VIA_CAP = 50;
 const VALID_FORMATS = new Set(["json", "markdown"]);
 // The concrete report views, in the order `--view all` emits them.
 export const REPORT_VIEWS = [
@@ -151,6 +160,9 @@ export function parseArgs(argv, defaults = {}) {
     root: defaults.root ?? defaultRoot,
     source: defaults.source ?? null,
     tsconfig: defaults.tsconfig ?? null,
+    // Set when the user passes --tsconfig explicitly. Auto-discovery (walk-up +
+    // solution-file expansion) only runs when this is false.
+    tsconfigExplicit: defaults.tsconfigExplicit ?? false,
     typescriptFrom: defaults.typescriptFrom ?? null,
     format: defaults.format ?? "markdown",
     view: defaults.view ?? "work-packets",
@@ -211,6 +223,7 @@ export function parseArgs(argv, defaults = {}) {
         break;
       case "--tsconfig":
         args.tsconfig = readValue();
+        args.tsconfigExplicit = true;
         break;
       case "--typescript-from":
         args.typescriptFrom = readValue();
@@ -359,7 +372,14 @@ Usage:
 Options:
   --root <path>             Project root. Defaults to the current directory.
   --source <path>           Source root. Defaults to ./src (or ./app/src) when present.
-  --tsconfig <path>         TypeScript config. Defaults to the nearest tsconfig.json.
+  --tsconfig <path>         TypeScript config. Auto-discovered when omitted:
+                            walks up from the source root, expands solution
+                            files via their references, and (for reference-only
+                            monorepos) scans subdirectories. A VALID tsconfig is
+                            required — the analyzer errors out rather than run
+                            with non-strict defaults (which break nullish
+                            verdicts). Pass a concrete per-app config in a
+                            monorepo, e.g. apps/web/tsconfig.json.
   --typescript-from <path>  Extra directory used to resolve TypeScript.
   --format <json|markdown>  Output format. Defaults to markdown.
   --view <name>             Report view, or "all" for every view. Defaults to work-packets.
@@ -410,13 +430,267 @@ export function findDefaultSource(root) {
   return root;
 }
 
+// Best-effort, dependency-free guess at the governing tsconfig: the nearest
+// tsconfig.json found walking up from the source root (then the project root).
+// This is only a hint for meta/back-compat; the authoritative, type-aware
+// resolution (solution-file expansion, multi-project monorepos, validation)
+// happens in resolveProjectConfigs once TypeScript is loaded.
 export function findDefaultTsconfig(root, sourceRoot) {
-  const candidates = [
-    path.join(path.dirname(sourceRoot), "tsconfig.json"),
-    path.join(root, "app", "tsconfig.json"),
-    path.join(root, "tsconfig.json"),
+  return (
+    walkUpForTsconfig(sourceRoot, root) ?? walkUpForTsconfig(root, root) ?? null
+  );
+}
+
+// Ascend from startDir up to and including stopDir, returning the first
+// tsconfig.json encountered (nearest wins).
+function walkUpForTsconfig(startDir, stopDir) {
+  let dir = startDir;
+  while (true) {
+    const candidate = path.join(dir, "tsconfig.json");
+    if (fs.existsSync(candidate)) return candidate;
+    if (dir === stopDir) return null;
+    const parent = path.dirname(dir);
+    if (dir === parent) return null;
+    dir = parent;
+  }
+}
+
+// Collect every tsconfig.json walking up from startDir to stopDir, nearest first.
+function ascendCollectTsconfigs(startDir, stopDir) {
+  const found = [];
+  let dir = startDir;
+  while (true) {
+    const candidate = path.join(dir, "tsconfig.json");
+    if (fs.existsSync(candidate)) found.push(candidate);
+    if (dir === stopDir) break;
+    const parent = path.dirname(dir);
+    if (dir === parent) break;
+    dir = parent;
+  }
+  return found;
+}
+
+// Scan downward under root for tsconfig.json files, skipping the usual build
+// and dependency directories. Used as a fallback when nothing is found walking
+// up — the common shape for solution-style monorepos whose only configs live in
+// per-app/per-package subdirectories.
+function scanDownForTsconfigs(root) {
+  const out = [];
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (DEFAULT_IGNORED_PARTS.has(entry.name) || entry.name.startsWith("."))
+          continue;
+        walk(path.join(dir, entry.name));
+      } else if (entry.name === "tsconfig.json") {
+        out.push(path.join(dir, entry.name));
+      }
+    }
+  };
+  walk(root);
+  return out;
+}
+
+// Parse one tsconfig and summarize what the analyzer needs: how many source
+// files it governs, its (extends-resolved) compiler options, whether it is a
+// reference-only "solution" file, and any parse error.
+function inspectTsconfig(ts, file) {
+  if (!fs.existsSync(file)) {
+    return { file, exists: false, error: "file does not exist" };
+  }
+  const configFile = ts.readConfigFile(file, ts.sys.readFile);
+  if (configFile.error) {
+    return {
+      file,
+      exists: true,
+      error: ts.flattenDiagnosticMessageText(configFile.error.messageText, "\n"),
+    };
+  }
+  const parsed = ts.parseJsonConfigFileContent(
+    configFile.config,
+    ts.sys,
+    path.dirname(file),
+    undefined,
+    file,
+  );
+  const references = (parsed.projectReferences ?? []).map((ref) => ref.path);
+  const strictNullChecks =
+    parsed.options.strictNullChecks ?? parsed.options.strict ?? false;
+  return {
+    file,
+    exists: true,
+    error: null,
+    options: parsed.options,
+    fileNames: parsed.fileNames,
+    references,
+    strictNullChecks,
+    // A solution/aggregator file contributes no sources of its own and only
+    // points at referenced projects (e.g. `{ files: [], references: [...] }`).
+    isSolution: parsed.fileNames.length === 0 && references.length > 0,
+  };
+}
+
+// Resolve a project reference path (which TypeScript reports as either a
+// directory or a concrete config file) to a tsconfig.json path.
+function referenceToConfigPath(refPath) {
+  try {
+    if (fs.statSync(refPath).isDirectory()) {
+      return path.join(refPath, "tsconfig.json");
+    }
+  } catch {
+    return refPath;
+  }
+  return refPath;
+}
+
+// Authoritative, type-aware resolution of the tsconfig(s) that govern this run.
+// Walks up from the source root, expands solution files through their project
+// references, falls back to a downward scan for reference-only monorepos, and
+// validates that at least one config actually governs source files. Throws a
+// loud, actionable error when nothing valid can be found — we never silently
+// analyze with default (non-strict) options, because that makes every nullish
+// verdict unsound (optional props look non-nullable, so `?? x` reads as dead).
+function resolveProjectConfigs(ts, args) {
+  const attempts = [];
+  const note = (file, status) =>
+    attempts.push({ file: relativeTo(args.root, file), status });
+
+  // Seed the search. An explicit --tsconfig anchors resolution (but is still
+  // expanded if it turns out to be a solution file); otherwise discover.
+  let seeds;
+  if (args.tsconfigExplicit && args.tsconfig) {
+    seeds = [args.tsconfig];
+  } else {
+    seeds = [
+      ...ascendCollectTsconfigs(args.source, args.root),
+      ...ascendCollectTsconfigs(args.root, args.root),
+    ];
+    if (seeds.length === 0) seeds = scanDownForTsconfigs(args.root);
+  }
+
+  const queue = [...new Set(seeds)];
+  const visited = new Set();
+  const valid = new Map();
+  while (queue.length > 0) {
+    const file = queue.shift();
+    if (visited.has(file)) continue;
+    visited.add(file);
+    const info = inspectTsconfig(ts, file);
+    if (!info.exists) {
+      note(file, "not found");
+      continue;
+    }
+    if (info.error) {
+      note(file, `parse error: ${info.error}`);
+      continue;
+    }
+    if (info.isSolution) {
+      note(
+        file,
+        `solution file (no sources; ${info.references.length} project reference(s)) — expanding`,
+      );
+      for (const ref of info.references) queue.push(referenceToConfigPath(ref));
+      continue;
+    }
+    if (info.fileNames.length === 0) {
+      note(file, "valid but governs 0 source files — skipped");
+      continue;
+    }
+    note(file, `governs ${info.fileNames.length} source file(s)`);
+    valid.set(file, info);
+  }
+
+  if (valid.size === 0) {
+    throw new Error(buildTsconfigFailureMessage(args, seeds, attempts));
+  }
+
+  // Pick the primary: prefer the config whose directory is the nearest ancestor
+  // of the source root; otherwise the one governing the most files. The primary
+  // supplies the program's compiler options (in these monorepos every project
+  // extends one strict base, so options are uniform across the set).
+  const configs = [...valid.values()];
+  const primary = pickPrimaryConfig(configs, args.source);
+  const looseConfigs = configs.filter((info) => !info.strictNullChecks);
+
+  return {
+    primary,
+    configs,
+    attempts,
+    warnings: looseConfigs.map(
+      (info) =>
+        `tsconfig ${relativeTo(args.root, info.file)} has strictNullChecks disabled — ` +
+        `nullish-defense verdicts (impossible/possible) for its files are unreliable, ` +
+        `because optional properties are not modeled as \`| undefined\`.`,
+    ),
+  };
+}
+
+function pickPrimaryConfig(configs, sourceRoot) {
+  // Among configs whose directory is an ancestor of the source root, the nearest
+  // wins (that is the project that actually owns the source). Otherwise fall back
+  // to whichever config governs the most files. Within each group, prefer a
+  // strict (strictNullChecks) config: its options drive the whole program, and
+  // strict is the runtime-truthful assumption — optional props really can be
+  // undefined regardless of how loosely a sibling project is configured.
+  const ancestors = configs.filter((info) =>
+    isWithin(sourceRoot, path.dirname(info.file)),
+  );
+  const pool = ancestors.length > 0 ? ancestors : configs;
+  const byDepth = (a, b) =>
+    path.dirname(b.file).length - path.dirname(a.file).length;
+  const byFiles = (a, b) => b.fileNames.length - a.fileNames.length;
+  const tieBreak = ancestors.length > 0 ? byDepth : byFiles;
+  return [...pool].sort((a, b) => {
+    if (a.strictNullChecks !== b.strictNullChecks)
+      return a.strictNullChecks ? -1 : 1;
+    return tieBreak(a, b);
+  })[0];
+}
+
+function relativeTo(root, file) {
+  const rel = path.relative(root, file);
+  return rel && !rel.startsWith("..") ? rel : file;
+}
+
+function buildTsconfigFailureMessage(args, seeds, attempts) {
+  const lines = [
+    "tsx-dataflow: could not resolve a valid tsconfig.json to type-check against.",
+    "",
+    "A valid tsconfig is REQUIRED: without one the type checker runs with default",
+    "(non-strict) options, which silently disables strictNullChecks and makes every",
+    "nullish-defense verdict unsound (optional props look non-nullable, so `x ?? y`",
+    "is wrongly reported as a dead, type-impossible guard).",
+    "",
+    `  root:   ${args.root}`,
+    `  source: ${args.source}`,
+    args.tsconfigExplicit
+      ? `  --tsconfig: ${args.tsconfig} (explicit)`
+      : "  --tsconfig: (not supplied; attempted auto-discovery)",
+    "",
+    seeds.length
+      ? "Candidates considered (walk-up from source/root, solution files expanded, then downward scan):"
+      : "No tsconfig.json files were found by walk-up from the source root or by scanning under the project root.",
   ];
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+  for (const attempt of attempts) {
+    lines.push(`  - ${attempt.file}: ${attempt.status}`);
+  }
+  lines.push(
+    "",
+    "How to fix:",
+    "  • Point the analyzer at a concrete project tsconfig, e.g. for a monorepo app:",
+    "      tsx-dataflow --root <repo> --tsconfig <repo>/path/to/app/tsconfig.json",
+    "  • Or run it scoped to the app directory that owns the tsconfig:",
+    "      tsx-dataflow --root <repo>/path/to/app",
+    "  • Note: a solution/aggregator tsconfig (\"files\": [], only \"references\")",
+    "    is not valid on its own — pass one of the referenced project configs.",
+  );
+  return lines.join("\n");
 }
 
 export function loadTypescript(args) {
@@ -452,33 +726,78 @@ export function loadTypescript(args) {
 }
 
 export function collectSourceFiles(ts, args) {
-  if (args.tsconfig && fs.existsSync(args.tsconfig)) {
-    const configFile = ts.readConfigFile(args.tsconfig, ts.sys.readFile);
+  const configs = args.tsconfigs?.length
+    ? args.tsconfigs
+    : args.tsconfig
+      ? [args.tsconfig]
+      : [];
+  const set = new Set();
+  for (const file of configs) {
+    if (!fs.existsSync(file)) continue;
+    const configFile = ts.readConfigFile(file, ts.sys.readFile);
     if (configFile.error) {
       const message = ts.flattenDiagnosticMessageText(
         configFile.error.messageText,
         "\n",
       );
-      throw new Error(`Failed to read ${args.tsconfig}: ${message}`);
+      throw new Error(`Failed to read ${file}: ${message}`);
     }
     const parsed = ts.parseJsonConfigFileContent(
       configFile.config,
       ts.sys,
-      path.dirname(args.tsconfig),
+      path.dirname(file),
       undefined,
-      args.tsconfig,
+      file,
     );
-    return parsed.fileNames.filter((file) => shouldAnalyzeFile(file, args));
+    for (const sourceFile of parsed.fileNames) {
+      if (shouldAnalyzeFile(sourceFile, args)) set.add(sourceFile);
+    }
   }
-
+  if (set.size > 0) return [...set];
   return walkFiles(args.source).filter((file) => shouldAnalyzeFile(file, args));
 }
 
-export async function analyzeProject(args) {
+// Load TypeScript, resolve the governing tsconfig(s) (throwing loudly if none
+// is valid), reflect the resolution onto `args` for downstream meta, and build
+// the program once. Shared by analyzeProject and createAnalyzer.
+function buildProgram(args) {
   const { ts, modulePath } = loadTypescript(args);
-  const files = collectSourceFiles(ts, args);
-  const program = ts.createProgram(files, readCompilerOptions(ts, args));
+  const resolution = resolveProjectConfigs(ts, args);
+  args.tsconfig = resolution.primary.file;
+  args.tsconfigs = resolution.configs.map((config) => config.file);
+  args.tsconfigWarnings = resolution.warnings;
+  for (const warning of resolution.warnings) {
+    console.warn(`tsx-dataflow: ${warning}`);
+  }
+  const files = new Set();
+  for (const config of resolution.configs) {
+    for (const sourceFile of config.fileNames) {
+      if (shouldAnalyzeFile(sourceFile, args)) files.add(sourceFile);
+    }
+  }
+  const program = ts.createProgram([...files], resolution.primary.options);
+  return { ts, modulePath, program };
+}
+
+export async function analyzeProject(args) {
+  const { ts, modulePath, program } = buildProgram(args);
   return buildReport(ts, program, args, modulePath);
+}
+
+// Build the TypeScript program once and hand back a reusable projector. Creating
+// the program is the expensive part of analysis, so the server builds it a single
+// time at startup and re-projects file-focused reports on demand (each `report()`
+// call is a fresh graph trace, but skips program construction). `overrides` is
+// merged onto the base args — typically `{ file: [path] }` or `{ scope }`.
+export function createAnalyzer(args) {
+  const { ts, modulePath, program } = buildProgram(args);
+  return {
+    ts,
+    program,
+    args,
+    report: (overrides = {}) =>
+      buildReport(ts, program, { ...args, ...overrides }, modulePath),
+  };
 }
 
 export function analyzeProgram(ts, program, args = {}) {
@@ -501,7 +820,7 @@ export function renderReport(report, args) {
   return `${renderMarkdownView(report, args)}\n${regenFooter(args, args.view, report)}`;
 }
 
-function renderMarkdownView(report, args) {
+export function renderMarkdownView(report, args) {
   switch (args.view) {
     case "findings":
       return renderFindings(report, args);
@@ -729,7 +1048,9 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
   const packGroups = computePackGroups(filteredSinks);
   applyPackEvidence(filteredSinks, packGroups);
   const rankings = rankSinks(
-    filteredSinks.filter((sink) => sink.category !== "event-handler"),
+    filteredSinks.filter(
+      (sink) => sink.category !== "event-handler" && !isConstantSink(sink),
+    ),
   );
   // Shared-cause work units (Approach 3) and the concentration profile
   // (Approach 5) are pure roll-ups over the burden ranking; compute once so
@@ -757,6 +1078,8 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
       root: args.root,
       source: args.source,
       tsconfig: args.tsconfig ?? null,
+      tsconfigs: args.tsconfigs ?? (args.tsconfig ? [args.tsconfig] : []),
+      tsconfigWarnings: args.tsconfigWarnings ?? [],
       typescript: typescriptModulePath,
       scope: args.scope,
       file: args.file.length ? args.file : null,
@@ -919,6 +1242,44 @@ function getFileContextCached(ts, sourceFile, crossFile) {
     crossFile.contextCache.set(sourceFile, context);
   }
   return context;
+}
+
+// The same-file `functions`/`accessors`/`variables` maps are keyed by name and
+// span the whole file, so two same-named bindings in sibling scopes (e.g. a
+// `pos` createMemo in one component and a `pos` helper in another) collapse to a
+// single entry. Before trusting a by-name hit, confirm the type checker resolves
+// this exact identifier to the declaration we found — otherwise the trace would
+// descend into the wrong scope's binding. `storedNode` is the function node (for
+// `functions`) or the variable declaration (for `accessors`/`variables`).
+// Returns true when the symbol can't be resolved, preserving prior behavior.
+function identifierResolvesTo(ts, checker, identifier, storedNode) {
+  let symbol = checker.getSymbolAtLocation(identifier);
+  // A shorthand property (`return { color }`) resolves to the property symbol,
+  // whose declaration is the ShorthandPropertyAssignment — not the local binding
+  // it aliases. Step through to the value symbol so the check sees the binding.
+  if (
+    symbol &&
+    identifier.parent &&
+    ts.isShorthandPropertyAssignment(identifier.parent)
+  ) {
+    symbol =
+      checker.getShorthandAssignmentValueSymbol(identifier.parent) ?? symbol;
+  }
+  const decls = symbol?.declarations;
+  if (!decls || decls.length === 0) return true;
+  return decls.some((decl) => {
+    // function declaration (storedNode === decl) or arrow/fn-expr bound to a
+    // variable (storedNode === decl.initializer).
+    if (decl === storedNode) return true;
+    if (ts.isVariableDeclaration(decl) && decl.initializer === storedNode)
+      return true;
+    // Accessor/variable entries store the VariableDeclaration; a binding-pattern
+    // element (signal/resource) resolves up to it.
+    for (let node = decl; node; node = node.parent) {
+      if (node === storedNode) return true;
+    }
+    return false;
+  });
 }
 
 // Given a function/variable symbol, find a traceable declaration: a function
@@ -1400,11 +1761,18 @@ function traceIdentifier(ts, checker, graph, expression, context) {
     return context.paramBindings.get(name);
   }
   const accessor = context.accessors.get(name);
-  if (accessor)
+  if (
+    accessor &&
+    identifierResolvesTo(ts, checker, expression, accessor.declaration)
+  )
     return traceAccessor(ts, checker, graph, expression, accessor, context);
 
   const declaration = context.variables.get(name);
-  if (declaration?.initializer && declaration.initializer !== expression) {
+  if (
+    declaration?.initializer &&
+    declaration.initializer !== expression &&
+    identifierResolvesTo(ts, checker, expression, declaration)
+  ) {
     const trace = traceExpression(
       ts,
       checker,
@@ -1602,7 +1970,16 @@ function traceCrossFileCall(ts, checker, graph, expression, callee, context) {
 
 function traceCallExpression(ts, checker, graph, expression, context) {
   const callee = getCallName(ts, expression);
-  if (ts.isIdentifier(expression.expression) && context.functions.has(callee)) {
+  if (
+    ts.isIdentifier(expression.expression) &&
+    context.functions.has(callee) &&
+    identifierResolvesTo(
+      ts,
+      checker,
+      expression.expression,
+      context.functions.get(callee),
+    )
+  ) {
     // Same-file helper: record that it was reached (for the boundary report) and
     // trace through its body inline, as before.
     markReached(ts, checker, expression.expression, context);
@@ -1624,7 +2001,16 @@ function traceCallExpression(ts, checker, graph, expression, context) {
     });
   }
 
-  if (ts.isIdentifier(expression.expression) && context.accessors.has(callee)) {
+  if (
+    ts.isIdentifier(expression.expression) &&
+    context.accessors.has(callee) &&
+    identifierResolvesTo(
+      ts,
+      checker,
+      expression.expression,
+      context.accessors.get(callee).declaration,
+    )
+  ) {
     return traceAccessor(
       ts,
       checker,
@@ -1735,6 +2121,7 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
   const edges = [];
   const rootInfos = [];
   const defenses = [];
+  const representationSteps = [];
   // Packed objects the value flows through, so sinks sharing one packed object
   // (a createMemo/object literal) can be grouped and checked for over-packing
   // (Phase 3). Identity is the object literal's *source location*, NOT the graph
@@ -1761,6 +2148,7 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
         trace.roots.map((root) => ({ label: root, kind: "source" }))),
     );
     defenses.push(...trace.defenses);
+    representationSteps.push(...(trace.representationSteps ?? []));
     packs.push(...(trace.packs ?? []));
     if (trace.longestPath.length + 1 > longest.length) {
       winnerChild = trace;
@@ -1788,6 +2176,15 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
       label: nodeLabel,
     });
   }
+  if (REPRESENTATION_KINDS.has(kind)) {
+    representationSteps.push({
+      kind,
+      label: nodeLabel,
+      file,
+      line: location.line,
+      key: `${file}:${location.line}:${location.column}`,
+    });
+  }
   if (traces.length === 0)
     rootInfos.push({ label: nodeLabel, kind: "operation" });
   const dedupedRoots = uniqueRootInfos(rootInfos);
@@ -1797,6 +2194,7 @@ function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
     rootInfos: dedupedRoots,
     edges,
     defenses,
+    representationSteps,
     longestPath: longest,
     packs: uniquePacks(packs),
     // The collapsed full text of this expression, so a parent operation can mark
@@ -1843,6 +2241,7 @@ function sourceTrace(graph, expression, kind, label, unknown, rootKind = kind) {
     rootInfos: [{ label, kind: rootKind }],
     edges: [],
     defenses: [],
+    representationSteps: [],
     longestPath: [{ label, kind, detail: null, file, line: location.line }],
     packs: [],
     unknown,
@@ -1861,14 +2260,23 @@ function buildSinkRecord(
   root,
 ) {
   const location = locationOf(sourceFile, node);
-  const metrics = metricsFor(trace);
+  // One physical guard reached via several render sub-paths is a single
+  // defensive operation; dedupe before metrics so counts and the rendered list
+  // reflect distinct sites, not path multiplicity.
+  const distinctDefenses = dedupeDefenses(trace.defenses);
+  const distinctRepresentation = dedupeByKey(trace.representationSteps ?? []);
+  const metrics = metricsFor(trace, distinctDefenses, distinctRepresentation);
   const sinkId = `RPF-${String(location.line).padStart(3, "0")}-${String(location.column).padStart(2, "0")}`;
-  const confidence = confidenceFor(metrics, trace.defenses);
+  const confidence = confidenceFor(metrics, distinctDefenses);
   return {
     id: sinkId,
     file: relativePath(root, sourceFile.fileName),
     line: location.line,
     column: location.column,
+    // Exact source span of the rendered expression, so the code map can map the
+    // finding to its chunk of code (not the whole line) and make adjacent
+    // findings on one line independently selectable.
+    span: spanOf(sourceFile, sinkExpression.expression),
     category: sinkExpression.category,
     label: sinkExpression.label,
     expression: sinkExpression.expression.getText(),
@@ -1896,34 +2304,41 @@ function buildSinkRecord(
       file: step.file ?? null,
       line: step.line ?? null,
     })),
+    // Distinct representation-only hops (alias/pack/spread) on this sink's
+    // slice, so the report can list exactly what the churn count refers to.
+    representationSteps: distinctRepresentation,
     packs: trace.packs ?? [],
     nodeId: sinkNode.id,
     metrics,
-    defenses: trace.defenses,
+    defenses: distinctDefenses,
     confidence: confidence.score,
     confidenceReason: confidence.reason,
     confidenceRisk: confidence.risk,
-    queue: queueFor(metrics, trace.defenses),
+    queue: queueFor(metrics, distinctDefenses),
   };
 }
 
-function metricsFor(trace) {
+function metricsFor(
+  trace,
+  defenses = dedupeDefenses(trace.defenses),
+  representationSteps = dedupeByKey(trace.representationSteps ?? []),
+) {
   const edgeCounts = countBy(trace.edges);
-  const defensiveOperationCount =
-    (edgeCounts.fallback ?? 0) + (edgeCounts["optional-read"] ?? 0);
-  const certaintyBoundaryDefenseCount = trace.defenses.filter((defense) =>
+  // Count distinct guard sites, not edge traversals: the same `??`/`?.` reached
+  // through several render sub-paths is one defensive operation.
+  const defensiveOperationCount = defenses.length;
+  const certaintyBoundaryDefenseCount = defenses.filter((defense) =>
     isCertaintyBoundaryDefense(defense),
   ).length;
   const actionableDefensiveOperationCount = Math.max(
     0,
     defensiveOperationCount - certaintyBoundaryDefenseCount,
   );
-  const representationChurn =
-    (edgeCounts["object-pack"] ?? 0) +
-    (edgeCounts["object-spread"] ?? 0) +
-    (edgeCounts.alias ?? 0);
+  // Distinct representation-only hops, deduped by site (same rationale as
+  // defenses) rather than counted once per render sub-path that crosses them.
+  const representationChurn = representationSteps.length;
   const helperHops = edgeCounts.call ?? 0;
-  const impossibleDefenseCount = trace.defenses.filter(
+  const impossibleDefenseCount = defenses.filter(
     (defense) => defense.verdict === "impossible",
   ).length;
   const unknownEdgeCount = trace.edges.filter(
@@ -1952,6 +2367,18 @@ function metricsFor(trace) {
   };
 }
 
+// Compact, render-friendly descriptor of a sink reached through a shared source.
+function reachedSinkDescriptor(sink) {
+  const ctx = sink.renderContext ?? {};
+  const where = [ctx.tag, ctx.attribute].filter(Boolean).join(" / ");
+  return {
+    id: sink.id,
+    file: sink.file,
+    line: sink.line,
+    label: where || sink.label || sink.expression || sink.id,
+  };
+}
+
 function isCertaintyBoundaryDefense(defense) {
   return /parser-boundary|compatibility|optional|solid prop default|api-choice/i.test(
     defense.origin ?? "",
@@ -1965,18 +2392,39 @@ function isCertaintyBoundaryDefense(defense) {
 // the reach of its most-central source. This replaces the former constant base
 // reach in centralityScore and the hardcoded `reachable sinks: 1`.
 function groundReachability(sinks) {
-  const reachByRoot = new Map();
+  // Map each fan-out source identity to every sink it feeds, so reach is not
+  // just a number but an enumerable set — the report can show *which* sinks a
+  // shared source reaches, grouped by that source (the chain root → sinks).
+  const sinksByRoot = new Map();
   for (const sink of sinks) {
     for (const info of fanOutRootsFor(sink)) {
-      reachByRoot.set(info.label, (reachByRoot.get(info.label) ?? 0) + 1);
+      if (!sinksByRoot.has(info.label)) sinksByRoot.set(info.label, []);
+      sinksByRoot.get(info.label).push(sink);
     }
   }
   for (const sink of sinks) {
     let reach = 1;
+    // Group the other sinks this sink's sources also feed, keyed by the shared
+    // source. Only roots with genuine fan-out (>1 sink) are interesting.
+    const reachedVia = [];
     for (const info of fanOutRootsFor(sink)) {
-      reach = Math.max(reach, reachByRoot.get(info.label) ?? 1);
+      const fed = sinksByRoot.get(info.label) ?? [sink];
+      reach = Math.max(reach, fed.length);
+      const others = fed.filter((other) => other.nodeId !== sink.nodeId);
+      if (others.length > 0) {
+        reachedVia.push({
+          source: info.label,
+          total: others.length,
+          // Cap stored descriptors so a high fan-out source can't make this
+          // O(n^2); `total` preserves the true count for the "+N more" hint.
+          sinks: others
+            .slice(0, REACHED_VIA_CAP)
+            .map((other) => reachedSinkDescriptor(other)),
+        });
+      }
     }
     sink.metrics.reachableSinks = reach;
+    sink.reachedVia = reachedVia;
   }
   // Queues depend on reach, so finalize them here (buildSinkRecord runs before
   // grounding). The central-leverage cutoff is the report's own top reach
@@ -2001,6 +2449,8 @@ function defenseRecord(ts, checker, guardedExpression, node, operation) {
   const typeVerdict = getNullishStatus(ts, checker, guardedExpression);
   const verdict =
     typeVerdict === "impossible" && runtimeBoundary ? "possible" : typeVerdict;
+  const sourceFile = node.getSourceFile();
+  const location = locationOf(sourceFile, node);
   return {
     operation,
     expression: node.getText(),
@@ -2017,8 +2467,36 @@ function defenseRecord(ts, checker, guardedExpression, node, operation) {
       verdict,
       runtimeBoundary,
     ),
-    location: locationOf(node.getSourceFile(), node),
+    location,
+    // Physical identity of this guard: the same `x ?? y` site reached through
+    // several render sub-paths is one defensive operation, not many. Keyed by
+    // file + position so dedupe survives cross-file helper inlining.
+    key: `${sourceFile.fileName}:${location.line}:${location.column}`,
   };
+}
+
+// Collapse defenses that refer to the same physical guard site (the trace
+// re-walks shared sub-paths, so one `props.size ?? 32` can appear many times).
+// First occurrence wins; order is preserved.
+function dedupeDefenses(defenses) {
+  return dedupeByKey(defenses, (defense) =>
+    defense.key ?? `${defense.location?.line}:${defense.expression}`,
+  );
+}
+
+// Generic first-wins, order-preserving dedupe over a `.key` (or a supplied key
+// function). Used to collapse trace artifacts (defenses, representation hops)
+// that the per-sink re-trace can visit through multiple sub-paths.
+function dedupeByKey(items, keyOf = (item) => item.key) {
+  const seen = new Set();
+  const distinct = [];
+  for (const item of items) {
+    const key = keyOf(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    distinct.push(item);
+  }
+  return distinct;
 }
 
 // Phase 9 — distinguish stale defensive code from intentional compatibility
@@ -3397,7 +3875,7 @@ const SHAPE_FIRST_CUT = {
   "cross-component-relay": "move state behind context",
 };
 
-function firstCutFor(sink) {
+export function firstCutFor(sink) {
   if (!sink) return "—";
   return SHAPE_FIRST_CUT[primaryShapeOf(sink)] ?? "local boundary cleanup";
 }
@@ -3417,7 +3895,7 @@ function appendStopRecommendation(lines, report) {
 }
 
 // The most common value in a list (for dominant shape/ownership columns).
-function modalValue(values) {
+export function modalValue(values) {
   const counts = countBy(values);
   const entries = Object.entries(counts).sort(
     (left, right) => right[1] - left[1],
@@ -3427,7 +3905,7 @@ function modalValue(values) {
 
 // Approach 4 — aggregate the burden ranking into one row per file (or feature
 // area). The breadth map: every place with a finding appears once.
-function hotspotGroups(report, by) {
+export function hotspotGroups(report, by) {
   const groups = new Map();
   for (const sink of report.rankings.all) {
     const key = by === "feature" ? featureKeyFor(sink.file) : sink.file;
@@ -5358,21 +5836,6 @@ function diffBaselineSinks(currentSinks, baselineSinks) {
   return { removed, improved, regressedSinks: regressed, newTop };
 }
 
-function readCompilerOptions(ts, args) {
-  const fallback = { allowJs: true, jsx: ts.JsxEmit.Preserve, noEmit: true };
-  if (!args.tsconfig || !fs.existsSync(args.tsconfig)) return fallback;
-  const configFile = ts.readConfigFile(args.tsconfig, ts.sys.readFile);
-  if (configFile.error) return fallback;
-  const parsed = ts.parseJsonConfigFileContent(
-    configFile.config,
-    ts.sys,
-    path.dirname(args.tsconfig),
-    undefined,
-    args.tsconfig,
-  );
-  return parsed.options;
-}
-
 function shouldAnalyzeFile(file, args) {
   const ext = path.extname(file);
   if (!SOURCE_EXTENSIONS.includes(ext)) return false;
@@ -5457,6 +5920,21 @@ function locationOf(sourceFile, node) {
     node.getStart(sourceFile),
   );
   return { line: position.line + 1, column: position.character + 1 };
+}
+
+// Full source span (start + end, 1-based line/column) of a node, so the code map
+// can highlight exactly the chunk a finding maps to rather than the whole line.
+function spanOf(sourceFile, node) {
+  const start = sourceFile.getLineAndCharacterOfPosition(
+    node.getStart(sourceFile),
+  );
+  const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
+  return {
+    startLine: start.line + 1,
+    startColumn: start.character + 1,
+    endLine: end.line + 1,
+    endColumn: end.character + 1,
+  };
 }
 
 function applyScope(sinks, scope) {
@@ -5594,6 +6072,25 @@ const NON_FAN_OUT_GLOBALS = new Set([
 // "sources" — a developer cannot own or centralize them — so they are excluded,
 // as are unresolved language globals (`undefined`, `Math`). Property reads off
 // a parameter (`props.meta`) and named locals are kept.
+// A sink whose value is a pure constant (e.g. `stroke-dashoffset={0}`,
+// `width={32}`): every contributing root is a literal and there is no
+// transformation, guard, or control-flow burden. There is nothing to refactor,
+// so it should never surface as a ranked finding.
+function isConstantSink(sink) {
+  const infos =
+    sink.rootInfos ?? sink.roots.map((root) => ({ label: root, kind: "source" }));
+  if (infos.length === 0) return false;
+  if (!infos.every((info) => info.kind === "literal")) return false;
+  const m = sink.metrics ?? {};
+  return (
+    (m.maximumPathDepth ?? 0) <= 1 &&
+    (sink.defenses?.length ?? 0) === 0 &&
+    (m.representationChurn ?? 0) === 0 &&
+    (m.controlDependencyCount ?? 0) === 0 &&
+    (m.unknownEdgeCount ?? 0) === 0
+  );
+}
+
 function fanOutRootsFor(sink) {
   const infos =
     sink.rootInfos ??

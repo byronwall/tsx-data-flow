@@ -119,6 +119,39 @@ describe("render path data-flow analyzer", () => {
     expect(resourceSink).toBeTruthy();
   });
 
+  it("resolves same-named bindings by scope, not file-wide name", async () => {
+    // Two `pos` bindings in sibling component scopes: a createMemo in Main and a
+    // plain helper in Badge. The file-wide name map collapses them, so without
+    // scope-aware resolution Main's `pos()` would trace into Badge's body.
+    const project = await createFixtureProject({
+      "src/scope-collision.tsx": `
+        declare function createMemo<T>(fn: () => T): () => T;
+        function Badge(props: { node: { size: number } }) {
+          const pos = () => {
+            const r = props.node.size / 2;
+            return { x: r * 0.75, y: -r * 0.75 };
+          };
+          return <span data-x={pos().x} />;
+        }
+        export function Main(props: { source: () => { a: number } }) {
+          const pos = createMemo(() => props.source());
+          return <div data-a={pos()?.a ?? 0}>{Badge({ node: { size: 4 } })}</div>;
+        }
+      `,
+    });
+
+    const report = await analyzeProject(project.args);
+    const mainSink = report.sinks.find(
+      (sink) => sink.label?.includes("data-a") || sink.expression === "pos()?.a",
+    );
+
+    expect(mainSink).toBeTruthy();
+    const path = mainSink.representativePath.join(" ");
+    // Main's memo flows from props.source(), NOT Badge's `r * 0.75` geometry.
+    expect(path).toContain("source");
+    expect(path).not.toContain("0.75");
+  });
+
   it("renders output views and graph dossier JSON", async () => {
     const project = await createFixtureProject({
       "src/metrics.tsx": `
@@ -1079,6 +1112,86 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(hotspots).toContain("promote prop defaults to mergeProps");
   });
 
+  it("counts a guard reached through many sub-paths once (no double-counting)", async () => {
+    // `props.size ?? 32` is reached through `size()` directly and through the
+    // radius -> circumference helper chain. The deep sink should record the
+    // guard ONCE, not once per sub-path that crosses it.
+    const project = await createFixtureProject({
+      "src/Gauge.tsx": `
+        export function Gauge(props: { size?: number }) {
+          const size = () => props.size ?? 32;
+          const radius = () => size() / 2;
+          const circumference = () => 2 * 3.14 * radius();
+          return <svg width={size()} viewBox={\`0 0 \${size()} \${size()}\`} data-c={circumference()} />;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+
+    // No sink lists the same physical guard site twice.
+    for (const sink of report.sinks) {
+      const keys = sink.defenses.map((d) => d.key);
+      expect(new Set(keys).size).toBe(keys.length);
+    }
+
+    // The deepest sink (data-c, via the helper chain) sees the size guard once.
+    const deepSink = report.sinks.reduce((a, b) =>
+      b.metrics.maximumPathDepth > a.metrics.maximumPathDepth ? b : a,
+    );
+    const sizeDefenses = deepSink.defenses.filter((d) =>
+      d.expression.includes("props.size"),
+    );
+    expect(sizeDefenses.length).toBe(1);
+    expect(deepSink.metrics.defensiveOperationCount).toBe(1);
+
+    // Reach is enumerable: the size source feeds several sinks, listed by source.
+    const reachable = report.sinks.find((s) => s.metrics.reachableSinks >= 3);
+    expect(reachable).toBeTruthy();
+    const viaSize = (reachable.reachedVia ?? []).find((g) =>
+      g.source.includes("size"),
+    );
+    expect(viaSize).toBeTruthy();
+    expect(viaSize.sinks.length).toBeGreaterThanOrEqual(2);
+    expect(viaSize.sinks[0]).toHaveProperty("line");
+  });
+
+  it("counts a representation-only hop once across sub-paths", async () => {
+    const project = await createFixtureProject({
+      "src/Packed.tsx": `
+        export function Packed(props: { a: number; b: number }) {
+          const model = { x: props.a, y: props.b };
+          return <g data-x={model.x} data-sum={model.x + model.y} />;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    for (const sink of report.sinks) {
+      const keys = (sink.representationSteps ?? []).map((s) => s.key);
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(sink.metrics.representationChurn).toBe(
+        (sink.representationSteps ?? []).length,
+      );
+    }
+  });
+
+  it("does not flag constant literals fed straight to a prop", async () => {
+    const project = await createFixtureProject({
+      "src/Dial.tsx": `
+        export function Dial(props: { class?: string }) {
+          return <svg width={32} stroke-dashoffset={0} aria-hidden={true} class={props.class} />;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const ranked = report.rankings.all;
+    // The constant attributes (32, 0, true) carry no data flow — none ranked.
+    expect(ranked.some((s) => s.expression === "0")).toBe(false);
+    expect(ranked.some((s) => s.expression === "32")).toBe(false);
+    expect(ranked.some((s) => s.expression === "true")).toBe(false);
+    // The real source-fed attribute still surfaces.
+    expect(ranked.some((s) => s.expression.includes("props.class"))).toBe(true);
+  });
+
   it("keeps API-choice fallbacks instead of promoting them to mergeProps", async () => {
     const project = await createFixtureProject({
       "src/UserAvatar.tsx": `
@@ -1780,6 +1893,105 @@ describe("general CLI defaults and project discovery", () => {
 
     const report = await analyzeProject(args);
     expect(report.sinks.length).toBeGreaterThan(0);
+  });
+});
+
+describe("tsconfig resolution in monorepos", () => {
+  const strictConfig = JSON.stringify({
+    compilerOptions: {
+      target: "ESNext",
+      module: "ESNext",
+      moduleResolution: "bundler",
+      jsx: "preserve",
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      composite: true,
+    },
+    include: ["src"],
+  });
+  // An optional prop guarded with `?? default`. Under strictNullChecks the
+  // property type is `number | undefined`, so the guard is a real (possible)
+  // fallback — never a dead, type-impossible one. This is the exact shape that
+  // regressed when the analyzer fell back to non-strict options.
+  const optionalPropComponent = `
+    export function Gauge(props: { strokeWidth?: number }) {
+      const strokeWidth = props.strokeWidth ?? 4;
+      return <svg stroke-width={strokeWidth} />;
+    }
+  `;
+
+  it("walks up several directories to find the governing tsconfig", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "tsx-dataflow-walkup-"));
+    const app = resolve(root, "client", "apps", "web");
+    const nested = resolve(app, "src", "deep", "nested");
+    await mkdir(nested, { recursive: true });
+    await writeFile(resolve(app, "tsconfig.json"), strictConfig);
+    expect(findDefaultTsconfig(app, nested)).toBe(
+      resolve(app, "tsconfig.json"),
+    );
+  });
+
+  it("expands a solution-only root tsconfig through its references and analyzes strictly", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "tsx-dataflow-solution-"));
+    const app = resolve(root, "apps", "web");
+    await mkdir(resolve(app, "src"), { recursive: true });
+    // Reference-only solution file at the root: no sources, no strict.
+    await writeFile(
+      resolve(root, "tsconfig.json"),
+      JSON.stringify({ files: [], references: [{ path: "./apps/web" }] }),
+    );
+    await writeFile(resolve(app, "tsconfig.json"), strictConfig);
+    await writeFile(resolve(app, "src", "Gauge.tsx"), optionalPropComponent);
+
+    const args = parseArgs([
+      "--root",
+      root,
+      "--typescript-from",
+      appRoot,
+      "--format",
+      "json",
+    ]);
+    const report = await analyzeProject(args);
+    const ledger = renderReport(report, {
+      ...args,
+      view: "defensive-ledger",
+      format: "markdown",
+    });
+
+    // The optional prop fallback is "possible", not a false "impossible".
+    // (Markdown escapes the union pipe as `number \| undefined`.)
+    expect(ledger).toContain("number \\| undefined");
+    expect(ledger).toContain("| possible |");
+    expect(ledger).not.toContain("type-impossible");
+    // The resolved (expanded) per-app config is recorded in meta.
+    expect(report.meta.tsconfig).toBe(resolve(app, "tsconfig.json"));
+  });
+
+  it("throws a loud, actionable error when no valid tsconfig is found", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "tsx-dataflow-noconfig-"));
+    await mkdir(resolve(root, "src"), { recursive: true });
+    await writeFile(resolve(root, "src", "Gauge.tsx"), optionalPropComponent);
+
+    const args = parseArgs(["--root", root, "--typescript-from", appRoot]);
+    await expect(analyzeProject(args)).rejects.toThrow(
+      /could not resolve a valid tsconfig/i,
+    );
+  });
+
+  it("rejects a solution-only tsconfig whose references resolve to nothing valid", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "tsx-dataflow-dangling-"));
+    await mkdir(resolve(root, "src"), { recursive: true });
+    await writeFile(resolve(root, "src", "Gauge.tsx"), optionalPropComponent);
+    await writeFile(
+      resolve(root, "tsconfig.json"),
+      JSON.stringify({ files: [], references: [{ path: "./does-not-exist" }] }),
+    );
+
+    const args = parseArgs(["--root", root, "--typescript-from", appRoot]);
+    await expect(analyzeProject(args)).rejects.toThrow(
+      /could not resolve a valid tsconfig/i,
+    );
   });
 });
 

@@ -28,7 +28,7 @@ Requires Node.js >= 18. The analyzer resolves `typescript` from the target proje
 
 ## Quick start
 
-Run it from the root of the project you want to analyze. `--source` and `--tsconfig` are auto-discovered (`./src` then `./app/src`; nearest `tsconfig.json`):
+Run it from the root of the project you want to analyze. `--source` and `--tsconfig` are auto-discovered (`./src` then `./app/src`; nearest `tsconfig.json` walking up). In a **monorepo**, discovery walks up from the source root, expands solution/aggregator configs (`{ "files": [], "references": [...] }`) through their project references, and scans subdirectories for reference-only roots. A **valid** `tsconfig` is required: rather than silently fall back to non-strict compiler options — which disables `strictNullChecks` and makes every nullish-defense verdict unsound (optional props look non-nullable, so `x ?? y` is wrongly flagged as a dead "type-impossible" guard) — the analyzer fails loudly and tells you what it tried. Point it at a concrete per-app config (e.g. `--tsconfig client/apps/web/tsconfig.json`) or run it scoped to that app's directory:
 
 ```bash
 # ranked, implementation-ready work items (default view)
@@ -114,7 +114,7 @@ The more useful view for planning work is [`examples/bad-ish-solid/reports/work-
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--root <path>`             | Project root. Defaults to the current working directory.                                                                                                            |
 | `--source <path>`           | Source root. Defaults to `./src`, then `./app/src`, then the root.                                                                                                  |
-| `--tsconfig <path>`         | TypeScript config. Defaults to the nearest `tsconfig.json`.                                                                                                         |
+| `--tsconfig <path>`         | TypeScript config. Auto-discovered (walk-up, solution-file expansion, monorepo scan). A valid config is required; the analyzer errors out instead of using non-strict defaults. |
 | `--typescript-from <path>`  | Extra directory used to resolve the `typescript` package.                                                                                                           |
 | `--format <json\|markdown>` | Output format. Defaults to `markdown`.                                                                                                                              |
 | `--view <name>`             | Report view (see below), or `all` for every view. Defaults to `work-packets`.                                                                                       |
@@ -206,6 +206,37 @@ To compare a cleanup loop, keep both `--view all` directories and run:
 ```bash
 tsx-dataflow --root . --file src/components/Chart.tsx --compare .tsx-dataflow-before --out .tsx-dataflow-compare.md
 ```
+
+## Browse in your browser
+
+The same analysis is available as a local HTML UI. It builds the TypeScript
+program once, then serves an overview of files ranked by burden and a focused
+per-file page:
+
+```bash
+tsx-dataflow-serve --root . --port 4317 --open
+# or, in this repo:
+pnpm serve -- --root examples/bad-ish-solid --open
+```
+
+- **Overview** (`/`) — project summary plus a hotspots table (one row per file:
+  finding count, worst burden, dominant shape, ownership, suggested first cut),
+  each linking into its file.
+- **File view** (`/file?path=<rel>`) — every report view rendered as HTML in
+  collapsible sections, plus an **annotated code map**: the file's source,
+  line-numbered, with a colored gutter marker on each line that renders a ranked
+  finding (color by queue: quick-win / central-leverage / investigation). Click a
+  marked line to inspect its finding — sink, render context, burden, confidence,
+  why it was selected, and its defenses. Lines on a representative path are
+  faintly highlighted so the flow through the file is visible.
+- `GET /api/report.json?path=<rel>` returns the raw report payload, and the
+  **↻ Re-analyze** button rebuilds after source edits.
+
+Accepts the same analyzer options as `tsx-dataflow` (`--root`, `--source`,
+`--tsconfig`, `--scope`, `--max-items`, `--no-trace-helpers`, …) plus `--port`,
+`--host`, and `--open`. The server has no runtime dependencies beyond the
+analyzer itself; pages are self-contained HTML (inline CSS/JS, no external
+requests) and work offline.
 
 ## Agent skill
 
