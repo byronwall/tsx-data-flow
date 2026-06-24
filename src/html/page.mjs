@@ -167,6 +167,20 @@ button:hover { border-color: var(--accent); }
 .codemap .panel dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0; }
 .codemap .panel dt { color: var(--muted); }
 .codemap .panel .why { margin: 6px 0; padding-left: 18px; }
+.codemap .panel ul.burden-breakdown { list-style: none; margin: 6px 0; padding: 0; }
+.codemap .panel ul.burden-breakdown li {
+  display: grid; grid-template-columns: 130px 1fr auto;
+  align-items: center; gap: 8px; margin: 3px 0; font-size: 12px;
+}
+.codemap .panel .bd-label { color: var(--muted); }
+.codemap .panel .bd-bar {
+  height: 8px; border-radius: 4px; background: var(--border, #ddd); overflow: hidden;
+}
+.codemap .panel .bd-fill {
+  display: block; height: 100%; border-radius: 4px;
+  background: hsl(18 80% 55%);
+}
+.codemap .panel .bd-val { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* Detailed "show, don't tell" sections: path, representation hops, reach. */
 .codemap .panel details { margin: 8px 0; }
 .codemap .panel details > summary {

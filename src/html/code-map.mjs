@@ -174,6 +174,17 @@ function debugInfo(sink, relPath, source, meta) {
   out.push(
     `burden: ${(sink.scores?.burden ?? 0).toFixed(3)}   confidence: ${sink.confidence}% (${sink.confidenceRisk ?? "—"})`,
   );
+  const breakdown = sink.scores?.burdenBreakdown;
+  const contributing = (breakdown?.terms ?? []).filter(
+    (term) => term.contribution > 0,
+  );
+  if (contributing.length) {
+    out.push(
+      `burden breakdown: ${contributing
+        .map((term) => `${term.label} ${term.contribution.toFixed(3)}`)
+        .join(", ")}`,
+    );
+  }
   if (sink.confidenceReason) out.push(`confidence: ${sink.confidenceReason}`);
   out.push("");
   out.push(
@@ -293,6 +304,7 @@ function findingPanel(sink, source, peers, relPath, meta) {
     <dt>confidence</dt><dd>${sink.confidence}%</dd>
     <dt>risk</dt><dd>${escapeHtml(sink.confidenceRisk ?? "—")}</dd>
   </dl>
+  ${burdenBreakdownHtml(sink)}
   ${sink.confidenceReason ? `<div class="meta">${escapeHtml(sink.confidenceReason)}</div>` : ""}
   ${why ? `<strong>Why selected</strong><ul class="why">${why}</ul>` : ""}
   ${sameCodeSection(sink, peers)}
@@ -301,6 +313,55 @@ function findingPanel(sink, source, peers, relPath, meta) {
   ${reachSection(sink)}
   ${defenses ? `<strong>Defenses — ${(sink.defenses ?? []).length}</strong><ul class="why">${defenses}</ul>` : ""}
 </div>`;
+}
+
+// Collapsible breakdown of how the burden score was computed: one bar per
+// weighted metric term, widest contribution first. Only terms that actually
+// contribute are listed, so a clean path shows an empty (zero-burden) note.
+function burdenBreakdownHtml(sink) {
+  const breakdown = sink.scores?.burdenBreakdown;
+  if (!breakdown) return "";
+  const total = breakdown.total ?? 0;
+  const contributing = (breakdown.terms ?? []).filter(
+    (term) => term.contribution > 0,
+  );
+  const max = contributing.reduce(
+    (m, term) => Math.max(m, term.contribution),
+    0,
+  );
+  const rows = contributing
+    .map((term) => {
+      const pct = total > 0 ? Math.round((term.contribution / total) * 100) : 0;
+      const width = max > 0 ? Math.round((term.contribution / max) * 100) : 0;
+      return `<li>
+      <span class="bd-label">${escapeHtml(term.label)}</span>
+      <span class="bd-bar"><span class="bd-fill" style="width:${width}%"></span></span>
+      <span class="bd-val" title="weight ${term.weight} × normalized(${term.raw}) = ${term.contribution.toFixed(
+        3,
+      )}">${term.contribution.toFixed(3)} · ${pct}%</span>
+    </li>`;
+    })
+    .join("");
+  const penalty = breakdown.backgroundPenalty ?? 1;
+  const penaltyNote =
+    penalty !== 1
+      ? `<div class="meta">× ${penalty.toFixed(2)} background discount → ${(
+          (breakdown.total ?? 0) * penalty
+        ).toFixed(3)} final burden</div>`
+      : "";
+  const clampNote =
+    (breakdown.rawSum ?? 0) > 1
+      ? `<div class="meta">raw sum ${breakdown.rawSum.toFixed(3)} clamped to 1.000</div>`
+      : "";
+  const body = contributing.length
+    ? `<ul class="burden-breakdown">${rows}</ul>${penaltyNote}${clampNote}`
+    : `<div class="meta">No weighted metrics contribute — burden is 0.</div>`;
+  return `<details class="burden-detail">
+    <summary>burden breakdown — ${total.toFixed(3)} from ${contributing.length} metric${
+      contributing.length === 1 ? "" : "s"
+    }</summary>
+    ${body}
+  </details>`;
 }
 
 // Pick the highest-burden sink on a line to drive the gutter color.

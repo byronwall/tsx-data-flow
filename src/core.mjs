@@ -1677,6 +1677,65 @@ function enclosingFunctionName(ts, node) {
   return null;
 }
 
+// Resolve an identifier that is the parameter of an enclosing render callback
+// passed as the JSX child of a control-flow component. Returns the control-flow
+// prop expression that feeds the callback (`each`/`when`/`fallback`), the
+// parameter's position, and the host tag — or null when `name` is not such a
+// parameter. Walks outward to the innermost function that declares `name`.
+function renderPropBinding(ts, expression, name) {
+  let fn = null;
+  let paramIndex = -1;
+  let current = expression.parent;
+  while (current) {
+    if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
+      const index = current.parameters.findIndex(
+        (parameter) =>
+          ts.isIdentifier(parameter.name) && parameter.name.text === name,
+      );
+      if (index >= 0) {
+        fn = current;
+        paramIndex = index;
+        break;
+      }
+    }
+    current = current.parent;
+  }
+  if (!fn) return null;
+  // The callback must be the JSX child expression of an element:
+  // `<Comp …>{(item) => …}</Comp>` (allowing a parenthesized body wrapper).
+  let host = fn.parent;
+  while (host && ts.isParenthesizedExpression(host)) host = host.parent;
+  if (!host || !ts.isJsxExpression(host)) return null;
+  const element = host.parent;
+  if (!element || !ts.isJsxElement(element)) return null;
+  const attribute = controlFlowAttribute(ts, element.openingElement);
+  if (!attribute) return null;
+  return {
+    attribute: attribute.name,
+    expression: attribute.expression,
+    paramIndex,
+    tag: jsxTagNameText(element.openingElement.tagName),
+  };
+}
+
+// First control-flow attribute (`each`/`when`/`fallback`) on an opening element
+// that carries a value expression, or null.
+function controlFlowAttribute(ts, opening) {
+  for (const property of opening.attributes.properties) {
+    if (!ts.isJsxAttribute(property)) continue;
+    const name = property.name.getText();
+    if (!CONTROL_FLOW_ATTRIBUTES.has(name)) continue;
+    if (
+      property.initializer &&
+      ts.isJsxExpression(property.initializer) &&
+      property.initializer.expression
+    ) {
+      return { name, expression: property.initializer.expression };
+    }
+  }
+  return null;
+}
+
 function traceExpression(ts, checker, graph, expression, context) {
   const text = expression.getText();
   if (context.stack.has(expression)) {
@@ -1783,6 +1842,34 @@ function traceIdentifier(ts, checker, graph, expression, context) {
     return addOperationTrace(ts, graph, "alias", expression, [trace], {
       label: name,
       detail: `= ${formatExpression(declaration.initializer.getText(), 52)}`,
+    });
+  }
+
+  // A Solid control-flow component feeds its render callback through a prop:
+  // `<For each={items}>{(entry) => …}</For>`. The callback parameter is not a
+  // free variable — it is an element of the `each` source (or the narrowed
+  // `when`/`fallback` value). Resolve that binding here so the parameter traces
+  // back to the real source instead of dead-ending as `unknown-source`. Checked
+  // before the bare-parameter classification because the inline callback is
+  // never registered in the file-level `parameters` set.
+  const renderProp = renderPropBinding(ts, expression, name);
+  if (renderProp && renderProp.paramIndex === 0) {
+    const source = traceExpression(
+      ts,
+      checker,
+      graph,
+      renderProp.expression,
+      context,
+    );
+    if (renderProp.attribute === "each") {
+      return addOperationTrace(ts, graph, "iteration", expression, [source], {
+        label: name,
+        detail: `∈ ${formatExpression(renderProp.expression.getText(), 40)}`,
+      });
+    }
+    return addOperationTrace(ts, graph, "alias", expression, [source], {
+      label: name,
+      detail: `= ${formatExpression(renderProp.expression.getText(), 40)}`,
     });
   }
 
@@ -1970,6 +2057,41 @@ function traceCrossFileCall(ts, checker, graph, expression, callee, context) {
 
 function traceCallExpression(ts, checker, graph, expression, context) {
   const callee = getCallName(ts, expression);
+  // A control-flow render callback may receive its data as an accessor that is
+  // *invoked* in the body: `<Show when={x}>{(value) => <div>{value()}</div>}`
+  // (keyed Show) or `<Index each={xs}>{(item) => item().id}`. Calling the
+  // parameter yields the narrowed `when` value or the iterated element, so
+  // resolve the call back to that source rather than dead-ending at an opaque
+  // `detailText [operation]` root.
+  if (ts.isIdentifier(expression.expression)) {
+    const renderProp = renderPropBinding(ts, expression.expression, callee);
+    if (renderProp && renderProp.paramIndex === 0) {
+      const source = traceExpression(
+        ts,
+        checker,
+        graph,
+        renderProp.expression,
+        context,
+      );
+      if (renderProp.attribute === "each") {
+        return addOperationTrace(ts, graph, "iteration", expression, [source], {
+          label: callee,
+          detail: `∈ ${formatExpression(renderProp.expression.getText(), 40)}`,
+        });
+      }
+      return addOperationTrace(
+        ts,
+        graph,
+        "solid-accessor",
+        expression,
+        [source],
+        {
+          label: `${callee}()`,
+          detail: `= ${formatExpression(renderProp.expression.getText(), 40)}`,
+        },
+      );
+    }
+  }
   if (
     ts.isIdentifier(expression.expression) &&
     context.functions.has(callee) &&
@@ -2734,6 +2856,13 @@ function rankSinks(sinks) {
       scores: {
         burden,
         rawBurden,
+        // Per-term decomposition of rawBurden so the report can explain the
+        // score. `backgroundPenalty` is the post-decomposition multiplier
+        // applied to reach the final `burden` (1 when no background discount).
+        burdenBreakdown: {
+          ...burdenBreakdown(sink.metrics),
+          backgroundPenalty: background ? background.penalty : 1,
+        },
         centrality,
         changeRisk,
         quickWin:
@@ -5175,6 +5304,7 @@ const STEP_KIND_VERBS = {
   "unknown-source": "source?",
   "property-read": "read",
   "optional-read": "read?",
+  iteration: "iterate",
   fallback: "default",
   conditional: "compute",
   call: "helper",
@@ -6684,21 +6814,85 @@ function queueFor(metrics, defenses, reachThreshold = 3) {
   return "peripheral-quick-win";
 }
 
+// The weighted metrics that make up the burden score, kept in one place so the
+// score and its human-readable breakdown can never drift apart. Each term reads
+// a raw metric, log-normalizes it, and contributes `weight * normalized`.
+const BURDEN_TERMS = [
+  {
+    key: "maximumPathDepth",
+    label: "path depth",
+    weight: 0.15,
+    read: (m) => m.maximumPathDepth,
+  },
+  {
+    key: "helperHops",
+    label: "helper hops",
+    weight: 0.13,
+    read: (m) => m.helperHops,
+  },
+  {
+    key: "representationChurn",
+    label: "representation churn",
+    weight: 0.16,
+    read: (m) => m.representationChurn,
+  },
+  {
+    key: "defensiveOperations",
+    label: "defensive operations",
+    weight: 0.15,
+    read: (m) =>
+      m.actionableDefensiveOperationCount ?? m.defensiveOperationCount,
+  },
+  {
+    key: "impossibleDefenseCount",
+    label: "impossible defenses",
+    weight: 0.15,
+    read: (m) => m.impossibleDefenseCount,
+  },
+  {
+    key: "controlDependencyCount",
+    label: "control dependencies",
+    weight: 0.1,
+    read: (m) => m.controlDependencyCount,
+  },
+  {
+    key: "repeatedNormalization",
+    label: "repeated normalization",
+    weight: 0.08,
+    read: (m) => m.repeatedNormalization,
+  },
+  { key: "packRisk", label: "pack risk", weight: 0.08, read: (m) => m.packRisk },
+];
+
 function burdenScore(metrics) {
-  return clamp01(
-    0.15 * normalized(metrics.maximumPathDepth) +
-      0.13 * normalized(metrics.helperHops) +
-      0.16 * normalized(metrics.representationChurn) +
-      0.15 *
-        normalized(
-          metrics.actionableDefensiveOperationCount ??
-            metrics.defensiveOperationCount,
-        ) +
-      0.15 * normalized(metrics.impossibleDefenseCount) +
-      0.1 * normalized(metrics.controlDependencyCount) +
-      0.08 * normalized(metrics.repeatedNormalization) +
-      0.08 * normalized(metrics.packRisk),
+  return clamp01(burdenRawSum(metrics));
+}
+
+function burdenRawSum(metrics) {
+  return BURDEN_TERMS.reduce(
+    (sum, term) => sum + term.weight * normalized(term.read(metrics) ?? 0),
+    0,
   );
+}
+
+// Per-term decomposition of the burden score, sorted by contribution (largest
+// first). `total` is the clamped score actually used for ranking; `rawSum` is
+// the pre-clamp sum, so a UI can flag when clamping discarded surplus burden.
+function burdenBreakdown(metrics) {
+  const terms = BURDEN_TERMS.map((term) => {
+    const raw = term.read(metrics) ?? 0;
+    const norm = normalized(raw);
+    return {
+      key: term.key,
+      label: term.label,
+      weight: term.weight,
+      raw,
+      normalized: norm,
+      contribution: term.weight * norm,
+    };
+  }).sort((a, b) => b.contribution - a.contribution);
+  const rawSum = terms.reduce((sum, term) => sum + term.contribution, 0);
+  return { terms, rawSum, total: clamp01(rawSum) };
 }
 
 function centralityScore(metrics) {
