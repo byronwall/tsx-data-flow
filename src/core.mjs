@@ -3268,7 +3268,7 @@ function renderTransformationLedger(report) {
   lines.push(
     ...metricTable([
       ["semantic transformations", sink.metrics.helperHops],
-      ["representation-only steps", sink.metrics.representationChurn],
+      ["representation-only wrapper steps", sink.metrics.representationChurn],
       ["defensive steps", sink.metrics.defensiveOperationCount],
       ["total steps", sink.metrics.maximumPathDepth],
     ]),
@@ -3335,7 +3335,7 @@ function renderPropRelay(report, args) {
     ]);
   return tableReport(
     "Prop Relay",
-    ["Sink", "Component boundaries", "Wrappers", "Classification"],
+    ["Sink", "Component boundaries", "Wrapper steps", "Classification"],
     rows,
     viewIntro("prop-relay", report),
   );
@@ -3729,7 +3729,7 @@ function appendFeatureClusters(lines, report, args) {
         "Sinks",
         "Files",
         "Max depth",
-        "Wrappers",
+        "Wrapper steps",
         "Suggested first cut",
         "Evidence",
       ],
@@ -4955,22 +4955,22 @@ function renderCompareReport(report, args) {
     "## Summary",
     "",
     ...formatMarkdownTable(
-      ["Metric", "Baseline", "After", "Delta"],
+      ["Computed signal", "Baseline", "After", "Delta"],
       [
         [
-          "Worst score",
+          "Worst burden score",
           formatWorstMetric(baseline),
           formatWorstMetric(current),
           compareNumberLabel(baseline.worstScore, current.worstScore, true),
         ],
         [
-          "Hotspots",
+          "Finding count (hotspots)",
           formatOptionalNumber(baseline.hotspots),
           String(current.hotspots),
           formatDeltaLabel(baseline.hotspots, current.hotspots, true),
         ],
         [
-          "Defensive entries",
+          "Defensive operation entries",
           formatOptionalNumber(baseline.defensiveEntries),
           String(current.defensiveEntries),
           formatDeltaLabel(
@@ -4980,10 +4980,40 @@ function renderCompareReport(report, args) {
           ),
         ],
         [
-          "Wrappers",
+          "Representation-only wrapper steps",
           formatOptionalNumber(baseline.wrappers),
           String(current.wrappers),
           formatDeltaLabel(baseline.wrappers, current.wrappers, true),
+        ],
+      ],
+    ),
+    "",
+    "_These are analyzer-computed signals, not product accounts or runtime telemetry. Wrapper steps are the summed `representationChurn` metric: aliases, object packs, spreads, and other representation-only repacks on render paths._",
+    "",
+    "## How to read the deltas",
+    "",
+    ...formatMarkdownTable(
+      ["Signal", "What it measures", "How to weigh it"],
+      [
+        [
+          "Worst burden score",
+          "The single heaviest render path, normalized 0–1 from depth, helper hops, wrapper steps, defenses, impossible defenses, control flow, and repeated normalization.",
+          "Use as the headline local pain signal. It can stay flat when the same worst path remains even if broad cleanup improves elsewhere.",
+        ],
+        [
+          "Finding count (hotspots)",
+          "How many ranked render sinks remain after filtering.",
+          "Use as breadth. Large drops mean less overall surface area; large counts can still be acceptable when remaining rows are low-risk background paths.",
+        ],
+        [
+          "Defensive operation entries",
+          "Unique optional reads and fallback operations on render paths.",
+          "Prioritize impossible or unknown defenses first because they often point to stale guards or unclear contracts.",
+        ],
+        [
+          "Representation-only wrapper steps",
+          "Alias/object-pack/spread hops that change shape without adding product behavior.",
+          "Treat a spike as a reviewability warning, not automatic failure. It matters most when worst burden, relay/overpacked findings, or defensive entries do not improve with it.",
         ],
       ],
     ),
@@ -5105,7 +5135,9 @@ function countMarkdownTableRows(text) {
 }
 
 function parseTransformationWrappers(text) {
-  const match = /representation-only steps\s*\|\s*(\d+)/i.exec(text);
+  const match = /representation-only(?: wrapper)? steps\s*\|\s*(\d+)/i.exec(
+    text,
+  );
   return match ? Number(match[1]) : null;
 }
 
@@ -5252,14 +5284,14 @@ function stopRecommendationFor(report) {
       recommend: true,
       reason:
         defensiveEntries === 0
-          ? "No defensive entries remain; highest actionable score is low; remaining paths are mostly scalar helpers or cohesive shared-boundary reads."
-          : "No actionable defensive entries remain; remaining fallbacks are certainty/API-choice boundaries; highest actionable score is low.",
+          ? "No defensive operation entries remain; highest actionable score is low; remaining paths are mostly scalar helpers or cohesive shared-boundary reads."
+          : "No actionable defensive operation entries remain; remaining fallbacks are certainty/API-choice boundaries; highest actionable score is low.",
     };
   }
   if (actionableDefensiveEntries > 0) {
     return {
       recommend: false,
-      reason: `${actionableDefensiveEntries} actionable defensive entr${actionableDefensiveEntries === 1 ? "y remains" : "ies remain"}.`,
+      reason: `${actionableDefensiveEntries} actionable defensive operation entr${actionableDefensiveEntries === 1 ? "y remains" : "ies remain"}.`,
     };
   }
   if (highRiskPacks.length > 0) {
@@ -5847,6 +5879,10 @@ function viewIntro(view, report) {
     `it, then ranks the heaviest render paths.`;
   const blurb = VIEW_BLURBS[view] ?? "";
   const lines = [`> ${provenance} ${method}`];
+  lines.push(
+    ">",
+    "> Terminology: _source_/_sink_ name code positions in the static graph; counts, scores, reach, depth, and wrapper steps are analyzer-computed signals, not product accounts or runtime telemetry. A _wrapper step_ is a representation-only hop such as an alias, object pack, or spread; it can signal reviewability burden, but it should be weighed with burden score, defensive operation entries, reach, and pack/relay verdicts before choosing work.",
+  );
   if (blurb) lines.push(">", `> ${blurb}`);
   lines.push("");
   return lines;
@@ -5894,7 +5930,7 @@ const VIEW_BLURBS = {
   "transformation-ledger":
     "Walks the single heaviest render path step by step. Each row is one " +
     "transformation hop with its _Operation_ kind; the summary tallies semantic vs. " +
-    "representation-only vs. defensive steps along the path.",
+    "representation-only wrapper steps vs. defensive steps along the path.",
   "defensive-ledger":
     "Lists defensive operations (optional chains, nullish fallbacks) on render " +
     "paths. _Verdict_ is whether the guard can ever fire given the TypeScript " +
@@ -5903,7 +5939,7 @@ const VIEW_BLURBS = {
     "to tell. _Action_ separates stale guards from fallbacks that establish certainty.",
   "prop-relay":
     "Render sinks that mostly relay data across component boundaries. _Component " +
-    "boundaries_ counts prop hand-offs, _Wrappers_ representation-only repacks, and " +
+    "boundaries_ counts prop hand-offs, _Wrapper steps_ counts representation-only repacks, and " +
     "_Classification_ marks whether the relay transforms the data or just passes it " +
     "through.",
   "context-relay":

@@ -146,7 +146,7 @@ The more useful view for planning work is [`examples/bad-ish-solid/reports/work-
 | `fan-out`               | Sources that reach many render sinks.                                                                                                                                 |
 | `fan-in`                | Sinks fed by many upstream inputs.                                                                                                                                    |
 | `defensive-ledger`      | Nullish/default/logical defenses, including type-impossible ones.                                                                                                     |
-| `transformation-ledger` | Representation-only wrappers and conversions.                                                                                                                         |
+| `transformation-ledger` | Representation-only wrapper steps and conversions.                                                                                                                    |
 | `path-gallery`          | Representative source-to-sink paths.                                                                                                                                  |
 | `path-census`           | Aggregate source/sink/path-depth counts.                                                                                                                              |
 | `path-families`         | Grouped path signatures.                                                                                                                                              |

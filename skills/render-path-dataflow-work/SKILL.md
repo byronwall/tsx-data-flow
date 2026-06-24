@@ -98,7 +98,9 @@ tsx-dataflow --view all --format markdown --out tmp/tsx-dataflow-after
 tsx-dataflow --view work-packets --compare tmp/tsx-dataflow-before --out tmp/tsx-dataflow-compare.md
 ```
 
-The compare report summarizes worst score, hotspot count, defensive entries, wrapper count, removed/remaining finding families, and whether the current result recommends stopping.
+The compare report summarizes computed analyzer signals: worst burden score, finding count (hotspots), defensive operation entries, representation-only wrapper steps, removed/remaining finding families, and whether the current result recommends stopping.
+
+When reading deltas, do not treat the largest numeric increase as automatically decisive. Wrapper steps are representation-only aliases/object packs/spreads; they are a reviewability warning. Balance them against whether worst burden score, defensive operation entries, remaining finding families, pack verdicts, and stop recommendation improved. A wrapper-step spike is most concerning when it comes with no defensive/family improvement or with relay-bag/overpacked-bag findings.
 
 For CI-style guardrails, save a JSON dossier first, then compare later reports against it:
 
@@ -220,7 +222,7 @@ Use when the user asks to establish a baseline, compare before/after work, or gu
 1. For human cleanup loops, before edits save `tsx-dataflow --view all --format markdown --out tmp/tsx-dataflow-before`.
 2. After edits, save `tsx-dataflow --view all --format markdown --out tmp/tsx-dataflow-after`.
 3. Run `tsx-dataflow --view work-packets --compare tmp/tsx-dataflow-before --out tmp/tsx-dataflow-compare.md`.
-4. Read the compare report: worst score, hotspots, defensive entries, wrappers, removed/remaining finding families, and stop verdict.
+4. Read the compare report: worst burden score, finding count (hotspots), defensive operation entries, representation-only wrapper steps, removed/remaining finding families, and stop verdict.
 5. For CI-style pass/fail, also save `tsx-dataflow --view dossier --format json --out tmp/tsx-dataflow/baseline.json` and run the selected human report with `--baseline tmp/tsx-dataflow/baseline.json` or `--fail-on-regression`.
 6. In the final report, state both qualitative changes (ownership/relay/helper boundary/render-item extraction) and compare/baseline delta. If a new top appears, inspect it before claiming the cleanup improved the overall project.
 

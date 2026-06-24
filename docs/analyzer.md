@@ -37,9 +37,9 @@ Supported views:
 | `path-gallery`          | Representative source-to-sink paths.                                                                  |
 | `path-census`           | Aggregate source/sink/path-depth counts.                                                              |
 | `path-families`         | Grouped signatures such as `object-pack -> call -> fallback -> jsx-sink`.                             |
-| `transformation-ledger` | Step-by-step path transformations for the top finding.                                                |
+| `transformation-ledger` | Step-by-step path transformations and wrapper-step counts for the top finding.                        |
 | `defensive-ledger`      | Defensive operations and their nullish type verdict.                                                  |
-| `prop-relay`            | Relay-like paths and wrapper counts.                                                                  |
+| `prop-relay`            | Relay-like paths with component-boundary counts and representation-only wrapper-step counts.          |
 | `repair-map`            | Ranked quick-win, central-leverage, and investigation queues.                                         |
 
 Common options:
@@ -438,7 +438,16 @@ Baseline comparison is intentionally simple:
 
 This supports a lightweight guardrail for cleanup campaigns. It does not compare individual findings by stable identity yet.
 
-`--compare <dir>` is the markdown-first cleanup-loop comparison. It reads a prior `--view all` directory, analyzes the current target, and reports worst score, hotspot count, defensive entries, wrapper count, remaining finding families, and the current stop recommendation. Missing optional report files degrade to `n/a` with a note rather than failing the run.
+`--compare <dir>` is the markdown-first cleanup-loop comparison. It reads a prior `--view all` directory, analyzes the current target, and reports computed signals: worst burden score, finding count (hotspots), defensive operation entries, representation-only wrapper steps, remaining finding families, and the current stop recommendation. Missing optional report files degrade to `n/a` with a note rather than failing the run.
+
+The compare rows are analyzer-computed signals, not product accounts or runtime telemetry. The wrapper-step value is the summed `representationChurn` metric across ranked sinks. It counts aliases, object packs, spreads, and other representation-only repacks seen on render paths. It can rise when a cleanup moves logic into more intermediate objects even if the worst burden score is unchanged or improved.
+
+Read compare deltas as a set, not as one absolute winner:
+
+- `Worst burden score` is the headline local pain signal for the single heaviest render path. It is normalized to `0..1` and can move slowly when the same worst path remains.
+- `Finding count (hotspots)` is breadth: how many render sinks still have enough data-flow plumbing to rank.
+- `Defensive operation entries` are unique optional reads and fallback operations. Impossible or unknown defenses usually deserve more attention than wrapper movement because they point to stale guards or unclear contracts.
+- `Representation-only wrapper steps` are reviewability pressure: aliases, object packs, spreads, and similar shape-only hops. A spike is suspicious when worst burden, defensive entries, relay/overpacked findings, or remaining families do not improve with it. It is less concerning when a cleanup removes high-severity defenses or broad fan-out and the remaining wrappers are cohesive render models or normalization boundaries.
 
 ## Report Guidance Gates
 

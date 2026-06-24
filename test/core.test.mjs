@@ -165,7 +165,7 @@ describe("render path data-flow analyzer", () => {
     expect(packets).toContain("WORK ITEM DF-001");
     expect(packets).toContain("Feature Clusters");
     expect(packets).toContain("Candidate edits");
-    expect(ledger).toContain("representation-only steps");
+    expect(ledger).toContain("representation-only wrapper steps");
     expect(dossier.summary.sinks).toBeGreaterThan(0);
     expect(dossier.graph.nodes.length).toBeGreaterThan(0);
   });
@@ -698,7 +698,9 @@ describe("render path data-flow analyzer", () => {
     });
 
     expect(output).toContain("# tsx-dataflow Compare");
-    expect(output).toContain("Worst score");
+    expect(output).toContain("Worst burden score");
+    expect(output).toContain("How to read the deltas");
+    expect(output).toContain("Treat a spike as a reviewability warning");
     expect(output).toContain("Removed finding families");
     expect(output).toContain("Verdict:");
   });
