@@ -379,6 +379,38 @@ describe("createServer", () => {
     expect(payload.sinks.every((s) => s.file === "src/Card.tsx")).toBe(true);
   });
 
+  it("renders the repeated-forks section on the file page", async () => {
+    const project = await createFixtureProject({
+      "src/Chart.tsx": `
+        declare function Switch(props: { children: unknown }): unknown;
+        declare function Match(props: { when: boolean; children: unknown }): unknown;
+        export function Chart(props: { type: "bar" | "line"; values: number[] }) {
+          const barData = () => props.values.map((v) => v * 2);
+          const lineData = () => props.values.map((v) => v + 1);
+          const active = () => (props.type === "bar" ? barData() : lineData());
+          return (
+            <figure>
+              <p>{active().length}</p>
+              <Switch>
+                <Match when={props.type === "bar"}><span>{barData().length}</span></Match>
+                <Match when={props.type === "line"}><span>{lineData().length}</span></Match>
+              </Switch>
+            </figure>
+          );
+        }
+      `,
+    });
+    const { handler } = createServer(project.args);
+    const file = await call(
+      handler,
+      "/file?path=" + encodeURIComponent("src/Chart.tsx"),
+    );
+    expect(file.status).toBe(200);
+    expect(file.body).toContain('id="view-repeated-forks"');
+    expect(file.body).toContain("Repeated forks");
+    expect(file.body).toContain("props.type");
+  });
+
   it("filters, searches, and sorts overview file rows through query params", async () => {
     const project = await createFixtureProject({
       ...FIXTURE,

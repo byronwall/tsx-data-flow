@@ -30,6 +30,7 @@ const VALID_FORMATS = new Set(["json", "markdown"]);
 // The concrete report views, in the order `--view all` emits them.
 export const REPORT_VIEWS = [
   "findings",
+  "repeated-forks",
   "work-packets",
   "dossier",
   "fan-out",
@@ -828,6 +829,8 @@ export function renderMarkdownView(report, args) {
   switch (args.view) {
     case "findings":
       return renderFindings(report, args);
+    case "repeated-forks":
+      return renderRepeatedForks(report, args);
     case "work-packets":
       return renderWorkPackets(report, args);
     case "dossier":
@@ -1031,10 +1034,11 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     budget: 20000,
   };
 
+  const forks = [];
   for (const sourceFile of sourceFiles) {
-    sinks.push(
-      ...analyzeSourceFile(ts, checker, graph, sourceFile, args, crossFile),
-    );
+    const analysis = analyzeSourceFile(ts, checker, graph, sourceFile, args, crossFile);
+    sinks.push(...analysis.sinks);
+    forks.push(...analysis.forks);
   }
 
   const fileMatch = makeFileMatcher(args.file);
@@ -1077,6 +1081,10 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     : allHelpers;
   const unknownEdges = buildUnknownEdgeRows(graph, filteredSinks);
   const sourceBoundaries = buildSourceBoundaryRows(filteredSinks);
+  const repeatedForks = relateForks(
+    fileMatch ? forks.filter((fork) => fileMatch(fork.file)) : forks,
+    filteredSinks,
+  ).sort((l, r) => r.severity - l.severity);
   const baseline = args.baseline
     ? compareBaseline(rankings, args.baseline)
     : null;
@@ -1108,9 +1116,41 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     helpers,
     unknownEdges,
     sourceBoundaries,
+    repeatedForks,
     baseline,
     summary: summarize(filteredSinks, graph),
   };
+}
+
+// Attach the per-sink findings rendered under each fork's discriminated
+// branches. Sinks whose line falls inside a branch body are "branch-gated" — the
+// ones a split would actually move; the rest are component context. This avoids
+// the misleading "splitting on X touches all N sinks in the component" claim.
+function relateForks(forks, sinks) {
+  return forks.map((fork) => {
+    const inComponent = sinks
+      .filter(
+        (sink) =>
+          sink.file === fork.file &&
+          sink.renderContext?.component === fork.component,
+      )
+      .sort((l, r) => (r.scores?.burden ?? 0) - (l.scores?.burden ?? 0));
+    const ranges = fork.branchRanges ?? [];
+    const inBranch = (sink) =>
+      ranges.some(
+        (range) => sink.line >= range.startLine && sink.line <= range.endLine,
+      );
+    const toRef = (sink) => ({
+      id: sink.id,
+      line: sink.line,
+      label: sink.label,
+    });
+    return {
+      ...fork,
+      relatedSinks: inComponent.map(toRef),
+      branchGatedSinks: inComponent.filter(inBranch).map(toRef),
+    };
+  });
 }
 
 function analyzeSourceFile(ts, checker, graph, sourceFile, args, crossFile) {
@@ -1165,7 +1205,530 @@ function analyzeSourceFile(ts, checker, graph, sourceFile, args, crossFile) {
   };
 
   visit(sourceFile);
-  return sinks;
+  const forks = detectRepeatedForks(ts, checker, sourceFile, args.root);
+  return { sinks, forks };
+}
+
+// --- Repeated fork/split detector (component-scoped branch inventory) ---------
+//
+// The per-sink trace only ever sees a fork that sits directly on one value's
+// data slice. The "same discriminant tested in N sibling places" smell — the
+// textbook trigger for splitting a component into discriminated sub-components —
+// has no representation there: a `props.type` guard on a *sibling* sink is
+// invisible to that sink's backward trace.
+//
+// This pass restores it. Per component function it collects every branch
+// construct (ternary, if, &&/||, Solid `<Match>`/`<Show when>`), normalizes each
+// discriminant to a subject key (the non-literal side of a comparison, or the
+// raw condition text), and emits a component-level finding when one subject is
+// forked in >=2 sibling locations. Severity is sharpened by counting
+// component-scope derived values that are read under only one branch — the
+// "you computed both branches eagerly, used one" waste that turns a style nit
+// into real burden.
+// Values that are guards/toggles, not variant axes. A discriminated split keys
+// on a *named* domain value (a string/number literal), never on these.
+const NULLISH_OR_BOOLEAN_VALUES = new Set([
+  "undefined",
+  "null",
+  "true",
+  "false",
+  "",
+]);
+const isNamedLiteralValue = (value) =>
+  value != null && !NULLISH_OR_BOOLEAN_VALUES.has(value);
+
+// Calls whose function argument runs as a side effect / lifecycle reaction, not
+// as a render-feeding derivation. A branch inside one of these is control flow,
+// not a render fork. `createMemo`/`createSelector` are deliberately absent — they
+// feed JSX and stay transparent.
+const SIDE_EFFECT_CALLEES = new Set([
+  "createEffect",
+  "createRenderEffect",
+  "createComputed",
+  "createReaction",
+  "onMount",
+  "onCleanup",
+  "onError",
+  "on",
+  "batch",
+  "untrack",
+  "setTimeout",
+  "setInterval",
+  "queueMicrotask",
+  "requestAnimationFrame",
+  "requestIdleCallback",
+  "addEventListener",
+]);
+
+function detectRepeatedForks(ts, checker, sourceFile, root) {
+  const file = relativePath(root, sourceFile.fileName);
+
+  const isFunctionLike = (node) =>
+    ts.isFunctionDeclaration(node) ||
+    ts.isArrowFunction(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isMethodDeclaration(node);
+
+  const functionName = (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name) return node.name.text;
+    if (ts.isMethodDeclaration(node) && node.name) return node.name.getText();
+    const parent = node.parent;
+    if (
+      parent &&
+      ts.isVariableDeclaration(parent) &&
+      ts.isIdentifier(parent.name)
+    )
+      return parent.name.text;
+    if (parent && ts.isPropertyAssignment(parent) && parent.name)
+      return collapse(parent.name.getText());
+    return null;
+  };
+
+  // Does a subtree contain JSX (not counting JSX inside a nested function)?
+  const nodeHasJsx = (node, stopAtFunctions = false) => {
+    let found = false;
+    const walk = (current) => {
+      if (found) return;
+      if (
+        ts.isJsxElement(current) ||
+        ts.isJsxSelfClosingElement(current) ||
+        ts.isJsxFragment(current)
+      ) {
+        found = true;
+        return;
+      }
+      if (stopAtFunctions && current !== node && isFunctionLike(current)) return;
+      ts.forEachChild(current, walk);
+    };
+    walk(node);
+    return found;
+  };
+
+  // Memoized "does this function body render JSX" test → it is a component.
+  const jsxCache = new Map();
+  const containsJsx = (fnNode) => {
+    if (jsxCache.has(fnNode)) return jsxCache.get(fnNode);
+    const found = nodeHasJsx(fnNode, true);
+    jsxCache.set(fnNode, found);
+    return found;
+  };
+
+  const calleeName = (expr) => {
+    if (ts.isIdentifier(expr)) return expr.text;
+    if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+    return null;
+  };
+
+  // A non-JSX function is render-feeding (a derived accessor/memo whose output
+  // flows into JSX) unless it is an event handler or a lifecycle/effect
+  // callback. Those carry control flow, never a render fork.
+  const isRenderFeedingAccessor = (fn) => {
+    const parent = fn.parent;
+    // Bound to a JSX `on*` event attribute: <x onClick={() => ...} />
+    if (
+      parent &&
+      ts.isJsxExpression(parent) &&
+      parent.parent &&
+      ts.isJsxAttribute(parent.parent)
+    ) {
+      const attrName = parent.parent.name.getText();
+      if (/^on[A-Z]/.test(attrName)) return false;
+    }
+    // Named like an event handler: const onKeyDown = ... / const handleClick = ...
+    if (
+      parent &&
+      ts.isVariableDeclaration(parent) &&
+      ts.isIdentifier(parent.name) &&
+      /^(on|handle)[A-Z]/.test(parent.name.text)
+    )
+      return false;
+    // Passed as the callback to a side-effect / lifecycle primitive.
+    if (
+      parent &&
+      ts.isCallExpression(parent) &&
+      parent.arguments.some((arg) => arg === fn)
+    ) {
+      const name = calleeName(parent.expression);
+      if (name && SIDE_EFFECT_CALLEES.has(name)) return false;
+    }
+    // First parameter is (or is typed as) a DOM Event → an event handler.
+    const param = fn.parameters?.[0];
+    if (param) {
+      if (
+        ts.isIdentifier(param.name) &&
+        /^(e|ev|evt|event)$/i.test(param.name.text)
+      )
+        return false;
+      const typeText = param.type ? param.type.getText() : "";
+      if (/(^|[^A-Za-z])Event(<|$|\b)/.test(typeText)) return false;
+    }
+    return true;
+  };
+
+  // Owning component for a branch, or null if the branch is NOT on a render
+  // path. The nearest enclosing function-like must be the component itself
+  // (renders JSX) or a render-feeding accessor that ultimately sits inside a
+  // component. Event handlers and effect callbacks return null → ignored.
+  const ownerFor = (node) => {
+    let fn = node.parent;
+    while (fn && !isFunctionLike(fn)) fn = fn.parent;
+    if (!fn) return null;
+    if (containsJsx(fn)) return fn;
+    if (!isRenderFeedingAccessor(fn)) return null;
+    let up = fn.parent;
+    while (up) {
+      if (isFunctionLike(up) && containsJsx(up)) return up;
+      up = up.parent;
+    }
+    return null;
+  };
+
+  const literalKinds = new Set([
+    ts.SyntaxKind.StringLiteral,
+    ts.SyntaxKind.NumericLiteral,
+    ts.SyntaxKind.TrueKeyword,
+    ts.SyntaxKind.FalseKeyword,
+    ts.SyntaxKind.NullKeyword,
+    ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+  ]);
+  const isLiteralish = (node) =>
+    literalKinds.has(node.kind) ||
+    (ts.isIdentifier(node) && node.text === "undefined");
+  const literalText = (node) =>
+    ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
+      ? node.text
+      : collapse(node.getText());
+  const comparisonOps = new Set([
+    ts.SyntaxKind.EqualsEqualsEqualsToken,
+    ts.SyntaxKind.ExclamationEqualsEqualsToken,
+    ts.SyntaxKind.EqualsEqualsToken,
+    ts.SyntaxKind.ExclamationEqualsToken,
+  ]);
+
+  // Reduce a branch condition to { subjectNode, subjectText, value }: the thing
+  // discriminated on, plus (for a comparison against a literal) the value that
+  // selects this branch.
+  const discriminantOf = (node) => {
+    let cond = node;
+    while (ts.isParenthesizedExpression(cond)) cond = cond.expression;
+    if (
+      ts.isPrefixUnaryExpression(cond) &&
+      cond.operator === ts.SyntaxKind.ExclamationToken
+    ) {
+      const inner = discriminantOf(cond.operand);
+      return { subjectNode: inner.subjectNode, subjectText: inner.subjectText, value: null };
+    }
+    if (
+      ts.isBinaryExpression(cond) &&
+      comparisonOps.has(cond.operatorToken.kind)
+    ) {
+      const { left, right } = cond;
+      if (isLiteralish(right) && !isLiteralish(left))
+        return { subjectNode: left, subjectText: collapse(left.getText()), value: literalText(right) };
+      if (isLiteralish(left) && !isLiteralish(right))
+        return { subjectNode: right, subjectText: collapse(right.getText()), value: literalText(left) };
+      return { subjectNode: cond, subjectText: collapse(cond.getText()), value: null };
+    }
+    return { subjectNode: cond, subjectText: collapse(cond.getText()), value: null };
+  };
+
+  // Stable identity for a discriminant subject. Prefer the resolved symbol so
+  // that the same prop/signal groups across sites, and so distinct locals that
+  // merely share a name (a `const box` re-declared in five functions) do NOT
+  // collapse into one false fork. Falls back to owner-scoped text.
+  const subjectKey = (subjectNode, ownerNode) => {
+    try {
+      const symbol = checker.getSymbolAtLocation(subjectNode);
+      const decl = symbol?.getDeclarations?.()?.[0];
+      if (decl)
+        return `sym:${decl.getSourceFile().fileName}:${decl.getStart()}`;
+    } catch {
+      // checker can throw on synthesized nodes; fall through to text key.
+    }
+    return `txt:${ownerNode.getStart()}:${collapse(subjectNode.getText())}`;
+  };
+
+  const collectIdentifiers = (node) => {
+    const ids = new Set();
+    const walk = (current) => {
+      if (ts.isIdentifier(current)) ids.add(current.text);
+      ts.forEachChild(current, walk);
+    };
+    walk(node);
+    return ids;
+  };
+
+  // An `if` whose then-branch is only an early exit (return/throw/break/continue
+  // that renders nothing) is narrowing one path, not forking into siblings.
+  const isGuardClause = (thenStatement) => {
+    let stmt = thenStatement;
+    if (ts.isBlock(stmt)) {
+      if (stmt.statements.length !== 1) return false;
+      stmt = stmt.statements[0];
+    }
+    if (ts.isReturnStatement(stmt))
+      return !stmt.expression || !nodeHasJsx(stmt.expression);
+    return (
+      ts.isThrowStatement(stmt) ||
+      ts.isBreakStatement(stmt) ||
+      ts.isContinueStatement(stmt)
+    );
+  };
+
+  const makeSite = (kind, node, condition, consequent) => {
+    const disc = discriminantOf(condition);
+    return {
+      kind,
+      node,
+      subjectNode: disc.subjectNode,
+      subjectText: disc.subjectText,
+      value: disc.value,
+      location: locationOf(sourceFile, condition),
+      consequent,
+      consequentIds: consequent ? collectIdentifiers(consequent) : new Set(),
+      snippet: collapse(condition.getText()),
+    };
+  };
+
+  // Solid control-flow elements: <Match when={...}> and <Show when={...}>. The
+  // `when` guard is the discriminant; the element's subtree is the branch body.
+  const jsxBranchSite = (node) => {
+    let tagName = null;
+    let attributes = null;
+    if (ts.isJsxElement(node)) {
+      tagName = node.openingElement.tagName.getText();
+      attributes = node.openingElement.attributes;
+    } else if (ts.isJsxSelfClosingElement(node)) {
+      tagName = node.tagName.getText();
+      attributes = node.attributes;
+    } else {
+      return null;
+    }
+    const base = tagName.split(".").pop();
+    if (base !== "Match" && base !== "Show") return null;
+    const whenAttr = attributes.properties.find(
+      (property) =>
+        ts.isJsxAttribute(property) && property.name.getText() === "when",
+    );
+    if (
+      !whenAttr ||
+      !whenAttr.initializer ||
+      !ts.isJsxExpression(whenAttr.initializer) ||
+      !whenAttr.initializer.expression
+    )
+      return null;
+    const condition = whenAttr.initializer.expression;
+    const disc = discriminantOf(condition);
+    return {
+      kind: base === "Match" ? "switch-match" : "show",
+      node,
+      subjectNode: disc.subjectNode,
+      subjectText: disc.subjectText,
+      value: disc.value,
+      location: locationOf(sourceFile, condition),
+      consequent: node,
+      consequentIds: collectIdentifiers(node),
+      snippet: collapse(condition.getText()),
+    };
+  };
+
+  // owner function node -> { node, name, sites: [] }
+  const components = new Map();
+  const componentFor = (fnNode) => {
+    let entry = components.get(fnNode);
+    if (!entry) {
+      entry = { node: fnNode, name: functionName(fnNode), sites: [] };
+      components.set(fnNode, entry);
+    }
+    return entry;
+  };
+
+  const visit = (node) => {
+    let site = null;
+    if (ts.isConditionalExpression(node)) {
+      site = makeSite("ternary", node, node.condition, node.whenTrue);
+      // The else chain (whenFalse) holds sibling branches, not nesting — stop the
+      // containment window before it so `a ? x : b ? y : c` keeps all sites.
+      if (site) site.dedupeEnd = node.whenFalse.getStart();
+    } else if (ts.isIfStatement(node)) {
+      // Guard clauses (`if (!x) return`) are narrowing, not forking — skip them.
+      if (!isGuardClause(node.thenStatement)) {
+        site = makeSite("if", node, node.expression, node.thenStatement);
+        if (site) site.dedupeEnd = node.thenStatement.getEnd();
+      }
+    } else if (
+      ts.isBinaryExpression(node) &&
+      (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+        node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+    ) {
+      site = makeSite("logical", node, node.left, node.right);
+    } else {
+      site = jsxBranchSite(node);
+    }
+    if (site && site.subjectText) {
+      if (site.dedupeEnd == null) site.dedupeEnd = node.getEnd();
+      const owner = ownerFor(node);
+      if (owner) {
+        site.key = subjectKey(site.subjectNode, owner);
+        componentFor(owner).sites.push(site);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+
+  // Component-scope derived bindings (`const x = () => ...`, memos, ternaries):
+  // candidates for "computed eagerly, read under one branch only".
+  const componentScopeDecls = (fnNode) => {
+    const body = fnNode.body;
+    if (!body || !ts.isBlock(body)) return [];
+    const decls = [];
+    for (const stmt of body.statements) {
+      if (!ts.isVariableStatement(stmt)) continue;
+      for (const declaration of stmt.declarationList.declarations) {
+        if (!declaration.initializer || !ts.isIdentifier(declaration.name))
+          continue;
+        const init = declaration.initializer;
+        const derived =
+          ts.isArrowFunction(init) ||
+          ts.isFunctionExpression(init) ||
+          ts.isCallExpression(init) ||
+          ts.isConditionalExpression(init);
+        if (derived)
+          decls.push({
+            name: declaration.name.text,
+            line: locationOf(sourceFile, declaration).line,
+          });
+      }
+    }
+    return decls;
+  };
+
+  // Drop sites contained inside another same-subject site's condition/consequent
+  // window (`dedupeEnd` excludes the else chain), so an `if` and a ternary nested
+  // in its then-branch don't double-count, while chained ternaries stay distinct.
+  const dedupeNested = (sites) => {
+    const sorted = [...sites].sort(
+      (a, b) => a.node.getStart() - b.node.getStart(),
+    );
+    const kept = [];
+    for (const site of sorted) {
+      const start = site.node.getStart();
+      const end = site.node.getEnd();
+      const nested = kept.some(
+        (other) =>
+          other.node !== site.node &&
+          other.node.getStart() <= start &&
+          (other.dedupeEnd ?? other.node.getEnd()) >= end,
+      );
+      if (!nested) kept.push(site);
+    }
+    return kept;
+  };
+
+  const findings = [];
+  for (const component of components.values()) {
+    if (!containsJsx(component.node)) continue;
+    // Group by resolved discriminant identity, not raw text.
+    const byKey = new Map();
+    for (const site of component.sites) {
+      if (!byKey.has(site.key)) byKey.set(site.key, []);
+      byKey.get(site.key).push(site);
+    }
+    const decls = componentScopeDecls(component.node);
+    const componentLine = locationOf(sourceFile, component.node).line;
+    for (const groupSites of byKey.values()) {
+      const sites = dedupeNested(groupSites);
+      if (sites.length < 2) continue;
+      const subject = sites[0].subjectText;
+
+      const branchValues = unique(
+        sites.map((site) => site.value).filter((value) => value != null),
+      );
+      const namedValues = branchValues.filter(isNamedLiteralValue);
+      const hasSwitchMatch = sites.some(
+        (site) => site.kind === "switch-match",
+      );
+      const hasStructural = sites.some(
+        (site) =>
+          site.kind === "switch-match" ||
+          site.kind === "show" ||
+          site.kind === "ternary" ||
+          site.kind === "if",
+      );
+
+      // Variant gate: a real discriminated split keys on a named domain value
+      // (≥1 named literal compared) or a Switch/Match on a literal union. Bare
+      // booleans, nullish sentinels, and toggle signals are not splits.
+      if (!hasStructural) continue;
+      if (namedValues.length < 1 && !hasSwitchMatch) continue;
+
+      // Severity (trimmed Option B): component-scope derived values read under
+      // exactly one branch value are eager cross-branch computation.
+      const usageByValue = new Map();
+      for (const site of sites) {
+        const key = site.value ?? "(other)";
+        if (!usageByValue.has(key)) usageByValue.set(key, new Set());
+        for (const id of site.consequentIds) usageByValue.get(key).add(id);
+      }
+      const branchExclusive = [];
+      for (const decl of decls) {
+        const inValues = [...usageByValue.entries()]
+          .filter(([, ids]) => ids.has(decl.name))
+          .map(([value]) => value);
+        if (inValues.length === 1)
+          branchExclusive.push({ ...decl, branch: inValues[0] });
+      }
+
+      // Line ranges of each branch body, so related sinks can be gated to the
+      // sites actually rendered under the discriminated branches.
+      const branchRanges = sites
+        .map((site) => site.consequent)
+        .filter(Boolean)
+        .map((node) => {
+          const span = spanOf(sourceFile, node);
+          return { startLine: span.startLine, endLine: span.endLine };
+        });
+
+      // Confidence: a literal-union Switch/Match or ≥2 named values is a clean
+      // anchor; a single named value tested repeatedly is medium.
+      const confidence =
+        hasSwitchMatch || namedValues.length >= 2 ? "high" : "medium";
+      // Reweight toward what actually predicts a split: distinct named domain
+      // values dominate, then render-site count, then eager cross-branch compute.
+      const severity =
+        namedValues.length * 5 +
+        sites.length +
+        branchExclusive.length * 3 +
+        (hasSwitchMatch ? 2 : 0);
+      const first = sites[0];
+      findings.push({
+        id: `FORK-${first.location.line}-${first.location.column}`,
+        kind: "repeated-fork",
+        file,
+        line: first.location.line,
+        column: first.location.column,
+        component: component.name,
+        componentLine,
+        discriminant: subject,
+        branchValues,
+        namedValues,
+        branchRanges,
+        sites: sites.map((site) => ({
+          kind: site.kind,
+          line: site.location.line,
+          column: site.location.column,
+          value: site.value,
+          snippet: formatExpression(site.snippet, 80),
+        })),
+        siteCount: sites.length,
+        branchExclusive,
+        confidence,
+        severity,
+      });
+    }
+  }
+  return findings.sort((a, b) => b.severity - a.severity);
 }
 
 function buildFileContext(ts, sourceFile) {
@@ -3401,6 +3964,177 @@ function concentrationLines(report, shownCount) {
   sentence +=
     ". Use --spread / --diversity to widen, or `--view hotspots` for the full per-file map._";
   return ["**Coverage**", "", sentence, ""];
+}
+
+// Display label + human kind for a fork-site construct.
+const FORK_SITE_KIND = {
+  "switch-match": "Match",
+  show: "Show",
+  ternary: "ternary",
+  if: "if",
+  logical: "&&/||",
+};
+
+function forkSeverityLabel(fork) {
+  // Driven by named-value diversity (the real split signal) and severity, which
+  // already weights distinct named values × 5.
+  const named = fork.namedValues?.length ?? 0;
+  if (named >= 3 || fork.severity >= 16) return "HIGH";
+  if ((named >= 2 && fork.confidence === "high") || fork.severity >= 10)
+    return "MEDIUM";
+  return "LOW";
+}
+
+function renderRepeatedForks(report, args) {
+  const fileMatch = makeFileMatcher(args.file);
+  const all = report.repeatedForks ?? [];
+  const forks = fileMatch ? all.filter((fork) => fileMatch(fork.file)) : all;
+  const maxItems = args.maxItems ?? defaultMaxItemsFor("repeated-forks");
+  const selected = forks.slice(0, maxItems);
+
+  const lines = [
+    "# Repeated Fork → Split Candidates",
+    "",
+    ...viewIntro("repeated-forks", report),
+  ];
+
+  if (forks.length === 0) {
+    lines.push(
+      "_No component tests the same discriminant across multiple sibling branch sites. " +
+        "Nothing here suggests a discriminated split._",
+      "",
+    );
+    return `${lines.join("\n")}\n`;
+  }
+
+  if (forks.length > selected.length) {
+    lines.push(
+      `_Showing top ${selected.length} of ${forks.length} candidates (raise with --max-items)._`,
+      "",
+    );
+  }
+
+  for (const fork of selected) {
+    const component = fork.component ?? "(anonymous render scope)";
+    lines.push(
+      `## ${fork.id} · ${forkSeverityLabel(fork)} · \`${component}\` forks on \`${fork.discriminant}\``,
+    );
+    lines.push(`${fork.file}:${fork.componentLine ?? fork.line}`);
+    lines.push("");
+
+    lines.push("**Discriminant**");
+    lines.push("");
+    lines.push(...fenced([fork.discriminant]));
+    lines.push("");
+    if (fork.branchValues.length > 0) {
+      lines.push(
+        `Branch values: ${fork.branchValues.map((value) => `\`${value}\``).join(", ")}`,
+      );
+      lines.push("");
+    }
+
+    lines.push("**Fork sites**");
+    lines.push("");
+    lines.push("| Where | Construct | Branch | Condition |");
+    lines.push("| --- | --- | --- | --- |");
+    for (const site of fork.sites) {
+      lines.push(
+        `| ${fork.file}:${site.line} | ${FORK_SITE_KIND[site.kind] ?? site.kind} | ${
+          site.value != null ? `\`${site.value}\`` : "—"
+        } | \`${site.snippet}\` |`,
+      );
+    }
+    lines.push("");
+
+    if (fork.branchExclusive && fork.branchExclusive.length > 0) {
+      lines.push("**Branch-exclusive eager computation**");
+      lines.push("");
+      lines.push(
+        "These component-scope values are computed regardless of branch but read under only one:",
+      );
+      lines.push("");
+      for (const decl of fork.branchExclusive) {
+        lines.push(
+          `- \`${decl.name}\` (${fork.file}:${decl.line}) — used only when \`${decl.branch}\``,
+        );
+      }
+      lines.push("");
+    }
+
+    const gated = fork.branchGatedSinks ?? [];
+    const related = fork.relatedSinks ?? [];
+    if (gated.length > 0) {
+      lines.push("**Findings under the discriminated branches**");
+      lines.push("");
+      lines.push(
+        `${gated.length} ranked finding(s) render inside the \`${fork.discriminant}\` branches — these move with a split` +
+          (related.length > gated.length
+            ? ` (${related.length} total in \`${component}\`).`
+            : "."),
+      );
+      lines.push("");
+      for (const sink of gated.slice(0, 8)) {
+        lines.push(
+          `- ${sink.id} — \`${formatExpression(sink.label, 60)}\` (${fork.file}:${sink.line})`,
+        );
+      }
+      lines.push("");
+    } else if (related.length > 0) {
+      lines.push("**Findings in this component**");
+      lines.push("");
+      lines.push(
+        `${related.length} ranked finding(s) render in \`${component}\` (none lie directly inside a discriminated branch body):`,
+      );
+      lines.push("");
+      for (const sink of related.slice(0, 6)) {
+        lines.push(
+          `- ${sink.id} — \`${formatExpression(sink.label, 60)}\` (${fork.file}:${sink.line})`,
+        );
+      }
+      lines.push("");
+    }
+
+    lines.push("**Recommendation**");
+    lines.push("");
+    lines.push(forkRecommendation(fork, component));
+    lines.push("");
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+function forkRecommendation(fork, component) {
+  // Only suggest concrete sub-component names when the component has a usable
+  // PascalCase name and the branches key on ≥2 named domain values; otherwise
+  // the generated names ("EnterCombobox") are noise.
+  const named = fork.namedValues ?? [];
+  const isPascal = /^[A-Z][A-Za-z0-9]*$/.test(component);
+  const subComponents =
+    named.length >= 2 && isPascal
+      ? named
+          .slice(0, 3)
+          .map((value) => `\`${pascalish(value)}${component}\``)
+          .join(" / ")
+      : "one sub-component per branch";
+  const eager =
+    fork.branchExclusive && fork.branchExclusive.length > 0
+      ? ` Each branch already computes ${fork.branchExclusive.length} value(s) eagerly that only one path reads — moving those into the matching sub-component removes the cross-branch waste.`
+      : "";
+  return (
+    `\`${component}\` discriminates on \`${fork.discriminant}\` in ${fork.siteCount} render-path sites. ` +
+    `Lift the decision to a single top-level split (${subComponents}) so each sub-component computes its own data in place instead of forking the same condition repeatedly.${eager}`
+  );
+}
+
+// "bar" -> "Bar", "line-chart" -> "LineChart"; best-effort label for a suggested
+// sub-component name. Non-identifier values fall back to a generic tag.
+function pascalish(value) {
+  const cleaned = String(value).replace(/[^A-Za-z0-9]+/g, " ").trim();
+  if (!cleaned) return "Branch";
+  return cleaned
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join("");
 }
 
 function renderFindings(report, args) {
@@ -6747,6 +7481,12 @@ const VIEW_BLURBS = {
     "_Sink_ is the rendered expression, _Source_ the actionable inputs it derives " +
     "from, _path depth_ the number of transformation hops between them, and " +
     "_severity/burden_ reflects how much data-flow plumbing sits on the path.",
+  "repeated-forks":
+    "Each entry is one component that tests the **same discriminant** in two or " +
+    "more sibling branch sites (ternary, `if`, `&&`, Solid `<Match>`/`<Show>`) — " +
+    "the signal that it wants to split into discriminated sub-components. _Fork " +
+    "sites_ are where the condition repeats; _branch-exclusive values_ are " +
+    "component-scope derivations computed eagerly but read under only one branch.",
   "work-packets":
     "Each work item is a scoped cleanup candidate for one render sink. _pivot_ is " +
     "the primary source value, _source inputs_ the distinct inputs merged into it " +

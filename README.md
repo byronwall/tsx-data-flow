@@ -140,6 +140,7 @@ The more useful view for planning work is [`examples/bad-ish-solid/reports/work-
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `work-packets`          | Ranked implementation items with grouped render recommendations, background findings, stop recommendation, scope, path, candidate edits, and risk.                    |
 | `findings`              | Compact ranked findings for triage.                                                                                                                                   |
+| `repeated-forks`        | Components that test the same discriminant across multiple sibling branch sites (ternary / `if` / `&&` / Solid `<Match>`/`<Show>`) — the "split into discriminated sub-components" smell, with fork sites, branch-exclusive eager computations, and the findings a split would fix. |
 | `repair-map`            | Grouped quick-win, central-leverage, and investigation queues.                                                                                                        |
 | `prop-relay`            | Prop pass-through and relay paths — best signal for broad prop bundles and missing context/store ownership.                                                           |
 | `context-relay`         | Same-feature children receiving shared-looking props from context-aware parents (Provider/Context completion audit).                                                  |

@@ -26,6 +26,7 @@ const FILE_VIEWS = REPORT_VIEWS.filter((view) => view !== "dossier");
 // Short human labels for the per-file view sections.
 const VIEW_LABELS = {
   findings: "Findings",
+  "repeated-forks": "Repeated forks",
   "work-packets": "Work packets",
   "fan-out": "Fan-out",
   "fan-in": "Fan-in",
