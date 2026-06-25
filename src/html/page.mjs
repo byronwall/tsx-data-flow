@@ -293,6 +293,50 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
 /* Jump-to-line (same file) and open-file (cross file) links inside path/defense rows. */
 .codemap .goto-line { cursor: pointer; border-bottom: 1px dotted var(--accent); }
 .peek-pop .peek-open { display: inline-block; margin: 4px 2px 2px; font-size: 12px; }
+
+/* Unified inventory: type badges + filter chips + per-type tinting. */
+.badge.q-usage { color: var(--muted); background: var(--code-bg); }
+.badge.q-fork { color: #b8860b; background: var(--central-bg); }
+.badge.q-junction, .badge.q-boundary { color: #2563eb; background: hsl(212 90% 60% / 0.12); }
+.type-tag {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em;
+  padding: 0 5px; border-radius: 8px; font-weight: 600; margin-right: 2px;
+}
+.tt-finding { color: var(--invest); background: var(--invest-bg); }
+.tt-usage { color: var(--muted); background: var(--code-bg); }
+.tt-fork { color: var(--central); background: var(--central-bg); }
+.tt-junction, .tt-boundary { color: var(--accent); background: hsl(212 90% 60% / 0.12); }
+.codemap .panel .finding-row[data-hidden] { display: none; }
+.codemap .panel li[data-hidden] { display: none; }
+.codemap .panel .finding-list li[data-type="usage"] .finding-row { opacity: 0.72; }
+.entry-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.entry-filters .efilter {
+  font-size: 11px; padding: 2px 9px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--muted); cursor: pointer;
+}
+.entry-filters .efilter.active { color: var(--fg); border-color: var(--accent); background: var(--code-bg); }
+
+/* Defensive markers (DEF-1/DEF-2): any fallback step reads as defensive. */
+.def-icon { cursor: help; }
+.codemap .panel tr.defensive-step td { background: hsl(140 var(--heat-s) var(--heat-bg-l) / 0.5); }
+.codemap .panel .def-jump { margin: 6px 0; }
+.codemap .panel .usage-note { margin: 6px 0; padding: 6px 9px; border-radius: 6px; background: var(--code-bg); color: var(--muted); font-size: 12px; }
+
+/* Inline cross-file code reveal (INLINE-1): keep the code map, show the target. */
+.codemap .panel .xfile-peek { display: inline; }
+.codemap .panel .reveal-code {
+  font-size: 11px; padding: 0 6px; margin-left: 2px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer;
+}
+.codemap .panel .inline-code { display: block; margin: 4px 0; }
+
+/* Numbered path-step badges on the overlay (ANNO-1). */
+.codemap td.gutter .path-step-no {
+  display: inline-block; min-width: 14px; height: 14px; line-height: 14px;
+  font-size: 9px; text-align: center; border-radius: 7px; cursor: pointer;
+  background: var(--accent); color: #fff; font-variant-numeric: tabular-nums;
+}
+.codemap td.gutter .path-step-no.def { background: hsl(140 60% 38%); }
 `;
 
 const SCRIPT = `
@@ -316,6 +360,7 @@ function clearPathOverlay(map) {
   map.querySelectorAll('tr.path-active').forEach(function (r) {
     r.classList.remove('path-active', 'sink-line');
     var tag = r.querySelector('.path-tag'); if (tag) tag.remove();
+    var no = r.querySelector('.path-step-no'); if (no) no.remove();
   });
 }
 // Light up the selected finding's representative path on the source: every hop
@@ -341,6 +386,22 @@ function applyPathOverlay(map, finding) {
       }
     }
   }
+  // ANNO-1: number each same-file path step in the gutter ("this is item N"),
+  // click to re-center. data-path-steps = "line:ordinal[:d],…" (d = defensive).
+  (finding.getAttribute('data-path-steps') || '').split(',').filter(Boolean).forEach(function (pair) {
+    var bits = pair.split(':');
+    var ln = bits[0], ord = bits[1], def = bits[2] === 'd';
+    var r = map.querySelector('tr[data-line="' + ln + '"]');
+    if (!r) return;
+    var gut = r.querySelector('td.gutter');
+    if (!gut || gut.querySelector('.path-step-no')) return;
+    var badge = document.createElement('span');
+    badge.className = 'path-step-no' + (def ? ' def' : '');
+    badge.textContent = ord;
+    badge.setAttribute('data-line', ln);
+    badge.title = 'Path step ' + ord + (def ? ' · defensive' : '');
+    gut.appendChild(badge);
+  });
 }
 function flashLine(row) {
   if (!row) return;
@@ -457,6 +518,44 @@ document.addEventListener('click', function (e) {
     return;
   }
   if (!e.target.closest('.peek-pop')) closePeeks();
+
+  // Type-filter chips on the inventory list.
+  var efilter = e.target.closest('.efilter');
+  if (efilter) {
+    var fl = efilter.closest('.finding-list');
+    if (fl) {
+      fl.querySelectorAll('.efilter').forEach(function (b) { b.classList.remove('active'); });
+      efilter.classList.add('active');
+      var want = efilter.getAttribute('data-filter');
+      fl.querySelectorAll('ol > li').forEach(function (li) {
+        if (want === 'all' || li.getAttribute('data-type') === want) li.removeAttribute('data-hidden');
+        else li.setAttribute('data-hidden', '1');
+      });
+    }
+    return;
+  }
+
+  // Reveal cross-file code inline (INLINE-1) without leaving the page.
+  var reveal = e.target.closest('.reveal-code');
+  if (reveal) {
+    var peek = reveal.closest('.xfile-peek');
+    var inline = peek ? peek.querySelector('.inline-code') : null;
+    if (inline) {
+      var show = inline.hasAttribute('hidden');
+      if (show) inline.removeAttribute('hidden'); else inline.setAttribute('hidden', '');
+      reveal.textContent = show ? '⌃ hide' : '⌄ code';
+    }
+    e.preventDefault();
+    return;
+  }
+
+  // A numbered path-step badge: scroll its line to center.
+  var stepNo = e.target.closest('.path-step-no');
+  if (stepNo) {
+    var ms = stepNo.closest('.codemap');
+    if (ms) flashLine(scrollMapToLine(ms, stepNo.getAttribute('data-line')));
+    return;
+  }
 
   // Back to the findings list (close the open detail).
   if (e.target.closest('.panel-back')) {

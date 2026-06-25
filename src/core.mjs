@@ -4134,6 +4134,29 @@ function getNullishStatus(ts, checker, expression) {
   return containsNullish ? "possible" : "impossible";
 }
 
+// THRESH-1: a "usage" is a trivial, shallow expression with no actionable
+// signal — e.g. a bare `props.search` read flowing straight into a sink (burden
+// ~0.05, the path-depth term only). These are not smells; they are proof a value
+// is used. We keep them (browsable, jump-to-definition) but tag them `usage` so
+// the UI can demote them out of the findings list, which otherwise fills with
+// "the simplest usage possible" noise. Reach/fan-out is deliberately NOT a
+// signal here: a plain prop read that feeds many sinks is still just a usage.
+const USAGE_BURDEN_CEILING = 0.08;
+function classifyTier(sink, burden) {
+  const m = sink.metrics ?? {};
+  const hasSignal =
+    (m.actionableDefensiveOperationCount ?? 0) > 0 ||
+    (m.impossibleDefenseCount ?? 0) > 0 ||
+    (m.representationChurn ?? 0) > 0 ||
+    (m.controlDependencyCount ?? 0) > 0 ||
+    (m.helperHops ?? 0) > 0 ||
+    (m.packRisk ?? 0) > 0 ||
+    (m.suspiciousPackCount ?? 0) > 0 ||
+    (m.unknownEdgeCount ?? 0) > 0 ||
+    (m.repeatedNormalization ?? 0) > 0;
+  return burden < USAGE_BURDEN_CEILING && !hasSignal ? "usage" : "finding";
+}
+
 function rankSinks(sinks) {
   const enriched = sinks.map((sink) => {
     const background = backgroundClassificationFor(sink);
@@ -4146,6 +4169,7 @@ function rankSinks(sinks) {
       ...sink,
       signature: signatureFor(sink),
       background,
+      tier: classifyTier(sink, burden),
       scores: {
         burden,
         rawBurden,

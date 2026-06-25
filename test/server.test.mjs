@@ -497,6 +497,116 @@ describe("createServer", () => {
     expect(third.body).toContain("src/File59.tsx");
   });
 
+  it("sorts the Worst column by per-file max burden, descending (BUG-1)", async () => {
+    const files = {};
+    for (let index = 0; index < 6; index += 1) {
+      const name = `W${index}`;
+      // Vary complexity so files get different worst-burden scores.
+      const guards = "?? 0 ".repeat(index + 1);
+      files[`src/${name}.tsx`] = `
+        export function ${name}(props: { a: number; b: number | null }) {
+          return <div title={String((props.b ${guards}) + props.a)}>{props.a + ${index}}</div>;
+        }
+      `;
+    }
+    const project = await createFixtureProject(files);
+    const { handler } = createServer(project.args);
+    const home = await call(handler, "/?sort=burden");
+    const worst = [...home.body.matchAll(/<td>(\d+\.\d+)<\/td>/g)].map((m) =>
+      Number(m[1]),
+    );
+    // The first numeric column emitted per row is "Worst"; the sequence of the
+    // first value on each row must be non-increasing.
+    const firsts = [];
+    const rowChunks = home.body.split("<tr>").slice(2); // skip thead
+    for (const chunk of rowChunks) {
+      const m = chunk.match(/<td>(\d+\.\d+)<\/td>/);
+      if (m) firsts.push(Number(m[1]));
+    }
+    expect(firsts.length).toBeGreaterThan(1);
+    for (let i = 1; i < firsts.length; i += 1) {
+      expect(firsts[i]).toBeLessThanOrEqual(firsts[i - 1] + 1e-9);
+    }
+    expect(worst.length).toBeGreaterThan(0);
+  });
+
+  it("classifies a trivial expression as a usage, not a finding (THRESH-1)", async () => {
+    const project = await createFixtureProject({
+      "src/Plain.tsx": `
+        export function Plain(props: { search: string }) {
+          return <input value={props.search} />;
+        }
+      `,
+    });
+    const analyzer = createAnalyzer(project.args);
+    const report = analyzer.report({ file: ["src/Plain.tsx"] });
+    const sink = report.rankings.all.find((s) => s.file === "src/Plain.tsx");
+    expect(sink).toBeTruthy();
+    expect(sink.tier).toBe("usage");
+  });
+
+  it("unifies forks, junctions, and usages into the code-map inventory (ARCH-1)", async () => {
+    const project = await createFixtureProject({
+      "src/Forky.tsx": `
+        declare function Switch(props: { children: unknown }): unknown;
+        declare function Match(props: { when: boolean; children: unknown }): unknown;
+        export function Forky(props: { type: "bar" | "line"; values: number[] }) {
+          const barData = () => props.values.map((v) => v * 2);
+          const lineData = () => props.values.map((v) => v + 1);
+          return (
+            <figure>
+              <p>{props.type === "bar" ? barData().length : lineData().length}</p>
+              <Switch>
+                <Match when={props.type === "bar"}><span>{barData().length}</span></Match>
+                <Match when={props.type === "line"}><span>{lineData().length}</span></Match>
+              </Switch>
+            </figure>
+          );
+        }
+      `,
+    });
+    const { handler } = createServer(project.args);
+    const file = await call(
+      handler,
+      "/file?path=" + encodeURIComponent("src/Forky.tsx"),
+    );
+    expect(file.status).toBe(200);
+    // Unified inventory with type filter + type tags.
+    expect(file.body).toContain("items in this file");
+    expect(file.body).toContain('class="entry-filters"');
+    expect(file.body).toContain('data-entry-type="fork"');
+    expect(file.body).toContain("repeated fork");
+    expect(file.body).toContain("Discriminant");
+  });
+
+  it("marks fallback path steps as defensive and numbers path steps (DEF/ANNO)", async () => {
+    const source = ["export function App() {", "  return <div>{value}</div>;", "}"].join("\n");
+    const sink = {
+      id: "F1",
+      file: "src/App.tsx",
+      line: 2,
+      column: 16,
+      expression: "value",
+      label: "value",
+      category: "render",
+      queue: "investigation",
+      confidence: 80,
+      metrics: {},
+      scores: { burden: 0.4 },
+      span: { startLine: 2, startColumn: 16, endLine: 2, endColumn: 21 },
+      representativeSteps: [
+        { kind: "source", label: "raw", file: "src/App.tsx", line: 1 },
+        { kind: "fallback", label: "raw ?? 0", file: "src/App.tsx", line: 2 },
+        { kind: "call", label: "<div>{value}</div>", file: "src/App.tsx", line: 2 },
+      ],
+    };
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [sink] });
+    expect(html).toContain('class="defensive-step"');
+    expect(html).toContain('class="def-icon"');
+    // Step map for the numbered overlay: line:ordinal[:d].
+    expect(html).toMatch(/data-path-steps="[^"]*2:2:d/);
+  });
+
   it("renders clickable sort headers with an active caret and a sort-aware heading", async () => {
     const project = await createFixtureProject(FIXTURE);
     const { handler } = createServer(project.args);

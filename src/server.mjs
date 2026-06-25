@@ -316,7 +316,9 @@ function overviewRows(report, state) {
       const rightDepth = right.worstSink?.metrics?.maximumPathDepth ?? 0;
       return rightDepth - leftDepth || right.worst - left.worst || left.key.localeCompare(right.key);
     }
-    return right.sumBurden - left.sumBurden || right.worst - left.worst || left.key.localeCompare(right.key);
+    // The "Worst" column shows each file's single highest burden (g.worst), so
+    // sort by that — not by summed burden, which made the column look unsorted.
+    return right.worst - left.worst || right.sumBurden - left.sumBurden || left.key.localeCompare(right.key);
   });
   return sorted;
 }
@@ -543,6 +545,11 @@ function renderFilePage(
   selectedFinding = null,
 ) {
   const sinks = report.rankings.all.filter((sink) => sink.file === relPath);
+  // ARCH-1/TS-1: pull the other analysis types for this file so they appear in
+  // the unified inventory — repeated forks, and junction/boundary helpers. These
+  // are the only content on a sink-less .ts waypoint.
+  const forks = (report.repeatedForks ?? []).filter((f) => f.file === relPath);
+  const helpers = (report.helpers ?? []).filter((h) => h.file === relPath);
 
   const codeMap = source
     ? renderCodeMap({
@@ -552,6 +559,8 @@ function renderFilePage(
         meta: report.meta,
         resolveSource,
         selectedFinding,
+        forks,
+        helpers,
       })
     : `<p class="meta">Source not found on disk: ${escapeHtml(relPath)}</p>`;
 

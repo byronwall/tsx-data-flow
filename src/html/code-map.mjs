@@ -3,7 +3,7 @@
 // describing each finding. This is the one HTML view the Markdown reports cannot
 // express — it ties the analyzer's findings back to the literal source lines.
 import { escapeHtml } from "./page.mjs";
-import { snippetBlockHtml, sourceReferenceHtml } from "./source-peek.mjs";
+import { snippetBlockHtml } from "./source-peek.mjs";
 
 const QUEUE_LABEL = {
   "peripheral-quick-win": "quick win",
@@ -49,22 +49,30 @@ function stepLocationText(step, { basename = false } = {}) {
 // recurring "I lose track of which file I'm in" complaint):
 //   - same file as the code map → a click-to-scroll link that centers the line
 //     on the source column (no popover, no context switch);
-//   - a different file → a real link to that file's page, so hops navigate
-//     instead of just previewing.
+//   - a different file → an inline code reveal (so you don't lose the code map,
+//     transcript INLINE-1) PLUS a real link to that file's page for full nav.
 function stepLocationHtml(step, resolveSource, relPath) {
   if (!step.line) return '<span class="meta">-</span>';
   if (!step.file) return `<span class="meta">:${step.line}</span>`;
   if (relPath && step.file === relPath) {
     return `<a class="goto-line" data-line="${step.line}" title="Scroll the code map to line ${step.line}">:${step.line}</a>`;
   }
-  if (relPath && step.file !== relPath) {
-    return `<a class="xfile" href="/file?path=${encodeURIComponent(
-      step.file,
-    )}#L${step.line}" title="Open ${escapeHtml(
-      step.file,
-    )}">${escapeHtml(step.file.split("/").pop())}:${step.line} ↗</a>`;
+  // Cross-file: embed the target snippet (resolved server-side) so it can be
+  // revealed inline, plus a link to open the file. The user wants to see the
+  // jumped-to code "without losing all this code-map stuff on the left."
+  const base = escapeHtml(step.file.split("/").pop());
+  const open = `<a class="xfile" href="/file?path=${encodeURIComponent(
+    step.file,
+  )}#L${step.line}" title="Open ${escapeHtml(step.file)}">${base}:${step.line} ↗</a>`;
+  let snippet = "";
+  try {
+    const src = typeof resolveSource === "function" ? resolveSource(step.file) : null;
+    if (src) snippet = snippetBlockHtml(src, step.line, { context: 2 });
+  } catch {
+    snippet = "";
   }
-  return sourceReferenceHtml(step.file, step.line, resolveSource);
+  if (!snippet) return open;
+  return `<span class="xfile-peek">${open} <button type="button" class="reveal-code" title="Show this code inline">⌄ code</button><span class="inline-code" hidden>${snippet}</span></span>`;
 }
 
 // A defense's location, surfaced next to its verdict. The transcript called out
@@ -79,15 +87,26 @@ function defenseLocHtml(defense, relPath, resolveSource) {
 
 // The representative (deepest) path as compact table rows. "Show, don't tell":
 // instead of "path depth 18", lay out the hops with kind/location/expression.
+// Every `fallback`-kind step reads as defensive to the user (whether it is `??`,
+// `||`, or `?.`); the analyzer only records `??`/`?.` in `defenses[]`, so mark
+// defensiveness from the PATH here too — that is why "352 is defensive as well"
+// even though only one site showed in the Defenses list (DEF-1/DEF-2).
+function isDefensiveStep(step) {
+  return step.kind === "fallback";
+}
+
 function pathSection(sink, resolveSource, relPath) {
   const steps = sink.representativeSteps ?? [];
   if (steps.length < 2) return "";
   const rows = steps
     .map((step, index) => {
       const kind = STEP_KIND_LABEL[step.kind] ?? step.kind ?? "step";
-      return `<tr>
+      const shield = isDefensiveStep(step)
+        ? ' <span class="def-icon" title="Defensive operation (fallback/guard)">🛡</span>'
+        : "";
+      return `<tr${isDefensiveStep(step) ? ' class="defensive-step"' : ""}>
 <td class="step-no">${index + 1}</td>
-<td><span class="k">${escapeHtml(kind)}</span></td>
+<td><span class="k">${escapeHtml(kind)}</span>${shield}</td>
 <td class="path-loc">${stepLocationHtml(step, resolveSource, relPath)}</td>
 <td><code>${escapeHtml(step.label ?? "")}</code></td>
 </tr>`;
@@ -96,6 +115,22 @@ function pathSection(sink, resolveSource, relPath) {
   // Open by default: the source→sink trajectory is the single most useful thing
   // on this panel (transcript), so it should not start collapsed.
   return `<details class="path-detail" open><summary>Path — ${steps.length} steps (source → sink)</summary><div class="path-scroll"><table class="path-table"><thead><tr><th>#</th><th>Kind</th><th>Location</th><th>Expression</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+}
+
+// Map of same-file path line → step ordinal, for the numbered source overlay
+// (ANNO-1: "annotate this as item number seven… click the number to jump").
+// Also flags which of those lines are defensive (fallback) so the overlay can
+// badge them. Returns a compact "line:ordinal[:d],…" string.
+function pathStepsAttr(sink, relPath) {
+  const steps = sink.representativeSteps ?? [];
+  const seen = new Set();
+  const parts = [];
+  steps.forEach((step, index) => {
+    if (step.file !== relPath || !step.line || seen.has(step.line)) return;
+    seen.add(step.line);
+    parts.push(`${step.line}:${index + 1}${isDefensiveStep(step) ? ":d" : ""}`);
+  });
+  return parts.join(",");
 }
 
 // The distinct representation-only hops (alias/pack/spread) on this slice.
@@ -114,7 +149,7 @@ function representationSection(sink) {
   return `<strong>Representation-only hops — ${steps.length}</strong><ul class="why">${items}</ul>`;
 }
 
-const REACH_PER_SOURCE_CAP = 25;
+const REACH_PER_SOURCE_CAP = 8;
 
 // "Reaches N sinks" expanded into the actual sinks, grouped by the shared source
 // that feeds them (a nested chain: source → each render sink it drives).
@@ -334,14 +369,40 @@ function findingPanel(sink, source, peers, relPath, meta, resolveSource) {
         .map((step) => step.line),
     ),
   ];
-  return `<div class="finding" data-finding="${escapeHtml(sink.id)}" data-path-lines="${pathLines.join(
+  const isUsage = sink.tier === "usage";
+  const badge = isUsage
+    ? '<span class="badge q-usage">usage</span>'
+    : `<span class="badge q-${sink.queue}">${escapeHtml(
+        QUEUE_LABEL[sink.queue] ?? sink.queue,
+      )}</span>`;
+  // Where the value is defined — the first source step (MODEL-1 jump-to-def).
+  const defStep = (sink.representativeSteps ?? []).find(
+    (step) => step.kind === "source" && step.line,
+  );
+  const defHtml = defStep
+    ? `<div class="def-jump"><strong>Defined</strong> ${stepLocationHtml(
+        defStep,
+        resolveSource,
+        relPath,
+      )} <code>${escapeHtml(defStep.label ?? "")}</code></div>`
+    : "";
+  // For a trivial usage, lead with "this is just a use of X — here's where it's
+  // defined and where it's used", not a burden/why-selected dossier.
+  const usageNote = isUsage
+    ? `<div class="usage-note">Not a smell — a plain use of <code>${escapeHtml(
+        sink.expression ?? sink.label ?? "",
+      )}</code>. Shown so you can trace it.</div>`
+    : "";
+  return `<div class="finding" data-finding="${escapeHtml(
+    sink.id,
+  )}" data-entry-type="${isUsage ? "usage" : "finding"}" data-path-lines="${pathLines.join(
     ",",
-  )}" data-sink-line="${sink.line ?? ""}">
-  <button class="panel-back" type="button" title="Back to all findings">← All findings</button>
+  )}" data-path-steps="${pathStepsAttr(sink, relPath)}" data-sink-line="${
+    sink.line ?? ""
+  }">
+  <button class="panel-back" type="button" title="Back to the list">← Back to list</button>
   <div class="finding-head">
-    <h4>${escapeHtml(sink.id)} <span class="badge q-${sink.queue}">${escapeHtml(
-      QUEUE_LABEL[sink.queue] ?? sink.queue,
-    )}</span></h4>
+    <h4>${escapeHtml(sink.id)} ${badge}</h4>
     <button class="copy-debug" type="button" title="Copy a full debug dump of this finding">Copy debug info</button>
   </div>
   <pre class="debug-payload" hidden>${escapeHtml(debugInfo(sink, relPath, source, meta))}</pre>
@@ -349,15 +410,21 @@ function findingPanel(sink, source, peers, relPath, meta, resolveSource) {
     ctxParts.length ? ` · ${escapeHtml(ctxParts.join(" / "))}` : ""
   }</div>
   <pre><code>${escapeHtml(sink.expression ?? sink.label ?? "")}</code></pre>
+  ${usageNote}
+  ${defHtml}
   ${excerpt ? `<strong>Source</strong>${excerpt}` : ""}
-  <dl>
+  ${
+    isUsage
+      ? ""
+      : `<dl>
     <dt>burden</dt><dd>${(sink.scores?.burden ?? 0).toFixed(3)}</dd>
     <dt>confidence</dt><dd>${sink.confidence}%</dd>
     <dt>risk</dt><dd>${escapeHtml(sink.confidenceRisk ?? "—")}</dd>
   </dl>
   ${burdenBreakdownHtml(sink)}
   ${sink.confidenceReason ? `<div class="meta">${escapeHtml(sink.confidenceReason)}</div>` : ""}
-  ${why ? `<strong>Why selected</strong><ul class="why">${why}</ul>` : ""}
+  ${why ? `<strong>Why selected</strong><ul class="why">${why}</ul>` : ""}`
+  }
   ${sameCodeSection(sink, peers)}
   ${pathSection(sink, resolveSource, relPath)}
   ${representationSection(sink)}
@@ -515,21 +582,134 @@ function touchedLines(sink, maxLine) {
   return lines;
 }
 
-// Compact one-line description of a sink for the findings list.
-function findingRowHtml(sink) {
-  const burden = sink.scores?.burden ?? 0;
-  const expr = sink.expression ?? sink.label ?? "";
-  const ctx = sink.renderContext ?? {};
-  const where = [ctx.tag, ctx.attribute].filter(Boolean).join("/");
-  return `<li><button type="button" class="finding-row" data-finding="${escapeHtml(
-    sink.id,
-  )}" style="--bt:${burdenHue(burden)}">
-<span class="fr-loc">:${sink.line}</span>
-<span class="fr-expr" title="${escapeHtml(expr)}">${escapeHtml(expr)}${
-    where ? ` <span class="meta">${escapeHtml(where)}</span>` : ""
+// Type metadata for the unified entry list: badge label + sort priority. Findings
+// lead; usages sink to the bottom (they are "proof of use", not smells).
+const ENTRY_TYPES = {
+  finding: { label: "finding", order: 0 },
+  fork: { label: "fork", order: 1 },
+  junction: { label: "junction", order: 2 },
+  boundary: { label: "boundary", order: 3 },
+  usage: { label: "usage", order: 9 },
+};
+
+// One row in the unified inventory. `entry` = {id, type, line, primary, secondary,
+// metric, hue}. The whole list (findings, forks, junctions, usages) shares this.
+function entryRowHtml(entry) {
+  const meta = ENTRY_TYPES[entry.type] ?? { label: entry.type };
+  const hue = entry.hue ?? 150;
+  return `<li data-type="${entry.type}"><button type="button" class="finding-row" data-finding="${escapeHtml(
+    entry.id,
+  )}" style="--bt:${hue}">
+<span class="fr-loc">:${entry.line ?? "?"}</span>
+<span class="fr-expr" title="${escapeHtml(entry.primary)}"><span class="type-tag tt-${entry.type}">${escapeHtml(
+    meta.label,
+  )}</span> ${escapeHtml(entry.primary)}${
+    entry.secondary ? ` <span class="meta">${escapeHtml(entry.secondary)}</span>` : ""
   }</span>
-<span class="fr-burden">${burden.toFixed(2)}</span>
+<span class="fr-burden">${escapeHtml(entry.metric ?? "")}</span>
 </button></li>`;
+}
+
+// A repeated-fork panel: the discriminant, the fork sites (click to jump), the
+// branch-exclusive eager computations, and the findings a split would fix. This
+// is the worked example the user asked for — a fork shown AS a finding, with all
+// its info in the detail panel and its sites overlaid on the source (ARCH-1).
+function forkPanel(fork) {
+  const siteLines = (fork.sites ?? []).map((s) => s.line).filter(Boolean);
+  const branchLines = [];
+  for (const range of fork.branchRanges ?? []) {
+    for (let n = range.startLine; n <= range.endLine; n += 1) branchLines.push(n);
+  }
+  const pathLines = [...new Set([fork.line, ...siteLines, ...branchLines])].filter(
+    Boolean,
+  );
+  const sites = (fork.sites ?? [])
+    .map(
+      (s) =>
+        `<li><a class="goto-line" data-line="${s.line}">:${s.line}</a> <span class="k">${escapeHtml(
+          s.kind ?? "site",
+        )}</span> <code>${escapeHtml(s.snippet ?? s.value ?? "")}</code></li>`,
+    )
+    .join("");
+  const exclusive = (fork.branchExclusive ?? [])
+    .map(
+      (b) =>
+        `<li><a class="goto-line" data-line="${b.line}">:${b.line}</a> <code>${escapeHtml(
+          b.name ?? "",
+        )}</code>${b.branch ? ` <span class="meta">${escapeHtml(b.branch)}</span>` : ""}</li>`,
+    )
+    .join("");
+  const gated = (fork.branchGatedSinks ?? [])
+    .map(
+      (s) =>
+        `<li><a class="xref" data-finding="${escapeHtml(s.id)}">${escapeHtml(
+          s.id,
+        )}</a> <span class="meta">line ${s.line}</span> <code>${escapeHtml(
+          s.label ?? "",
+        )}</code></li>`,
+    )
+    .join("");
+  return `<div class="finding" data-finding="${escapeHtml(
+    fork.id,
+  )}" data-entry-type="fork" data-path-lines="${pathLines.join(",")}" data-sink-line="${
+    fork.line ?? ""
+  }">
+  <button class="panel-back" type="button" title="Back to the list">← Back to list</button>
+  <div class="finding-head"><h4>${escapeHtml(
+    fork.id,
+  )} <span class="badge q-fork">repeated fork</span></h4></div>
+  <div class="meta">${escapeHtml(fork.file)}:${fork.line} · ${escapeHtml(
+    fork.component ?? "(anonymous render scope)",
+  )} · ${escapeHtml(fork.confidence ?? "")} confidence</div>
+  <div class="def-jump"><strong>Discriminant</strong> <code>${escapeHtml(
+    fork.discriminant ?? "",
+  )}</code> over ${(fork.branchValues ?? []).length} branch value(s)${
+    fork.namedValues?.length ? `: ${escapeHtml(fork.namedValues.join(", "))}` : ""
+  }</div>
+  ${sites ? `<strong>Fork sites — ${fork.siteCount ?? (fork.sites ?? []).length}</strong><ul class="why">${sites}</ul>` : ""}
+  ${exclusive ? `<strong>Branch-exclusive computations — ${(fork.branchExclusive ?? []).length}</strong><ul class="why">${exclusive}</ul>` : ""}
+  ${gated ? `<strong>Findings a split would fix — ${(fork.branchGatedSinks ?? []).length}</strong><ul class="why xref-list">${gated}</ul>` : ""}
+</div>`;
+}
+
+// A junction / boundary panel built from a helper record: the confluence
+// function, its verdict, tributaries (inbound lineages) and distributaries
+// (callers, click to open). Surfaces the "info down in the report" the user
+// wanted promoted into the finding view — and is the ONLY content on sink-less
+// .ts files (TS-1).
+function junctionPanel(helper, id, type) {
+  const tributaries = (helper.inRoots && helper.inRoots.length
+    ? helper.inRoots
+    : (helper.params ?? []).map((p) => p.name ?? p)
+  )
+    .filter(Boolean)
+    .map((t) => `<li><code>${escapeHtml(String(t))}</code></li>`)
+    .join("");
+  const distributaries = (helper.callers ?? [])
+    .map(
+      (c) =>
+        `<li><a class="xfile" href="/file?path=${encodeURIComponent(
+          c.file,
+        )}#L${c.line}">${escapeHtml(c.file.split("/").pop())}:${c.line} ↗</a></li>`,
+    )
+    .join("");
+  const badge = type === "boundary" ? "boundary" : "junction";
+  return `<div class="finding" data-finding="${escapeHtml(
+    id,
+  )}" data-entry-type="${type}" data-path-lines="${helper.line ?? ""}" data-sink-line="${
+    helper.line ?? ""
+  }">
+  <button class="panel-back" type="button" title="Back to the list">← Back to list</button>
+  <div class="finding-head"><h4>${escapeHtml(helper.name ?? "(helper)")} <span class="badge q-${type}">${badge}</span></h4></div>
+  <div class="meta">${escapeHtml(helper.file ?? "")}:${helper.line ?? "?"}${
+    helper.returnType ? ` · returns ${escapeHtml(helper.returnType)}` : ""
+  }</div>
+  <div class="def-jump"><strong>Verdict</strong> ${escapeHtml(helper.verdict ?? "—")} · ${
+    helper.inSources ?? 0
+  } inbound source(s) → ${helper.callerCount ?? 0} caller(s)</div>
+  ${tributaries ? `<strong>Tributaries (inbound lineages)</strong><ul class="why">${tributaries}</ul>` : ""}
+  ${distributaries ? `<strong>Distributaries (callers)</strong><ul class="why">${distributaries}</ul>` : ""}
+</div>`;
 }
 
 export function renderCodeMap({
@@ -539,6 +719,8 @@ export function renderCodeMap({
   meta,
   resolveSource,
   selectedFinding = null,
+  forks = [],
+  helpers = [],
 }) {
   const lines = source.split("\n");
 
@@ -599,10 +781,11 @@ export function renderCodeMap({
 <td class="ln">${lineNo}</td><td class="gutter">${gutter}</td><td class="code">${code}</td></tr>`;
   });
 
-  // Panel: a findings INVENTORY (default) plus one detail block per sink. Nothing
-  // is force-opened — landing on the worst finding while the source sits at line 1
-  // was disorienting (transcript). A finding opens on click, or when the page is
-  // loaded with ?finding=<id>; closing it returns to the list.
+  // Panel: a UNIFIED INVENTORY (default) of everything the analyzer found in this
+  // file — findings, repeated forks, junctions, and trivial usages — each opening
+  // into a detail block in the same panel and overlaying the source (ARCH-1).
+  // Nothing is force-opened; selecting an entry (or loading ?finding=<id>) opens
+  // it, and closing returns to the list.
   const seen = new Set();
   const uniqueSinks = [];
   for (const sink of sinks) {
@@ -610,31 +793,124 @@ export function renderCodeMap({
     seen.add(sink.id);
     uniqueSinks.push(sink);
   }
-  const selected =
-    selectedFinding && uniqueSinks.some((sink) => sink.id === selectedFinding)
-      ? selectedFinding
-      : null;
-  const panels = uniqueSinks.map((sink) => {
-    const html = findingPanel(
-      sink,
-      source,
-      byExpr.get((sink.expression ?? "").trim()),
-      relPath,
-      meta,
-      resolveSource,
-    );
-    return sink.id === selected
-      ? html.replace('class="finding"', 'class="finding active"')
-      : html;
+
+  // Junctions: helper records that are genuine confluences (≥3 inbound sources,
+  // ≥2 callers). This is the report info the user wanted promoted — and on a
+  // sink-less .ts file it is the only thing here (TS-1).
+  const junctions = (helpers ?? []).filter(
+    (h) => (h.inSources ?? 0) >= 3 && (h.callerCount ?? 0) >= 2,
+  );
+
+  // Build unified entries: {id, type, line, rowEntry, panelHtml}.
+  const entries = [];
+  for (const sink of uniqueSinks) {
+    const type = sink.tier === "usage" ? "usage" : "finding";
+    const burden = sink.scores?.burden ?? 0;
+    const ctx = sink.renderContext ?? {};
+    entries.push({
+      id: sink.id,
+      type,
+      line: sink.line,
+      sortLine: sink.line ?? 0,
+      row: {
+        id: sink.id,
+        type,
+        line: sink.line,
+        primary: sink.expression ?? sink.label ?? "",
+        secondary: [ctx.tag, ctx.attribute].filter(Boolean).join("/"),
+        metric: burden.toFixed(2),
+        hue: burdenHue(burden),
+      },
+      panelHtml: findingPanel(
+        sink,
+        source,
+        byExpr.get((sink.expression ?? "").trim()),
+        relPath,
+        meta,
+        resolveSource,
+      ),
+    });
+  }
+  for (const fork of forks ?? []) {
+    entries.push({
+      id: fork.id,
+      type: "fork",
+      line: fork.line,
+      sortLine: fork.line ?? 0,
+      row: {
+        id: fork.id,
+        type: "fork",
+        line: fork.line,
+        primary: fork.discriminant ?? "fork",
+        secondary: `${fork.siteCount ?? (fork.sites ?? []).length} sites`,
+        metric: fork.confidence ?? "",
+        hue: 28,
+      },
+      panelHtml: forkPanel(fork),
+    });
+  }
+  junctions.forEach((helper, index) => {
+    const id = `JCT-${helper.line ?? index}`;
+    entries.push({
+      id,
+      type: "junction",
+      line: helper.line,
+      sortLine: helper.line ?? 0,
+      row: {
+        id,
+        type: "junction",
+        line: helper.line,
+        primary: helper.name ?? "(helper)",
+        secondary: `${helper.inSources ?? 0}→${helper.callerCount ?? 0}`,
+        metric: "",
+        hue: 205,
+      },
+      panelHtml: junctionPanel(helper, id, "junction"),
+    });
   });
 
-  const listHtml = uniqueSinks.length
+  entries.sort(
+    (a, b) =>
+      (ENTRY_TYPES[a.type]?.order ?? 5) - (ENTRY_TYPES[b.type]?.order ?? 5) ||
+      a.sortLine - b.sortLine,
+  );
+
+  const selected =
+    selectedFinding && entries.some((e) => e.id === selectedFinding)
+      ? selectedFinding
+      : null;
+  const panels = entries.map((e) =>
+    e.id === selected
+      ? e.panelHtml.replace('class="finding"', 'class="finding active"')
+      : e.panelHtml,
+  );
+
+  // Type-filter chips, only for types actually present.
+  const counts = {};
+  for (const e of entries) counts[e.type] = (counts[e.type] ?? 0) + 1;
+  const filterTypes = ["finding", "fork", "junction", "boundary", "usage"].filter(
+    (t) => counts[t],
+  );
+  const filterChips =
+    entries.length && filterTypes.length > 1
+      ? `<div class="entry-filters"><button type="button" class="efilter active" data-filter="all">All ${entries.length}</button>${filterTypes
+          .map(
+            (t) =>
+              `<button type="button" class="efilter" data-filter="${t}">${
+                ENTRY_TYPES[t]?.label ?? t
+              }s ${counts[t]}</button>`,
+          )
+          .join("")}</div>`
+      : "";
+
+  const listHtml = entries.length
     ? `<div class="finding-list">
-<strong>${uniqueSinks.length} finding${uniqueSinks.length === 1 ? "" : "s"} in this file</strong>
-<p class="meta">Click a finding to inspect it (or click a highlighted chunk in the code). Selecting one highlights its path on the source.</p>
-<ol>${uniqueSinks.map(findingRowHtml).join("")}</ol>
+<strong>${entries.length} item${entries.length === 1 ? "" : "s"} in this file</strong>
+<p class="meta">Findings, repeated forks, junctions, and plain usages. Click any to inspect it; selecting one highlights its path on the source.</p>
+${filterChips}
+<ol>${entries.map((e) => entryRowHtml(e.row)).join("")}</ol>
 </div>`
-    : '<p class="empty">No ranked findings in this file.</p>';
+    : '<p class="empty">Nothing analyzed in this file.</p>';
 
   const panelClass = selected ? "panel show-detail" : "panel";
   return `<div class="codemap">
