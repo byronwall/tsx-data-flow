@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "ce-brainstorm": {
+      "source": "everyinc/compound-engineering-plugin",
+      "sourceType": "github",
+      "skillPath": "skills/ce-brainstorm/SKILL.md",
+      "computedHash": "74cccaa23816896cdc86f39a6409db7b9c2751b3e86d5179674c133b9ba7ddae"
+    },
+    "ce-compound": {
+      "source": "everyinc/compound-engineering-plugin",
+      "sourceType": "github",
+      "skillPath": "skills/ce-compound/SKILL.md",
+      "computedHash": "0c8342b6f2ad29abf94871be536a6ef57fa7d11bdee4f7b78206a356d4b680d9"
+    },
+    "ce-plan": {
+      "source": "everyinc/compound-engineering-plugin",
+      "sourceType": "github",
+      "skillPath": "skills/ce-plan/SKILL.md",
+      "computedHash": "573aca90eac67e39da06bb1511e9410a1d1ea75babf1960ff35c6d7b614b4463"
+    },
+    "ce-simplify-code": {
+      "source": "everyinc/compound-engineering-plugin",
+      "sourceType": "github",
+      "skillPath": "skills/ce-simplify-code/SKILL.md",
+      "computedHash": "2e929c788ac2ac6e1306b7f482afad874b822b06b6094662594280c49a4a612a"
+    }
+  }
+}
