@@ -133,6 +133,81 @@ const IDENTITY_ATTRIBUTES = new Set([
   "headers",
 ]);
 
+// Calls/identifiers that are opaque *by design*, not because tracing failed.
+// `unknown` must mean "we could not tell what this is" — a host method, a JS
+// global, or a Solid framework primitive is fully known, so it is classified
+// (and named with a concrete kind) rather than reported as an unresolved edge.
+
+// Global namespace objects. As a call receiver (`Array.from`, `Object.entries`,
+// `Math.round`) the call is a host call; as a bare identifier source they are
+// the platform, not unresolved app state.
+const JS_GLOBAL_NAMESPACES = new Set([
+  "Array", "Object", "Math", "JSON", "Date", "Map", "Set", "WeakMap", "WeakSet",
+  "Number", "String", "Boolean", "Symbol", "Promise", "RegExp", "Error", "Intl",
+  "Reflect", "Proxy", "BigInt", "globalThis", "console", "window", "document",
+  "localStorage", "sessionStorage", "navigator", "location", "history",
+  "performance", "crypto", "URL", "URLSearchParams",
+]);
+// Global functions invoked directly (`String(x)`, `Boolean(x)`, `parseInt(x)`).
+const JS_GLOBAL_CALLS = new Set([
+  "String", "Number", "Boolean", "Array", "Object", "Symbol", "BigInt",
+  "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURIComponent",
+  "decodeURIComponent", "encodeURI", "decodeURI", "structuredClone",
+]);
+// Array / String / Map / Set prototype methods. As a call's method name these
+// are host transformations — known operations, not unresolved helpers.
+const JS_PROTOTYPE_METHODS = new Set([
+  "map", "filter", "find", "findIndex", "findLast", "findLastIndex", "slice",
+  "splice", "concat", "join", "split", "reduce", "reduceRight", "some", "every",
+  "sort", "reverse", "forEach", "flat", "flatMap", "includes", "indexOf",
+  "lastIndexOf", "at", "fill", "keys", "values", "entries", "push", "pop",
+  "shift", "unshift", "trim", "trimStart", "trimEnd", "toUpperCase",
+  "toLowerCase", "replace", "replaceAll", "match", "matchAll", "padStart",
+  "padEnd", "startsWith", "endsWith", "repeat", "charAt", "charCodeAt",
+  "codePointAt", "substring", "substr", "normalize", "toFixed", "toString",
+  "toLocaleString", "valueOf", "has", "get", "set", "add", "delete",
+  // ES2023 copying array methods.
+  "toSorted", "toReversed", "toSpliced", "with", "group", "groupBy",
+  // Common Date readers/formatters.
+  "toISOString", "toJSON", "toDateString", "toTimeString", "toLocaleDateString",
+  "toLocaleTimeString", "getTime", "getFullYear", "getMonth", "getDate",
+  "getDay", "getHours", "getMinutes", "getSeconds", "getMilliseconds",
+  "getTimezoneOffset", "toPrecision", "toExponential",
+]);
+// Solid framework primitives. These are intentional reactivity / feature-model
+// boundaries; descending into them would erase the signal, so keep them opaque
+// but classified (not flagged as unresolved). `useX` hooks are handled
+// separately in traceCrossFileCall.
+const SOLID_BUILTINS = new Set([
+  "splitProps", "mergeProps", "createSignal", "createStore", "createMemo",
+  "createResource", "createEffect", "createComputed", "createRenderEffect",
+  "createSelector", "createRoot", "createDeferred", "createReaction",
+  "children", "batch", "untrack", "on", "onMount", "onCleanup", "catchError",
+  "reconcile", "produce", "unwrap", "mapArray", "indexArray", "from", "observable",
+]);
+
+// Decide whether a call that is not a same-file first-party function and did not
+// resolve via cross-file descent is GENUINELY unresolved (`unknown: true`) or
+// merely opaque-by-design (`unknown: false`). Host methods (`x.map()`), calls on
+// a global namespace (`Array.from`, `Object.entries`), global functions
+// (`String(x)`), and Solid primitives (`splitProps`) are all known operations —
+// they are real path steps but not unresolved edges. The graph node kind stays
+// "call" so the many downstream call-step consumers are unaffected.
+function isOpaqueByDesignCall(ts, expression, callee) {
+  const inner = expression.expression;
+  if (ts.isPropertyAccessExpression(inner)) {
+    const receiver = inner.expression;
+    if (ts.isIdentifier(receiver) && JS_GLOBAL_NAMESPACES.has(receiver.text)) {
+      return true;
+    }
+    return JS_PROTOTYPE_METHODS.has(callee);
+  }
+  if (ts.isIdentifier(inner)) {
+    return SOLID_BUILTINS.has(callee) || JS_GLOBAL_CALLS.has(callee);
+  }
+  return false;
+}
+
 // Analyzer jargon and tidy-but-vague names that must never be suggested as code
 // identifiers. Reports may use these words in prose; generated code names must
 // describe the rendered thing instead (Taste #1/#4).
@@ -202,10 +277,12 @@ export function parseArgs(argv, defaults = {}) {
     // boundary-report, junctions, and inline-preview views light up). On by
     // default; disable for the cheapest/fastest single-file runs.
     traceHelpers: defaults.traceHelpers ?? true,
-    // One import boundary by default: descend into helpers a render path calls
-    // directly, but not the helpers *those* call. Keeps cost linear on large
-    // codebases (deeper nesting branches combinatorially); raise deliberately.
-    maxHelperDepth: defaults.maxHelperDepth ?? 1,
+    // Two import boundaries by default: descend into helpers a render path calls
+    // directly and the first-party helpers *those* call (a render → format →
+    // primitive chain is common). Bounded by the per-run cross-file budget so
+    // cost stays controlled; deeper nesting branches combinatorially, so raise
+    // beyond this deliberately.
+    maxHelperDepth: defaults.maxHelperDepth ?? 2,
     help: false,
   };
 
@@ -415,7 +492,7 @@ Options:
   --no-trace-helpers        Stay single-file: do not follow imported helper calls
                             into their definitions (faster; F2/F3 backlinks and the
                             boundary-report/junctions/inline-preview views go dark).
-  --max-helper-depth <n>    How many import boundaries to follow. Defaults to 3.
+  --max-helper-depth <n>    How many import boundaries to follow. Defaults to 2.
   --help                    Show this help.
 
 Views:
@@ -1105,7 +1182,7 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     graph: {
       nodes: graph.nodes,
       edges: graph.edges,
-      unknownEdges: graph.edges.filter((edge) => edge.unknown).length,
+      unknownEdges: countDistinctUnknownEdges(graph),
     },
     sinks: filteredSinks,
     contextRelay,
@@ -1736,8 +1813,16 @@ function buildFileContext(ts, sourceFile) {
   const functions = new Map();
   const accessors = new Map();
   const parameters = new Set();
+  // Local names bound by an import. A value imported from another module is a
+  // genuine source boundary (the value enters the component from outside), not
+  // an unresolved edge — so identifiers we cannot place locally are checked
+  // against this set before dead-ending as `unknown-source`.
+  const imports = new Set();
 
   const visit = (node) => {
+    if (ts.isImportDeclaration(node)) {
+      registerImports(ts, node, imports);
+    }
     if (ts.isVariableDeclaration(node)) {
       registerVariable(ts, node, variables, accessors);
     }
@@ -1764,7 +1849,25 @@ function buildFileContext(ts, sourceFile) {
   };
 
   visit(sourceFile);
-  return { variables, functions, accessors, parameters };
+  return { variables, functions, accessors, parameters, imports };
+}
+
+// Collect the local names an import declaration binds: default, namespace, and
+// named specifiers. `import type` declarations are skipped (type-only bindings
+// never appear in a render value).
+function registerImports(ts, node, imports) {
+  const clause = node.importClause;
+  if (!clause || clause.isTypeOnly) return;
+  if (clause.name) imports.add(clause.name.text);
+  const bindings = clause.namedBindings;
+  if (!bindings) return;
+  if (ts.isNamespaceImport(bindings)) {
+    imports.add(bindings.name.text);
+  } else if (ts.isNamedImports(bindings)) {
+    for (const element of bindings.elements) {
+      if (!element.isTypeOnly) imports.add(element.name.text);
+    }
+  }
 }
 
 function registerVariable(ts, node, variables, accessors) {
@@ -1867,6 +1970,27 @@ function traceableFromSymbol(ts, symbol) {
     }
     if (
       ts.isVariableDeclaration(decl) &&
+      ts.isIdentifier(decl.name) &&
+      decl.initializer &&
+      (ts.isArrowFunction(decl.initializer) ||
+        ts.isFunctionExpression(decl.initializer))
+    ) {
+      return { fnNode: decl.initializer, nameNode: decl.name };
+    }
+    // A class/object method (`entityManager().getRelation(id)`) or a get
+    // accessor — resolved when the receiver's method is first-party. Has the
+    // same `.parameters`/`.body` shape makeCatalogRecord and the return-expr
+    // extractor expect.
+    if (
+      (ts.isMethodDeclaration(decl) || ts.isGetAccessorDeclaration(decl)) &&
+      ts.isIdentifier(decl.name)
+    ) {
+      return { fnNode: decl, nameNode: decl.name };
+    }
+    // A method-as-property: `getRelation = (id) => ...` on a class, or a
+    // `{ getRelation: (id) => ... }` object-literal method.
+    if (
+      (ts.isPropertyDeclaration(decl) || ts.isPropertyAssignment(decl)) &&
       ts.isIdentifier(decl.name) &&
       decl.initializer &&
       (ts.isArrowFunction(decl.initializer) ||
@@ -2388,6 +2512,25 @@ function traceExpression(ts, checker, graph, expression, context) {
 
 function traceIdentifier(ts, checker, graph, expression, context) {
   const name = expression.text;
+  // The global value-keywords are identifiers syntactically but have no
+  // declaration to resolve to; treating them as sources dead-ends every path
+  // that renders `x ?? undefined` (the single largest source of bogus
+  // unknown-source rows). Trace them as literals, like `null`/`true`/`false`.
+  if (name === "undefined" || name === "NaN" || name === "Infinity") {
+    return sourceTrace(graph, expression, "literal", name, false);
+  }
+  // A global namespace object used as a value (`Array.from`, `Object.entries`,
+  // `Math.round` — the receiver flows in as an identifier) is the platform, not
+  // unresolved app state. Trace it as a constant `literal` (like `undefined`):
+  // excluded from fan-out, source boundaries, and the unknown-edges report.
+  // Skip when a local binding shadows the global name.
+  if (
+    JS_GLOBAL_NAMESPACES.has(name) &&
+    !context.variables.has(name) &&
+    !context.parameters.has(name)
+  ) {
+    return sourceTrace(graph, expression, "literal", name, false);
+  }
   // Inside a helper body reached by cross-file descent, a parameter reference
   // resolves to the caller's argument trace, stitching the lineage across the
   // boundary. Checked first so it wins over the callee file's own bindings.
@@ -2446,6 +2589,30 @@ function traceIdentifier(ts, checker, graph, expression, context) {
       label: name,
       detail: `= ${formatExpression(renderProp.expression.getText(), 40)}`,
     });
+  }
+
+  // A locally-defined function referenced as a value (`onClick={handleExport}`,
+  // `fallback={renderHeader}`) — not called here, so it never reaches the call
+  // path. It is a known local definition, not an unresolved identifier.
+  if (
+    context.functions.has(name) &&
+    !context.parameters.has(name) &&
+    identifierResolvesTo(ts, checker, expression, context.functions.get(name))
+  ) {
+    return sourceTrace(graph, expression, "source", name, false, "source");
+  }
+  // A value imported from another module (`import { SCOPE } from "./view"`,
+  // `import { Portal } from "solid-js/web"`) is a source boundary — the value
+  // enters from outside the component — not an unresolved edge. Tag it `import`
+  // (known): it leaves the unknown-edges report but is still surfaced as a
+  // source boundary. Checked after every local binding so a shadowing local or
+  // an imported first-party helper call (handled in traceCrossFileCall) wins.
+  if (
+    context.imports?.has(name) &&
+    !context.parameters.has(name) &&
+    !context.variables.has(name)
+  ) {
+    return sourceTrace(graph, expression, "import", name, false, "import");
   }
 
   const isParameter = context.parameters.has(name);
@@ -2574,25 +2741,28 @@ function markReached(ts, checker, calleeIdent, context) {
 function traceCrossFileCall(ts, checker, graph, expression, callee, context) {
   const crossFile = context.crossFile;
   if (!crossFile?.args?.traceHelpers) return null;
-  if (!ts.isIdentifier(expression.expression)) return null;
+  // The node whose symbol identifies the callee: a bare identifier (`helper()`)
+  // or a method name (`obj.method()`). Anything else (computed/element-access
+  // callee) is unfollowable.
+  const calleeIdent = ts.isIdentifier(expression.expression)
+    ? expression.expression
+    : ts.isPropertyAccessExpression(expression.expression)
+      ? expression.expression.name
+      : null;
+  if (!calleeIdent) return null;
   // Hooks / context accessors (`useX`) are intentional feature-model boundaries,
   // not helpers to dissolve — descending into them would erase the very signal
   // the prop-relay / context-relay views rely on. Keep them opaque.
   if (/^use[A-Z]/.test(callee)) return null;
   if (context.crossDepth >= crossFile.args.maxHelperDepth) return null;
 
-  const record = resolveCatalogFn(
-    ts,
-    checker,
-    expression.expression,
-    crossFile,
-  );
+  const record = resolveCatalogFn(ts, checker, calleeIdent, crossFile);
   if (!record || !record.returnExpr) return null;
   if (context.visitedFns.has(record.symbol)) return null;
   if (crossFile.budget <= 0) return null;
   crossFile.budget -= 1;
 
-  markReached(ts, checker, expression.expression, context);
+  markReached(ts, checker, calleeIdent, context);
 
   // Trace the argument lineage and the helper body on a *throwaway* graph, not
   // the persistent report graph. Cross-file descent across thousands of sinks
@@ -2624,7 +2794,23 @@ function traceCrossFileCall(ts, checker, graph, expression, callee, context) {
     paramBindings,
   });
 
-  return addOperationTrace(ts, graph, "call", expression, [bodyTrace], {
+  // For a method call, the receiver object is part of the value's lineage
+  // (`entityManager().getRelation(id)` flows from the manager too). Trace it so
+  // its source is preserved alongside the descended body.
+  const children = [bodyTrace];
+  if (ts.isPropertyAccessExpression(expression.expression)) {
+    children.push(
+      traceExpression(
+        ts,
+        checker,
+        graph,
+        expression.expression.expression,
+        context,
+      ),
+    );
+  }
+
+  return addOperationTrace(ts, graph, "call", expression, children, {
     label: callee,
     detail: `returns ${formatExpression(record.returnExpr.getText(), 52)}`,
   });
@@ -2749,9 +2935,16 @@ function traceCallExpression(ts, checker, graph, expression, context) {
       traceExpression(ts, checker, graph, argument, context),
     ),
   );
+  // Distinguish genuinely-unresolved helpers from host/global/Solid calls that
+  // are opaque by design. A same-file function name still escapes "unknown" even
+  // if symbol resolution above declined it (name collision), as before.
+  const unknown =
+    !callee ||
+    (!context.functions.has(callee) &&
+      !isOpaqueByDesignCall(ts, expression, callee));
   return addOperationTrace(ts, graph, "call", expression, traces, {
     label: callee || "call",
-    unknown: !callee || !context.functions.has(callee),
+    unknown,
     // The full call expression as written — for a method (`x.toUpperCase()`) or
     // an imported helper, this is the only thing that conveys what it does.
     detail: formatExpression(expression.getText(), 60),
@@ -3078,8 +3271,24 @@ function reachedSinkDescriptor(sink) {
 
 function buildUnknownEdgeRows(graph, sinks) {
   const nodes = new Map((graph.nodes ?? []).map((node) => [node.id, node]));
+  // The trace graph re-traces each sink independently, minting fresh nodes/edges
+  // per sink path (see addOperationTrace). So one physical unknown edge (a call,
+  // an unknown identifier) is recorded once per render path that crosses it. Key
+  // each row by its source position + kind + label and dedupe: emit one row per
+  // distinct unknown edge, counting `occurrences` as the path multiplicity (a
+  // cheap reach proxy) so a fan-out sink doesn't flood the report with copies.
+  const byKey = new Map();
   const rows = [];
-  const seen = new Set();
+  const record = (key, build) => {
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.occurrences += 1;
+      return;
+    }
+    const row = { ...build(), occurrences: 1 };
+    byKey.set(key, row);
+    rows.push(row);
+  };
   for (const edge of graph.edges ?? []) {
     if (!edge.unknown) continue;
     const target = nodes.get(edge.to);
@@ -3087,13 +3296,7 @@ function buildUnknownEdgeRows(graph, sinks) {
     const file = target?.file ?? source?.file ?? "";
     const line = target?.location?.line ?? source?.location?.line ?? null;
     const label = target?.label ?? source?.label ?? edge.kind;
-    const affectedSinks = affectedSinksForUnknownEdge(sinks, {
-      file,
-      line,
-      kind: edge.kind,
-      label,
-    });
-    rows.push({
+    record(`${file}:${line ?? ""}:${edge.kind}:${label}`, () => ({
       id: edge.id,
       file,
       line,
@@ -3105,9 +3308,13 @@ function buildUnknownEdgeRows(graph, sinks) {
       target: target
         ? { id: target.id, kind: target.kind, label: target.label }
         : null,
-      affectedSinks,
-    });
-    seen.add(`${file}:${line ?? ""}:${edge.kind}:${label}`);
+      affectedSinks: affectedSinksForUnknownEdge(sinks, {
+        file,
+        line,
+        kind: edge.kind,
+        label,
+      }),
+    }));
   }
   for (const node of graph.nodes ?? []) {
     if (node.kind !== "unknown-source") continue;
@@ -3115,9 +3322,7 @@ function buildUnknownEdgeRows(graph, sinks) {
     const line = node.location?.line ?? null;
     const label = node.label;
     const kind = "unknown-source";
-    const key = `${file}:${line ?? ""}:${kind}:${label}`;
-    if (seen.has(key)) continue;
-    rows.push({
+    record(`${file}:${line ?? ""}:${kind}:${label}`, () => ({
       id: node.id,
       file,
       line,
@@ -3131,7 +3336,7 @@ function buildUnknownEdgeRows(graph, sinks) {
         kind,
         label,
       }),
-    });
+    }));
   }
   return rows.sort(
     (left, right) =>
@@ -7093,9 +7298,35 @@ function summarize(sinks, graph) {
     sinks: sinks.length,
     nodes: graph.nodes.length,
     edges: graph.edges.length,
-    unknownEdges: graph.edges.filter((edge) => edge.unknown).length,
+    unknownEdges: countDistinctUnknownEdges(graph),
     pathFamilies: familyRows(sinks).length,
   };
+}
+
+// Count DISTINCT unknown edges, keyed exactly as buildUnknownEdgeRows does. The
+// graph re-traces each sink, minting fresh nodes/edges per render path, so a raw
+// `graph.edges.filter(unknown).length` counts one physical unknown once per sink
+// that crosses it — overstating the real figure many-fold. The summary/dossier
+// must match the deduped report rows, so dedupe by source position + kind + label.
+function countDistinctUnknownEdges(graph) {
+  const nodes = new Map((graph.nodes ?? []).map((node) => [node.id, node]));
+  const seen = new Set();
+  for (const edge of graph.edges ?? []) {
+    if (!edge.unknown) continue;
+    const target = nodes.get(edge.to);
+    const source = nodes.get(edge.from);
+    const file = target?.file ?? source?.file ?? "";
+    const line = target?.location?.line ?? source?.location?.line ?? null;
+    const label = target?.label ?? source?.label ?? edge.kind;
+    seen.add(`${file}:${line ?? ""}:${edge.kind}:${label}`);
+  }
+  for (const node of graph.nodes ?? []) {
+    if (node.kind !== "unknown-source") continue;
+    seen.add(
+      `${node.file ?? ""}:${node.location?.line ?? ""}:unknown-source:${node.label}`,
+    );
+  }
+  return seen.size;
 }
 
 // Per source, collect what a reader needs to act without re-grepping: how many

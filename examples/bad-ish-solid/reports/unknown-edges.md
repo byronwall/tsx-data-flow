@@ -6,16 +6,12 @@
 >
 > Unresolved graph edges that static tracing could not follow, grouped by file, line, operation kind, and unresolved label. _Affected sinks_ lists representative rendered values whose path crosses the unknown edge.
 
-| Where            | Kind | Unresolved | Affected sinks |
-| ---------------- | ---- | ---------- | -------------- |
-| src/Chart.tsx:13 | call | `map`      |                |
-| src/Chart.tsx:13 | call | `map`      |                |
-| src/Chart.tsx:13 | call | `map`      |                |
-| src/Chart.tsx:13 | call | `map`      |                |
-| src/Chart.tsx:13 | call | `map`      |                |
-| src/Chart.tsx:13 | call | `map`      |                |
-| src/Chart.tsx:21 | call | `map`      |                |
-| src/Chart.tsx:21 | call | `map`      |                |
+| Where                     | Kind           | Unresolved | Affected sinks                                                                         |
+| ------------------------- | -------------- | ---------- | -------------------------------------------------------------------------------------- |
+| src/Chart.tsx:61          | unknown-source | `category` | src/Chart.tsx:61 li                                                                    |
+| src/Chart.tsx:73          | unknown-source | `point`    | src/Chart.tsx:73 li; src/Chart.tsx:73 li                                               |
+| src/DashboardShell.tsx:84 | unknown-source | `task`     | src/DashboardShell.tsx:84 TaskRow / task; src/DashboardShell.tsx:87 TaskRow / selected |
+| src/DashboardShell.tsx:87 | unknown-source | `task`     | src/DashboardShell.tsx:84 TaskRow / task; src/DashboardShell.tsx:87 TaskRow / selected |
 
 ---
 

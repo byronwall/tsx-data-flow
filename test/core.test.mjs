@@ -562,6 +562,120 @@ describe("render path data-flow analyzer", () => {
     expect(markdown).toContain("Affected sinks");
   });
 
+  it("dedupes one physical unknown edge crossed by several sinks into a single row", async () => {
+    const project = await createFixtureProject({
+      "src/FanOut.tsx": `
+        import { decorate } from "./missing";
+        export function FanOut(props: { user: { name: string } }) {
+          const label = decorate(props.user.name);
+          return <section data-a={label} title={label}>
+            <h2>{label}</h2>
+            <p>{label}</p>
+          </section>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const decorateRows = report.unknownEdges.filter(
+      (row) => row.label === "decorate" && row.kind === "call",
+    );
+    // One row, not one-per-sink — and the path multiplicity is preserved.
+    expect(decorateRows).toHaveLength(1);
+    expect(decorateRows[0].occurrences).toBeGreaterThan(1);
+  });
+
+  it("treats undefined/NaN/Infinity as literals, not unknown sources", async () => {
+    const project = await createFixtureProject({
+      "src/Keywords.tsx": `
+        export function Keywords(props: { value?: string }) {
+          return <section>
+            <h2>{props.value ?? undefined}</h2>
+            <p>{NaN}</p>
+          </section>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const labels = report.unknownEdges
+      .filter((row) => row.kind === "unknown-source")
+      .map((row) => row.label);
+    expect(labels).not.toContain("undefined");
+    expect(labels).not.toContain("NaN");
+  });
+
+  it("treats imported values as source boundaries, not unknown edges", async () => {
+    const project = await createFixtureProject({
+      "src/MissingConst.tsx": `
+        import { SCOPE } from "./tokens";
+        export function Scoped(props: { id: string }) {
+          return <div data-scope={SCOPE} data-id={props.id} />;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const scopeUnknown = report.unknownEdges.find((row) => row.label === "SCOPE");
+    expect(scopeUnknown).toBeUndefined();
+    const boundary = report.sourceBoundaries.find(
+      (row) => row.symbol === "SCOPE" && row.kind === "import",
+    );
+    expect(boundary).toBeTruthy();
+  });
+
+  it("descends into first-party method calls instead of leaving them unknown", async () => {
+    const project = await createFixtureProject({
+      "src/manager.ts": `
+        export class EntityManager {
+          getName(id: string) {
+            return id.toUpperCase();
+          }
+        }
+        export const manager = new EntityManager();
+      `,
+      "src/MethodCall.tsx": `
+        import { manager } from "./manager";
+        export function MethodCall(props: { id: string }) {
+          return <h2>{manager.getName(props.id)}</h2>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const methodUnknown = report.unknownEdges.find(
+      (row) => row.label === "getName",
+    );
+    expect(methodUnknown).toBeUndefined();
+  });
+
+  it("does not report host/global/Solid calls as unresolved unknown edges", async () => {
+    const project = await createFixtureProject({
+      "src/Hosts.tsx": `
+        declare function splitProps<T>(props: T, keys: string[]): [T, T];
+        export function Hosts(props: { items: string[]; name: string }) {
+          const [local] = splitProps(props, ["name"]);
+          const upper = props.name.toUpperCase();
+          const joined = props.items.map((x) => x).filter(Boolean).join(",");
+          const indexes = Array.from({ length: props.items.length });
+          return <ul data-a={upper} data-b={joined} data-c={String(indexes.length)}>
+            {local.name}
+          </ul>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const labels = report.unknownEdges.map((row) => row.label);
+    for (const known of [
+      "splitProps",
+      "toUpperCase",
+      "map",
+      "filter",
+      "join",
+      "from",
+      "String",
+      "Array",
+    ]) {
+      expect(labels).not.toContain(known);
+    }
+  });
+
   it("distinguishes source-boundary rows by file, symbol, and kind", async () => {
     const project = await createFixtureProject({
       "src/Boundaries.tsx": `

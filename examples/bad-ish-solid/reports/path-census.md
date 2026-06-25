@@ -11,7 +11,7 @@
 | Sources             | 52    |
 | Sinks               | 55    |
 | Known path families | 15    |
-| Unknown edges       | 24    |
+| Unknown edges       | 4     |
 
 ## Path depth
 

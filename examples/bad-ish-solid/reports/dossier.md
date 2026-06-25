@@ -8,7 +8,7 @@
 
 | Nodes | Edges | Sources | Sinks | Path families | Unknown edges |
 | ----- | ----- | ------- | ----- | ------------- | ------------- |
-| 463   | 426   | 52      | 55    | 15            | 24            |
+| 463   | 426   | 52      | 55    | 15            | 4             |
 
 ## Primary pivot
 
