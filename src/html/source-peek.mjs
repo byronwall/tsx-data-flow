@@ -51,6 +51,23 @@ function inlinePeekHtml(refText, sourceText, line) {
   )}</code></button><span class="peek-pop">${snippet}</span></span>`;
 }
 
+export function sourceReferenceHtml(filePath, line, resolve) {
+  const lineNo = Number.parseInt(line, 10);
+  const refText =
+    Number.isFinite(lineNo) && lineNo > 0 ? `${filePath}:${lineNo}` : filePath;
+  if (!filePath || typeof resolve !== "function") return escapeHtml(refText);
+  let source;
+  try {
+    source = resolve(filePath);
+  } catch {
+    source = null;
+  }
+  const widget = source
+    ? inlinePeekHtml(refText, source, lineNo)
+    : null;
+  return widget ?? escapeHtml(refText);
+}
+
 // Matches root-relative `path/to/file.tsx:123` references.
 const REF = /([A-Za-z0-9_./-]+\.(?:tsx|ts|jsx|js|mjs|cjs)):(\d+)/g;
 

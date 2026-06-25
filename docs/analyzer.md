@@ -58,6 +58,21 @@ Common options:
 | `--fail-on-regression`     | Makes the CLI exit nonzero only when the baseline regresses.                                            |
 | `--include-tests`          | Includes `.test.*` and `.spec.*` files.                                                                 |
 
+## Local HTML Server
+
+The `tsx-dataflow-serve` entrypoint serves the same report from a local,
+self-contained HTML UI. The overview at `/` is the project command center:
+
+- `q=<text>` searches file hotspot rows by path, dominant shape, ownership, and
+  suggested first cut, and searches report assets by view name/label.
+- `filter=all|findings|unknown|participating` narrows the file rows. The
+  `participating` filter is based on files already present in the report graph.
+- `sort=burden|findings|depth|file` reorders the hotspot rows without leaving
+  the overview.
+- `/report?view=<name>` renders any concrete report view as HTML.
+- `/api/report.<name>.md` returns the raw Markdown projection for that view, and
+  `/api/report.json?path=<rel>` returns the structured payload for scripts.
+
 ## High-Level Pipeline
 
 ```mermaid

@@ -505,6 +505,107 @@ describe("render path data-flow analyzer", () => {
     expect(parseArgs(["--view", "all"]).view).toBe("all");
   });
 
+  it("reports unresolved imported calls and unknown identifiers as unknown-edge rows", async () => {
+    const project = await createFixtureProject({
+      "src/Unknowns.tsx": `
+        import { externalTitle } from "./missing";
+        export function Unknowns(props: { user: { name: string } }) {
+          return <section>
+            <h2>{externalTitle(props.user)}</h2>
+            <p>{mysteryValue}</p>
+          </section>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+
+    expect(report.unknownEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: "src/Unknowns.tsx",
+          kind: "call",
+          label: "externalTitle",
+          affectedSinks: expect.arrayContaining([
+            expect.objectContaining({ file: "src/Unknowns.tsx" }),
+          ]),
+        }),
+        expect.objectContaining({
+          file: "src/Unknowns.tsx",
+          kind: "unknown-source",
+          label: "mysteryValue",
+          affectedSinks: expect.arrayContaining([
+            expect.objectContaining({ file: "src/Unknowns.tsx" }),
+          ]),
+        }),
+      ]),
+    );
+
+    const json = JSON.parse(
+      renderReport(report, {
+        ...project.args,
+        view: "unknown-edges",
+        format: "json",
+      }),
+    );
+    expect(json.unknownEdges.map((row) => row.label)).toEqual(
+      expect.arrayContaining(["externalTitle", "mysteryValue"]),
+    );
+
+    const markdown = renderReport(report, {
+      ...project.args,
+      view: "unknown-edges",
+      format: "markdown",
+    });
+    expect(markdown).toContain("# Unknown Edges");
+    expect(markdown).toContain("externalTitle");
+    expect(markdown).toContain("mysteryValue");
+    expect(markdown).toContain("Affected sinks");
+  });
+
+  it("distinguishes source-boundary rows by file, symbol, and kind", async () => {
+    const project = await createFixtureProject({
+      "src/Boundaries.tsx": `
+        declare function createResource<T>(fn: () => Promise<T>): [() => T | undefined];
+        import { importedHelper } from "./helpers";
+        export function Boundaries(props: { user: { name: string } }) {
+          const [profile] = createResource(async () => ({ title: props.user.name }));
+          let localTitle: string;
+          return <article>
+            <h2>{props.user.name}</h2>
+            <p>{localTitle}</p>
+            <b>{profile()?.title}</b>
+            <i>{importedHelper()}</i>
+            <em>{missingName}</em>
+          </article>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const boundary = (symbol, kind) =>
+      report.sourceBoundaries.find(
+        (row) => row.symbol === symbol && row.kind === kind,
+      );
+
+    expect(boundary("props.user", "prop-read")).toBeTruthy();
+    expect(boundary("localTitle", "source")).toBeTruthy();
+    expect(boundary("profile() resource", "solid-accessor")).toBeTruthy();
+    expect(boundary("importedHelper", "operation")).toBeTruthy();
+    expect(boundary("missingName", "unknown-source")).toBeTruthy();
+    expect(
+      report.sourceBoundaries.every((row) => row.file === "src/Boundaries.tsx"),
+    ).toBe(true);
+
+    const markdown = renderReport(report, {
+      ...project.args,
+      view: "source-boundaries",
+      format: "markdown",
+    });
+    expect(markdown).toContain("# Source Boundaries");
+    expect(markdown).toContain("props.user");
+    expect(markdown).toContain("solid-accessor");
+    expect(markdown).toContain("Sink reach");
+  });
+
   it("reports same-feature prop relay from context-aware parents", async () => {
     const project = await createFixtureProject({
       "src/feature/Feature.context.tsx": `

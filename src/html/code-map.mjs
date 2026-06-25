@@ -3,7 +3,7 @@
 // describing each finding. This is the one HTML view the Markdown reports cannot
 // express — it ties the analyzer's findings back to the literal source lines.
 import { escapeHtml } from "./page.mjs";
-import { snippetBlockHtml } from "./source-peek.mjs";
+import { snippetBlockHtml, sourceReferenceHtml } from "./source-peek.mjs";
 
 const QUEUE_LABEL = {
   "peripheral-quick-win": "quick win",
@@ -39,28 +39,35 @@ const STEP_KIND_LABEL = {
   template: "template",
 };
 
-function stepLocation(step) {
+function stepLocationText(step, { basename = false } = {}) {
   if (!step.line) return "";
-  const file = step.file ? step.file.split("/").pop() : "";
+  const file = step.file ? (basename ? step.file.split("/").pop() : step.file) : "";
   return file ? `${file}:${step.line}` : `:${step.line}`;
 }
 
-// The representative (deepest) path, as an ordered, collapsible list. "Show,
-// don't tell": instead of "path depth 18", lay out the 18 hops with their
-// operation kind and where each lives.
-function pathSection(sink) {
+function stepLocationHtml(step, resolveSource) {
+  if (!step.line) return '<span class="meta">-</span>';
+  if (!step.file) return `<span class="meta">:${step.line}</span>`;
+  return sourceReferenceHtml(step.file, step.line, resolveSource);
+}
+
+// The representative (deepest) path as compact table rows. "Show, don't tell":
+// instead of "path depth 18", lay out the hops with kind/location/expression.
+function pathSection(sink, resolveSource) {
   const steps = sink.representativeSteps ?? [];
   if (steps.length < 2) return "";
-  const items = steps
-    .map((step) => {
+  const rows = steps
+    .map((step, index) => {
       const kind = STEP_KIND_LABEL[step.kind] ?? step.kind ?? "step";
-      const loc = stepLocation(step);
-      return `<li><span class="k">${escapeHtml(kind)}</span> <code>${escapeHtml(
-        step.label ?? "",
-      )}</code>${loc ? ` <span class="meta">${escapeHtml(loc)}</span>` : ""}</li>`;
+      return `<tr>
+<td class="step-no">${index + 1}</td>
+<td><span class="k">${escapeHtml(kind)}</span></td>
+<td class="path-loc">${stepLocationHtml(step, resolveSource)}</td>
+<td><code>${escapeHtml(step.label ?? "")}</code></td>
+</tr>`;
     })
     .join("");
-  return `<details class="path-detail"><summary>Path — ${steps.length} steps (source → sink)</summary><ol class="path">${items}</ol></details>`;
+  return `<details class="path-detail"><summary>Path — ${steps.length} steps (source → sink)</summary><div class="path-scroll"><table class="path-table"><thead><tr><th>#</th><th>Kind</th><th>Location</th><th>Expression</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
 
 // The distinct representation-only hops (alias/pack/spread) on this slice.
@@ -70,7 +77,7 @@ function representationSection(sink) {
   const items = steps
     .map((step) => {
       const kind = STEP_KIND_LABEL[step.kind] ?? step.kind;
-      const loc = stepLocation(step);
+      const loc = stepLocationText(step, { basename: true });
       return `<li><span class="k">${escapeHtml(kind)}</span> <code>${escapeHtml(
         step.label ?? "",
       )}</code>${loc ? ` <span class="meta">${escapeHtml(loc)}</span>` : ""}</li>`;
@@ -269,7 +276,7 @@ function debugInfo(sink, relPath, source, meta) {
   return out.join("\n");
 }
 
-function findingPanel(sink, source, peers, relPath, meta) {
+function findingPanel(sink, source, peers, relPath, meta, resolveSource) {
   const ctx = sink.renderContext ?? {};
   const excerpt = source
     ? snippetBlockHtml(source, sink.line, { context: 3 })
@@ -308,7 +315,7 @@ function findingPanel(sink, source, peers, relPath, meta) {
   ${sink.confidenceReason ? `<div class="meta">${escapeHtml(sink.confidenceReason)}</div>` : ""}
   ${why ? `<strong>Why selected</strong><ul class="why">${why}</ul>` : ""}
   ${sameCodeSection(sink, peers)}
-  ${pathSection(sink)}
+  ${pathSection(sink, resolveSource)}
   ${representationSection(sink)}
   ${reachSection(sink)}
   ${defenses ? `<strong>Defenses — ${(sink.defenses ?? []).length}</strong><ul class="why">${defenses}</ul>` : ""}
@@ -383,17 +390,29 @@ function burdenHue(burden) {
 
 // Char range [a, b) (0-based) that a sink's span occupies on `lineNo`, or null
 // if it does not touch this line. Multi-line spans clamp to the line's extent.
+function spanPart(sink, lineNo) {
+  const span = sink.span;
+  if (!span || span.startLine === span.endLine) return "single";
+  if (lineNo === span.startLine) return "start";
+  if (lineNo === span.endLine) return "end";
+  return "middle";
+}
+
 function rangeOnLine(sink, lineNo, lineLength) {
   const span = sink.span;
   if (!span) {
-    return sink.line === lineNo ? { a: 0, b: lineLength } : null;
+    return sink.line === lineNo ? { a: 0, b: lineLength, part: "single" } : null;
   }
   if (lineNo < span.startLine || lineNo > span.endLine) return null;
   const a = lineNo === span.startLine ? span.startColumn - 1 : 0;
   const b = lineNo === span.endLine ? span.endColumn - 1 : lineLength;
   const start = Math.max(0, Math.min(a, lineLength));
   const end = Math.max(start, Math.min(b, lineLength));
-  return { a: start, b: end === start ? Math.min(start + 1, lineLength) : end };
+  return {
+    a: start,
+    b: end === start ? Math.min(start + 1, lineLength) : end,
+    part: spanPart(sink, lineNo),
+  };
 }
 
 // Split one source line into plain + clickable "hit" segments. Overlapping
@@ -427,26 +446,41 @@ function renderCodeLine(text, lineNo, lineSinks) {
     }
     const ids = covering.map((r) => r.sink.id);
     const burden = Math.max(...covering.map((r) => r.sink.scores?.burden ?? 0));
+    const parts = new Set(covering.map((r) => r.part));
+    const spanClasses = [...parts].map((part) => `span-${part}`).join(" ");
+    const part = parts.size === 1 ? [...parts][0] : "mixed";
     const title =
       covering.length > 1
         ? `${covering.length} findings: ${ids.join(", ")} · burden ${burden.toFixed(2)}`
         : `${ids[0]} · burden ${burden.toFixed(2)}`;
-    html += `<span class="hit heat" data-findings="${escapeHtml(
+    html += `<span class="hit heat ${spanClasses}" data-findings="${escapeHtml(
       ids.join(","),
-    )}" style="--bt:${burdenHue(burden)}" title="${escapeHtml(title)}">${slice}</span>`;
+    )}" data-span-part="${escapeHtml(part)}" style="--bt:${burdenHue(
+      burden,
+    )}" title="${escapeHtml(title)}">${slice}</span>`;
   }
   return html;
 }
 
-export function renderCodeMap({ relPath, source, sinks, meta }) {
+function touchedLines(sink, maxLine) {
+  const span = sink.span;
+  const start = Math.max(1, span?.startLine ?? sink.line ?? 1);
+  const end = Math.min(maxLine, Math.max(start, span?.endLine ?? sink.line ?? start));
+  const lines = [];
+  for (let lineNo = start; lineNo <= end; lineNo += 1) lines.push(lineNo);
+  return lines;
+}
+
+export function renderCodeMap({ relPath, source, sinks, meta, resolveSource }) {
   const lines = source.split("\n");
 
-  // line number -> sinks whose highlighted span starts on that line.
+  // line number -> sinks whose highlighted span touches that line.
   const byLine = new Map();
   for (const sink of sinks) {
-    const lineNo = sink.span?.startLine ?? sink.line;
-    if (!byLine.has(lineNo)) byLine.set(lineNo, []);
-    byLine.get(lineNo).push(sink);
+    for (const lineNo of touchedLines(sink, lines.length)) {
+      if (!byLine.has(lineNo)) byLine.set(lineNo, []);
+      byLine.get(lineNo).push(sink);
+    }
   }
 
   // Group sinks by identical rendered expression, so each finding panel can list
@@ -479,14 +513,16 @@ export function renderCodeMap({ relPath, source, sinks, meta }) {
     if (lineSinks && lineSinks.length) {
       const worst = dominantSink(lineSinks);
       const burden = worst.scores?.burden ?? 0;
+      const parts = new Set(lineSinks.map((sink) => spanPart(sink, lineNo)));
       const title =
         lineSinks.length > 1
           ? `${lineSinks.length} findings on this line (burden ${burden.toFixed(2)})`
           : `${worst.id} · burden ${burden.toFixed(2)}`;
       // The gutter dot + line-number border tint by the line's worst burden for
       // scanning; the per-chunk hit spans carry the precise, clickable mapping.
-      gutter = `<span class="dot heat" title="${escapeHtml(title)}"></span>`;
+      gutter = `<span class="dot heat span-dot" title="${escapeHtml(title)}"></span>`;
       cls.push("has-sink", "heat");
+      for (const part of parts) cls.push(`span-${part}`);
       style = ` style="--bt:${burdenHue(burden)}"`;
       code = renderCodeLine(text, lineNo, lineSinks);
     }
@@ -508,6 +544,7 @@ export function renderCodeMap({ relPath, source, sinks, meta }) {
         byExpr.get((sink.expression ?? "").trim()),
         relPath,
         meta,
+        resolveSource,
       ),
     );
   }

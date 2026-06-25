@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { analyzeProject, createAnalyzer, parseArgs } from "../src/core.mjs";
+import {
+  analyzeProject,
+  createAnalyzer,
+  parseArgs,
+  REPORT_VIEWS,
+} from "../src/core.mjs";
 import { markdownToHtml } from "../src/html/markdown-to-html.mjs";
 import { renderCodeMap } from "../src/html/code-map.mjs";
 import { snippetBlockHtml, peekReferences } from "../src/html/source-peek.mjs";
@@ -161,6 +166,22 @@ describe("createAnalyzer", () => {
 });
 
 describe("renderCodeMap", () => {
+  const baseSink = {
+    id: "F1",
+    file: "src/App.tsx",
+    line: 2,
+    column: 10,
+    expression: "props.user.name ?? props.fallback",
+    label: "props.user.name ?? props.fallback",
+    category: "render",
+    queue: "investigation",
+    confidence: 80,
+    confidenceRisk: "medium",
+    metrics: {},
+    scores: { burden: 0.42 },
+    renderContext: { component: "App", tag: "div", attribute: "title" },
+  };
+
   it("marks sink lines, escapes source, and renders commentary", async () => {
     const project = await createFixtureProject(FIXTURE);
     const report = createAnalyzer(project.args).report({ file: ["src/Card.tsx"] });
@@ -174,6 +195,63 @@ describe("renderCodeMap", () => {
     expect(sinks.length).toBeGreaterThan(0);
     expect(html).toContain('class="finding active"');
     expect(html).toContain("Why selected");
+  });
+
+  it("connects multi-line sink spans across every touched line", () => {
+    const source = [
+      "export function App(props) {",
+      "  return <div title={props.user",
+      "    .profile",
+      "    .name ?? props.fallback}>ok</div>;",
+      "}",
+    ].join("\n");
+    const sink = {
+      ...baseSink,
+      span: { startLine: 2, startColumn: 22, endLine: 4, endColumn: 28 },
+    };
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [sink],
+    });
+    expect(html).toContain("span-start");
+    expect(html).toContain("span-middle");
+    expect(html).toContain("span-end");
+    expect(html).toContain('data-span-part="start"');
+    expect(html).toContain('data-span-part="middle"');
+    expect(html).toContain('data-span-part="end"');
+    expect(html.match(/data-findings="F1"/g)).toHaveLength(3);
+  });
+
+  it("renders representative paths as dense rows with source-peek locations", () => {
+    const source = ["export function App() {", "  return <div>{value}</div>;", "}"].join(
+      "\n",
+    );
+    const helperSource = ["export const value = build();", "function build() { return 1; }"].join(
+      "\n",
+    );
+    const sink = {
+      ...baseSink,
+      line: 2,
+      span: { startLine: 2, startColumn: 16, endLine: 2, endColumn: 21 },
+      representativeSteps: [
+        { kind: "source", label: "build()", file: "src/helper.ts", line: 2 },
+        { kind: "alias", label: "value", file: "src/helper.ts", line: 1 },
+        { kind: "call", label: "<div>{value}</div>", file: "src/App.tsx", line: 2 },
+      ],
+    };
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [sink],
+      resolveSource: (p) => (p === "src/helper.ts" ? helperSource : source),
+    });
+    expect(html).toContain('class="path-table"');
+    expect(html).toContain("<th>#</th><th>Kind</th><th>Location</th><th>Expression</th>");
+    expect(html).toContain('<td class="step-no">1</td>');
+    expect(html).toContain("src/helper.ts:2");
+    expect(html).toContain('<span class="peek">');
+    expect(html).toContain("function build() { return 1; }");
   });
 
   it("maps each finding to its own chunk so adjacent findings are independently clickable", async () => {
@@ -235,6 +313,8 @@ describe("renderCodeMap", () => {
     // `props.n / 2` appears twice — each finding lists the other.
     expect(html).toContain("Same code");
     expect(html).toContain('class="xref"');
+    expect(html).toContain('data-finding="');
+    expect(html).toContain('data-findings="');
   });
 });
 
@@ -297,6 +377,87 @@ describe("createServer", () => {
     expect(json.status).toBe(200);
     const payload = JSON.parse(json.body);
     expect(payload.sinks.every((s) => s.file === "src/Card.tsx")).toBe(true);
+  });
+
+  it("filters, searches, and sorts overview file rows through query params", async () => {
+    const project = await createFixtureProject({
+      ...FIXTURE,
+      "src/Other.tsx": `
+        export function Other(props: { name: string; total: number }) {
+          return <section title={props.name}>{props.total * 2}</section>;
+        }
+      `,
+    });
+    const { handler } = createServer(project.args);
+
+    const home = await call(handler, "/");
+    expect(home.body).toContain('name="q"');
+    expect(home.body).toContain('name="filter"');
+    expect(home.body).toContain('name="sort"');
+    expect(home.body).toContain("src/Card.tsx");
+    expect(home.body).toContain("src/Other.tsx");
+
+    const searched = await call(handler, "/?q=Other&sort=file");
+    expect(searched.status).toBe(200);
+    expect(searched.body).toContain("src/Other.tsx");
+    expect(searched.body).not.toContain("src/Card.tsx");
+    expect(searched.body).toContain("/?q=Other&amp;sort=findings");
+    expect(searched.body).toContain('option value="file" selected');
+
+    const unknownOnly = await call(handler, "/?filter=unknown");
+    expect(unknownOnly.status).toBe(200);
+    expect(unknownOnly.body).toContain('option value="unknown" selected');
+  });
+
+  it("paginates long overview file lists", async () => {
+    const files = {};
+    for (let index = 0; index < 60; index += 1) {
+      const name = `File${String(index).padStart(2, "0")}`;
+      files[`src/${name}.tsx`] = `
+        export function ${name}(props: { value: number }) {
+          return <div title={String(props.value)}>{props.value + ${index}}</div>;
+        }
+      `;
+    }
+    const project = await createFixtureProject(files);
+    const { handler } = createServer(project.args);
+
+    const first = await call(handler, "/?sort=file");
+    expect(first.status).toBe(200);
+    expect(first.body).toContain("Showing 1-25 of 60 files");
+    expect(first.body).toContain("Page 1 of 3");
+    expect(first.body).toContain("/?sort=file&amp;page=2");
+    expect(first.body).toContain("src/File00.tsx");
+    expect(first.body).not.toContain("src/File59.tsx");
+
+    const third = await call(handler, "/?sort=file&page=3");
+    expect(third.status).toBe(200);
+    expect(third.body).toContain("Showing 51-60 of 60 files");
+    expect(third.body).toContain("src/File59.tsx");
+  });
+
+  it("links and serves markdown assets for every registered report view", async () => {
+    const project = await createFixtureProject(FIXTURE);
+    const { handler } = createServer(project.args);
+
+    const home = await call(handler, "/");
+    for (const view of REPORT_VIEWS) {
+      expect(home.body).toContain(`/report?view=${view}`);
+      expect(home.body).toContain(`/api/report.${view}.md`);
+    }
+
+    const htmlReport = await call(handler, "/report?view=work-packets");
+    expect(htmlReport.status).toBe(200);
+    expect(htmlReport.body).toContain("Work packets");
+    expect(htmlReport.body).toContain("/api/report.work-packets.md");
+
+    const markdown = await call(handler, "/api/report.findings.md");
+    expect(markdown.status).toBe(200);
+    expect(markdown.headers["Content-Type"]).toContain("text/markdown");
+    expect(markdown.body).toContain("# Render-Path Findings");
+
+    expect((await call(handler, "/report?view=missing")).status).toBe(404);
+    expect((await call(handler, "/api/report.missing.md")).status).toBe(404);
   });
 
   it("returns 404 for unknown routes and 400 for /file without path", async () => {

@@ -39,6 +39,10 @@ nav.side h1 { font-size: 15px; margin: 0 0 4px; }
 nav.side .sub { color: var(--muted); margin-bottom: 14px; word-break: break-all; }
 nav.side ul { list-style: none; margin: 0; padding: 0; }
 nav.side li { margin: 2px 0; }
+nav.side .side-files {
+  max-height: min(44vh, 420px); overflow: auto; padding-right: 4px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
 main { flex: 1; min-width: 0; padding: 26px 34px; max-width: 1100px; }
 /* The code-map page is layout-driven (not prose), so let it use the viewport:
    cap only on ultra-wide screens to keep line lengths sane. */
@@ -81,6 +85,8 @@ button, .btn {
   border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer;
 }
 button:hover { border-color: var(--accent); }
+.pager { display: flex; align-items: center; gap: 10px; margin: 12px 0 24px; }
+.btn.disabled { opacity: 0.45; pointer-events: none; }
 
 /* Code map. NOTE: no overflow on .codemap — any non-visible overflow on an
    ancestor silently disables position:sticky on the panel. align-items:start
@@ -105,6 +111,10 @@ button:hover { border-color: var(--accent); }
   box-shadow: inset 0 -2px 0 hsl(var(--bt) var(--heat-s) var(--heat-bar-l));
   border-radius: 3px; cursor: pointer;
 }
+.codemap .hit.span-start { border-radius: 3px 3px 2px 2px; box-shadow: inset 0 -2px 0 hsl(var(--bt) var(--heat-s) var(--heat-bar-l)), inset 3px 0 0 hsl(var(--bt) var(--heat-s) var(--heat-bar-l)); }
+.codemap .hit.span-middle { border-radius: 2px; box-shadow: inset 3px 0 0 hsl(var(--bt) var(--heat-s) var(--heat-bar-l)); }
+.codemap .hit.span-end { border-radius: 2px 2px 3px 3px; box-shadow: inset 0 -2px 0 hsl(var(--bt) var(--heat-s) var(--heat-bar-l)), inset 3px 0 0 hsl(var(--bt) var(--heat-s) var(--heat-bar-l)); }
+.codemap .hit.span-single { border-radius: 3px; }
 .codemap .hit:hover { filter: brightness(0.94); }
 .codemap .hit.sel { outline: 2px solid var(--accent); outline-offset: -1px; }
 .codemap .panel .xref { cursor: pointer; }
@@ -114,6 +124,11 @@ button:hover { border-color: var(--accent); }
 .codemap .panel .copy-debug { font-size: 12px; padding: 3px 9px; white-space: nowrap; }
 .codemap .panel .copy-debug.ok { border-color: var(--quick); color: var(--quick); }
 .codemap tr.on-path td.code { box-shadow: inset 3px 0 0 var(--border); }
+.codemap tr.span-start td.gutter, .codemap tr.span-middle td.gutter, .codemap tr.span-end td.gutter {
+  background: linear-gradient(to right, transparent calc(50% - 1px), hsl(var(--bt) var(--heat-s) var(--heat-bar-l)) calc(50% - 1px), hsl(var(--bt) var(--heat-s) var(--heat-bar-l)) calc(50% + 1px), transparent calc(50% + 1px));
+}
+.codemap tr.span-start td.gutter { background-position-y: 50%; background-size: 100% 50%; background-repeat: no-repeat; }
+.codemap tr.span-end td.gutter { background-position-y: 0; background-size: 100% 50%; background-repeat: no-repeat; }
 .codemap tr.sel td { background: rgba(88,166,255,0.22) !important; }
 .codemap tr.sel td.ln { border-right-color: var(--accent) !important; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
@@ -145,7 +160,7 @@ button:hover { border-color: var(--accent); }
 .snip-row { display: block; }
 .snip-hit { background: rgba(88,166,255,0.18); border-radius: 3px; }
 .snip-ln { color: var(--muted); user-select: none; margin-right: 10px; }
-.peek { position: relative; display: inline-block; }
+.peek { display: inline-block; }
 .peek-label {
   font: inherit; padding: 0; border: 0; background: none; cursor: pointer;
   border-bottom: 1px dotted var(--accent);
@@ -153,12 +168,12 @@ button:hover { border-color: var(--accent); }
 .peek-label code { background: var(--code-bg); }
 .peek-label:hover code { color: var(--accent); }
 .peek-pop {
-  display: none; position: absolute; z-index: 20; top: 1.6em; left: 0;
+  display: none; position: fixed; z-index: 1000;
   min-width: 360px; max-width: 640px; background: var(--bg);
   border: 1px solid var(--border); border-radius: 8px;
   box-shadow: 0 8px 28px rgba(0,0,0,0.28); padding: 4px 8px;
 }
-.peek.open .peek-pop { display: block; }
+.peek-pop.open { display: block; }
 .peek-pop .snip { margin: 4px 0; max-height: 320px; overflow: auto; }
 .codemap .panel .finding { display: none; }
 .codemap .panel .finding.active { display: block; }
@@ -191,6 +206,16 @@ button:hover { border-color: var(--accent); }
   margin: 6px 0; padding-left: 20px;
 }
 .codemap .panel ol.path li, .codemap .panel ul.reach li { margin: 3px 0; }
+.codemap .panel table.path-table { width: 100%; margin: 6px 0; font-size: 12px; table-layout: fixed; }
+.codemap .panel table.path-table th,
+.codemap .panel table.path-table td { padding: 4px 6px; vertical-align: top; }
+.codemap .panel table.path-table th:first-child,
+.codemap .panel table.path-table td.step-no { width: 28px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.codemap .panel table.path-table th:nth-child(2) { width: 70px; }
+.codemap .panel table.path-table th:nth-child(3) { width: 150px; }
+.codemap .panel .path-loc { overflow-wrap: anywhere; }
+.codemap .panel table.path-table code { white-space: normal; overflow-wrap: anywhere; }
+.codemap .panel .path-scroll { max-height: 360px; overflow: auto; border-top: 1px solid var(--border); }
 .codemap .panel ul.reach ul { margin: 2px 0; padding-left: 16px; list-style: none; }
 .codemap .panel ul.reach ul li { color: var(--muted); }
 .codemap .panel .k {
@@ -216,6 +241,32 @@ function legacyCopy(text) {
 }
 
 document.addEventListener('click', function (e) {
+  function closePeeks() {
+    document.querySelectorAll('.peek.open').forEach(function (p) { p.classList.remove('open'); });
+    document.querySelectorAll('body > .peek-pop.portal').forEach(function (p) { p.remove(); });
+  }
+
+  function positionPeek(label, pop) {
+    var rect = label.getBoundingClientRect();
+    var margin = 10;
+    var desiredWidth = Math.min(640, Math.max(360, window.innerWidth - margin * 2));
+    pop.style.width = desiredWidth + 'px';
+    pop.style.maxWidth = desiredWidth + 'px';
+    pop.style.left = '0px';
+    pop.style.top = '0px';
+    pop.classList.add('open');
+    var popRect = pop.getBoundingClientRect();
+    var left = Math.min(Math.max(margin, rect.left), window.innerWidth - popRect.width - margin);
+    var below = rect.bottom + 8;
+    var above = rect.top - popRect.height - 8;
+    var top = below + popRect.height + margin <= window.innerHeight
+      ? below
+      : Math.max(margin, above);
+    top = Math.min(Math.max(margin, top), Math.max(margin, window.innerHeight - popRect.height - margin));
+    pop.style.left = Math.round(left) + 'px';
+    pop.style.top = Math.round(top) + 'px';
+  }
+
   // "Copy debug info": dump the finding's full debug payload to the clipboard.
   var copyBtn = e.target.closest('.copy-debug');
   if (copyBtn) {
@@ -236,15 +287,20 @@ document.addEventListener('click', function (e) {
   var label = e.target.closest('.peek-label');
   if (label) {
     var peek = label.closest('.peek');
-    var wasOpen = peek.classList.contains('open');
-    document.querySelectorAll('.peek.open').forEach(function (p) { p.classList.remove('open'); });
-    if (!wasOpen) peek.classList.add('open');
+    var pop = peek ? peek.querySelector('.peek-pop') : null;
+    var wasOpen = peek && peek.classList.contains('open');
+    closePeeks();
+    if (peek && pop && !wasOpen) {
+      peek.classList.add('open');
+      var portal = pop.cloneNode(true);
+      portal.classList.add('portal');
+      document.body.appendChild(portal);
+      positionPeek(label, portal);
+    }
     e.stopPropagation();
     return;
   }
-  if (!e.target.closest('.peek-pop')) {
-    document.querySelectorAll('.peek.open').forEach(function (p) { p.classList.remove('open'); });
-  }
+  if (!e.target.closest('.peek-pop')) closePeeks();
 
   // Activate a set of finding ids in the panel: reveal every matching block
   // (multiple can show at once), scroll the first into view.

@@ -43,6 +43,8 @@ export const REPORT_VIEWS = [
   "context-relay",
   "repair-map",
   "boundary-report",
+  "unknown-edges",
+  "source-boundaries",
   "junctions",
   "inline-preview",
   "hotspots",
@@ -66,6 +68,8 @@ const TABLE_VIEWS = new Set([
   "prop-relay",
   "context-relay",
   "boundary-report",
+  "unknown-edges",
+  "source-boundaries",
   "junctions",
   "hotspots",
 ]);
@@ -850,6 +854,10 @@ export function renderMarkdownView(report, args) {
       return renderRepairMap(report, args);
     case "boundary-report":
       return renderBoundaryReport(report, args);
+    case "unknown-edges":
+      return renderUnknownEdges(report, args);
+    case "source-boundaries":
+      return renderSourceBoundaries(report, args);
     case "junctions":
       return renderJunctions(report, args);
     case "inline-preview":
@@ -1067,6 +1075,8 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
   const helpers = fileMatch
     ? allHelpers.filter((helper) => fileMatch(helper.file))
     : allHelpers;
+  const unknownEdges = buildUnknownEdgeRows(graph, filteredSinks);
+  const sourceBoundaries = buildSourceBoundaryRows(filteredSinks);
   const baseline = args.baseline
     ? compareBaseline(rankings, args.baseline)
     : null;
@@ -1096,6 +1106,8 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
     workUnits,
     concentration,
     helpers,
+    unknownEdges,
+    sourceBoundaries,
     baseline,
     summary: summarize(filteredSinks, graph),
   };
@@ -2498,6 +2510,165 @@ function reachedSinkDescriptor(sink) {
     file: sink.file,
     line: sink.line,
     label: where || sink.label || sink.expression || sink.id,
+  };
+}
+
+function buildUnknownEdgeRows(graph, sinks) {
+  const nodes = new Map((graph.nodes ?? []).map((node) => [node.id, node]));
+  const rows = [];
+  const seen = new Set();
+  for (const edge of graph.edges ?? []) {
+    if (!edge.unknown) continue;
+    const target = nodes.get(edge.to);
+    const source = nodes.get(edge.from);
+    const file = target?.file ?? source?.file ?? "";
+    const line = target?.location?.line ?? source?.location?.line ?? null;
+    const label = target?.label ?? source?.label ?? edge.kind;
+    const affectedSinks = affectedSinksForUnknownEdge(sinks, {
+      file,
+      line,
+      kind: edge.kind,
+      label,
+    });
+    rows.push({
+      id: edge.id,
+      file,
+      line,
+      kind: edge.kind,
+      label,
+      source: source
+        ? { id: source.id, kind: source.kind, label: source.label }
+        : null,
+      target: target
+        ? { id: target.id, kind: target.kind, label: target.label }
+        : null,
+      affectedSinks,
+    });
+    seen.add(`${file}:${line ?? ""}:${edge.kind}:${label}`);
+  }
+  for (const node of graph.nodes ?? []) {
+    if (node.kind !== "unknown-source") continue;
+    const file = node.file ?? "";
+    const line = node.location?.line ?? null;
+    const label = node.label;
+    const kind = "unknown-source";
+    const key = `${file}:${line ?? ""}:${kind}:${label}`;
+    if (seen.has(key)) continue;
+    rows.push({
+      id: node.id,
+      file,
+      line,
+      kind,
+      label,
+      source: null,
+      target: { id: node.id, kind: node.kind, label: node.label },
+      affectedSinks: affectedSinksForUnknownEdge(sinks, {
+        file,
+        line,
+        kind,
+        label,
+      }),
+    });
+  }
+  return rows.sort(
+    (left, right) =>
+      left.file.localeCompare(right.file) ||
+      Number(left.line ?? 0) - Number(right.line ?? 0) ||
+      left.kind.localeCompare(right.kind) ||
+      left.label.localeCompare(right.label),
+  );
+}
+
+function affectedSinksForUnknownEdge(sinks, edge) {
+  return sinks
+    .filter((sink) => {
+      const roots =
+        sink.rootInfos ??
+        sink.roots.map((root) => ({ label: root, kind: "source" }));
+      if (
+        roots.some(
+          (root) => root.label === edge.label && root.kind === edge.kind,
+        )
+      ) {
+        return true;
+      }
+      return (sink.representativeSteps ?? []).some((step) => {
+        if (edge.file && step.file !== edge.file) return false;
+        if (edge.line != null && step.line !== edge.line) return false;
+        if (edge.kind && step.kind !== edge.kind) return false;
+        return !edge.label || step.label === edge.label;
+      });
+    })
+    .slice(0, REACHED_VIA_CAP)
+    .map(reachedSinkDescriptor);
+}
+
+function buildSourceBoundaryRows(sinks) {
+  const map = new Map();
+  for (const sink of sinks) {
+    const rootInfos =
+      sink.rootInfos ??
+      sink.roots.map((root) => ({ label: root, kind: "source" }));
+    for (const root of rootInfos) {
+      if (!isSourceBoundaryRoot(root)) continue;
+      const location = sourceBoundaryLocation(root, sink);
+      const key = `${location.file}:${location.line ?? ""}:${root.kind}:${root.label}`;
+      let row = map.get(key);
+      if (!row) {
+        row = {
+          file: location.file,
+          line: location.line,
+          symbol: root.label,
+          kind: root.kind,
+          sinkCount: 0,
+          sinkFiles: new Set(),
+          affectedSinks: [],
+          omittedSinks: 0,
+        };
+        map.set(key, row);
+      }
+      row.sinkCount += 1;
+      row.sinkFiles.add(sink.file);
+      if (row.affectedSinks.length < REACHED_VIA_CAP) {
+        row.affectedSinks.push(reachedSinkDescriptor(sink));
+      } else {
+        row.omittedSinks += 1;
+      }
+    }
+  }
+  return Array.from(map.values())
+    .map((row) => ({
+      ...row,
+      sinkFiles: row.sinkFiles.size,
+    }))
+    .sort(
+      (left, right) =>
+        right.sinkCount - left.sinkCount ||
+        left.file.localeCompare(right.file) ||
+        Number(left.line ?? 0) - Number(right.line ?? 0) ||
+        left.symbol.localeCompare(right.symbol),
+    );
+}
+
+function isSourceBoundaryRoot(root) {
+  if (!root?.label) return false;
+  if (root.kind === "literal" || root.kind === "parameter") return false;
+  if (NON_FAN_OUT_GLOBALS.has(root.label)) return false;
+  return true;
+}
+
+function sourceBoundaryLocation(root, sink) {
+  const rootFile = sink.file;
+  const steps = sink.representativeSteps ?? [];
+  const direct = steps.find(
+    (step) =>
+      step.label === root.label ||
+      root.label.endsWith(`.${step.label}`) ||
+      step.label.endsWith(`.${root.label}`),
+  );
+  return {
+    file: direct?.file ?? rootFile,
+    line: direct?.line ?? sink.line,
   };
 }
 
@@ -4163,6 +4334,51 @@ function renderBoundaryReport(report, args) {
   return `${lines.join("\n")}`;
 }
 
+function renderUnknownEdges(report, args) {
+  const rows = (report.unknownEdges ?? []).slice(0, args.maxItems);
+  if (rows.length === 0) {
+    return `# Unknown Edges\n\n${viewIntro("unknown-edges", report).join("\n")}No unresolved graph edges were found in the selected render paths.\n`;
+  }
+  return tableReport(
+    "Unknown Edges",
+    ["Where", "Kind", "Unresolved", "Affected sinks"],
+    rows.map((row) => [
+      `${row.file}:${row.line ?? "?"}`,
+      row.kind,
+      code(formatExpression(row.label, 48)),
+      affectedSinkSummary(row.affectedSinks),
+    ]),
+    viewIntro("unknown-edges", report),
+  );
+}
+
+function renderSourceBoundaries(report, args) {
+  const rows = (report.sourceBoundaries ?? []).slice(0, args.maxItems);
+  if (rows.length === 0) {
+    return `# Source Boundaries\n\n${viewIntro("source-boundaries", report).join("\n")}No actionable source roots were found in the selected render paths.\n`;
+  }
+  return tableReport(
+    "Source Boundaries",
+    ["Where", "Symbol", "Kind", "Sink reach", "Representative sinks"],
+    rows.map((row) => [
+      `${row.file}:${row.line ?? "?"}`,
+      code(formatExpression(row.symbol, 48)),
+      row.kind,
+      `${row.sinkCount} sink${row.sinkCount === 1 ? "" : "s"} / ${row.sinkFiles} file${row.sinkFiles === 1 ? "" : "s"}`,
+      affectedSinkSummary(row.affectedSinks),
+    ]),
+    viewIntro("source-boundaries", report),
+  );
+}
+
+function affectedSinkSummary(sinks) {
+  if (!sinks?.length) return "";
+  return sinks
+    .slice(0, 4)
+    .map((sink) => `${sink.file}:${sink.line} ${formatExpression(sink.label, 32)}`)
+    .join("; ");
+}
+
 // A one-line, human reason for a function's verdict.
 function boundaryNote(helper) {
   switch (helper.verdict) {
@@ -5506,6 +5722,14 @@ function selectViewPayload(report, args) {
     )
       ? (report.helpers ?? []).slice(0, args.maxItems)
       : undefined,
+    unknownEdges:
+      args.view === "unknown-edges"
+        ? (report.unknownEdges ?? []).slice(0, args.maxItems)
+        : undefined,
+    sourceBoundaries:
+      args.view === "source-boundaries"
+        ? (report.sourceBoundaries ?? []).slice(0, args.maxItems)
+        : undefined,
     packGroups: ["work-packets", "findings", "dossier"].includes(args.view)
       ? (report.packGroups ?? []).slice(0, args.maxItems)
       : undefined,
@@ -6583,6 +6807,14 @@ const VIEW_BLURBS = {
     "sites across analyzed files; _Internal d/churn_ = depth/representation churn " +
     "inside the body. _Verdict_ flags clean pipes, thin pass-throughs (inline), " +
     "leaky boundaries, confluence/junctions, and hidden-mess internals.",
+  "unknown-edges":
+    "Unresolved graph edges that static tracing could not follow, grouped by " +
+    "file, line, operation kind, and unresolved label. _Affected sinks_ lists " +
+    "representative rendered values whose path crosses the unknown edge.",
+  "source-boundaries":
+    "Actionable root values at the edge of render paths, grouped by file, symbol, " +
+    "and source kind. _Sink reach_ shows how many rendered sinks and files each " +
+    "source boundary feeds.",
   junctions:
     "Functions where independent source lineages fork in (_tributaries_) and the " +
     "result re-spreads to multiple call sites (_distributaries_) — the load-bearing " +

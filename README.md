@@ -219,9 +219,14 @@ tsx-dataflow-serve --root . --port 4317 --open
 pnpm serve -- --root examples/bad-ish-solid --open
 ```
 
-- **Overview** (`/`) — project summary plus a hotspots table (one row per file:
-  finding count, worst burden, dominant shape, ownership, suggested first cut),
-  each linking into its file.
+- **Overview** (`/`) — project summary plus searchable/sortable hotspots (one
+  row per file: finding count, worst burden, path depth, dominant shape,
+  ownership, suggested first cut), each linking into its file. Query params are
+  shareable: `q=<text>`, `filter=all|findings|unknown|participating`, and
+  `sort=burden|findings|depth|file`.
+- **Report assets** — every generated Markdown report is linked from the
+  overview as both `/report?view=<name>` for an HTML rendering and
+  `/api/report.<name>.md` for the raw Markdown projection.
 - **File view** (`/file?path=<rel>`) — every report view rendered as HTML in
   collapsible sections, plus an **annotated code map**: the file's source,
   line-numbered, with a colored gutter marker on each line that renders a ranked

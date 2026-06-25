@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   createAnalyzer,
+  renderReport,
   renderMarkdownView,
   hotspotGroups,
   modalValue,
@@ -37,6 +38,8 @@ const VIEW_LABELS = {
   "context-relay": "Context relay",
   "repair-map": "Repair map",
   "boundary-report": "Boundary report",
+  "unknown-edges": "Unknown edges",
+  "source-boundaries": "Source boundaries",
   junctions: "Junctions",
   "inline-preview": "Inline preview",
   hotspots: "Hotspots",
@@ -113,7 +116,39 @@ export function createServer(args) {
 
       ensureBuilt();
 
-      if (route === "/") return send(res, 200, renderOverview(cache.full));
+      if (route === "/") return send(res, 200, renderOverview(cache.full, url));
+
+      if (route === "/report") {
+        const view = url.searchParams.get("view");
+        if (!isReportView(view)) return send(res, 404, notFoundPage());
+        const md = renderReport(cache.full, reportArgs(args, view));
+        const html = peekReferences(markdownToHtml(md), sourceFor);
+        return send(
+          res,
+          200,
+          page({
+            title: `${VIEW_LABELS[view] ?? view} · tsx-dataflow`,
+            body: `<div class="toolbar"><h1 style="margin:0">${escapeHtml(
+              VIEW_LABELS[view] ?? view,
+            )}</h1><a class="btn" href="/api/report.${encodeURIComponent(
+              view,
+            )}.md">Markdown</a></div><div class="body">${html}</div>`,
+            nav: overviewNav(cache.full, url),
+          }),
+        );
+      }
+
+      const markdownMatch = route.match(/^\/api\/report\.([A-Za-z0-9-]+)\.md$/);
+      if (markdownMatch) {
+        const view = markdownMatch[1];
+        if (!isReportView(view)) return send(res, 404, "not found", "text/plain");
+        return send(
+          res,
+          200,
+          renderReport(cache.full, reportArgs(args, view)),
+          "text/markdown; charset=utf-8",
+        );
+      }
 
       if (route === "/file") {
         const relPath = url.searchParams.get("path");
@@ -147,7 +182,7 @@ export function createServer(args) {
         );
       }
 
-      return send(res, 404, page({ title: "Not found", body: "<h1>404</h1>" }));
+      return send(res, 404, notFoundPage());
     } catch (error) {
       const message = error instanceof Error ? error.stack : String(error);
       return send(
@@ -167,9 +202,120 @@ export function createServer(args) {
 
 // --- Page renderers --------------------------------------------------------
 
-function overviewNav(report) {
-  const groups = hotspotGroups(report, "file");
-  const items = groups
+const OVERVIEW_FILTERS = new Set(["all", "findings", "unknown", "participating"]);
+const OVERVIEW_SORTS = new Set(["burden", "findings", "depth", "file"]);
+const OVERVIEW_PAGE_SIZE = 25;
+const OVERVIEW_NAV_FILE_LIMIT = 40;
+
+function isReportView(view) {
+  return REPORT_VIEWS.includes(view);
+}
+
+function notFoundPage() {
+  return page({ title: "Not found", body: "<h1>404</h1>" });
+}
+
+function reportArgs(args, view) {
+  return {
+    ...args,
+    view,
+    format: "markdown",
+    maxItems: args.maxItems ?? 20,
+  };
+}
+
+function overviewState(url) {
+  const q = (url.searchParams.get("q") ?? "").trim();
+  const filter = url.searchParams.get("filter") ?? "all";
+  const sort = url.searchParams.get("sort") ?? "burden";
+  const page = Math.max(1, Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
+  return {
+    q,
+    filter: OVERVIEW_FILTERS.has(filter) ? filter : "all",
+    sort: OVERVIEW_SORTS.has(sort) ? sort : "burden",
+    page,
+  };
+}
+
+function overviewHref(state, changes = {}) {
+  const next = { ...state, ...changes };
+  const params = new URLSearchParams();
+  if (next.q) params.set("q", next.q);
+  if (next.filter && next.filter !== "all") params.set("filter", next.filter);
+  if (next.sort && next.sort !== "burden") params.set("sort", next.sort);
+  if (next.page && next.page !== 1) params.set("page", String(next.page));
+  const query = params.toString();
+  return query ? `/?${query}` : "/";
+}
+
+function graphParticipationFiles(report) {
+  const files = new Set();
+  for (const node of report.graph?.nodes ?? []) {
+    if (node.file) files.add(node.file);
+  }
+  for (const edge of report.graph?.edges ?? []) {
+    if (edge.location?.file) files.add(edge.location.file);
+  }
+  return files;
+}
+
+function fileHasUnknownEdges(group) {
+  return group.worstSink?.metrics?.unknownEdgeCount > 0;
+}
+
+function searchableGroupText(group) {
+  return [
+    group.key,
+    modalValue(group.shapes),
+    modalValue(group.ownership),
+    firstCutFor(group.worstSink),
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function overviewRows(report, state) {
+  const participating = graphParticipationFiles(report);
+  const q = state.q.toLowerCase();
+  const groups = hotspotGroups(report, "file").filter((group) => {
+    if (state.filter === "unknown" && !fileHasUnknownEdges(group)) return false;
+    if (state.filter === "participating" && !participating.has(group.key)) return false;
+    if (q && !searchableGroupText(group).includes(q)) return false;
+    return true;
+  });
+  const sorted = [...groups];
+  sorted.sort((left, right) => {
+    if (state.sort === "file") return left.key.localeCompare(right.key);
+    if (state.sort === "findings") {
+      return right.count - left.count || right.worst - left.worst || left.key.localeCompare(right.key);
+    }
+    if (state.sort === "depth") {
+      const leftDepth = left.worstSink?.metrics?.maximumPathDepth ?? 0;
+      const rightDepth = right.worstSink?.metrics?.maximumPathDepth ?? 0;
+      return rightDepth - leftDepth || right.worst - left.worst || left.key.localeCompare(right.key);
+    }
+    return right.sumBurden - left.sumBurden || right.worst - left.worst || left.key.localeCompare(right.key);
+  });
+  return sorted;
+}
+
+function reportAssets(state) {
+  const q = state.q.toLowerCase();
+  return REPORT_VIEWS.map((view) => ({
+    view,
+    label: VIEW_LABELS[view] ?? view,
+  })).filter((asset) =>
+    !q ||
+    asset.view.toLowerCase().includes(q) ||
+    asset.label.toLowerCase().includes(q)
+  );
+}
+
+function overviewNav(report, url = new URL("http://localhost/")) {
+  const state = overviewState(url);
+  const groups = overviewRows(report, state);
+  const shown = groups.slice(0, OVERVIEW_NAV_FILE_LIMIT);
+  const items = shown
     .map(
       (g) =>
         `<li><a href="/file?path=${encodeURIComponent(g.key)}">${escapeHtml(
@@ -177,13 +323,28 @@ function overviewNav(report) {
         )}</a> <span class="meta">(${g.count})</span></li>`,
     )
     .join("");
+  const more =
+    groups.length > shown.length
+      ? `<li class="meta">+${groups.length - shown.length} more; use search or the table pager</li>`
+      : "";
+  const reports = reportAssets(state)
+    .map(
+      ({ view, label }) =>
+        `<li><a href="/report?view=${encodeURIComponent(view)}">${escapeHtml(
+          label,
+        )}</a></li>`,
+    )
+    .join("");
   return `<h1>tsx-dataflow</h1>
 <div class="sub">${escapeHtml(report.meta.root)}</div>
 <strong>Files</strong>
-<ul>${items || '<li class="meta">no findings</li>'}</ul>`;
+<ul class="side-files">${items || '<li class="meta">no matching files</li>'}${more}</ul>
+<strong>Reports</strong>
+<ul>${reports || '<li class="meta">no matching reports</li>'}</ul>`;
 }
 
-function renderOverview(report) {
+function renderOverview(report, url = new URL("http://localhost/")) {
+  const state = overviewState(url);
   const s = report.summary;
   const cards = [
     ["Sinks", s.sinks],
@@ -198,13 +359,19 @@ function renderOverview(report) {
     )
     .join("");
 
-  const groups = hotspotGroups(report, "file");
-  const rows = groups
+  const groups = overviewRows(report, state);
+  const totalPages = Math.max(1, Math.ceil(groups.length / OVERVIEW_PAGE_SIZE));
+  const currentPage = Math.min(state.page, totalPages);
+  const pageState = { ...state, page: currentPage };
+  const pageStart = (currentPage - 1) * OVERVIEW_PAGE_SIZE;
+  const pageGroups = groups.slice(pageStart, pageStart + OVERVIEW_PAGE_SIZE);
+  const rows = pageGroups
     .map(
       (g) => `<tr>
 <td><a href="/file?path=${encodeURIComponent(g.key)}">${escapeHtml(g.key)}</a></td>
 <td>${g.count}</td>
 <td>${g.worst.toFixed(2)}</td>
+<td>${g.worstSink?.metrics?.maximumPathDepth ?? 0}</td>
 <td>${escapeHtml(modalValue(g.shapes))}</td>
 <td>${escapeHtml(modalValue(g.ownership))}</td>
 <td>${escapeHtml(firstCutFor(g.worstSink))}</td>
@@ -222,19 +389,85 @@ function renderOverview(report) {
         } with ≥4.</p>`
       : "";
 
+  const sortLink = (sort, label) =>
+    `<a href="${escapeHtml(overviewHref(pageState, { sort, page: 1 }))}">${escapeHtml(label)}</a>`;
+  const filterOption = (value, label) =>
+    `<option value="${value}"${state.filter === value ? " selected" : ""}>${escapeHtml(
+      label,
+    )}</option>`;
+  const sortOption = (value, label) =>
+    `<option value="${value}"${state.sort === value ? " selected" : ""}>${escapeHtml(
+      label,
+    )}</option>`;
+  const reportLinks = reportAssets(state)
+    .map(
+      ({ view, label }) => `<li>
+<a href="/report?view=${encodeURIComponent(view)}">${escapeHtml(label)}</a>
+<span class="meta">·</span>
+<a href="/api/report.${encodeURIComponent(view)}.md">Markdown</a>
+</li>`,
+    )
+    .join("");
+  const rangeEnd = Math.min(groups.length, pageStart + pageGroups.length);
+  const pageSummary =
+    groups.length > 0
+      ? `Showing ${pageStart + 1}-${rangeEnd} of ${groups.length} file${groups.length === 1 ? "" : "s"}`
+      : "No matching files";
+  const pagination =
+    totalPages > 1
+      ? `<nav class="pager" aria-label="File result pages">
+  <a class="btn${currentPage === 1 ? " disabled" : ""}" href="${escapeHtml(
+    currentPage === 1 ? overviewHref(pageState) : overviewHref(pageState, { page: currentPage - 1 }),
+  )}">Previous</a>
+  <span class="meta">Page ${currentPage} of ${totalPages}</span>
+  <a class="btn${currentPage === totalPages ? " disabled" : ""}" href="${escapeHtml(
+    currentPage === totalPages ? overviewHref(pageState) : overviewHref(pageState, { page: currentPage + 1 }),
+  )}">Next</a>
+</nav>`
+      : "";
+
   const body = `<div class="toolbar">
   <h1 style="margin:0">Render-path overview</h1>
   <form action="/refresh" method="post"><button type="submit">↻ Re-analyze</button></form>
 </div>
 <div class="cards">${cards}</div>
+<form class="toolbar" action="/" method="get">
+  <input name="q" type="search" value="${escapeHtml(state.q)}" placeholder="Search files and reports">
+  <select name="filter">
+    ${filterOption("all", "All files")}
+    ${filterOption("findings", "Files with findings")}
+    ${filterOption("unknown", "Files with unknown edges")}
+    ${filterOption("participating", "Graph-participating files")}
+  </select>
+  <select name="sort">
+    ${sortOption("burden", "Sort by burden")}
+    ${sortOption("findings", "Sort by finding count")}
+    ${sortOption("depth", "Sort by path depth")}
+    ${sortOption("file", "Sort by file path")}
+  </select>
+  <button type="submit">Apply</button>
+  <a class="btn" href="/">Reset</a>
+</form>
 <h2>Files by burden</h2>
 ${concNote}
+<p class="meta">${escapeHtml(pageSummary)}</p>
+<p class="meta">Sort: ${sortLink("burden", "burden")} · ${sortLink(
+    "findings",
+    "finding count",
+  )} · ${sortLink("depth", "path depth")} · ${sortLink("file", "file path")}</p>
 <table>
-<thead><tr><th>File</th><th>Findings</th><th>Worst</th><th>Dominant shape</th><th>Ownership</th><th>First cut</th></tr></thead>
-<tbody>${rows || '<tr><td colspan="6" class="meta">No findings.</td></tr>'}</tbody>
-</table>`;
+<thead><tr><th>File</th><th>Findings</th><th>Worst</th><th>Path depth</th><th>Dominant shape</th><th>Ownership</th><th>First cut</th></tr></thead>
+<tbody>${rows || '<tr><td colspan="7" class="meta">No matching files.</td></tr>'}</tbody>
+</table>
+${pagination}`;
+  const reports = `<h2>Report assets</h2>
+<ul>${reportLinks || '<li class="meta">No matching report assets.</li>'}</ul>`;
 
-  return page({ title: "tsx-dataflow", body, nav: overviewNav(report) });
+  return page({
+    title: "tsx-dataflow",
+    body: `${body}${reports}`,
+    nav: overviewNav(report, url),
+  });
 }
 
 function fileNav(relPath, report) {
@@ -254,7 +487,7 @@ function renderFilePage(report, relPath, source, args, openView, resolveSource) 
   const sinks = report.rankings.all.filter((sink) => sink.file === relPath);
 
   const codeMap = source
-    ? renderCodeMap({ relPath, source, sinks, meta: report.meta })
+    ? renderCodeMap({ relPath, source, sinks, meta: report.meta, resolveSource })
     : `<p class="meta">Source not found on disk: ${escapeHtml(relPath)}</p>`;
 
   const sections = FILE_VIEWS.map((view) => {
