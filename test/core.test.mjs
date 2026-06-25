@@ -676,6 +676,155 @@ describe("render path data-flow analyzer", () => {
     }
   });
 
+  it("classifies reactive accessor reads as known, not unknown calls", async () => {
+    const project = await createFixtureProject({
+      "src/Accessor.tsx": `
+        export function Accessor(props: {
+          value: () => string;
+          data: { current: () => number };
+        }) {
+          return <section>
+            <h2>{props.value()}</h2>
+            <p>{String(props.data.current())}</p>
+          </section>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const labels = report.unknownEdges.map((row) => row.label);
+    expect(labels).not.toContain("value");
+    expect(labels).not.toContain("current");
+  });
+
+  it("classifies DOM/library method calls as known, not unknown", async () => {
+    const project = await createFixtureProject({
+      "src/Dom.tsx": `
+        export function Dom() {
+          const el = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "path",
+          ) as SVGPathElement;
+          return <p>{String(el.getTotalLength())}</p>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    expect(report.unknownEdges.map((row) => row.label)).not.toContain(
+      "getTotalLength",
+    );
+  });
+
+  it("classifies factory-produced callables as known, not unknown", async () => {
+    const project = await createFixtureProject({
+      "src/Factory.tsx": `
+        import { fmt } from "./factory";
+        export function Factory(props: { n: number }) {
+          return <p>{fmt(props.n)}</p>;
+        }
+      `,
+      "src/factory.ts": `
+        function make() {
+          return (x: number) => String(x);
+        }
+        export const fmt = make();
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    expect(report.unknownEdges.map((row) => row.label)).not.toContain("fmt");
+  });
+
+  it("binds destructured <For> callback params to the iterated source", async () => {
+    const project = await createFixtureProject({
+      "src/Entries.tsx": `
+        declare function For<T>(props: {
+          each: T[];
+          children: (item: T) => unknown;
+        }): unknown;
+        export function Entries(props: { map: Record<string, string> }) {
+          return <ul>
+            <For each={Object.entries(props.map)}>
+              {([key, value]) => <li data-k={key}>{value}</li>}
+            </For>
+          </ul>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const labels = report.unknownEdges
+      .filter((row) => row.kind === "unknown-source")
+      .map((row) => row.label);
+    expect(labels).not.toContain("key");
+    expect(labels).not.toContain("value");
+  });
+
+  it("binds custom render-prop child params to the component's iterable prop", async () => {
+    const project = await createFixtureProject({
+      "src/RowList.tsx": `
+        function RowList<T>(props: { items: T[]; children: (item: T) => unknown }) {
+          return <div>{props.items.map(props.children)}</div>;
+        }
+        export function Uses(props: { rows: string[] }) {
+          return <RowList items={props.rows}>
+            {(item) => <span>{item}</span>}
+          </RowList>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const labels = report.unknownEdges
+      .filter((row) => row.kind === "unknown-source")
+      .map((row) => row.label);
+    expect(labels).not.toContain("item");
+  });
+
+  it("binds array higher-order callback params to the receiver array", async () => {
+    const project = await createFixtureProject({
+      "src/Mapped.tsx": `
+        export function Mapped(props: { rows: { name: string }[] }) {
+          return <ul>{props.rows.map((row) => <li>{row.name}</li>)}</ul>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const labels = report.unknownEdges
+      .filter((row) => row.kind === "unknown-source")
+      .map((row) => row.label);
+    expect(labels).not.toContain("row");
+  });
+
+  it("treats enum and DOM-global references as known sources, not unknown", async () => {
+    const project = await createFixtureProject({
+      "src/EnumGlobal.tsx": `
+        enum Color { Red, Blue }
+        export function EnumGlobal(props: { on: boolean; node: unknown }) {
+          return <section>
+            <p>{props.on ? Color.Red : Color.Blue}</p>
+            <b>{props.node instanceof SVGElement ? "svg" : "no"}</b>
+          </section>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const labels = report.unknownEdges
+      .filter((row) => row.kind === "unknown-source")
+      .map((row) => row.label);
+    expect(labels).not.toContain("Color");
+    expect(labels).not.toContain("SVGElement");
+  });
+
+  it("resolves path-alias imports per owning tsconfig across multiple apps", async () => {
+    const project = await createTwoAppProject();
+    const report = await analyzeProject(project.args);
+    const callLabels = report.unknownEdges
+      .filter((row) => row.kind === "call")
+      .map((row) => row.label);
+    // Each app imports a first-party helper via its own `~/*` alias, which only
+    // resolves under that app's tsconfig paths. With per-config program routing
+    // both descend instead of dead-ending as unknown calls.
+    expect(callLabels).not.toContain("badge");
+    expect(callLabels).not.toContain("tag");
+  });
+
   it("distinguishes source-boundary rows by file, symbol, and kind", async () => {
     const project = await createFixtureProject({
       "src/Boundaries.tsx": `
@@ -2694,6 +2843,79 @@ async function createFixtureProject(files) {
       "json",
       "--view",
       "work-packets",
+    ]),
+  };
+}
+
+// A monorepo with two apps, each with its OWN tsconfig that maps the same `~/*`
+// alias to its own `src`. No root tsconfig, so discovery finds both app configs
+// and one becomes primary — under whose `paths` the other app's alias imports
+// cannot resolve in a single program. Exercises per-config program routing.
+async function createTwoAppProject() {
+  const root = await mkdtemp(resolve(tmpdir(), "render-path-dataflow-multi-"));
+  const baseOptions = {
+    target: "ESNext",
+    module: "ESNext",
+    moduleResolution: "bundler",
+    jsx: "preserve",
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    baseUrl: ".",
+    paths: { "~/*": ["./src/*"] },
+  };
+  const apps = {
+    appA: {
+      "src/helpers.ts": `
+        export function badge(n: number) {
+          if (n > 0) return "+" + n;
+          return "" + n;
+        }
+      `,
+      "src/CompA.tsx": `
+        import { badge } from "~/helpers";
+        export function CompA(props: { n: number }) {
+          return <p>{badge(props.n)}</p>;
+        }
+      `,
+    },
+    appB: {
+      "src/helpers.ts": `
+        export function tag(value: string) {
+          return value.toUpperCase();
+        }
+      `,
+      "src/CompB.tsx": `
+        import { tag } from "~/helpers";
+        export function CompB(props: { s: string }) {
+          return <h2>{tag(props.s)}</h2>;
+        }
+      `,
+    },
+  };
+  for (const [app, files] of Object.entries(apps)) {
+    await mkdir(resolve(root, app, "src"), { recursive: true });
+    await writeFile(
+      resolve(root, app, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: baseOptions, include: ["src"] }),
+    );
+    for (const [relativePath, content] of Object.entries(files)) {
+      await writeFile(resolve(root, app, relativePath), content);
+    }
+  }
+  return {
+    root,
+    args: parseArgs([
+      "--root",
+      root,
+      "--source",
+      ".",
+      "--typescript-from",
+      appRoot,
+      "--format",
+      "json",
+      "--view",
+      "unknown-edges",
     ]),
   };
 }

@@ -193,6 +193,13 @@ All changes in `src/core.mjs`; 6 regression tests added in `test/core.test.mjs` 
 | **P3** | `buildFileContext` collects import bindings; imported values trace as a known `import` source-boundary kind; local functions referenced as values resolve via `context.functions` | 167 → **131** |
 | **P4** | `--max-helper-depth` default reconciled to **2** (doc said 3, code said 1); `summary.unknownEdges`/`graph.unknownEdges` now report the **distinct** count via `countDistinctUnknownEdges` | 131 (summary consistent) |
 
+> **SUPERSEDED (2026-06-25):** the residual analysis below is incomplete and partly
+> incorrect. A re-run + full diagnosis of all 131 rows is in
+> [`20260625-unknown-edges-residual-131-diagnosis.md`](./20260625-unknown-edges-residual-131-diagnosis.md),
+> which identifies a path-alias symbol-resolution bug (≈27 rows), reactive-accessor
+> misclassification (≈45 rows), and custom render-prop callback binding (≈25 rows) as the
+> real next steps. Read that instead of the two sections below.
+
 ### What the 131 residual rows are (correct to leave unknown)
 
 - **External / package helpers** (`getModelName`, `createListCollection`) — outside the analyzed root or in `node_modules`; `isFirstPartyDecl` correctly declines them.

@@ -124,6 +124,19 @@ const GEOMETRY_ATTRIBUTES = new Set([
 ]);
 const STYLE_ATTRIBUTES = new Set(["class", "className", "style"]);
 const CONTROL_FLOW_ATTRIBUTES = new Set(["when", "each", "fallback"]);
+// Conventional prop names that a custom list/collection component uses to receive
+// the iterable it renders one row per (`<RowList items={…}>{(row) => …}</RowList>`).
+// When such a component takes a render-callback child, its parameter is an element
+// of this prop — the same binding `<For each>` provides natively.
+const RENDER_PROP_ITERABLE_ATTRIBUTES = new Set([
+  "items",
+  "each",
+  "rows",
+  "data",
+  "list",
+  "entries",
+  "options",
+]);
 const IDENTITY_ATTRIBUTES = new Set([
   "id",
   "href",
@@ -147,6 +160,13 @@ const JS_GLOBAL_NAMESPACES = new Set([
   "Reflect", "Proxy", "BigInt", "globalThis", "console", "window", "document",
   "localStorage", "sessionStorage", "navigator", "location", "history",
   "performance", "crypto", "URL", "URLSearchParams",
+  // DOM constructors / host interfaces used as values, typically in an
+  // `instanceof` guard (`x instanceof SVGElement`). They are platform globals,
+  // not unresolved app state.
+  "Element", "HTMLElement", "SVGElement", "Node", "Text", "Comment",
+  "DocumentFragment", "Event", "EventTarget", "CustomEvent", "DOMRect",
+  "File", "Blob", "FormData", "AbortController", "ResizeObserver",
+  "IntersectionObserver", "MutationObserver",
 ]);
 // Global functions invoked directly (`String(x)`, `Boolean(x)`, `parseInt(x)`).
 const JS_GLOBAL_CALLS = new Set([
@@ -206,6 +226,82 @@ function isOpaqueByDesignCall(ts, expression, callee) {
     return SOLID_BUILTINS.has(callee) || JS_GLOBAL_CALLS.has(callee);
   }
   return false;
+}
+
+// After cross-file descent (`traceCrossFileCall`) declines a call, decide whether
+// the un-descended callee is a GENUINE unresolved edge or an opaque-by-design
+// boundary we can name. Resolving the callee symbol's declarations tells us which:
+//
+//   - declared in a `.d.ts` / `node_modules`  → host or library boundary (known):
+//     `el.getTotalLength()`, `createListCollection()` (@ark-ui).
+//   - a type-level property / parameter / signature / get-accessor with no
+//     executable body → a reactive accessor read (known): `props.value()`,
+//     `store.current()`, `context.getModelName()`. The value originates at the
+//     prop/signal/context boundary, not a helper we can dissolve.
+//   - a first-party `const x = factory(...)` callable → factory boundary (known):
+//     `quantity = create_unit_formatter([...])`; no function body to follow.
+//   - otherwise (a resolvable first-party function/method we simply failed to
+//     descend, or a symbol that does not resolve at all — e.g. an import whose
+//     module path the program could not map) → genuinely unknown (keep flagged).
+//
+// Returns a reason string when the call is a known boundary, or null to leave it
+// flagged as an unresolved unknown edge.
+function classifyUnresolvedCall(ts, checker, expression, crossFile) {
+  if (!crossFile?.args) return null;
+  const inner = expression.expression;
+  const calleeIdent = ts.isIdentifier(inner)
+    ? inner
+    : ts.isPropertyAccessExpression(inner)
+      ? inner.name
+      : null;
+  if (!calleeIdent) return null;
+  let symbol;
+  try {
+    symbol = checker.getSymbolAtLocation(calleeIdent);
+    if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+      symbol = checker.getAliasedSymbol(symbol);
+    }
+  } catch {
+    return null;
+  }
+  const declarations = symbol?.declarations ?? [];
+  // No declaration at all — an unresolved/aliased import or a value the checker
+  // could not pin down. This is the honest "we could not follow it" case.
+  if (declarations.length === 0) return null;
+
+  const isExternalDecl = (declaration) => {
+    const file = declaration.getSourceFile();
+    if (file.isDeclarationFile) return true;
+    const relative = relativePath(crossFile.args.root, file.fileName);
+    return relative.startsWith("..") || relative.includes("node_modules/");
+  };
+  if (declarations.every(isExternalDecl)) return "host-call";
+
+  const hasFunctionInitializer = (declaration) =>
+    declaration.initializer &&
+    (ts.isArrowFunction(declaration.initializer) ||
+      ts.isFunctionExpression(declaration.initializer));
+
+  const isAccessorLike = (declaration) =>
+    ts.isPropertySignature(declaration) ||
+    ts.isMethodSignature(declaration) ||
+    ts.isParameter(declaration) ||
+    ts.isBindingElement(declaration) ||
+    ts.isGetAccessorDeclaration(declaration) ||
+    (ts.isPropertyDeclaration(declaration) &&
+      !hasFunctionInitializer(declaration)) ||
+    ts.isShorthandPropertyAssignment(declaration) ||
+    (ts.isPropertyAssignment(declaration) &&
+      !hasFunctionInitializer(declaration));
+  if (declarations.every(isAccessorLike)) return "accessor-read";
+
+  const isFactoryCallable = (declaration) =>
+    ts.isVariableDeclaration(declaration) &&
+    declaration.initializer &&
+    !hasFunctionInitializer(declaration);
+  if (declarations.every(isFactoryCallable)) return "factory-callable";
+
+  return null;
 }
 
 // Analyzer jargon and tidy-but-vague names that must never be suggested as code
@@ -858,12 +954,76 @@ function buildProgram(args) {
     }
   }
   const program = ts.createProgram([...files], resolution.primary.options);
-  return { ts, modulePath, program };
+  const routing = buildProgramRouting(ts, resolution, args);
+  return { ts, modulePath, program, routing };
+}
+
+// Configs that declare module path aliases (`paths`, e.g. `~/*`, `@app/*`)
+// resolve their imports differently from the primary program's options. When a
+// monorepo run spans several such configs whose aliases point at *different*
+// roots, a single program cannot honor all of them, so an import like
+// `import { helper } from "~/state"` fails to resolve and every call through it
+// dead-ends as an unknown edge. Build a dedicated program per aliased config and
+// route each analyzed file to the most-specific such config that governs it, so
+// those imports resolve to their real declarations. Files no aliased config owns
+// stay on the primary program. Returns null when no config declares aliases (the
+// common single-project case), preserving the original single-program path.
+function buildProgramRouting(ts, resolution, args) {
+  const aliased = resolution.configs.filter(
+    (config) =>
+      config.options?.paths &&
+      Object.keys(config.options.paths).length > 0 &&
+      config.fileNames.some((file) => shouldAnalyzeFile(file, args)),
+  );
+  if (aliased.length === 0) return null;
+
+  // Assign each analyzed file to the aliased config whose directory is its
+  // nearest ancestor (longest matching prefix) — that is the project whose
+  // `paths` actually govern the file's imports.
+  const ownerConfig = new Map();
+  for (const config of aliased) {
+    const dir = path.dirname(config.file);
+    for (const file of config.fileNames) {
+      if (!shouldAnalyzeFile(file, args)) continue;
+      const existing = ownerConfig.get(file);
+      if (!existing || dir.length > path.dirname(existing.file).length) {
+        ownerConfig.set(file, config);
+      }
+    }
+  }
+
+  const programByConfig = new Map();
+  for (const config of aliased) {
+    programByConfig.set(
+      config.file,
+      ts.createProgram(config.fileNames, config.options),
+    );
+  }
+  const checkerByConfig = new Map();
+  const checkerFor = (config) => {
+    if (!checkerByConfig.has(config.file)) {
+      checkerByConfig.set(
+        config.file,
+        programByConfig.get(config.file).getTypeChecker(),
+      );
+    }
+    return checkerByConfig.get(config.file);
+  };
+
+  const byFile = new Map();
+  for (const [file, config] of ownerConfig) {
+    byFile.set(file, {
+      configFile: config.file,
+      program: programByConfig.get(config.file),
+      checker: checkerFor(config),
+    });
+  }
+  return { byFile, programs: [...programByConfig.values()] };
 }
 
 export async function analyzeProject(args) {
-  const { ts, modulePath, program } = buildProgram(args);
-  return buildReport(ts, program, args, modulePath);
+  const { ts, modulePath, program, routing } = buildProgram(args);
+  return buildReport(ts, program, args, modulePath, routing);
 }
 
 // Build the TypeScript program once and hand back a reusable projector. Creating
@@ -872,13 +1032,13 @@ export async function analyzeProject(args) {
 // call is a fresh graph trace, but skips program construction). `overrides` is
 // merged onto the base args — typically `{ file: [path] }` or `{ scope }`.
 export function createAnalyzer(args) {
-  const { ts, modulePath, program } = buildProgram(args);
+  const { ts, modulePath, program, routing } = buildProgram(args);
   return {
     ts,
     program,
     args,
     report: (overrides = {}) =>
-      buildReport(ts, program, { ...args, ...overrides }, modulePath),
+      buildReport(ts, program, { ...args, ...overrides }, modulePath, routing),
   };
 }
 
@@ -1089,7 +1249,7 @@ function shellQuote(value) {
     : `'${text.replaceAll("'", "'\\''")}'`;
 }
 
-function buildReport(ts, program, args, typescriptModulePath = null) {
+function buildReport(ts, program, args, typescriptModulePath = null, routing = null) {
   const checker = program.getTypeChecker();
   const graph = createGraph(args.root);
   const sourceFiles = program
@@ -1112,10 +1272,40 @@ function buildReport(ts, program, args, typescriptModulePath = null) {
   };
 
   const forks = [];
-  for (const sourceFile of sourceFiles) {
-    const analysis = analyzeSourceFile(ts, checker, graph, sourceFile, args, crossFile);
+  // Trace each file exactly once. When a file is owned by an aliased config (see
+  // buildProgramRouting), use that config's program/checker so its path-alias
+  // imports resolve; otherwise use the primary program. Nodes and the checker
+  // that resolves them must come from the same program, so owned files are traced
+  // from their owner program's SourceFile objects.
+  const traced = new Set();
+  const traceFile = (sourceFile, useChecker) => {
+    if (sourceFile.isDeclarationFile) return;
+    if (!shouldAnalyzeFile(sourceFile.fileName, args)) return;
+    if (traced.has(sourceFile.fileName)) return;
+    traced.add(sourceFile.fileName);
+    const analysis = analyzeSourceFile(
+      ts,
+      useChecker,
+      graph,
+      sourceFile,
+      args,
+      crossFile,
+    );
     sinks.push(...analysis.sinks);
     forks.push(...analysis.forks);
+  };
+  if (routing) {
+    for (const ownerProgram of routing.programs) {
+      for (const sourceFile of ownerProgram.getSourceFiles()) {
+        const owned = routing.byFile.get(sourceFile.fileName);
+        if (owned && owned.program === ownerProgram) {
+          traceFile(sourceFile, owned.checker);
+        }
+      }
+    }
+  }
+  for (const sourceFile of sourceFiles) {
+    traceFile(sourceFile, checker);
   }
 
   const fileMatch = makeFileMatcher(args.file);
@@ -2045,12 +2235,17 @@ function makeCatalogRecord(ts, found, symbol, args) {
 // (a throwaway graph, no descent), so only render-relevant functions pay for it.
 function enrichCatalogRecord(ts, checker, record, args, crossFile) {
   const { fnNode, returnExpr, sourceFile } = record;
+  // Use the checker that resolved this record: with per-config programs its nodes
+  // may belong to a different program than the primary checker passed in.
+  const recordChecker = record.checker ?? checker;
   let returnType = "unknown";
   try {
-    const signature = checker.getSignatureFromDeclaration(fnNode);
+    const signature = recordChecker.getSignatureFromDeclaration(fnNode);
     if (signature) {
       returnType = safeTypeText(
-        checker.typeToString(checker.getReturnTypeOfSignature(signature)),
+        recordChecker.typeToString(
+          recordChecker.getReturnTypeOfSignature(signature),
+        ),
       );
     }
   } catch {
@@ -2067,7 +2262,7 @@ function enrichCatalogRecord(ts, checker, record, args, crossFile) {
   let inRoots = [];
   if (returnExpr) {
     const throwawayGraph = createGraph(args.root);
-    const bodyTrace = traceExpression(ts, checker, throwawayGraph, returnExpr, {
+    const bodyTrace = traceExpression(ts, recordChecker, throwawayGraph, returnExpr, {
       ...getFileContextCached(ts, sourceFile, crossFile),
       sourceFile,
       root: args.root,
@@ -2130,6 +2325,10 @@ function resolveCatalogFn(ts, checker, calleeIdent, crossFile, args) {
     found && isFirstPartyDecl(found.fnNode, args ?? crossFile.args)
       ? makeCatalogRecord(ts, found, symbol, args ?? crossFile.args)
       : null;
+  // Remember which checker resolved this record. With per-config programs (so
+  // path-alias imports resolve), a record's nodes belong to that program; later
+  // enrichment must use the same checker, not whichever one is passed in.
+  if (record) record.checker = checker;
   crossFile.catalog.set(symbol, record);
   return record;
 }
@@ -2381,15 +2580,50 @@ function enclosingFunctionName(ts, node) {
 // prop expression that feeds the callback (`each`/`when`/`fallback`), the
 // parameter's position, and the host tag — or null when `name` is not such a
 // parameter. Walks outward to the innermost function that declares `name`.
+// Does a callback parameter's binding introduce `name`? Matches a plain
+// identifier param (`(item) => …`) as well as the bindings of a destructured
+// tuple/object param (`([key, value]) => …`, `({ id }) => …`) so a `<For>` row
+// that destructures its element still traces back to the iterated source.
+function bindingCoversName(ts, bindingName, name) {
+  if (ts.isIdentifier(bindingName)) return bindingName.text === name;
+  if (ts.isArrayBindingPattern(bindingName) || ts.isObjectBindingPattern(bindingName)) {
+    return bindingName.elements.some(
+      (element) =>
+        !ts.isOmittedExpression(element) &&
+        element.name &&
+        bindingCoversName(ts, element.name, name),
+    );
+  }
+  return false;
+}
+
+// First iterable-valued prop on a custom list/collection component
+// (`items`/`rows`/`each`/…), or null. Used to bind a render-callback child's
+// element parameter when the host is not a native Solid control-flow component.
+function iterableAttribute(ts, opening) {
+  for (const property of opening.attributes.properties) {
+    if (!ts.isJsxAttribute(property)) continue;
+    const name = property.name.getText();
+    if (!RENDER_PROP_ITERABLE_ATTRIBUTES.has(name)) continue;
+    if (
+      property.initializer &&
+      ts.isJsxExpression(property.initializer) &&
+      property.initializer.expression
+    ) {
+      return { name, expression: property.initializer.expression };
+    }
+  }
+  return null;
+}
+
 function renderPropBinding(ts, expression, name) {
   let fn = null;
   let paramIndex = -1;
   let current = expression.parent;
   while (current) {
     if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
-      const index = current.parameters.findIndex(
-        (parameter) =>
-          ts.isIdentifier(parameter.name) && parameter.name.text === name,
+      const index = current.parameters.findIndex((parameter) =>
+        bindingCoversName(ts, parameter.name, name),
       );
       if (index >= 0) {
         fn = current;
@@ -2407,14 +2641,77 @@ function renderPropBinding(ts, expression, name) {
   if (!host || !ts.isJsxExpression(host)) return null;
   const element = host.parent;
   if (!element || !ts.isJsxElement(element)) return null;
-  const attribute = controlFlowAttribute(ts, element.openingElement);
-  if (!attribute) return null;
-  return {
-    attribute: attribute.name,
-    expression: attribute.expression,
-    paramIndex,
-    tag: jsxTagNameText(element.openingElement.tagName),
-  };
+  const opening = element.openingElement;
+  const tag = jsxTagNameText(opening.tagName);
+  // Native Solid control flow (`<For each>`, `<Show when>`) names its binding via
+  // a known attribute. A custom component instead receives its iterable on a
+  // conventional prop (`items`/`rows`/…); bind the row element to that as if it
+  // were `each`. Only components (capitalized tag) get the iterable fallback, so
+  // a literal host element with an `items`-like attribute is never misread.
+  const attribute = controlFlowAttribute(ts, opening);
+  if (attribute) {
+    return {
+      attribute: attribute.name,
+      expression: attribute.expression,
+      paramIndex,
+      tag,
+    };
+  }
+  const isComponent = /^[A-Z]/.test(tag) || tag.includes(".");
+  if (isComponent) {
+    const iterable = iterableAttribute(ts, opening);
+    if (iterable) {
+      return { attribute: "each", expression: iterable.expression, paramIndex, tag };
+    }
+  }
+  return null;
+}
+
+// Array iteration methods whose callback's FIRST parameter is the element
+// (`xs.map((item) => …)`, `xs.filter((row) => …)`). `reduce`/`reduceRight` are
+// excluded because their first parameter is the accumulator, not an element.
+const ARRAY_ELEMENT_CALLBACK_METHODS = new Set([
+  "map", "filter", "forEach", "find", "findIndex", "findLast",
+  "findLastIndex", "some", "every", "flatMap",
+]);
+
+// A callback parameter bound to an element of the array a higher-order method is
+// invoked on (`xs.map((item) => …)`, `xs.sort((left, right) => …)`). Returns the
+// receiver expression and whether `name` is an element parameter, or null. This
+// is the plain-JS analogue of `renderPropBinding` for Solid control flow.
+function arrayCallbackBinding(ts, expression, name) {
+  let fn = null;
+  let paramIndex = -1;
+  let current = expression.parent;
+  while (current) {
+    if (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) {
+      const index = current.parameters.findIndex((parameter) =>
+        bindingCoversName(ts, parameter.name, name),
+      );
+      if (index >= 0) {
+        fn = current;
+        paramIndex = index;
+        break;
+      }
+    }
+    current = current.parent;
+  }
+  if (!fn) return null;
+  const call = fn.parent;
+  if (!call || !ts.isCallExpression(call) || !call.arguments.includes(fn)) {
+    return null;
+  }
+  const callee = call.expression;
+  if (!ts.isPropertyAccessExpression(callee)) return null;
+  const method = callee.name.text;
+  // `sort`/`toSorted` comparators take two element parameters; the element-first
+  // methods take the element at index 0. Anything else is not an element binding.
+  const isElement =
+    (ARRAY_ELEMENT_CALLBACK_METHODS.has(method) && paramIndex === 0) ||
+    ((method === "sort" || method === "toSorted") &&
+      (paramIndex === 0 || paramIndex === 1));
+  if (!isElement) return null;
+  return { receiver: callee.expression };
 }
 
 // First control-flow attribute (`each`/`when`/`fallback`) on an opening element
@@ -2591,6 +2888,25 @@ function traceIdentifier(ts, checker, graph, expression, context) {
     });
   }
 
+  // A callback parameter of a higher-order array method (`xs.map((item) => …)`,
+  // `xs.sort((left, right) => …)`) is an element of the receiver array, not a
+  // free variable. Trace it as an iteration of the receiver so it reaches the
+  // real source instead of dead-ending as `unknown-source`.
+  const arrayCallback = arrayCallbackBinding(ts, expression, name);
+  if (arrayCallback) {
+    const source = traceExpression(
+      ts,
+      checker,
+      graph,
+      arrayCallback.receiver,
+      context,
+    );
+    return addOperationTrace(ts, graph, "iteration", expression, [source], {
+      label: name,
+      detail: `∈ ${formatExpression(arrayCallback.receiver.getText(), 40)}`,
+    });
+  }
+
   // A locally-defined function referenced as a value (`onClick={handleExport}`,
   // `fallback={renderHeader}`) — not called here, so it never reaches the call
   // path. It is a known local definition, not an unresolved identifier.
@@ -2613,6 +2929,36 @@ function traceIdentifier(ts, checker, graph, expression, context) {
     !context.variables.has(name)
   ) {
     return sourceTrace(graph, expression, "import", name, false, "import");
+  }
+
+  // A reference to an `enum`/`class`/`namespace` used as a value (`Emphasis.NONE`,
+  // `MyClass.staticMember`) resolves to a declaration the file context does not
+  // register as a variable, but it is a known constant/type boundary — not
+  // unresolved app state. Trace it as a `literal` (known) so paths through an
+  // enum member don't dead-end as unknown sources.
+  if (!context.parameters.has(name) && !context.variables.has(name)) {
+    let symbol;
+    try {
+      symbol = checker.getSymbolAtLocation(expression);
+      if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+        symbol = checker.getAliasedSymbol(symbol);
+      }
+    } catch {
+      symbol = undefined;
+    }
+    const declarations = symbol?.declarations ?? [];
+    if (
+      declarations.length > 0 &&
+      declarations.every(
+        (declaration) =>
+          ts.isEnumDeclaration(declaration) ||
+          ts.isEnumMember(declaration) ||
+          ts.isClassDeclaration(declaration) ||
+          ts.isModuleDeclaration(declaration),
+      )
+    ) {
+      return sourceTrace(graph, expression, "literal", name, false);
+    }
   }
 
   const isParameter = context.parameters.has(name);
@@ -2935,13 +3281,21 @@ function traceCallExpression(ts, checker, graph, expression, context) {
       traceExpression(ts, checker, graph, argument, context),
     ),
   );
-  // Distinguish genuinely-unresolved helpers from host/global/Solid calls that
-  // are opaque by design. A same-file function name still escapes "unknown" even
-  // if symbol resolution above declined it (name collision), as before.
+  // Distinguish genuinely-unresolved helpers from boundaries that are opaque by
+  // design. Syntactic host/global/Solid calls are caught cheaply first; the
+  // symbol-aware classifier then names reactive accessor reads (`props.x()`),
+  // DOM/library calls, and factory-produced callables so they leave the report
+  // as known boundaries instead of being flagged as unresolved. A same-file
+  // function name still escapes "unknown" even if symbol resolution above
+  // declined it (name collision), as before.
+  const opaqueReason =
+    !callee || context.functions.has(callee)
+      ? null
+      : isOpaqueByDesignCall(ts, expression, callee)
+        ? "host-call"
+        : classifyUnresolvedCall(ts, checker, expression, context.crossFile);
   const unknown =
-    !callee ||
-    (!context.functions.has(callee) &&
-      !isOpaqueByDesignCall(ts, expression, callee));
+    !callee || (!context.functions.has(callee) && !opaqueReason);
   return addOperationTrace(ts, graph, "call", expression, traces, {
     label: callee || "call",
     unknown,
