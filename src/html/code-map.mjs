@@ -45,15 +45,41 @@ function stepLocationText(step, { basename = false } = {}) {
   return file ? `${file}:${step.line}` : `:${step.line}`;
 }
 
-function stepLocationHtml(step, resolveSource) {
+// A step's location, rendered to keep you oriented to the file (transcript: the
+// recurring "I lose track of which file I'm in" complaint):
+//   - same file as the code map → a click-to-scroll link that centers the line
+//     on the source column (no popover, no context switch);
+//   - a different file → a real link to that file's page, so hops navigate
+//     instead of just previewing.
+function stepLocationHtml(step, resolveSource, relPath) {
   if (!step.line) return '<span class="meta">-</span>';
   if (!step.file) return `<span class="meta">:${step.line}</span>`;
+  if (relPath && step.file === relPath) {
+    return `<a class="goto-line" data-line="${step.line}" title="Scroll the code map to line ${step.line}">:${step.line}</a>`;
+  }
+  if (relPath && step.file !== relPath) {
+    return `<a class="xfile" href="/file?path=${encodeURIComponent(
+      step.file,
+    )}#L${step.line}" title="Open ${escapeHtml(
+      step.file,
+    )}">${escapeHtml(step.file.split("/").pop())}:${step.line} ↗</a>`;
+  }
   return sourceReferenceHtml(step.file, step.line, resolveSource);
+}
+
+// A defense's location, surfaced next to its verdict. The transcript called out
+// that defenses showed the expression/verdict but dropped the line — the data is
+// present (debug dump uses it), it just was not rendered here.
+function defenseLocHtml(defense, relPath, resolveSource) {
+  const line = defense.location?.line;
+  if (!line) return "";
+  const step = { file: defense.location?.file ?? relPath, line };
+  return ` <span class="meta">@</span> ${stepLocationHtml(step, resolveSource, relPath)}`;
 }
 
 // The representative (deepest) path as compact table rows. "Show, don't tell":
 // instead of "path depth 18", lay out the hops with kind/location/expression.
-function pathSection(sink, resolveSource) {
+function pathSection(sink, resolveSource, relPath) {
   const steps = sink.representativeSteps ?? [];
   if (steps.length < 2) return "";
   const rows = steps
@@ -62,12 +88,14 @@ function pathSection(sink, resolveSource) {
       return `<tr>
 <td class="step-no">${index + 1}</td>
 <td><span class="k">${escapeHtml(kind)}</span></td>
-<td class="path-loc">${stepLocationHtml(step, resolveSource)}</td>
+<td class="path-loc">${stepLocationHtml(step, resolveSource, relPath)}</td>
 <td><code>${escapeHtml(step.label ?? "")}</code></td>
 </tr>`;
     })
     .join("");
-  return `<details class="path-detail"><summary>Path — ${steps.length} steps (source → sink)</summary><div class="path-scroll"><table class="path-table"><thead><tr><th>#</th><th>Kind</th><th>Location</th><th>Expression</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+  // Open by default: the source→sink trajectory is the single most useful thing
+  // on this panel (transcript), so it should not start collapsed.
+  return `<details class="path-detail" open><summary>Path — ${steps.length} steps (source → sink)</summary><div class="path-scroll"><table class="path-table"><thead><tr><th>#</th><th>Kind</th><th>Location</th><th>Expression</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
 
 // The distinct representation-only hops (alias/pack/spread) on this slice.
@@ -111,7 +139,7 @@ function reachSection(sink) {
       return `<li>via <code>${escapeHtml(group.source)}</code> → ${total} sink(s)<ul>${leaves}${more}</ul></li>`;
     })
     .join("");
-  return `<details class="reach-detail"><summary>Reaches ${reach} sinks</summary><ul class="reach">${groupHtml}</ul></details>`;
+  return `<details class="reach-detail"><summary>Flows into ${reach} render outputs</summary><p class="meta">This value reaches ${reach} sinks — distinct places it is rendered to the DOM — grouped by the shared source feeding them.</p><ul class="reach">${groupHtml}</ul></details>`;
 }
 
 // Other findings whose rendered expression is identical to this one — so a
@@ -290,10 +318,26 @@ function findingPanel(sink, source, peers, relPath, meta, resolveSource) {
       (d) =>
         `<li><code>${escapeHtml(d.expression ?? d.guarded ?? "")}</code> — ${escapeHtml(
           d.verdict ?? "?",
-        )}${d.type ? ` <span class="meta">(${escapeHtml(d.type)})</span>` : ""}</li>`,
+        )}${d.type ? ` <span class="meta">(${escapeHtml(d.type)})</span>` : ""}${defenseLocHtml(
+          d,
+          relPath,
+          resolveSource,
+        )}</li>`,
     )
     .join("");
-  return `<div class="finding" data-finding="${escapeHtml(sink.id)}">
+  // Lines this finding's representative path touches IN THIS FILE — used to light
+  // up the source as a path overlay when the finding is selected.
+  const pathLines = [
+    ...new Set(
+      (sink.representativeSteps ?? [])
+        .filter((step) => step.file === relPath && step.line)
+        .map((step) => step.line),
+    ),
+  ];
+  return `<div class="finding" data-finding="${escapeHtml(sink.id)}" data-path-lines="${pathLines.join(
+    ",",
+  )}" data-sink-line="${sink.line ?? ""}">
+  <button class="panel-back" type="button" title="Back to all findings">← All findings</button>
   <div class="finding-head">
     <h4>${escapeHtml(sink.id)} <span class="badge q-${sink.queue}">${escapeHtml(
       QUEUE_LABEL[sink.queue] ?? sink.queue,
@@ -315,7 +359,7 @@ function findingPanel(sink, source, peers, relPath, meta, resolveSource) {
   ${sink.confidenceReason ? `<div class="meta">${escapeHtml(sink.confidenceReason)}</div>` : ""}
   ${why ? `<strong>Why selected</strong><ul class="why">${why}</ul>` : ""}
   ${sameCodeSection(sink, peers)}
-  ${pathSection(sink, resolveSource)}
+  ${pathSection(sink, resolveSource, relPath)}
   ${representationSection(sink)}
   ${reachSection(sink)}
   ${defenses ? `<strong>Defenses — ${(sink.defenses ?? []).length}</strong><ul class="why">${defenses}</ul>` : ""}
@@ -471,7 +515,31 @@ function touchedLines(sink, maxLine) {
   return lines;
 }
 
-export function renderCodeMap({ relPath, source, sinks, meta, resolveSource }) {
+// Compact one-line description of a sink for the findings list.
+function findingRowHtml(sink) {
+  const burden = sink.scores?.burden ?? 0;
+  const expr = sink.expression ?? sink.label ?? "";
+  const ctx = sink.renderContext ?? {};
+  const where = [ctx.tag, ctx.attribute].filter(Boolean).join("/");
+  return `<li><button type="button" class="finding-row" data-finding="${escapeHtml(
+    sink.id,
+  )}" style="--bt:${burdenHue(burden)}">
+<span class="fr-loc">:${sink.line}</span>
+<span class="fr-expr" title="${escapeHtml(expr)}">${escapeHtml(expr)}${
+    where ? ` <span class="meta">${escapeHtml(where)}</span>` : ""
+  }</span>
+<span class="fr-burden">${burden.toFixed(2)}</span>
+</button></li>`;
+}
+
+export function renderCodeMap({
+  relPath,
+  source,
+  sinks,
+  meta,
+  resolveSource,
+  selectedFinding = null,
+}) {
   const lines = source.split("\n");
 
   // line number -> sinks whose highlighted span touches that line.
@@ -527,42 +595,53 @@ export function renderCodeMap({ relPath, source, sinks, meta, resolveSource }) {
       code = renderCodeLine(text, lineNo, lineSinks);
     }
     if (onPath) cls.push("on-path");
-    return `<tr class="${cls.join(" ")}"${style}>
+    return `<tr class="${cls.join(" ")}"${style} data-line="${lineNo}">
 <td class="ln">${lineNo}</td><td class="gutter">${gutter}</td><td class="code">${code}</td></tr>`;
   });
 
-  // Panel: one finding block per sink (deduped by id), first one active.
+  // Panel: a findings INVENTORY (default) plus one detail block per sink. Nothing
+  // is force-opened — landing on the worst finding while the source sits at line 1
+  // was disorienting (transcript). A finding opens on click, or when the page is
+  // loaded with ?finding=<id>; closing it returns to the list.
   const seen = new Set();
-  const panels = [];
+  const uniqueSinks = [];
   for (const sink of sinks) {
     if (seen.has(sink.id)) continue;
     seen.add(sink.id);
-    panels.push(
-      findingPanel(
-        sink,
-        source,
-        byExpr.get((sink.expression ?? "").trim()),
-        relPath,
-        meta,
-        resolveSource,
-      ),
-    );
+    uniqueSinks.push(sink);
   }
-  const firstActive = panels.length
-    ? panels[0].replace('class="finding"', 'class="finding active"')
-    : "";
-  const restPanels = panels.slice(1).join("\n");
-  const emptyNote = panels.length
-    ? ""
+  const selected =
+    selectedFinding && uniqueSinks.some((sink) => sink.id === selectedFinding)
+      ? selectedFinding
+      : null;
+  const panels = uniqueSinks.map((sink) => {
+    const html = findingPanel(
+      sink,
+      source,
+      byExpr.get((sink.expression ?? "").trim()),
+      relPath,
+      meta,
+      resolveSource,
+    );
+    return sink.id === selected
+      ? html.replace('class="finding"', 'class="finding active"')
+      : html;
+  });
+
+  const listHtml = uniqueSinks.length
+    ? `<div class="finding-list">
+<strong>${uniqueSinks.length} finding${uniqueSinks.length === 1 ? "" : "s"} in this file</strong>
+<p class="meta">Click a finding to inspect it (or click a highlighted chunk in the code). Selecting one highlights its path on the source.</p>
+<ol>${uniqueSinks.map(findingRowHtml).join("")}</ol>
+</div>`
     : '<p class="empty">No ranked findings in this file.</p>';
 
+  const panelClass = selected ? "panel show-detail" : "panel";
   return `<div class="codemap">
   <div class="src"><table class="code"><tbody>${rows.join("")}</tbody></table></div>
-  <div class="panel">
-    ${panels.length ? '<p class="empty">Click a highlighted chunk of code to inspect its finding(s). Adjacent findings are independently clickable.</p>' : ""}
-    ${emptyNote}
-    ${firstActive}
-    ${restPanels}
+  <div class="${panelClass}">
+    ${listHtml}
+    ${panels.join("\n")}
   </div>
 </div>`;
 }

@@ -85,8 +85,27 @@ button, .btn {
   border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer;
 }
 button:hover { border-color: var(--accent); }
+/* Form controls: never fall back to raw native widgets — match the buttons. */
+input, select, textarea {
+  font: inherit; font-size: 13px; padding: 5px 10px; color: var(--fg);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}
+input:hover, select:hover { border-color: var(--accent); }
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px hsl(var(--accent-h, 212) 90% 60% / 0.2);
+}
+input[type="search"] { min-width: 220px; }
 .pager { display: flex; align-items: center; gap: 10px; margin: 12px 0 24px; }
 .btn.disabled { opacity: 0.45; pointer-events: none; }
+/* Breadcrumb / back link above a page title. */
+.crumbs { display: flex; gap: 6px; align-items: center; font-size: 13px; margin-bottom: 8px; color: var(--muted); }
+.crumbs a { color: var(--accent); }
+/* Sortable table headers: clickable, with an active-direction caret. */
+th.sortable { padding: 0; }
+th.sortable a { display: block; padding: 6px 10px; color: inherit; }
+th.sortable a:hover { text-decoration: none; color: var(--accent); }
+th.sortable.active { background: var(--code-bg); }
+th.sortable .caret { color: var(--accent); margin-left: 4px; }
 
 /* Code map. NOTE: no overflow on .codemap — any non-visible overflow on an
    ancestor silently disables position:sticky on the panel. align-items:start
@@ -94,7 +113,7 @@ button:hover { border-color: var(--accent); }
 /* Code lines are short, so cap the source column (~800px) and let the detail
    panel absorb the rest — it packs path/reach/defense lists and benefits from
    the room. On narrow screens the source shrinks while the panel keeps a floor. */
-.codemap { display: grid; grid-template-columns: minmax(0, 800px) minmax(360px, 1fr); gap: 0; border: 1px solid var(--border); border-radius: 8px; align-items: start; }
+.codemap { display: grid; grid-template-columns: minmax(0, 820px) minmax(360px, 620px); gap: 0; border: 1px solid var(--border); border-radius: 8px; align-items: start; max-width: 1460px; }
 .codemap .src { overflow-x: auto; background: var(--code-bg); margin: 0; border-radius: 8px 0 0 8px; }
 .codemap table.code { border: 0; margin: 0; width: 100%; display: table; font-size: 12.5px; }
 .codemap table.code td { border: 0; padding: 0 8px; white-space: pre; }
@@ -116,7 +135,14 @@ button:hover { border-color: var(--accent); }
 .codemap .hit.span-end { border-radius: 2px 2px 3px 3px; box-shadow: inset 0 -2px 0 hsl(var(--bt) var(--heat-s) var(--heat-bar-l)), inset 3px 0 0 hsl(var(--bt) var(--heat-s) var(--heat-bar-l)); }
 .codemap .hit.span-single { border-radius: 3px; }
 .codemap .hit:hover { filter: brightness(0.94); }
-.codemap .hit.sel { outline: 2px solid var(--accent); outline-offset: -1px; }
+/* Selection reads as a heavier, hotter version of the chunk's own burden color
+   rather than a generic thin blue outline. */
+.codemap .hit.sel {
+  outline: 2.5px solid hsl(var(--bt) var(--heat-s) var(--heat-bar-l));
+  outline-offset: 1px; border-radius: 3px;
+  background: hsl(var(--bt) var(--heat-s) calc(var(--heat-bg-l) - 8%));
+  box-shadow: 0 0 0 1px hsl(var(--bt) var(--heat-s) var(--heat-bar-l)), 0 2px 8px hsl(var(--bt) var(--heat-s) var(--heat-bar-l) / 0.45);
+}
 .codemap .panel .xref { cursor: pointer; }
 .codemap .panel ul.xref-list { margin: 6px 0; padding-left: 18px; }
 .codemap .panel .finding-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -206,13 +232,13 @@ button:hover { border-color: var(--accent); }
   margin: 6px 0; padding-left: 20px;
 }
 .codemap .panel ol.path li, .codemap .panel ul.reach li { margin: 3px 0; }
-.codemap .panel table.path-table { width: 100%; margin: 6px 0; font-size: 12px; table-layout: fixed; }
+.codemap .panel table.path-table { width: 100%; margin: 6px 0; font-size: 12px; table-layout: auto; }
 .codemap .panel table.path-table th,
 .codemap .panel table.path-table td { padding: 4px 6px; vertical-align: top; }
 .codemap .panel table.path-table th:first-child,
 .codemap .panel table.path-table td.step-no { width: 28px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
-.codemap .panel table.path-table th:nth-child(2) { width: 70px; }
-.codemap .panel table.path-table th:nth-child(3) { width: 150px; }
+.codemap .panel table.path-table th:nth-child(2) { width: 64px; }
+.codemap .panel table.path-table td.path-loc { white-space: nowrap; }
 .codemap .panel .path-loc { overflow-wrap: anywhere; }
 .codemap .panel table.path-table code { white-space: normal; overflow-wrap: anywhere; }
 .codemap .panel .path-scroll { max-height: 360px; overflow: auto; border-top: 1px solid var(--border); }
@@ -222,6 +248,51 @@ button:hover { border-color: var(--accent); }
   display: inline-block; min-width: 64px; font-size: 11px; color: var(--muted);
   text-transform: uppercase; letter-spacing: 0.03em;
 }
+
+/* Right-panel list vs. detail modes. The panel shows the findings INVENTORY by
+   default (no finding force-opened); selecting one swaps to its detail. */
+.codemap .panel .finding-list { margin: 4px 0; }
+.codemap .panel .finding-list ol { list-style: none; margin: 0; padding: 0; }
+.codemap .panel .finding-list li { margin: 0; }
+.codemap .panel .finding-row {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: baseline;
+  width: 100%; text-align: left; padding: 7px 9px; margin: 4px 0; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg);
+  border-left: 4px solid hsl(var(--bt) var(--heat-s) var(--heat-bar-l));
+}
+.codemap .panel .finding-row:hover { border-color: var(--accent); }
+.codemap .panel .finding-row .fr-loc { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }
+.codemap .panel .finding-row .fr-expr {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.codemap .panel .finding-row .fr-burden { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }
+/* In detail mode the list is hidden and the active finding shows; a back link
+   returns to the list. JS toggles .show-detail on the panel. */
+.codemap .panel.show-detail .finding-list { display: none; }
+.codemap .panel:not(.show-detail) .finding { display: none !important; }
+.codemap .panel .panel-back {
+  display: none; align-items: center; gap: 6px; margin: 2px 0 10px; padding: 4px 8px;
+  font-size: 12px; cursor: pointer; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+}
+.codemap .panel.show-detail .panel-back { display: inline-flex; }
+.codemap .panel .empty { color: var(--muted); }
+
+/* Path overlay: the selected finding lights up its own representative-path lines
+   on the source — the sink line, the source/definition line, and the hops. */
+.codemap tr.path-active td.code { box-shadow: inset 3px 0 0 var(--accent); background: hsl(212 90% 60% / 0.07); }
+.codemap tr.path-active.sink-line td.code { box-shadow: inset 3px 0 0 var(--accent); background: hsl(212 90% 60% / 0.14); }
+.codemap tr.path-active td.ln { color: var(--accent); font-weight: 600; }
+.codemap tr.path-active .path-tag {
+  float: right; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--accent); margin-left: 8px; user-select: none;
+}
+.codemap tr.flash td.code { animation: codeflash 0.85s ease-out; }
+@keyframes codeflash { from { background: hsl(212 90% 60% / 0.35); } to { background: transparent; } }
+
+/* Jump-to-line (same file) and open-file (cross file) links inside path/defense rows. */
+.codemap .goto-line { cursor: pointer; border-bottom: 1px dotted var(--accent); }
+.peek-pop .peek-open { display: inline-block; margin: 4px 2px 2px; font-size: 12px; }
 `;
 
 const SCRIPT = `
@@ -238,6 +309,91 @@ function legacyCopy(text) {
   document.body.appendChild(ta); ta.select();
   try { document.execCommand('copy'); } catch (err) {}
   document.body.removeChild(ta);
+}
+
+// ---- finding selection + path overlay (shared by clicks and initial load) ----
+function clearPathOverlay(map) {
+  map.querySelectorAll('tr.path-active').forEach(function (r) {
+    r.classList.remove('path-active', 'sink-line');
+    var tag = r.querySelector('.path-tag'); if (tag) tag.remove();
+  });
+}
+// Light up the selected finding's representative path on the source: every hop
+// line in this file, with the sink line tagged. Answers "where is this coming
+// from / where is it defined" without leaving the code map.
+function applyPathOverlay(map, finding) {
+  clearPathOverlay(map);
+  if (!finding) return;
+  (finding.getAttribute('data-path-lines') || '').split(',').filter(Boolean).forEach(function (n) {
+    var r = map.querySelector('tr[data-line="' + n + '"]');
+    if (r) r.classList.add('path-active');
+  });
+  var sinkLine = finding.getAttribute('data-sink-line') || '';
+  if (sinkLine) {
+    var sr = map.querySelector('tr[data-line="' + sinkLine + '"]');
+    if (sr) {
+      sr.classList.add('path-active', 'sink-line');
+      var code = sr.querySelector('td.code');
+      if (code && !code.querySelector('.path-tag')) {
+        var tag = document.createElement('span');
+        tag.className = 'path-tag'; tag.textContent = 'sink';
+        code.appendChild(tag);
+      }
+    }
+  }
+}
+function flashLine(row) {
+  if (!row) return;
+  row.classList.add('flash');
+  setTimeout(function () { row.classList.remove('flash'); }, 850);
+}
+function scrollMapToLine(map, line, block) {
+  var r = map.querySelector('tr[data-line="' + line + '"]');
+  if (r) r.scrollIntoView({ block: block || 'center' });
+  return r;
+}
+// Keep all view state in the query string so a refresh restores the selection.
+function syncFindingUrl(id) {
+  if (!window.history || !window.history.replaceState) return;
+  var url = new URL(window.location.href);
+  if (id) url.searchParams.set('finding', id); else url.searchParams.delete('finding');
+  window.history.replaceState({}, '', url);
+}
+function findHit(map, id) {
+  return [].slice.call(map.querySelectorAll('.hit')).find(function (h) {
+    return (h.getAttribute('data-findings') || '').split(',').indexOf(id) >= 0;
+  });
+}
+// Reveal finding(s) in detail mode, overlay the primary one's path, center its
+// source chunk, and reflect it in the URL.
+function selectFindings(map, ids) {
+  var panel = map.querySelector('.panel');
+  if (!panel || !ids.length) return;
+  panel.querySelectorAll('.finding').forEach(function (f) { f.classList.remove('active'); });
+  var first = null;
+  ids.forEach(function (id) {
+    var t = panel.querySelector('.finding[data-finding="' + id + '"]');
+    if (t) { t.classList.add('active'); if (!first) first = t; }
+  });
+  if (!first) return;
+  panel.classList.add('show-detail');
+  first.scrollIntoView({ block: 'nearest' });
+  applyPathOverlay(map, first);
+  map.querySelectorAll('.hit.sel').forEach(function (h) { h.classList.remove('sel'); });
+  var hit = findHit(map, ids[0]);
+  if (hit) { hit.classList.add('sel'); hit.scrollIntoView({ block: 'center' }); }
+  else { scrollMapToLine(map, first.getAttribute('data-sink-line')); }
+  syncFindingUrl(ids[0]);
+}
+// Return to the findings inventory: clear selection, overlay, and URL state.
+function showFindingList(map) {
+  var panel = map.querySelector('.panel');
+  if (!panel) return;
+  panel.classList.remove('show-detail');
+  panel.querySelectorAll('.finding').forEach(function (f) { f.classList.remove('active'); });
+  map.querySelectorAll('.hit.sel').forEach(function (h) { h.classList.remove('sel'); });
+  clearPathOverlay(map);
+  syncFindingUrl(null);
 }
 
 document.addEventListener('click', function (e) {
@@ -302,40 +458,38 @@ document.addEventListener('click', function (e) {
   }
   if (!e.target.closest('.peek-pop')) closePeeks();
 
-  // Activate a set of finding ids in the panel: reveal every matching block
-  // (multiple can show at once), scroll the first into view.
-  function activate(map, ids) {
-    var panel = map.querySelector('.panel');
-    if (!panel) return;
-    panel.querySelectorAll('.finding').forEach(function (f) { f.classList.remove('active'); });
-    var empty = panel.querySelector('.empty');
-    if (empty) empty.style.display = 'none';
-    var first = null;
-    ids.forEach(function (id) {
-      var target = panel.querySelector('.finding[data-finding="' + id + '"]');
-      if (target) { target.classList.add('active'); if (!first) first = target; }
-    });
-    if (first) first.scrollIntoView({ block: 'nearest' });
+  // Back to the findings list (close the open detail).
+  if (e.target.closest('.panel-back')) {
+    var mb = e.target.closest('.codemap');
+    if (mb) showFindingList(mb);
+    return;
   }
 
-  // Cross-reference link inside a panel ("same code — N more"): select that
-  // finding and scroll its source line into view.
+  // A row in the findings inventory: open its detail.
+  var fr = e.target.closest('.finding-row');
+  if (fr) {
+    var mr = fr.closest('.codemap');
+    var fid = fr.getAttribute('data-finding');
+    if (mr && fid) selectFindings(mr, [fid]);
+    return;
+  }
+
+  // Same-file "jump to line" link inside a path/defense row.
+  var goLine = e.target.closest('.goto-line');
+  if (goLine) {
+    var mg = goLine.closest('.codemap');
+    var gl = goLine.getAttribute('data-line');
+    if (mg && gl) flashLine(scrollMapToLine(mg, gl));
+    e.preventDefault();
+    return;
+  }
+
+  // Cross-reference link ("same code — N more"): select that finding.
   var xref = e.target.closest('.xref');
   if (xref) {
     var map0 = xref.closest('.codemap');
     var xid = xref.getAttribute('data-finding');
-    if (map0 && xid) {
-      activate(map0, [xid]);
-      var hit = map0.querySelector('.hit[data-findings~="' + xid + '"]')
-        || [].slice.call(map0.querySelectorAll('.hit')).find(function (h) {
-             return (h.getAttribute('data-findings') || '').split(',').indexOf(xid) >= 0;
-           });
-      if (hit) {
-        map0.querySelectorAll('.hit.sel').forEach(function (h) { h.classList.remove('sel'); });
-        hit.classList.add('sel');
-        hit.scrollIntoView({ block: 'center' });
-      }
-    }
+    if (map0 && xid) selectFindings(map0, [xid]);
     e.preventDefault();
     return;
   }
@@ -344,9 +498,7 @@ document.addEventListener('click', function (e) {
   var spot = e.target.closest('.hit');
   if (spot) {
     var map1 = spot.closest('.codemap');
-    map1.querySelectorAll('.hit.sel').forEach(function (h) { h.classList.remove('sel'); });
-    spot.classList.add('sel');
-    activate(map1, (spot.getAttribute('data-findings') || '').split(',').filter(Boolean));
+    selectFindings(map1, (spot.getAttribute('data-findings') || '').split(',').filter(Boolean));
     return;
   }
 
@@ -361,8 +513,28 @@ document.addEventListener('click', function (e) {
     });
     return acc;
   }, []);
-  map.querySelectorAll('.hit.sel').forEach(function (h) { h.classList.remove('sel'); });
-  activate(map, ids);
+  selectFindings(map, ids);
+});
+
+// On load, restore selection from ?finding= (or a server-marked active finding)
+// and honor a #L<line> hash from a cross-file jump.
+document.addEventListener('DOMContentLoaded', function () {
+  var map = document.querySelector('.codemap');
+  if (map) {
+    var panel = map.querySelector('.panel');
+    var active = panel && panel.querySelector('.finding.active');
+    if (active) {
+      applyPathOverlay(map, active);
+      var hit = findHit(map, active.getAttribute('data-finding'));
+      if (hit) { hit.classList.add('sel'); hit.scrollIntoView({ block: 'center' }); }
+      else { scrollMapToLine(map, active.getAttribute('data-sink-line')); }
+    } else {
+      var fid = new URLSearchParams(window.location.search).get('finding');
+      if (fid) selectFindings(map, [fid]);
+    }
+    var hashLine = (window.location.hash || '').match(/^#L(\\d+)$/);
+    if (hashLine) flashLine(scrollMapToLine(map, hashLine[1]));
+  }
 });
 `;
 

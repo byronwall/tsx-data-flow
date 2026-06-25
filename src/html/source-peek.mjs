@@ -42,13 +42,21 @@ export function snippetBlockHtml(sourceText, line, { context = 3 } = {}) {
   return `<span class="snip">${body}</span>`;
 }
 
-// Inline popover for a `path:line` reference embedded in prose/tables.
-function inlinePeekHtml(refText, sourceText, line) {
+// Inline popover for a `path:line` reference embedded in prose/tables. The
+// popover carries an "Open file" link so a reference is not just previewable but
+// navigable — report findings can now reach their file page (transcript: the
+// project-level findings were an inert markdown dump with no click-through).
+function inlinePeekHtml(refText, sourceText, line, filePath) {
   const snippet = snippetBlockHtml(sourceText, line, { context: 3 });
   if (!snippet) return null; // no source resolved → leave the plain text alone
+  const openLink = filePath
+    ? `<a class="peek-open" href="/file?path=${encodeURIComponent(filePath)}${
+        Number.isFinite(line) && line > 0 ? `#L${line}` : ""
+      }">Open ${escapeHtml(filePath.split("/").pop())} ↗</a>`
+    : "";
   return `<span class="peek"><button type="button" class="peek-label"><code>${escapeHtml(
     refText,
-  )}</code></button><span class="peek-pop">${snippet}</span></span>`;
+  )}</code></button><span class="peek-pop">${snippet}${openLink}</span></span>`;
 }
 
 export function sourceReferenceHtml(filePath, line, resolve) {
@@ -63,7 +71,7 @@ export function sourceReferenceHtml(filePath, line, resolve) {
     source = null;
   }
   const widget = source
-    ? inlinePeekHtml(refText, source, lineNo)
+    ? inlinePeekHtml(refText, source, lineNo, filePath)
     : null;
   return widget ?? escapeHtml(refText);
 }
@@ -89,7 +97,12 @@ export function peekReferences(html, resolve) {
           source = null;
         }
         if (!source) return whole;
-        const widget = inlinePeekHtml(whole, source, Number.parseInt(lineText, 10));
+        const widget = inlinePeekHtml(
+          whole,
+          source,
+          Number.parseInt(lineText, 10),
+          filePath,
+        );
         return widget ?? whole;
       });
     })

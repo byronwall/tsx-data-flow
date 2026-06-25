@@ -193,8 +193,31 @@ describe("renderCodeMap", () => {
     expect(html).toContain("a &lt; b &amp;&amp; c &gt; d");
     // at least one finding panel exists for the file's sinks
     expect(sinks.length).toBeGreaterThan(0);
-    expect(html).toContain('class="finding active"');
+    // The panel defaults to the findings inventory (no finding force-opened);
+    // detail blocks are present but not active until selected.
+    expect(html).toContain('class="finding-list"');
+    expect(html).toContain('class="finding"');
+    expect(html).not.toContain('class="finding active"');
     expect(html).toContain("Why selected");
+  });
+
+  it("pre-activates a finding when selectedFinding is provided", async () => {
+    const project = await createFixtureProject(FIXTURE);
+    const report = createAnalyzer(project.args).report({ file: ["src/Card.tsx"] });
+    const sinks = report.rankings.all.filter((s) => s.file === "src/Card.tsx");
+    const source = `const x = 1;\nconst y = 2;`;
+    const target = sinks[0].id;
+    const html = renderCodeMap({
+      relPath: "src/Card.tsx",
+      source,
+      sinks,
+      selectedFinding: target,
+    });
+    // Panel opens straight into detail mode on the requested finding.
+    expect(html).toContain('class="panel show-detail"');
+    expect(html).toContain(`class="finding active" data-finding="${target}"`);
+    // Rows carry a data-line so the client can scroll/overlay by line number.
+    expect(html).toMatch(/<tr[^>]*data-line="1"/);
   });
 
   it("connects multi-line sink spans across every touched line", () => {
@@ -249,9 +272,15 @@ describe("renderCodeMap", () => {
     expect(html).toContain('class="path-table"');
     expect(html).toContain("<th>#</th><th>Kind</th><th>Location</th><th>Expression</th>");
     expect(html).toContain('<td class="step-no">1</td>');
-    expect(html).toContain("src/helper.ts:2");
-    expect(html).toContain('<span class="peek">');
-    expect(html).toContain("function build() { return 1; }");
+    // Cross-file hop → a real link to that file's page (so hops navigate).
+    expect(html).toContain(
+      'class="xfile" href="/file?path=src%2Fhelper.ts#L2"',
+    );
+    expect(html).toContain("helper.ts:2 ↗");
+    // Same-file hop → a click-to-scroll link, not a context-switching popover.
+    expect(html).toContain('class="goto-line" data-line="2"');
+    // The path section is open by default (most useful artifact on the panel).
+    expect(html).toContain('<details class="path-detail" open>');
   });
 
   it("maps each finding to its own chunk so adjacent findings are independently clickable", async () => {
@@ -466,6 +495,87 @@ describe("createServer", () => {
     expect(third.status).toBe(200);
     expect(third.body).toContain("Showing 51-60 of 60 files");
     expect(third.body).toContain("src/File59.tsx");
+  });
+
+  it("renders clickable sort headers with an active caret and a sort-aware heading", async () => {
+    const project = await createFixtureProject(FIXTURE);
+    const { handler } = createServer(project.args);
+
+    const byBurden = await call(handler, "/");
+    expect(byBurden.body).toContain("<h2>Files by burden</h2>");
+    expect(byBurden.body).toContain('class="sortable active"');
+    expect(byBurden.body).toContain('<span class="caret"');
+    // Header is a link that re-sorts.
+    expect(byBurden.body).toContain('href="/?sort=findings"');
+
+    const byFile = await call(handler, "/?sort=file");
+    expect(byFile.body).toContain("<h2>Files by path</h2>");
+  });
+
+  it("offers a show-all toggle and renders every row when all=1", async () => {
+    const files = {};
+    for (let index = 0; index < 30; index += 1) {
+      const name = `Big${String(index).padStart(2, "0")}`;
+      files[`src/${name}.tsx`] = `
+        export function ${name}(props: { value: number }) {
+          return <div title={String(props.value)}>{props.value + ${index}}</div>;
+        }
+      `;
+    }
+    const project = await createFixtureProject(files);
+    const { handler } = createServer(project.args);
+
+    const paged = await call(handler, "/?sort=file");
+    expect(paged.body).toContain("Show all 30");
+    expect(paged.body).toContain("/?sort=file&amp;all=1");
+
+    const all = await call(handler, "/?sort=file&all=1");
+    expect(all.body).toContain("Showing all 30 files");
+    expect(all.body).not.toContain('aria-label="File result pages">\n  <a class="btn');
+    expect(all.body).toContain("src/Big00.tsx");
+    expect(all.body).toContain("src/Big29.tsx");
+    expect(all.body).toContain("Paginate");
+  });
+
+  it("shows a back-to-overview breadcrumb on file and report pages", async () => {
+    const project = await createFixtureProject(FIXTURE);
+    const { handler } = createServer(project.args);
+
+    const file = await call(
+      handler,
+      "/file?path=" + encodeURIComponent("src/Card.tsx"),
+    );
+    expect(file.body).toContain('class="crumbs"');
+    expect(file.body).toContain('<a href="/">← Overview</a>');
+    // The sidebar title is a home link here too (consistent with the file page).
+    expect(file.body).toContain('<h1><a href="/">tsx-dataflow</a></h1>');
+
+    const report = await call(handler, "/report?view=findings");
+    expect(report.body).toContain('class="crumbs"');
+    expect(report.body).toContain('<a href="/">← Overview</a>');
+  });
+
+  it("pre-selects a finding on the file page via ?finding=", async () => {
+    const project = await createFixtureProject(FIXTURE);
+    const analyzer = createAnalyzer(project.args);
+    const report = analyzer.report({ file: ["src/Card.tsx"] });
+    const target = report.rankings.all.find((s) => s.file === "src/Card.tsx").id;
+    const { handler } = createServer(project.args);
+    const file = await call(
+      handler,
+      "/file?path=" + encodeURIComponent("src/Card.tsx") + "&finding=" + target,
+    );
+    expect(file.body).toContain('class="panel show-detail"');
+    expect(file.body).toContain(`class="finding active" data-finding="${target}"`);
+  });
+
+  it("adds an Open-file link inside source-peek popovers", () => {
+    const html = peekReferences("<p>see src/Card.tsx:3 now</p>", (p) =>
+      p === "src/Card.tsx" ? "a\nb\nconst c = 3;\nd" : null,
+    );
+    expect(html).toContain('class="peek-open"');
+    expect(html).toContain('href="/file?path=src%2FCard.tsx#L3"');
+    expect(html).toContain("Open Card.tsx ↗");
   });
 
   it("links and serves markdown assets for every registered report view", async () => {

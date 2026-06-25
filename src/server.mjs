@@ -129,7 +129,9 @@ export function createServer(args) {
           200,
           page({
             title: `${VIEW_LABELS[view] ?? view} · tsx-dataflow`,
-            body: `<div class="toolbar"><h1 style="margin:0">${escapeHtml(
+            body: `<nav class="crumbs"><a href="/">← Overview</a><span>/</span><span>${escapeHtml(
+              VIEW_LABELS[view] ?? view,
+            )}</span></nav><div class="toolbar"><h1 style="margin:0">${escapeHtml(
               VIEW_LABELS[view] ?? view,
             )}</h1><a class="btn" href="/api/report.${encodeURIComponent(
               view,
@@ -157,10 +159,19 @@ export function createServer(args) {
         const report = reportForFile(relPath);
         const source = sourceFor(relPath);
         const openView = url.searchParams.get("view");
+        const selectedFinding = url.searchParams.get("finding");
         return send(
           res,
           200,
-          renderFilePage(report, relPath, source, args, openView, sourceFor),
+          renderFilePage(
+            report,
+            relPath,
+            source,
+            args,
+            openView,
+            sourceFor,
+            selectedFinding,
+          ),
         );
       }
 
@@ -235,6 +246,7 @@ function overviewState(url) {
     filter: OVERVIEW_FILTERS.has(filter) ? filter : "all",
     sort: OVERVIEW_SORTS.has(sort) ? sort : "burden",
     page,
+    all: url.searchParams.get("all") === "1",
   };
 }
 
@@ -244,10 +256,19 @@ function overviewHref(state, changes = {}) {
   if (next.q) params.set("q", next.q);
   if (next.filter && next.filter !== "all") params.set("filter", next.filter);
   if (next.sort && next.sort !== "burden") params.set("sort", next.sort);
-  if (next.page && next.page !== 1) params.set("page", String(next.page));
+  if (next.all) params.set("all", "1");
+  else if (next.page && next.page !== 1) params.set("page", String(next.page));
   const query = params.toString();
   return query ? `/?${query}` : "/";
 }
+
+// Heading reflects the active sort so it never lies (it was hard-coded "by burden").
+const SORT_HEADING = {
+  burden: "Files by burden",
+  findings: "Files by finding count",
+  depth: "Files by path depth",
+  file: "Files by path",
+};
 
 function graphParticipationFiles(report) {
   const files = new Set();
@@ -336,7 +357,7 @@ function overviewNav(report, url = new URL("http://localhost/")) {
         )}</a></li>`,
     )
     .join("");
-  return `<h1>tsx-dataflow</h1>
+  return `<h1><a href="/">tsx-dataflow</a></h1>
 <div class="sub">${escapeHtml(report.meta.root)}</div>
 <strong>Files</strong>
 <ul class="side-files">${items || '<li class="meta">no matching files</li>'}${more}</ul>
@@ -361,11 +382,14 @@ function renderOverview(report, url = new URL("http://localhost/")) {
     .join("");
 
   const groups = overviewRows(report, state);
+  const showAll = state.all;
   const totalPages = Math.max(1, Math.ceil(groups.length / OVERVIEW_PAGE_SIZE));
-  const currentPage = Math.min(state.page, totalPages);
+  const currentPage = showAll ? 1 : Math.min(state.page, totalPages);
   const pageState = { ...state, page: currentPage };
-  const pageStart = (currentPage - 1) * OVERVIEW_PAGE_SIZE;
-  const pageGroups = groups.slice(pageStart, pageStart + OVERVIEW_PAGE_SIZE);
+  const pageStart = showAll ? 0 : (currentPage - 1) * OVERVIEW_PAGE_SIZE;
+  const pageGroups = showAll
+    ? groups
+    : groups.slice(pageStart, pageStart + OVERVIEW_PAGE_SIZE);
   const rows = pageGroups
     .map(
       (g) => `<tr>
@@ -390,8 +414,16 @@ function renderOverview(report, url = new URL("http://localhost/")) {
         } with ≥4.</p>`
       : "";
 
-  const sortLink = (sort, label) =>
-    `<a href="${escapeHtml(overviewHref(pageState, { sort, page: 1 }))}">${escapeHtml(label)}</a>`;
+  // A sortable column header: clicking re-sorts; the active column shows a caret.
+  const sortHeader = (sort, label) => {
+    const active = state.sort === sort;
+    const caret = active ? ' <span class="caret" aria-hidden="true">▼</span>' : "";
+    return `<th class="sortable${active ? " active" : ""}"${
+      active ? ' aria-sort="descending"' : ""
+    }><a href="${escapeHtml(
+      overviewHref(pageState, { sort, page: 1 }),
+    )}">${escapeHtml(label)}${caret}</a></th>`;
+  };
   const filterOption = (value, label) =>
     `<option value="${value}"${state.filter === value ? " selected" : ""}>${escapeHtml(
       label,
@@ -409,13 +441,24 @@ function renderOverview(report, url = new URL("http://localhost/")) {
 </li>`,
     )
     .join("");
-  const rangeEnd = Math.min(groups.length, pageStart + pageGroups.length);
+  const rangeEnd = showAll
+    ? groups.length
+    : Math.min(groups.length, pageStart + pageGroups.length);
   const pageSummary =
     groups.length > 0
-      ? `Showing ${pageStart + 1}-${rangeEnd} of ${groups.length} file${groups.length === 1 ? "" : "s"}`
+      ? showAll
+        ? `Showing all ${groups.length} file${groups.length === 1 ? "" : "s"}`
+        : `Showing ${pageStart + 1}-${rangeEnd} of ${groups.length} file${groups.length === 1 ? "" : "s"}`
       : "No matching files";
+  // Show-all toggle: let the user opt out of paging and see everything at once.
+  const showAllToggle =
+    groups.length > OVERVIEW_PAGE_SIZE
+      ? showAll
+        ? `<a class="btn" href="${escapeHtml(overviewHref({ ...pageState, all: false, page: 1 }))}">Paginate</a>`
+        : `<a class="btn" href="${escapeHtml(overviewHref({ ...pageState, all: true }))}">Show all ${groups.length}</a>`
+      : "";
   const pagination =
-    totalPages > 1
+    !showAll && totalPages > 1
       ? `<nav class="pager" aria-label="File result pages">
   <a class="btn${currentPage === 1 ? " disabled" : ""}" href="${escapeHtml(
     currentPage === 1 ? overviewHref(pageState) : overviewHref(pageState, { page: currentPage - 1 }),
@@ -424,8 +467,11 @@ function renderOverview(report, url = new URL("http://localhost/")) {
   <a class="btn${currentPage === totalPages ? " disabled" : ""}" href="${escapeHtml(
     currentPage === totalPages ? overviewHref(pageState) : overviewHref(pageState, { page: currentPage + 1 }),
   )}">Next</a>
+  ${showAllToggle}
 </nav>`
-      : "";
+      : showAllToggle
+        ? `<nav class="pager" aria-label="File result pages">${showAllToggle}</nav>`
+        : "";
 
   const body = `<div class="toolbar">
   <h1 style="margin:0">Render-path overview</h1>
@@ -449,15 +495,18 @@ function renderOverview(report, url = new URL("http://localhost/")) {
   <button type="submit">Apply</button>
   <a class="btn" href="/">Reset</a>
 </form>
-<h2>Files by burden</h2>
+<h2>${escapeHtml(SORT_HEADING[state.sort] ?? "Files")}</h2>
 ${concNote}
+<p class="meta">Each row is one file on a render path. <strong>Findings</strong> = ranked findings in it; <strong>Worst</strong> = its highest burden score; <strong>Path depth</strong> = longest source→sink chain. Click a column header to re-sort.</p>
 <p class="meta">${escapeHtml(pageSummary)}</p>
-<p class="meta">Sort: ${sortLink("burden", "burden")} · ${sortLink(
-    "findings",
-    "finding count",
-  )} · ${sortLink("depth", "path depth")} · ${sortLink("file", "file path")}</p>
 <table>
-<thead><tr><th>File</th><th>Findings</th><th>Worst</th><th>Path depth</th><th>Dominant shape</th><th>Ownership</th><th>First cut</th></tr></thead>
+<thead><tr>${sortHeader("file", "File")}${sortHeader(
+    "findings",
+    "Findings",
+  )}${sortHeader("burden", "Worst")}${sortHeader(
+    "depth",
+    "Path depth",
+  )}<th>Dominant shape</th><th>Ownership</th><th>First cut</th></tr></thead>
 <tbody>${rows || '<tr><td colspan="7" class="meta">No matching files.</td></tr>'}</tbody>
 </table>
 ${pagination}`;
@@ -484,11 +533,26 @@ function fileNav(relPath, report) {
 <ul><li><a href="#codemap">Code map</a></li>${views}</ul>`;
 }
 
-function renderFilePage(report, relPath, source, args, openView, resolveSource) {
+function renderFilePage(
+  report,
+  relPath,
+  source,
+  args,
+  openView,
+  resolveSource,
+  selectedFinding = null,
+) {
   const sinks = report.rankings.all.filter((sink) => sink.file === relPath);
 
   const codeMap = source
-    ? renderCodeMap({ relPath, source, sinks, meta: report.meta, resolveSource })
+    ? renderCodeMap({
+        relPath,
+        source,
+        sinks,
+        meta: report.meta,
+        resolveSource,
+        selectedFinding,
+      })
     : `<p class="meta">Source not found on disk: ${escapeHtml(relPath)}</p>`;
 
   const sections = FILE_VIEWS.map((view) => {
@@ -507,7 +571,10 @@ function renderFilePage(report, relPath, source, args, openView, resolveSource) 
 </details>`;
   }).join("\n");
 
-  const body = `<div class="toolbar">
+  const body = `<nav class="crumbs"><a href="/">← Overview</a><span>/</span><span>${escapeHtml(
+    relPath,
+  )}</span></nav>
+<div class="toolbar">
   <h1 style="margin:0">${escapeHtml(relPath)}</h1>
   <a class="btn" href="/api/report.json?path=${encodeURIComponent(relPath)}">JSON</a>
   <form action="/refresh" method="post"><input type="hidden" name="from" value="/file?path=${escapeHtml(
