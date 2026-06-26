@@ -4,6 +4,7 @@
 // express — it ties the analyzer's findings back to the literal source lines.
 import { escapeHtml } from "./page.mjs";
 import { snippetBlockHtml } from "./source-peek.mjs";
+import { findingTitle } from "../core.mjs";
 
 const QUEUE_LABEL = {
   "peripheral-quick-win": "quick win",
@@ -20,7 +21,7 @@ function whyBullets(sink) {
   if (m.actionableDefensiveOperationCount)
     bullets.push(`${m.actionableDefensiveOperationCount} defensive operations`);
   if (m.impossibleDefenseCount)
-    bullets.push(`${m.impossibleDefenseCount} type-impossible fallbacks`);
+    bullets.push(`${m.impossibleDefenseCount} impossible defenses`);
   if (m.unknownEdgeCount) bullets.push(`${m.unknownEdgeCount} unknown edges`);
   return bullets;
 }
@@ -95,26 +96,76 @@ function isDefensiveStep(step) {
   return step.kind === "fallback";
 }
 
+// Collapse consecutive steps that are the SAME expression on the SAME line into a
+// single group (STEP-1): a long run reading `props.metadata.relationship` over
+// and over reads as one operation "1–3", not three near-identical rows. Each
+// group keeps the original ordinals so the gutter overlay still lines up.
+function groupPathSteps(steps) {
+  const groups = [];
+  steps.forEach((step, index) => {
+    const prev = groups[groups.length - 1];
+    const sameAsPrev =
+      prev &&
+      prev.step.line === step.line &&
+      (prev.step.label ?? "") === (step.label ?? "") &&
+      prev.step.file === step.file;
+    if (sameAsPrev) {
+      prev.end = index;
+      prev.defensive = prev.defensive || isDefensiveStep(step);
+      if ((STEP_KIND_LABEL[prev.step.kind] ?? prev.step.kind) !==
+        (STEP_KIND_LABEL[step.kind] ?? step.kind))
+        prev.mixedKind = true;
+    } else {
+      groups.push({
+        step,
+        start: index,
+        end: index,
+        defensive: isDefensiveStep(step),
+        mixedKind: false,
+      });
+    }
+  });
+  return groups;
+}
+
 function pathSection(sink, resolveSource, relPath) {
   const steps = sink.representativeSteps ?? [];
   if (steps.length < 2) return "";
-  const rows = steps
-    .map((step, index) => {
-      const kind = STEP_KIND_LABEL[step.kind] ?? step.kind ?? "step";
-      const shield = isDefensiveStep(step)
+  const groups = groupPathSteps(steps);
+  const collapsed = groups.length < steps.length;
+  const rows = groups
+    .map((group) => {
+      const step = group.step;
+      const kind = group.mixedKind
+        ? "ops"
+        : STEP_KIND_LABEL[step.kind] ?? step.kind ?? "step";
+      const shield = group.defensive
         ? ' <span class="def-icon" title="Defensive operation (fallback/guard)">🛡</span>'
         : "";
-      return `<tr${isDefensiveStep(step) ? ' class="defensive-step"' : ""}>
-<td class="step-no">${index + 1}</td>
+      const ordinal =
+        group.end > group.start
+          ? `${group.start + 1}–${group.end + 1}`
+          : `${group.start + 1}`;
+      const repeat =
+        group.end > group.start
+          ? ` <span class="meta">×${group.end - group.start + 1}</span>`
+          : "";
+      return `<tr${group.defensive ? ' class="defensive-step"' : ""}>
+<td class="step-no">${ordinal}</td>
 <td><span class="k">${escapeHtml(kind)}</span>${shield}</td>
 <td class="path-loc">${stepLocationHtml(step, resolveSource, relPath)}</td>
-<td><code>${escapeHtml(step.label ?? "")}</code></td>
+<td><code>${escapeHtml(step.label ?? "")}</code>${repeat}</td>
 </tr>`;
     })
     .join("");
   // Open by default: the source→sink trajectory is the single most useful thing
-  // on this panel (transcript), so it should not start collapsed.
-  return `<details class="path-detail" open><summary>Path — ${steps.length} steps (source → sink)</summary><div class="path-scroll"><table class="path-table"><thead><tr><th>#</th><th>Kind</th><th>Location</th><th>Expression</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+  // on this panel (transcript), so it should not start collapsed. The summary
+  // shows the raw step count; when steps were merged into ranges, say so.
+  const summary =
+    collapsed && groups.length !== steps.length
+      ? `Path — ${steps.length} steps · ${groups.length} ops (source → sink)`
+      : `Path — ${steps.length} steps (source → sink)`;
+  return `<details class="path-detail" open><summary>${summary}</summary><div class="path-scroll"><table class="path-table"><thead><tr><th>#</th><th>Kind</th><th>Location</th><th>Expression</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
 
 // Map of same-file path line → step ordinal, for the numbered source overlay
@@ -137,13 +188,30 @@ function pathStepsAttr(sink, relPath) {
 function representationSection(sink) {
   const steps = sink.representationSteps ?? [];
   if (steps.length === 0) return "";
-  const items = steps
-    .map((step) => {
+  // Collapse consecutive identical hops (same kind/expression/line) into one row
+  // with a ×N count (STEP-1) — a stack of 14 identical ALIAS rows reads as one.
+  const groups = [];
+  for (const step of steps) {
+    const prev = groups[groups.length - 1];
+    if (
+      prev &&
+      prev.step.kind === step.kind &&
+      (prev.step.label ?? "") === (step.label ?? "") &&
+      prev.step.line === step.line
+    ) {
+      prev.count += 1;
+    } else {
+      groups.push({ step, count: 1 });
+    }
+  }
+  const items = groups
+    .map(({ step, count }) => {
       const kind = STEP_KIND_LABEL[step.kind] ?? step.kind;
       const loc = stepLocationText(step, { basename: true });
+      const repeat = count > 1 ? ` <span class="meta">×${count}</span>` : "";
       return `<li><span class="k">${escapeHtml(kind)}</span> <code>${escapeHtml(
         step.label ?? "",
-      )}</code>${loc ? ` <span class="meta">${escapeHtml(loc)}</span>` : ""}</li>`;
+      )}</code>${repeat}${loc ? ` <span class="meta">${escapeHtml(loc)}</span>` : ""}</li>`;
     })
     .join("");
   return `<strong>Representation-only hops — ${steps.length}</strong><ul class="why">${items}</ul>`;
@@ -348,16 +416,17 @@ function findingPanel(sink, source, peers, relPath, meta, resolveSource) {
   const why = whyBullets(sink)
     .map((b) => `<li>${escapeHtml(b)}</li>`)
     .join("");
+  // DEF-3: a compact one-line row per defense with the shield in its own column
+  // (the icon column may carry other markers later), instead of an inline 🛡 that
+  // pushed the text onto a second line.
   const defenses = (sink.defenses ?? [])
     .map(
       (d) =>
-        `<li><code>${escapeHtml(d.expression ?? d.guarded ?? "")}</code> — ${escapeHtml(
-          d.verdict ?? "?",
-        )}${d.type ? ` <span class="meta">(${escapeHtml(d.type)})</span>` : ""}${defenseLocHtml(
-          d,
-          relPath,
-          resolveSource,
-        )}</li>`,
+        `<li class="def-row"><span class="def-mark" title="Defensive operation (fallback/guard)">🛡</span><span class="def-body"><code>${escapeHtml(
+          d.expression ?? d.guarded ?? "",
+        )}</code> — ${escapeHtml(d.verdict ?? "?")}${
+          d.type ? ` <span class="meta">(${escapeHtml(d.type)})</span>` : ""
+        }${defenseLocHtml(d, relPath, resolveSource)}</span></li>`,
     )
     .join("");
   // Lines this finding's representative path touches IN THIS FILE — used to light
@@ -405,6 +474,7 @@ function findingPanel(sink, source, peers, relPath, meta, resolveSource) {
     <h4>${escapeHtml(sink.id)} ${badge}</h4>
     <button class="copy-debug" type="button" title="Copy a full debug dump of this finding">Copy debug info</button>
   </div>
+  ${isUsage ? "" : `<div class="finding-alias">${escapeHtml(findingTitle(sink))}</div>`}
   <pre class="debug-payload" hidden>${escapeHtml(debugInfo(sink, relPath, source, meta))}</pre>
   <div class="meta">${escapeHtml(sink.file)}:${sink.line}${
     ctxParts.length ? ` · ${escapeHtml(ctxParts.join(" / "))}` : ""
@@ -429,7 +499,7 @@ function findingPanel(sink, source, peers, relPath, meta, resolveSource) {
   ${pathSection(sink, resolveSource, relPath)}
   ${representationSection(sink)}
   ${reachSection(sink)}
-  ${defenses ? `<strong>Defenses — ${(sink.defenses ?? []).length}</strong><ul class="why">${defenses}</ul>` : ""}
+  ${defenses ? `<strong>Defenses — ${(sink.defenses ?? []).length}</strong><ul class="why def-list">${defenses}</ul>` : ""}
 </div>`;
 }
 
@@ -573,6 +643,89 @@ function renderCodeLine(text, lineNo, lineSinks) {
   return html;
 }
 
+// COMMENT-1: the "thinnest of highlighting" — dim `//` and `/* */` comments so
+// the eye can skip them. Not a syntax highlighter: only comments are styled.
+// `state.inBlock` carries an open block comment across lines; strings are
+// respected so a `//` inside a string literal is not mistaken for a comment.
+function renderCommentLine(text, state) {
+  let out = "";
+  let buf = "";
+  let cbuf = "";
+  const flushCode = () => {
+    if (buf) {
+      out += escapeHtml(buf);
+      buf = "";
+    }
+  };
+  const flushComment = () => {
+    if (cbuf) {
+      out += `<span class="cmt">${escapeHtml(cbuf)}</span>`;
+      cbuf = "";
+    }
+  };
+  let str = null;
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const ch = text[i];
+    if (state.inBlock) {
+      const end = text.indexOf("*/", i);
+      if (end === -1) {
+        cbuf += text.slice(i);
+        i = n;
+      } else {
+        cbuf += text.slice(i, end + 2);
+        i = end + 2;
+        state.inBlock = false;
+      }
+      continue;
+    }
+    if (str) {
+      buf += ch;
+      if (ch === "\\") {
+        buf += text[i + 1] ?? "";
+        i += 2;
+        continue;
+      }
+      if (ch === str) str = null;
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      flushComment();
+      str = ch;
+      buf += ch;
+      i += 1;
+      continue;
+    }
+    const two = text.slice(i, i + 2);
+    if (two === "//") {
+      flushCode();
+      cbuf += text.slice(i);
+      i = n;
+      continue;
+    }
+    if (two === "/*") {
+      flushCode();
+      const end = text.indexOf("*/", i + 2);
+      if (end === -1) {
+        cbuf += text.slice(i);
+        i = n;
+        state.inBlock = true;
+      } else {
+        cbuf += text.slice(i, end + 2);
+        i = end + 2;
+      }
+      continue;
+    }
+    buf += ch;
+    i += 1;
+  }
+  flushCode();
+  flushComment();
+  return out;
+}
+
 function touchedLines(sink, maxLine) {
   const span = sink.span;
   const start = Math.max(1, span?.startLine ?? sink.line ?? 1);
@@ -585,19 +738,43 @@ function touchedLines(sink, maxLine) {
 // Type metadata for the unified entry list: badge label + sort priority. Findings
 // lead; usages sink to the bottom (they are "proof of use", not smells).
 const ENTRY_TYPES = {
-  finding: { label: "finding", order: 0 },
-  fork: { label: "fork", order: 1 },
-  junction: { label: "junction", order: 2 },
-  boundary: { label: "boundary", order: 3 },
-  usage: { label: "usage", order: 9 },
+  finding: { label: "finding", plural: "findings", order: 0 },
+  fork: { label: "fork", plural: "forks", order: 1 },
+  junction: { label: "junction", plural: "junctions", order: 2 },
+  boundary: { label: "boundary", plural: "boundaries", order: 3 },
+  usage: { label: "usage", plural: "usages", order: 9 },
 };
+
+// Classify a reached helper for the unified list (ARCH-2): is it a load-bearing
+// junction/leaky boundary (a problem, colored hot) or a helper that merely exists
+// (benign, colored cool/muted)? Drives the entry type, hue, and score-sort weight.
+function helperSeverity(helper) {
+  const verdict = (helper.verdict ?? "").toLowerCase();
+  const isJunctionVerdict =
+    verdict.includes("junction") || verdict.includes("confluence");
+  const isProblem =
+    isJunctionVerdict ||
+    verdict.includes("leaky") ||
+    verdict.includes("messy") ||
+    ((helper.inSources ?? 0) >= 3 && (helper.callerCount ?? 0) >= 2);
+  const type = isJunctionVerdict ? "junction" : "boundary";
+  // Hot amber for problems so they stand out; calm blue for benign boundaries.
+  return {
+    type,
+    hue: isProblem ? 25 : 205,
+    score: isProblem ? 0.5 : 0.12,
+  };
+}
 
 // One row in the unified inventory. `entry` = {id, type, line, primary, secondary,
 // metric, hue}. The whole list (findings, forks, junctions, usages) shares this.
-function entryRowHtml(entry) {
+function entryRowHtml(entry, score = 0) {
   const meta = ENTRY_TYPES[entry.type] ?? { label: entry.type };
   const hue = entry.hue ?? 150;
-  return `<li data-type="${entry.type}"><button type="button" class="finding-row" data-finding="${escapeHtml(
+  const order = ENTRY_TYPES[entry.type]?.order ?? 5;
+  return `<li data-type="${entry.type}" data-sort-score="${score.toFixed(
+    4,
+  )}" data-sort-line="${entry.line ?? 0}" data-sort-order="${order}"><button type="button" class="finding-row" data-finding="${escapeHtml(
     entry.id,
   )}" style="--bt:${hue}">
 <span class="fr-loc">:${entry.line ?? "?"}</span>
@@ -623,10 +800,12 @@ function forkPanel(fork) {
   const pathLines = [...new Set([fork.line, ...siteLines, ...branchLines])].filter(
     Boolean,
   );
+  // FORK-1: number the fork sites (1,2,3…) the way path steps are numbered, so
+  // the user can refer to "split 1–4" and find them on the source.
   const sites = (fork.sites ?? [])
     .map(
-      (s) =>
-        `<li><a class="goto-line" data-line="${s.line}">:${s.line}</a> <span class="k">${escapeHtml(
+      (s, i) =>
+        `<li><span class="site-no">${i + 1}</span> <a class="goto-line" data-line="${s.line}">:${s.line}</a> <span class="k">${escapeHtml(
           s.kind ?? "site",
         )}</span> <code>${escapeHtml(s.snippet ?? s.value ?? "")}</code></li>`,
     )
@@ -666,7 +845,7 @@ function forkPanel(fork) {
   )}</code> over ${(fork.branchValues ?? []).length} branch value(s)${
     fork.namedValues?.length ? `: ${escapeHtml(fork.namedValues.join(", "))}` : ""
   }</div>
-  ${sites ? `<strong>Fork sites — ${fork.siteCount ?? (fork.sites ?? []).length}</strong><ul class="why">${sites}</ul>` : ""}
+  ${sites ? `<strong>Fork sites — ${fork.siteCount ?? (fork.sites ?? []).length}</strong><ul class="why site-list">${sites}</ul>` : ""}
   ${exclusive ? `<strong>Branch-exclusive computations — ${(fork.branchExclusive ?? []).length}</strong><ul class="why">${exclusive}</ul>` : ""}
   ${gated ? `<strong>Findings a split would fix — ${(fork.branchGatedSinks ?? []).length}</strong><ul class="why xref-list">${gated}</ul>` : ""}
 </div>`;
@@ -752,6 +931,8 @@ export function renderCodeMap({
     }
   }
 
+  // Carries open block-comment state across lines for comment dimming (COMMENT-1).
+  const commentState = { inBlock: false };
   const rows = lines.map((text, index) => {
     const lineNo = index + 1;
     const lineSinks = byLine.get(lineNo);
@@ -759,7 +940,9 @@ export function renderCodeMap({
     let gutter = "";
     let cls = [];
     let style = "";
-    let code = escapeHtml(text);
+    // Always scan to advance comment state; use the dimmed render unless the line
+    // carries findings (then the burden-tinted hit spans take precedence).
+    let code = renderCommentLine(text, commentState);
     if (lineSinks && lineSinks.length) {
       const worst = dominantSink(lineSinks);
       const burden = worst.scores?.burden ?? 0;
@@ -794,14 +977,12 @@ export function renderCodeMap({
     uniqueSinks.push(sink);
   }
 
-  // Junctions: helper records that are genuine confluences (≥3 inbound sources,
-  // ≥2 callers). This is the report info the user wanted promoted — and on a
-  // sink-less .ts file it is the only thing here (TS-1).
-  const junctions = (helpers ?? []).filter(
-    (h) => (h.inSources ?? 0) >= 3 && (h.callerCount ?? 0) >= 2,
-  );
-
-  // Build unified entries: {id, type, line, rowEntry, panelHtml}.
+  // ARCH-2: promote EVERY reached helper on this file — not just the strict
+  // junctions (≥3 in-sources, ≥2 callers) — and color by severity so the user can
+  // tell the load-bearing knots from the helpers that merely exist. This is the
+  // report info the user wanted promoted, and on a sink-less .ts file it is the
+  // only content here (TS-1). The verdict (classifyBoundary) drives both the
+  // type (junction vs boundary) and whether it reads as a problem.
   const entries = [];
   for (const sink of uniqueSinks) {
     const type = sink.tier === "usage" ? "usage" : "finding";
@@ -812,6 +993,7 @@ export function renderCodeMap({
       type,
       line: sink.line,
       sortLine: sink.line ?? 0,
+      score: burden,
       row: {
         id: sink.id,
         type,
@@ -837,6 +1019,8 @@ export function renderCodeMap({
       type: "fork",
       line: fork.line,
       sortLine: fork.line ?? 0,
+      // Repeated forks are real smells; rank them among the heavier findings.
+      score: 0.6,
       row: {
         id: fork.id,
         type: "fork",
@@ -849,28 +1033,37 @@ export function renderCodeMap({
       panelHtml: forkPanel(fork),
     });
   }
-  junctions.forEach((helper, index) => {
-    const id = `JCT-${helper.line ?? index}`;
+  const seenHelperIds = new Set();
+  (helpers ?? []).forEach((helper, index) => {
+    const sev = helperSeverity(helper);
+    const id = `${sev.type === "junction" ? "JCT" : "BND"}-${helper.line ?? index}`;
+    const uid = seenHelperIds.has(id) ? `${id}-${index}` : id;
+    seenHelperIds.add(uid);
     entries.push({
-      id,
-      type: "junction",
+      id: uid,
+      type: sev.type,
       line: helper.line,
       sortLine: helper.line ?? 0,
+      score: sev.score,
       row: {
-        id,
-        type: "junction",
+        id: uid,
+        type: sev.type,
         line: helper.line,
         primary: helper.name ?? "(helper)",
-        secondary: `${helper.inSources ?? 0}→${helper.callerCount ?? 0}`,
+        secondary: helper.verdict ?? `${helper.inSources ?? 0}→${helper.callerCount ?? 0}`,
         metric: "",
-        hue: 205,
+        hue: sev.hue,
       },
-      panelHtml: junctionPanel(helper, id, "junction"),
+      panelHtml: junctionPanel(helper, uid, sev.type),
     });
   });
 
+  // Default order is by SCORE (worst first) — the user wanted to "come in and see
+  // the worst ones", not a line-number list (SORT-1). The client can re-sort by
+  // type or line; data-sort-* on each row carries the keys.
   entries.sort(
     (a, b) =>
+      (b.score ?? 0) - (a.score ?? 0) ||
       (ENTRY_TYPES[a.type]?.order ?? 5) - (ENTRY_TYPES[b.type]?.order ?? 5) ||
       a.sortLine - b.sortLine,
   );
@@ -897,18 +1090,26 @@ export function renderCodeMap({
           .map(
             (t) =>
               `<button type="button" class="efilter" data-filter="${t}">${
-                ENTRY_TYPES[t]?.label ?? t
-              }s ${counts[t]}</button>`,
+                ENTRY_TYPES[t]?.plural ?? `${t}s`
+              } ${counts[t]}</button>`,
           )
           .join("")}</div>`
+      : "";
+
+  // Sort control (SORT-1): score (default) / type / line. Client re-sorts the
+  // list and persists the choice in the URL so a refresh restores it.
+  const sortControl =
+    entries.length > 1
+      ? `<div class="entry-sort"><span class="meta">Sort</span><button type="button" class="esort active" data-sort="score">score</button><button type="button" class="esort" data-sort="type">type</button><button type="button" class="esort" data-sort="line">line</button></div>`
       : "";
 
   const listHtml = entries.length
     ? `<div class="finding-list">
 <strong>${entries.length} item${entries.length === 1 ? "" : "s"} in this file</strong>
-<p class="meta">Findings, repeated forks, junctions, and plain usages. Click any to inspect it; selecting one highlights its path on the source.</p>
+<p class="meta">Findings, repeated forks, junctions, boundaries, and plain usages. Click any to inspect it; selecting one highlights its path on the source.</p>
 ${filterChips}
-<ol>${entries.map((e) => entryRowHtml(e.row)).join("")}</ol>
+${sortControl}
+<ol>${entries.map((e) => entryRowHtml(e.row, e.score ?? 0)).join("")}</ol>
 </div>`
     : '<p class="empty">Nothing analyzed in this file.</p>';
 

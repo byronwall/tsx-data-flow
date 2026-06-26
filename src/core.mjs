@@ -4749,7 +4749,7 @@ function renderFindings(report, args) {
       ...metricTable([
         ["path depth", sink.metrics.maximumPathDepth],
         ["helper hops", sink.metrics.helperHops],
-        ["representation changes", sink.metrics.representationChurn],
+        ["representation churn", sink.metrics.representationChurn],
         ["defensive operations", sink.metrics.defensiveOperationCount],
         ["impossible defenses", sink.metrics.impossibleDefenseCount],
         ["pack risk", sink.metrics.packRisk],
@@ -4905,16 +4905,12 @@ function renderWorkPackets(report, args) {
     lines.push("");
     lines.push("**Why this was selected**");
     lines.push("");
+    // Use the canonical BURDEN_TERMS labels so the same metric is never named
+    // three different ways across views (LABEL-1).
     lines.push(`- path depth ${sink.metrics.maximumPathDepth}`);
-    lines.push(
-      `- ${sink.metrics.defensiveOperationCount} defensive operations`,
-    );
-    lines.push(
-      `- ${sink.metrics.representationChurn} representation-only transformations`,
-    );
-    lines.push(
-      `- ${sink.metrics.impossibleDefenseCount} type-impossible fallbacks`,
-    );
+    lines.push(`- defensive operations ${sink.metrics.defensiveOperationCount}`);
+    lines.push(`- representation churn ${sink.metrics.representationChurn}`);
+    lines.push(`- impossible defenses ${sink.metrics.impossibleDefenseCount}`);
     if (sink.metrics.packRisk > 0) {
       lines.push(`- pack risk ${sink.metrics.packRisk}`);
     }
@@ -8501,7 +8497,7 @@ function changeRiskScore(metrics) {
   );
 }
 
-function findingTitle(sink) {
+export function findingTitle(sink) {
   if (sink.metrics.impossibleDefenseCount > 0) {
     return "type-impossible defensive render path";
   }

@@ -113,10 +113,13 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
 /* Code lines are short, so cap the source column (~800px) and let the detail
    panel absorb the rest — it packs path/reach/defense lists and benefits from
    the room. On narrow screens the source shrinks while the panel keeps a floor. */
-.codemap { display: grid; grid-template-columns: minmax(0, 820px) minmax(360px, 620px); gap: 0; border: 1px solid var(--border); border-radius: 8px; align-items: start; max-width: 1460px; }
+.codemap { display: grid; grid-template-columns: minmax(0, 820px) minmax(420px, 760px); gap: 0; border: 1px solid var(--border); border-radius: 8px; align-items: start; max-width: 1600px; }
 .codemap .src { overflow-x: auto; background: var(--code-bg); margin: 0; border-radius: 8px 0 0 8px; }
-.codemap table.code { border: 0; margin: 0; width: 100%; display: table; font-size: 12.5px; }
+.codemap table.code { border: 0; margin: 0; width: 100%; display: table; font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .codemap table.code td { border: 0; padding: 0 8px; white-space: pre; }
+/* COMMENT-1: comments dimmed (italic + muted) — the "thinnest of highlighting". */
+.codemap table.code .cmt { color: var(--muted); font-style: italic; }
 .codemap td.ln { color: var(--muted); text-align: right; user-select: none; width: 1%; border-right: 2px solid var(--border); }
 .codemap td.gutter { width: 1%; padding: 0 4px; text-align: center; }
 .codemap tr.has-sink { cursor: pointer; }
@@ -238,10 +241,13 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
 .codemap .panel table.path-table th:first-child,
 .codemap .panel table.path-table td.step-no { width: 28px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .codemap .panel table.path-table th:nth-child(2) { width: 64px; }
-.codemap .panel table.path-table td.path-loc { white-space: nowrap; }
+/* OVERFLOW-1: let the location wrap instead of forcing a horizontal scroll, and
+   show the path at full height (no inner max-height) so the whole chain is
+   visible without scrolling inside the panel. */
+.codemap .panel table.path-table td.path-loc { white-space: normal; overflow-wrap: anywhere; }
 .codemap .panel .path-loc { overflow-wrap: anywhere; }
 .codemap .panel table.path-table code { white-space: normal; overflow-wrap: anywhere; }
-.codemap .panel .path-scroll { max-height: 360px; overflow: auto; border-top: 1px solid var(--border); }
+.codemap .panel .path-scroll { overflow-x: auto; border-top: 1px solid var(--border); }
 .codemap .panel ul.reach ul { margin: 2px 0; padding-left: 16px; list-style: none; }
 .codemap .panel ul.reach ul li { color: var(--muted); }
 .codemap .panel .k {
@@ -316,9 +322,32 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
 }
 .entry-filters .efilter.active { color: var(--fg); border-color: var(--accent); background: var(--code-bg); }
 
-/* Defensive markers (DEF-1/DEF-2): any fallback step reads as defensive. */
+/* Defensive markers (DEF-1/DEF-2/DEF-3): any fallback step reads as defensive.
+   DEF-3: mark the row with a left-border accent rather than a green fill (which
+   collided with the low-burden green), and give the Defenses list an icon column
+   so each entry stays on one line. */
 .def-icon { cursor: help; }
-.codemap .panel tr.defensive-step td { background: hsl(140 var(--heat-s) var(--heat-bg-l) / 0.5); }
+.codemap .panel tr.defensive-step td.step-no { box-shadow: inset 3px 0 0 hsl(140 45% 45%); }
+.codemap .panel ul.def-list { list-style: none; padding-left: 0; }
+.codemap .panel ul.def-list li.def-row { display: flex; gap: 6px; align-items: baseline; margin: 3px 0; }
+.codemap .panel ul.def-list .def-mark { flex: 0 0 auto; }
+.codemap .panel ul.def-list .def-body { min-width: 0; overflow-wrap: anywhere; }
+/* Numbered fork sites (FORK-1), matching the path-table step ordinals. */
+.codemap .panel ul.site-list { list-style: none; padding-left: 0; }
+.codemap .panel ul.site-list li { margin: 3px 0; }
+.codemap .panel .site-no {
+  display: inline-block; min-width: 16px; text-align: right; margin-right: 4px;
+  color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px;
+}
+/* Human-readable alias under the finding id (TITLE-1). */
+.codemap .panel .finding-alias { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
+/* Sort control on the inventory list (SORT-1), styled like the filter chips. */
+.entry-sort { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; font-size: 11px; }
+.entry-sort .esort {
+  font-size: 11px; padding: 2px 9px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--muted); cursor: pointer;
+}
+.entry-sort .esort.active { color: var(--fg); border-color: var(--accent); background: var(--code-bg); }
 .codemap .panel .def-jump { margin: 6px 0; }
 .codemap .panel .usage-note { margin: 6px 0; padding: 6px 9px; border-radius: 6px; background: var(--code-bg); color: var(--muted); font-size: 12px; }
 
@@ -337,6 +366,21 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
   background: var(--accent); color: #fff; font-variant-numeric: tabular-nums;
 }
 .codemap td.gutter .path-step-no.def { background: hsl(140 60% 38%); }
+
+/* LAYERS-1: a sticky strip across the top of the file page that jumps to each
+   layer/section (the code map and every report view) without leaving the page. */
+.layer-strip {
+  position: sticky; top: 0; z-index: 50; display: flex; flex-wrap: wrap; gap: 6px;
+  align-items: center; padding: 8px 10px; margin: 0 0 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  overflow-x: auto;
+}
+.layer-strip .layer-label { color: var(--muted); font-size: 12px; margin-right: 4px; white-space: nowrap; }
+.layer-strip a {
+  font-size: 12px; padding: 3px 10px; border-radius: 12px; white-space: nowrap;
+  border: 1px solid var(--border); background: var(--bg); color: var(--fg);
+}
+.layer-strip a:hover { border-color: var(--accent); text-decoration: none; color: var(--accent); }
 `;
 
 const SCRIPT = `
@@ -457,6 +501,35 @@ function showFindingList(map) {
   syncFindingUrl(null);
 }
 
+// Re-sort the inventory list in place (SORT-1): score (worst first) / type / line.
+function sortFindingList(fl, mode) {
+  var ol = fl.querySelector('ol');
+  if (!ol) return;
+  var num = function (li, attr) { return parseFloat(li.getAttribute(attr)) || 0; };
+  var items = [].slice.call(ol.children);
+  items.sort(function (a, b) {
+    if (mode === 'line') return num(a, 'data-sort-line') - num(b, 'data-sort-line');
+    if (mode === 'type') {
+      return (num(a, 'data-sort-order') - num(b, 'data-sort-order'))
+        || (num(a, 'data-sort-line') - num(b, 'data-sort-line'));
+    }
+    return (num(b, 'data-sort-score') - num(a, 'data-sort-score'))
+      || (num(a, 'data-sort-line') - num(b, 'data-sort-line'));
+  });
+  items.forEach(function (li) { ol.appendChild(li); });
+  fl.querySelectorAll('.esort').forEach(function (b) {
+    if (b.getAttribute('data-sort') === mode) b.classList.add('active');
+    else b.classList.remove('active');
+  });
+}
+function syncSortUrl(mode) {
+  if (!window.history || !window.history.replaceState) return;
+  var url = new URL(window.location.href);
+  if (mode && mode !== 'score') url.searchParams.set('lsort', mode);
+  else url.searchParams.delete('lsort');
+  window.history.replaceState({}, '', url);
+}
+
 document.addEventListener('click', function (e) {
   function closePeeks() {
     document.querySelectorAll('.peek.open').forEach(function (p) { p.classList.remove('open'); });
@@ -531,6 +604,18 @@ document.addEventListener('click', function (e) {
         if (want === 'all' || li.getAttribute('data-type') === want) li.removeAttribute('data-hidden');
         else li.setAttribute('data-hidden', '1');
       });
+    }
+    return;
+  }
+
+  // Sort control on the inventory list (SORT-1): re-order and persist in the URL.
+  var esort = e.target.closest('.esort');
+  if (esort) {
+    var sfl = esort.closest('.finding-list');
+    if (sfl) {
+      var mode = esort.getAttribute('data-sort');
+      sortFindingList(sfl, mode);
+      syncSortUrl(mode);
     }
     return;
   }
@@ -633,6 +718,13 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     var hashLine = (window.location.hash || '').match(/^#L(\\d+)$/);
     if (hashLine) flashLine(scrollMapToLine(map, hashLine[1]));
+    // Restore a non-default list sort from the URL (SORT-1); default is by score,
+    // already applied server-side, so only re-sort when ?lsort= says otherwise.
+    var lsort = new URLSearchParams(window.location.search).get('lsort');
+    if (lsort) {
+      var sfl = map.querySelector('.finding-list');
+      if (sfl) sortFindingList(sfl, lsort);
+    }
   }
 });
 `;

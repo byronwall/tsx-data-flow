@@ -345,6 +345,114 @@ describe("renderCodeMap", () => {
     expect(html).toContain('data-finding="');
     expect(html).toContain('data-findings="');
   });
+
+  it("collapses consecutive same-expression path steps into a range (STEP-1)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const sink = {
+      ...baseSink,
+      line: 2,
+      representativeSteps: [
+        { kind: "source", label: "props", file: "src/App.tsx", line: 1 },
+        { kind: "property-read", label: "props.metadata.relationship", file: "src/App.tsx", line: 5 },
+        { kind: "property-read", label: "props.metadata.relationship", file: "src/App.tsx", line: 5 },
+        { kind: "property-read", label: "props.metadata.relationship", file: "src/App.tsx", line: 5 },
+      ],
+    };
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [sink] });
+    // Three identical hops on line 5 collapse into one "2–4" row with a ×3 count.
+    expect(html).toContain('<td class="step-no">2–4</td>');
+    expect(html).toContain("×3");
+    // The summary reports both the raw step count and the collapsed op count.
+    expect(html).toContain("4 steps · 2 ops");
+  });
+
+  it("numbers fork sites like path steps (FORK-1)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const fork = {
+      id: "FK1",
+      file: "src/App.tsx",
+      line: 2,
+      discriminant: "t().type",
+      branchValues: ["a", "b"],
+      sites: [
+        { line: 2, kind: "switch-match", snippet: 't().type === "a"' },
+        { line: 3, kind: "switch-match", snippet: 't().type === "b"' },
+      ],
+    };
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [], forks: [fork] });
+    expect(html).toContain("site-list");
+    expect(html).toContain('<span class="site-no">1</span>');
+    expect(html).toContain('<span class="site-no">2</span>');
+  });
+
+  it("promotes ALL reached helpers, coloring junctions vs benign boundaries (ARCH-2)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const helpers = [
+      {
+        name: "getAskedBy",
+        file: "src/App.tsx",
+        line: 1,
+        verdict: "confluence / junction",
+        inSources: 3,
+        callerCount: 2,
+        callers: [],
+        params: [],
+      },
+      {
+        name: "toLabel",
+        file: "src/App.tsx",
+        line: 2,
+        verdict: "thin pass-through (inline)",
+        inSources: 1,
+        callerCount: 5,
+        callers: [],
+        params: [],
+      },
+    ];
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [], helpers });
+    // Both the strict junction AND the benign boundary are promoted into the list.
+    expect(html).toContain('data-type="junction"');
+    expect(html).toContain('data-type="boundary"');
+    // Junctions/problems are hot (hue 25); benign boundaries are calm (hue 205).
+    expect(html).toContain("--bt:25");
+    expect(html).toContain("--bt:205");
+    // Filter chip pluralizes "boundary" correctly.
+    expect(html).toContain("boundaries 1");
+  });
+
+  it("sorts the inventory by score (worst first) and offers a sort control (SORT-1)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const hi = { ...baseSink, id: "HI", line: 1, scores: { burden: 0.8 } };
+    const lo = { ...baseSink, id: "LO", line: 2, scores: { burden: 0.1 } };
+    // Pass low-burden first to prove the default sort reorders by score, not input.
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [lo, hi] });
+    expect(html).toContain('class="esort active" data-sort="score"');
+    expect(html).toContain("data-sort-score=");
+    const order = [...html.matchAll(/class="finding-row" data-finding="([^"]+)"/g)].map(
+      (m) => m[1],
+    );
+    expect(order.indexOf("HI")).toBeLessThan(order.indexOf("LO"));
+  });
+
+  it("dims comments but not // inside strings (COMMENT-1)", () => {
+    const source = [
+      "const x = 1; // trailing note",
+      "/* block */ const y = 2;",
+      'const u = "http://example.com";',
+    ].join("\n");
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [] });
+    expect(html).toContain('<span class="cmt">// trailing note</span>');
+    expect(html).toContain('<span class="cmt">/* block */</span>');
+    // The // inside the URL string is NOT treated as a comment.
+    expect(html).not.toContain('<span class="cmt">// example.com');
+  });
+
+  it("shows a human alias under the finding id (TITLE-1)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [baseSink] });
+    expect(html).toContain('class="finding-alias"');
+    expect(html).toContain("render-path data-flow hotspot");
+  });
 });
 
 describe("source peek", () => {
@@ -438,6 +546,27 @@ describe("createServer", () => {
     expect(file.body).toContain('id="view-repeated-forks"');
     expect(file.body).toContain("Repeated forks");
     expect(file.body).toContain("props.type");
+  });
+
+  it("renders a sticky layer strip linking each section (LAYERS-1)", async () => {
+    const project = await createFixtureProject(FIXTURE);
+    const { handler } = createServer(project.args);
+    const file = await call(handler, "/file?path=" + encodeURIComponent("src/Card.tsx"));
+    expect(file.status).toBe(200);
+    expect(file.body).toContain('class="layer-strip"');
+    expect(file.body).toContain('href="#codemap"');
+    expect(file.body).toContain('href="#view-junctions"');
+  });
+
+  it("names each burden metric consistently across views (LABEL-1)", async () => {
+    const project = await createFixtureProject(FIXTURE);
+    const { handler } = createServer(project.args);
+    const md = await call(handler, "/api/report.findings.md");
+    expect(md.status).toBe(200);
+    // The canonical BURDEN_TERMS label is used; the old drift names are gone.
+    expect(md.body).toContain("representation churn");
+    expect(md.body).not.toContain("representation changes");
+    expect(md.body).not.toContain("representation-only transformations");
   });
 
   it("filters, searches, and sorts overview file rows through query params", async () => {

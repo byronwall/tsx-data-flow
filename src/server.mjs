@@ -580,6 +580,13 @@ function renderFilePage(
 </details>`;
   }).join("\n");
 
+  // LAYERS-1: a sticky strip across the top to jump between the code map and each
+  // report section without hunting the bottom-of-page stack.
+  const layerStrip = `<nav class="layer-strip"><span class="layer-label">Layers</span><a href="#codemap">Code map</a>${FILE_VIEWS.map(
+    (view) =>
+      `<a href="#view-${view}">${escapeHtml(VIEW_LABELS[view] ?? view)}</a>`,
+  ).join("")}</nav>`;
+
   const body = `<nav class="crumbs"><a href="/">← Overview</a><span>/</span><span>${escapeHtml(
     relPath,
   )}</span></nav>
@@ -590,6 +597,7 @@ function renderFilePage(
     encodeURIComponent(relPath),
   )}"><button type="submit">↻ Re-analyze</button></form>
 </div>
+${layerStrip}
 <h2 id="codemap">Code map</h2>
 <p class="meta">Lines with a colored dot render a ranked finding — click to inspect. Color signals <strong>burden</strong> (severity): the hotter the line, the heavier the render path. Faintly bordered lines lie on a representative path through this file.</p>
 <div class="heat-legend"><span>low burden</span><span class="bar"></span><span>high burden</span></div>
