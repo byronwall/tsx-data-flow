@@ -12,16 +12,24 @@ import {
   hotspotGroups,
   modalValue,
   firstCutFor,
+  fanOutEntriesForFile,
+  entryTypeCountsByFile,
   REPORT_VIEWS,
 } from "./core.mjs";
+
+// OVERVIEW-1: the optional per-type count columns the user can show/hide. `key`
+// matches the entryTypeCountsByFile field; `col` is the CSS/toggle id. Findings
+// is always-on (it is the primary signal) so it is not in this list.
+const OVERVIEW_TYPE_COLUMNS = [
+  { key: "boundaries", col: "boundaries", label: "Boundaries" },
+  { key: "fanOut", col: "fanout", label: "Fan-out" },
+  { key: "relays", col: "relays", label: "Relays" },
+  { key: "unknown", col: "unknown", label: "Unknown" },
+];
 import { markdownToHtml } from "./html/markdown-to-html.mjs";
 import { page, escapeHtml } from "./html/page.mjs";
 import { renderCodeMap } from "./html/code-map.mjs";
 import { peekReferences } from "./html/source-peek.mjs";
-
-// Views worth rendering on the per-file page, in display order. `dossier` is a
-// JSON-oriented view (offered via /api instead) and is omitted here.
-const FILE_VIEWS = REPORT_VIEWS.filter((view) => view !== "dossier");
 
 // Short human labels for the per-file view sections.
 const VIEW_LABELS = {
@@ -40,11 +48,20 @@ const VIEW_LABELS = {
   "repair-map": "Repair map",
   "boundary-report": "Boundary report",
   "unknown-edges": "Unknown edges",
-  "source-boundaries": "Source boundaries",
   junctions: "Junctions",
   "inline-preview": "Inline preview",
+  "component-refs": "References",
   hotspots: "Hotspots",
 };
+
+const viewLabel = (view) => VIEW_LABELS[view] ?? view;
+
+// Report lists are presented alphabetically by label (the curated REPORT_VIEWS
+// order is kept for the CLI `--view all` emission only). `dossier` is a
+// JSON-oriented view (offered via /api instead) and is omitted from the page.
+const FILE_VIEWS = REPORT_VIEWS.filter((view) => view !== "dossier").sort(
+  (a, b) => viewLabel(a).localeCompare(viewLabel(b)),
+);
 
 function send(res, status, body, type = "text/html; charset=utf-8") {
   res.writeHead(status, { "Content-Type": type });
@@ -171,6 +188,7 @@ export function createServer(args) {
             openView,
             sourceFor,
             selectedFinding,
+            cache.full,
           ),
         );
       }
@@ -300,6 +318,9 @@ function overviewRows(report, state) {
   const participating = graphParticipationFiles(report);
   const q = state.q.toLowerCase();
   const groups = hotspotGroups(report, "file").filter((group) => {
+    // "findings" was an accepted filter value with no handler — it silently
+    // behaved like "all". Honor it: only files that actually have a finding.
+    if (state.filter === "findings" && !(group.count > 0)) return false;
     if (state.filter === "unknown" && !fileHasUnknownEdges(group)) return false;
     if (state.filter === "participating" && !participating.has(group.key)) return false;
     if (q && !searchableGroupText(group).includes(q)) return false;
@@ -327,12 +348,14 @@ function reportAssets(state) {
   const q = state.q.toLowerCase();
   return REPORT_VIEWS.map((view) => ({
     view,
-    label: VIEW_LABELS[view] ?? view,
-  })).filter((asset) =>
-    !q ||
-    asset.view.toLowerCase().includes(q) ||
-    asset.label.toLowerCase().includes(q)
-  );
+    label: viewLabel(view),
+  }))
+    .filter((asset) =>
+      !q ||
+      asset.view.toLowerCase().includes(q) ||
+      asset.label.toLowerCase().includes(q)
+    )
+    .sort((a, b) => a.label.localeCompare(b.label));
 }
 
 function overviewNav(report, url = new URL("http://localhost/")) {
@@ -384,6 +407,7 @@ function renderOverview(report, url = new URL("http://localhost/")) {
     .join("");
 
   const groups = overviewRows(report, state);
+  const typeCounts = entryTypeCountsByFile(report);
   const showAll = state.all;
   const totalPages = Math.max(1, Math.ceil(groups.length / OVERVIEW_PAGE_SIZE));
   const currentPage = showAll ? 1 : Math.min(state.page, totalPages);
@@ -392,6 +416,13 @@ function renderOverview(report, url = new URL("http://localhost/")) {
   const pageGroups = showAll
     ? groups
     : groups.slice(pageStart, pageStart + OVERVIEW_PAGE_SIZE);
+  const typeCells = (file) => {
+    const c = typeCounts.get(file) ?? {};
+    return OVERVIEW_TYPE_COLUMNS.map(
+      ({ key, col }) =>
+        `<td class="col-${col} num">${c[key] ? c[key] : '<span class="meta">·</span>'}</td>`,
+    ).join("");
+  };
   const rows = pageGroups
     .map(
       (g) => `<tr>
@@ -399,6 +430,7 @@ function renderOverview(report, url = new URL("http://localhost/")) {
 <td>${g.count}</td>
 <td>${g.worst.toFixed(2)}</td>
 <td>${g.worstSink?.metrics?.maximumPathDepth ?? 0}</td>
+${typeCells(g.key)}
 <td>${escapeHtml(modalValue(g.shapes))}</td>
 <td>${escapeHtml(modalValue(g.ownership))}</td>
 <td>${escapeHtml(firstCutFor(g.worstSink))}</td>
@@ -419,12 +451,14 @@ function renderOverview(report, url = new URL("http://localhost/")) {
   // A sortable column header: clicking re-sorts; the active column shows a caret.
   const sortHeader = (sort, label) => {
     const active = state.sort === sort;
-    const caret = active ? ' <span class="caret" aria-hidden="true">▼</span>' : "";
+    // CARET-1: the caret is a flex sibling pushed to the right, never wrapping to
+    // a new line or growing the header height. The label sits in its own span.
+    const caret = active ? '<span class="caret" aria-hidden="true">▼</span>' : "";
     return `<th class="sortable${active ? " active" : ""}"${
       active ? ' aria-sort="descending"' : ""
     }><a href="${escapeHtml(
       overviewHref(pageState, { sort, page: 1 }),
-    )}">${escapeHtml(label)}${caret}</a></th>`;
+    )}"><span class="th-label">${escapeHtml(label)}</span>${caret}</a></th>`;
   };
   const filterOption = (value, label) =>
     `<option value="${value}"${state.filter === value ? " selected" : ""}>${escapeHtml(
@@ -443,6 +477,18 @@ function renderOverview(report, url = new URL("http://localhost/")) {
 </li>`,
     )
     .join("");
+  // OVERVIEW-1: optional per-type columns + a control to choose which show. The
+  // count columns are not sortable in this first slice (plain headers).
+  const typeHeaders = OVERVIEW_TYPE_COLUMNS.map(
+    ({ col, label }) => `<th class="col-${col} num">${escapeHtml(label)}</th>`,
+  ).join("");
+  const columnToggle = `<fieldset class="col-toggle" id="col-toggle" aria-label="Show or hide columns">
+  <span class="meta">Columns:</span>
+  ${OVERVIEW_TYPE_COLUMNS.map(
+    ({ col, label }) =>
+      `<label><input type="checkbox" data-col="${col}" checked> ${escapeHtml(label)}</label>`,
+  ).join("")}
+</fieldset>`;
   const rangeEnd = showAll
     ? groups.length
     : Math.min(groups.length, pageStart + pageGroups.length);
@@ -501,15 +547,16 @@ function renderOverview(report, url = new URL("http://localhost/")) {
 ${concNote}
 <p class="meta">Each row is one file on a render path. <strong>Findings</strong> = ranked findings in it; <strong>Worst</strong> = its highest burden score; <strong>Path depth</strong> = longest source→sink chain. Click a column header to re-sort.</p>
 <p class="meta">${escapeHtml(pageSummary)}</p>
-<table>
+${columnToggle}
+<table class="overview-table" id="overview-table">
 <thead><tr>${sortHeader("file", "File")}${sortHeader(
     "findings",
     "Findings",
   )}${sortHeader("burden", "Worst")}${sortHeader(
     "depth",
     "Path depth",
-  )}<th>Dominant shape</th><th>Ownership</th><th>First cut</th></tr></thead>
-<tbody>${rows || '<tr><td colspan="7" class="meta">No matching files.</td></tr>'}</tbody>
+  )}${typeHeaders}<th>Dominant shape</th><th>Ownership</th><th>First cut</th></tr></thead>
+<tbody>${rows || `<tr><td colspan="${7 + OVERVIEW_TYPE_COLUMNS.length}" class="meta">No matching files.</td></tr>`}</tbody>
 </table>
 ${pagination}`;
   const reports = `<h2>Report assets</h2>
@@ -543,13 +590,28 @@ function renderFilePage(
   openView,
   resolveSource,
   selectedFinding = null,
+  fullReport = null,
 ) {
   const sinks = report.rankings.all.filter((sink) => sink.file === relPath);
-  // ARCH-1/TS-1: pull the other analysis types for this file so they appear in
-  // the unified inventory — repeated forks, and junction/boundary helpers. These
-  // are the only content on a sink-less .ts waypoint.
+  // ARCH-1/TS-1/ARCH-2: pull EVERY analysis type for this file so it appears in
+  // the unified inventory — repeated forks, junction/boundary helpers, unknown
+  // edges, context relays, and fan-out roots. These are also the only content on
+  // a sink-less .ts waypoint.
   const forks = (report.repeatedForks ?? []).filter((f) => f.file === relPath);
   const helpers = (report.helpers ?? []).filter((h) => h.file === relPath);
+  const unknownEdges = (report.unknownEdges ?? []).filter(
+    (u) => u.file === relPath,
+  );
+  const relays = (report.contextRelay ?? []).filter(
+    (r) => r.parentFile === relPath,
+  );
+  // Fan-out is computed over the GLOBAL sinks (true cross-file reach) but kept to
+  // roots that touch this file; fall back to the file-scoped report if the global
+  // one is unavailable (e.g. in tests).
+  const fanOut = fanOutEntriesForFile(
+    (fullReport ?? report).rankings.all,
+    relPath,
+  );
 
   const codeMap = source
     ? renderCodeMap({
@@ -561,6 +623,9 @@ function renderFilePage(
         selectedFinding,
         forks,
         helpers,
+        unknownEdges,
+        relays,
+        fanOut,
       })
     : `<p class="meta">Source not found on disk: ${escapeHtml(relPath)}</p>`;
 
@@ -580,13 +645,10 @@ function renderFilePage(
 </details>`;
   }).join("\n");
 
-  // LAYERS-1: a sticky strip across the top to jump between the code map and each
-  // report section without hunting the bottom-of-page stack.
-  const layerStrip = `<nav class="layer-strip"><span class="layer-label">Layers</span><a href="#codemap">Code map</a>${FILE_VIEWS.map(
-    (view) =>
-      `<a href="#view-${view}">${escapeHtml(VIEW_LABELS[view] ?? view)}</a>`,
-  ).join("")}</nav>`;
-
+  // LAYERS-2: the sticky "Layers" jump-strip was removed — the user found it
+  // unhelpful ("just get rid of the sticky Layers thing") and wants the report
+  // views folded into the code-map list instead (ARCH-2). The sidebar "On this
+  // page" nav (fileNav) still provides jump links.
   const body = `<nav class="crumbs"><a href="/">← Overview</a><span>/</span><span>${escapeHtml(
     relPath,
   )}</span></nav>
@@ -597,7 +659,6 @@ function renderFilePage(
     encodeURIComponent(relPath),
   )}"><button type="submit">↻ Re-analyze</button></form>
 </div>
-${layerStrip}
 <h2 id="codemap">Code map</h2>
 <p class="meta">Lines with a colored dot render a ranked finding — click to inspect. Color signals <strong>burden</strong> (severity): the hotter the line, the heavier the render path. Faintly bordered lines lie on a representative path through this file.</p>
 <div class="heat-legend"><span>low burden</span><span class="bar"></span><span>high burden</span></div>

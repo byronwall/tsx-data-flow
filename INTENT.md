@@ -30,8 +30,12 @@ there. The user returned to this every session:
   it on the code map. The list ⇄ detail toggle is the core interaction.
 - The standalone "Reports" section is a transitional artifact. Its long-term fate
   is to be *absorbed* into the unified list, not to live below the fold.
-- _Status: findings, usages, forks, and junctions are unified today; boundaries /
-  fan-out / path-census / etc. are the remaining tail to fold in._
+- _Status: findings, usages, forks, junctions, boundaries, fan-out, relays, and
+  unknown edges are unified into the per-file list today. `source-boundaries` was
+  retired (round 5) — its "a source feeds N sinks" signal is the fan-out entry, so
+  a separate row only duplicated it. The standalone Reports section now also
+  alphabetizes. Remaining tail: a network/graph view and a code-map "where used"
+  overlay (both started as first slices, see §3/§7)._
 
 ## 2. Never make the user leave the code map
 
@@ -66,8 +70,16 @@ code itself — a symbol, where it's defined, where it's used.
 - Multiple analyses can attach to the same expression; the data model should let
   them, rather than forcing one finding per fact.
 - "Where used" / "jump to definition" are primary verbs, not buried features.
-- _Status: usage entries now lead with define + where-used; full symbol-indexed
-  "click any token" navigation is the larger remaining piece._
+- Reference identity is by **symbol, not name**. `props.isOpen` in two components
+  are different values; a renamed import is the same component. Any "where used" /
+  fan-out / reference grouping resolves through the checker, never by matching
+  text (a name-keyed fan-out roll-up was the round-5 correctness bug). When a
+  grouping must stay name-based, say so in the UI rather than imply identity.
+- _Status: usage entries lead with define + where-used; fan-out is now scoped to
+  the owning component (`Component › props.x`); a symbol-accurate **component**
+  reference index ("References" view) shipped as the first XREF slice. Full
+  symbol-indexed "click any token" navigation and a code-map "lit up" overlay are
+  the larger remaining pieces._
 
 ## 4. Earn the label "finding" — signal over noise
 
@@ -120,6 +132,15 @@ Small inconsistencies and lies read as bugs and erode confidence fast.
 - Render the actual code, path, and snippets — don't just name a `file:line`.
 - Constantly answer "where am I, which file, which step?": numbered steps, the
   sink tagged, file basenames on hops, flashes on jump.
+- **Every count is drillable.** A bare aggregate ("8 inbound sources", "28 sinks")
+  is a "big scary number" until you can see what's inside it. Any count should be a
+  disclosure that reveals its (capped, "+N more") members, each a clickable
+  location — and it must reveal **without shifting the layout** (a floating
+  popover, not an inline expansion). The count and the revealed list must agree
+  (don't cap the data behind a larger count and imply you showed it all).
+- Prefer a real picture over a table where the relationships are the point: a
+  fan-out/connectivity diagram (nodes + edges, colored by file) shows spread a
+  ranked table cannot. A first fan-out graph slice shipped (round 5).
 
 ## 8. It must look designed
 

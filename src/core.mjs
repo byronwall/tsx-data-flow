@@ -45,9 +45,9 @@ export const REPORT_VIEWS = [
   "repair-map",
   "boundary-report",
   "unknown-edges",
-  "source-boundaries",
   "junctions",
   "inline-preview",
+  "component-refs",
   "hotspots",
 ];
 // `all` is a meta-view: build the report once and emit every concrete view.
@@ -70,7 +70,6 @@ const TABLE_VIEWS = new Set([
   "context-relay",
   "boundary-report",
   "unknown-edges",
-  "source-boundaries",
   "junctions",
   "hotspots",
 ]);
@@ -1096,8 +1095,8 @@ export function renderMarkdownView(report, args) {
       return renderBoundaryReport(report, args);
     case "unknown-edges":
       return renderUnknownEdges(report, args);
-    case "source-boundaries":
-      return renderSourceBoundaries(report, args);
+    case "component-refs":
+      return renderComponentRefs(report, args);
     case "junctions":
       return renderJunctions(report, args);
     case "inline-preview":
@@ -1347,7 +1346,13 @@ function buildReport(ts, program, args, typescriptModulePath = null, routing = n
     ? allHelpers.filter((helper) => fileMatch(helper.file))
     : allHelpers;
   const unknownEdges = buildUnknownEdgeRows(graph, filteredSinks);
-  const sourceBoundaries = buildSourceBoundaryRows(filteredSinks);
+  const allComponentRefs = buildComponentRefs(ts, checker, sourceFiles, args.root);
+  const componentRefs = fileMatch
+    ? allComponentRefs.filter(
+        (ref) =>
+          fileMatch(ref.file) || ref.uses.some((u) => fileMatch(u.file)),
+      )
+    : allComponentRefs;
   const repeatedForks = relateForks(
     fileMatch ? forks.filter((fork) => fileMatch(fork.file)) : forks,
     filteredSinks,
@@ -1382,7 +1387,7 @@ function buildReport(ts, program, args, typescriptModulePath = null, routing = n
     concentration,
     helpers,
     unknownEdges,
-    sourceBoundaries,
+    componentRefs,
     repeatedForks,
     baseline,
     summary: summarize(filteredSinks, graph),
@@ -2274,12 +2279,17 @@ function enrichCatalogRecord(ts, checker, record, args, crossFile) {
     });
     internal = metricsFor(bodyTrace);
     inSources = bodyTrace.roots.length;
-    inRoots = fanOutRootsFor({
-      rootInfos: bodyTrace.rootInfos,
-      roots: bodyTrace.roots,
-    })
-      .map((info) => info.label)
-      .slice(0, 8);
+    // DRILL-1: retain the FULL set of named inbound lineages (deduped) rather
+    // than a hard slice of 8 — the UI reveals them in a popover and caps there,
+    // so the count and the revealed list can no longer disagree.
+    inRoots = [
+      ...new Set(
+        fanOutRootsFor({
+          rootInfos: bodyTrace.rootInfos,
+          roots: bodyTrace.roots,
+        }).map((info) => info.label),
+      ),
+    ];
   }
   const paramNames = new Set(record.params.map((parameter) => parameter.name));
   return {
@@ -2367,6 +2377,62 @@ function isTypeLeak(typeText) {
 // `format` functions are not conflated) but only attempted at sites whose callee
 // *name* matches a reached function — and capped by a budget so a ubiquitous
 // short name (`h`, `_`) can't trigger tens of thousands of checker resolutions.
+// XREF-1 (first slice): a symbol-accurate component reference index. For every
+// JSX element whose tag is a component (capitalized identifier), resolve the tag
+// to its declaration via the checker — NOT by name (the exact mistake FANOUT-1
+// fixed) — and record the use site against that component's definition. The tool
+// has the full call graph; this exposes "where is this component used" as a
+// first-class verb. Components only for now; member tags (`Foo.Bar`) and plain
+// symbols are a later expansion. The eventual home is a code-map "where used"
+// overlay; this index backs the References view today.
+function buildComponentRefs(ts, checker, sourceFiles, root) {
+  const byDef = new Map();
+  let budget = 8000;
+  const resolveDecl = (symbol) => {
+    let s = symbol;
+    try {
+      if (s && s.flags & ts.SymbolFlags.Alias) s = checker.getAliasedSymbol(s);
+    } catch {
+      /* not an alias */
+    }
+    return { symbol: s, decl: s?.declarations?.[0] ?? null };
+  };
+  for (const sourceFile of sourceFiles) {
+    const fileRel = relativePath(root, sourceFile.fileName);
+    const visit = (node) => {
+      if (budget <= 0) return;
+      const tag =
+        ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)
+          ? node.tagName
+          : null;
+      if (tag && ts.isIdentifier(tag) && /^[A-Z]/.test(tag.text)) {
+        budget -= 1;
+        const { symbol, decl } = resolveDecl(checker.getSymbolAtLocation(tag));
+        if (symbol && decl) {
+          const declFile = decl.getSourceFile();
+          const defFile = relativePath(root, declFile.fileName);
+          const defLine = locationOf(declFile, decl).line;
+          const key = `${defFile}:${defLine}:${tag.text}`;
+          let rec = byDef.get(key);
+          if (!rec) {
+            rec = { name: tag.text, file: defFile, line: defLine, useCount: 0, uses: [] };
+            byDef.set(key, rec);
+          }
+          rec.useCount += 1;
+          if (rec.uses.length < 25) {
+            rec.uses.push({ file: fileRel, line: locationOf(sourceFile, node).line });
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+  return [...byDef.values()]
+    .filter((rec) => rec.useCount > 0)
+    .sort((a, b) => b.useCount - a.useCount || a.name.localeCompare(b.name));
+}
+
 function countCallers(ts, checker, sourceFiles, reached, crossFile, args) {
   const bySymbol = new Map(reached.map((record) => [record.symbol, record]));
   const names = new Set(reached.map((record) => record.name));
@@ -3723,75 +3789,6 @@ function affectedSinksForUnknownEdge(sinks, edge) {
     })
     .slice(0, REACHED_VIA_CAP)
     .map(reachedSinkDescriptor);
-}
-
-function buildSourceBoundaryRows(sinks) {
-  const map = new Map();
-  for (const sink of sinks) {
-    const rootInfos =
-      sink.rootInfos ??
-      sink.roots.map((root) => ({ label: root, kind: "source" }));
-    for (const root of rootInfos) {
-      if (!isSourceBoundaryRoot(root)) continue;
-      const location = sourceBoundaryLocation(root, sink);
-      const key = `${location.file}:${location.line ?? ""}:${root.kind}:${root.label}`;
-      let row = map.get(key);
-      if (!row) {
-        row = {
-          file: location.file,
-          line: location.line,
-          symbol: root.label,
-          kind: root.kind,
-          sinkCount: 0,
-          sinkFiles: new Set(),
-          affectedSinks: [],
-          omittedSinks: 0,
-        };
-        map.set(key, row);
-      }
-      row.sinkCount += 1;
-      row.sinkFiles.add(sink.file);
-      if (row.affectedSinks.length < REACHED_VIA_CAP) {
-        row.affectedSinks.push(reachedSinkDescriptor(sink));
-      } else {
-        row.omittedSinks += 1;
-      }
-    }
-  }
-  return Array.from(map.values())
-    .map((row) => ({
-      ...row,
-      sinkFiles: row.sinkFiles.size,
-    }))
-    .sort(
-      (left, right) =>
-        right.sinkCount - left.sinkCount ||
-        left.file.localeCompare(right.file) ||
-        Number(left.line ?? 0) - Number(right.line ?? 0) ||
-        left.symbol.localeCompare(right.symbol),
-    );
-}
-
-function isSourceBoundaryRoot(root) {
-  if (!root?.label) return false;
-  if (root.kind === "literal" || root.kind === "parameter") return false;
-  if (NON_FAN_OUT_GLOBALS.has(root.label)) return false;
-  return true;
-}
-
-function sourceBoundaryLocation(root, sink) {
-  const rootFile = sink.file;
-  const steps = sink.representativeSteps ?? [];
-  const direct = steps.find(
-    (step) =>
-      step.label === root.label ||
-      root.label.endsWith(`.${step.label}`) ||
-      step.label.endsWith(`.${root.label}`),
-  );
-  return {
-    file: direct?.file ?? rootFile,
-    line: direct?.line ?? sink.line,
-  };
 }
 
 function isCertaintyBoundaryDefense(defense) {
@@ -5381,7 +5378,17 @@ function renderDefensiveLedger(report, args) {
       else byKey.set(key, { sink, defense, count: 1 });
     }
   }
+  // Impossible verdicts (dead guards) matter most; rank them first so a small
+  // --max-items cap surfaces the worst, not whatever was encountered first.
+  // Tie-break on fan-out (count) so a guard that reaches many sinks wins.
+  const verdictRank = { impossible: 0, possible: 1, unknown: 2 };
   const rows = [...byKey.values()]
+    .sort((a, b) => {
+      const va = verdictRank[a.defense.verdict] ?? 3;
+      const vb = verdictRank[b.defense.verdict] ?? 3;
+      if (va !== vb) return va - vb;
+      return b.count - a.count;
+    })
     .slice(0, args.maxItems)
     .map(({ sink, defense, count }) => [
       `${sink.file}:${defense.location.line}`,
@@ -5665,22 +5672,28 @@ function renderUnknownEdges(report, args) {
   );
 }
 
-function renderSourceBoundaries(report, args) {
-  const rows = (report.sourceBoundaries ?? []).slice(0, args.maxItems);
+// XREF-1: "where used" for components. Each row is a component definition and
+// the JSX sites that render it (resolved by symbol, not name). Locations are
+// emitted as file:line so peekReferences makes every use site click-to-reveal.
+function renderComponentRefs(report, args) {
+  const rows = (report.componentRefs ?? []).slice(0, args.maxItems);
   if (rows.length === 0) {
-    return `# Source Boundaries\n\n${viewIntro("source-boundaries", report).join("\n")}No actionable source roots were found in the selected render paths.\n`;
+    return `# References\n\n${viewIntro("component-refs", report).join("\n")}No component usages were resolved in the selected files.\n`;
   }
   return tableReport(
-    "Source Boundaries",
-    ["Where", "Symbol", "Kind", "Sink reach", "Representative sinks"],
-    rows.map((row) => [
-      `${row.file}:${row.line ?? "?"}`,
-      code(formatExpression(row.symbol, 48)),
-      row.kind,
-      `${row.sinkCount} sink${row.sinkCount === 1 ? "" : "s"} / ${row.sinkFiles} file${row.sinkFiles === 1 ? "" : "s"}`,
-      affectedSinkSummary(row.affectedSinks),
-    ]),
-    viewIntro("source-boundaries", report),
+    "References",
+    ["Component", "Defined", "Uses", "Used by"],
+    rows.map((row) => {
+      const shown = row.uses.slice(0, 6).map((u) => `${u.file}:${u.line}`);
+      const extra = row.useCount - shown.length;
+      return [
+        code(row.name),
+        `${row.file}:${row.line ?? "?"}`,
+        String(row.useCount),
+        shown.join("; ") + (extra > 0 ? ` … +${extra} more` : ""),
+      ];
+    }),
+    viewIntro("component-refs", report),
   );
 }
 
@@ -5782,7 +5795,20 @@ function junctionBody(helper) {
 // Approach 3 — inline-vs-keep decision per reached helper, from its internal
 // metrics and caller count (a heuristic preview, not a codemod).
 function renderInlinePreview(report, args) {
-  const helpers = (report.helpers ?? []).slice(0, args.maxItems);
+  // The point of this view is the actionable verdict, so rank the helpers worth
+  // inlining first (INLINE), then the fix-the-boundary cases, with plain KEEP
+  // last — otherwise the cap shows a wall of "keep" that tells the reader
+  // nothing. Decide on the full list before capping.
+  const verdictRank = (verdict) => {
+    if (verdict === "INLINE") return 0;
+    if (verdict === "KEEP (fix boundary)") return 1;
+    if (verdict === "KEEP & FORMALIZE") return 2;
+    return 3; // plain KEEP
+  };
+  const ranked = (report.helpers ?? [])
+    .map((helper) => ({ helper, decision: inlineDecision(helper) }))
+    .sort((a, b) => verdictRank(a.decision.verdict) - verdictRank(b.decision.verdict));
+  const helpers = ranked.slice(0, args.maxItems);
   const lines = [
     "# Inline Preview",
     "",
@@ -5793,8 +5819,13 @@ function renderInlinePreview(report, args) {
     lines.push("");
     return `${lines.join("\n")}`;
   }
-  for (const helper of helpers) {
-    const decision = inlineDecision(helper);
+  if (!helpers.some(({ decision }) => decision.verdict === "INLINE")) {
+    lines.push(
+      "Nothing here is worth inlining — every reached helper is a genuine boundary (verdict KEEP). Listed worst-first for review.",
+    );
+    lines.push("");
+  }
+  for (const { helper, decision } of helpers) {
     lines.push(
       `## ${helper.name}  (${helper.file}:${helper.line} · ${helper.callerCount} caller(s) · ${helper.verdict})`,
     );
@@ -7039,10 +7070,6 @@ function selectViewPayload(report, args) {
       args.view === "unknown-edges"
         ? (report.unknownEdges ?? []).slice(0, args.maxItems)
         : undefined,
-    sourceBoundaries:
-      args.view === "source-boundaries"
-        ? (report.sourceBoundaries ?? []).slice(0, args.maxItems)
-        : undefined,
     packGroups: ["work-packets", "findings", "dossier"].includes(args.view)
       ? (report.packGroups ?? []).slice(0, args.maxItems)
       : undefined,
@@ -7711,10 +7738,11 @@ function fanOutRows(sinks) {
   const map = new Map();
   for (const sink of sinks) {
     for (const info of fanOutRootsFor(sink)) {
-      let entry = map.get(info.label);
+      const { key, label } = fanOutIdentity(sink, info);
+      let entry = map.get(key);
       if (!entry) {
-        entry = { sinks: 0, files: new Set(), example: null, maxDepth: 0 };
-        map.set(info.label, entry);
+        entry = { label, sinks: 0, files: new Set(), example: null, maxDepth: 0 };
+        map.set(key, entry);
       }
       entry.sinks += 1;
       entry.files.add(sink.file);
@@ -7727,15 +7755,116 @@ function fanOutRows(sinks) {
       }
     }
   }
-  return Array.from(map.entries())
-    .map(([root, value]) => [
-      root,
+  return Array.from(map.values())
+    .map((value) => [
+      value.label,
       String(value.sinks),
       String(value.files.size),
       value.example ? `${value.example.file}:${value.example.line}` : "",
       String(value.maxDepth),
     ])
     .sort((left, right) => Number(right[1]) - Number(left[1]));
+}
+
+// ARCH-2 (B): fan-out entries scoped to a single file, for the code-map unified
+// list. A fan-out row is a source that feeds many render sinks; its natural unit
+// is cross-file (how widely the value spreads), so we compute over ALL sinks to
+// keep the true reach count, then keep only roots that touch `relPath` and anchor
+// each to one of its in-file sinks. `total` is the cross-file sink count;
+// `sinks` is the (capped) list of in-file sinks for jump links.
+export function fanOutEntriesForFile(allSinks, relPath) {
+  const map = new Map();
+  for (const sink of allSinks ?? []) {
+    for (const info of fanOutRootsFor(sink)) {
+      const { key, label } = fanOutIdentity(sink, info);
+      let entry = map.get(key);
+      if (!entry) {
+        entry = {
+          root: label,
+          kind: info.kind,
+          total: 0,
+          files: new Set(),
+          inFile: [],
+          // GRAPH-1: a capped cross-file sample so the fan-out graph can show the
+          // spread colored by file, not just the in-file sinks.
+          graphSinks: [],
+          example: null,
+          maxDepth: 0,
+        };
+        map.set(key, entry);
+      }
+      entry.total += 1;
+      entry.files.add(sink.file);
+      if (entry.graphSinks.length < 40)
+        entry.graphSinks.push(reachedSinkDescriptor(sink));
+      entry.maxDepth = Math.max(
+        entry.maxDepth,
+        sink.metrics?.maximumPathDepth ?? 0,
+      );
+      if (sink.file === relPath) {
+        if (entry.inFile.length < REACHED_VIA_CAP)
+          entry.inFile.push(reachedSinkDescriptor(sink));
+        if (
+          !entry.example ||
+          (sink.metrics?.maximumPathDepth ?? 0) >
+            (entry.example.metrics?.maximumPathDepth ?? 0)
+        ) {
+          entry.example = sink;
+        }
+      }
+    }
+  }
+  return Array.from(map.values())
+    .filter((entry) => entry.inFile.length > 0 && entry.total >= 2)
+    .map((entry) => ({
+      root: entry.root,
+      kind: entry.kind,
+      sinkCount: entry.total,
+      fileCount: entry.files.size,
+      line: entry.example?.line ?? entry.inFile[0]?.line ?? null,
+      maxDepth: entry.maxDepth,
+      sinks: entry.inFile,
+      graphSinks: entry.graphSinks,
+    }))
+    .sort((left, right) => right.sinkCount - left.sinkCount);
+}
+
+// OVERVIEW-1: per-file counts of every non-finding entry type, so the overview
+// table can show breadth across types (not just the finding count) in optional
+// columns. Findings/path-depth already come from hotspotGroups; this adds
+// boundaries (reached helpers), relays (context-aware parents), unknown edges,
+// and fan-out roots. One pass over sinks for fan-out; the rest are direct.
+export function entryTypeCountsByFile(report) {
+  const counts = new Map();
+  const bump = (file, key) => {
+    if (!file) return;
+    let c = counts.get(file);
+    if (!c) {
+      c = { boundaries: 0, relays: 0, unknown: 0, fanOut: 0 };
+      counts.set(file, c);
+    }
+    c[key] += 1;
+  };
+  for (const helper of report.helpers ?? []) bump(helper.file, "boundaries");
+  for (const relay of report.contextRelay ?? []) bump(relay.parentFile, "relays");
+  for (const edge of report.unknownEdges ?? []) bump(edge.file, "unknown");
+  // Fan-out: a file "has" a fan-out root when that root reaches ≥2 sinks total
+  // and at least one of them lives in the file (mirrors fanOutEntriesForFile).
+  const totals = new Map();
+  const filesByRoot = new Map();
+  for (const sink of report.rankings?.all ?? report.sinks ?? []) {
+    for (const info of fanOutRootsFor(sink)) {
+      const { key } = fanOutIdentity(sink, info);
+      totals.set(key, (totals.get(key) ?? 0) + 1);
+      if (!filesByRoot.has(key)) filesByRoot.set(key, new Set());
+      filesByRoot.get(key).add(sink.file);
+    }
+  }
+  for (const [key, files] of filesByRoot) {
+    if ((totals.get(key) ?? 0) < 2) continue;
+    for (const file of files) bump(file, "fanOut");
+  }
+  return counts;
 }
 
 // Global identifiers and language keywords that the local file context cannot
@@ -7794,6 +7923,27 @@ function fanOutRootsFor(sink) {
       info.kind !== "parameter" &&
       !NON_FAN_OUT_GLOBALS.has(info.label),
   );
+}
+
+// FANOUT-1: a `prop-read` root (`props.isOpen`) is local to the component that
+// declares those props — two different components reading `props.isOpen` are
+// different values. Keying fan-out by the bare expression text merged unrelated
+// props across the whole repo (badly so for common names like `isOpen`) and
+// inflated the consumer count. So scope prop-derived roots by their owning
+// component; module-level/hook/import/context roots stay globally keyed because
+// those genuinely are one shared source feeding many files. The display label is
+// qualified with the component so the grouping basis is visible, not implied.
+const PROP_SCOPED_FANOUT_KINDS = new Set(["prop-read"]);
+function fanOutIdentity(sink, info) {
+  if (PROP_SCOPED_FANOUT_KINDS.has(info.kind)) {
+    const component = sink.renderContext?.component ?? null;
+    const scope = component ?? sink.file ?? "";
+    return {
+      key: `${scope}::${info.label}`,
+      label: component ? `${component} › ${info.label}` : info.label,
+    };
+  }
+  return { key: info.label, label: info.label };
 }
 
 function analyzeContextRelay(ts, sourceFiles, root) {
@@ -8106,7 +8256,10 @@ const VIEW_BLURBS = {
     "Ranks source values by how many render sinks consume them. _Sinks_ is that " +
     "consumer count, _Files_ how many files reference the source, _Example sink_ a " +
     "representative file:line to open first, and _Max depth_ the longest " +
-    "transformation path from that source to JSX.",
+    "transformation path from that source to JSX. Prop reads are scoped to their " +
+    "owning component (shown as `Component › props.x`) so a common prop name is not " +
+    "merged across unrelated components; hooks, imports, and context values stay " +
+    "keyed globally since they really are one shared source.",
   "fan-in":
     "Ranks render sinks by how many independent inputs they merge. _Root sources_ " +
     "is the fan-in count, _Predicates_ the number of conditional branches on the " +
@@ -8145,7 +8298,9 @@ const VIEW_BLURBS = {
   "repair-map":
     "A triage board grouping sinks into _peripheral quick wins_, _central leverage_ " +
     "(sources feeding many sinks), and _investigate_ (paths with unknowns). The " +
-    "leading bold number is the burden score (higher = more plumbing).",
+    "leading bold number is the burden score (higher = more plumbing). Includes the " +
+    "same ranked findings as the Findings view (trivial plain usages excluded), just " +
+    "re-bucketed by suggested action — it does not detect anything new.",
   "boundary-report":
     "First-party functions reached while tracing render paths, scored as data-flow " +
     "boundaries. _In-src_ = distinct values reaching the return; _Callers_ = call " +
@@ -8156,10 +8311,12 @@ const VIEW_BLURBS = {
     "Unresolved graph edges that static tracing could not follow, grouped by " +
     "file, line, operation kind, and unresolved label. _Affected sinks_ lists " +
     "representative rendered values whose path crosses the unknown edge.",
-  "source-boundaries":
-    "Actionable root values at the edge of render paths, grouped by file, symbol, " +
-    "and source kind. _Sink reach_ shows how many rendered sinks and files each " +
-    "source boundary feeds.",
+  "component-refs":
+    "Where each component is used. The JSX tag is resolved to its declaration by " +
+    "symbol (not by name), so a renamed import or a same-named local is counted " +
+    "correctly. _Uses_ is the total render count; _Used by_ lists representative " +
+    "call sites. (First slice: capitalized component tags; member tags like " +
+    "`Foo.Bar` and non-component symbols come later.)",
   junctions:
     "Functions where independent source lineages fork in (_tributaries_) and the " +
     "result re-spreads to multiple call sites (_distributaries_) — the load-bearing " +
@@ -8172,7 +8329,8 @@ const VIEW_BLURBS = {
     "never rewrites.",
   hotspots:
     "The breadth map: one row per file (or per feature with --by feature) that has " +
-    "render-path findings, so the spread of work is visible at a glance. _Hotspots_ " +
+    "at least one **ranked finding** (a render sink above the significance threshold; " +
+    "trivial plain usages are excluded), so the spread of work is visible at a glance. _Hotspots_ " +
     "is the finding count, _Worst_ the heaviest burden, _Dominant shape_/_Ownership_ " +
     "the most common path shape and ownership hint, and _First cut_ the suggested " +
     "starting action. The Concentration footer quantifies how clustered the work is.",

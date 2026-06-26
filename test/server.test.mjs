@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   analyzeProject,
   createAnalyzer,
+  fanOutEntriesForFile,
   parseArgs,
   REPORT_VIEWS,
 } from "../src/core.mjs";
@@ -270,7 +271,9 @@ describe("renderCodeMap", () => {
       resolveSource: (p) => (p === "src/helper.ts" ? helperSource : source),
     });
     expect(html).toContain('class="path-table"');
-    expect(html).toContain("<th>#</th><th>Kind</th><th>Location</th><th>Expression</th>");
+    // STEP-3: Expression sits ahead of the (taller) Location column, not buried
+    // in the far-right narrow slot.
+    expect(html).toContain("<th>#</th><th>Kind</th><th>Expression</th><th>Location</th>");
     expect(html).toContain('<td class="step-no">1</td>');
     // Cross-file hop → a real link to that file's page (so hops navigate).
     expect(html).toContain(
@@ -420,6 +423,33 @@ describe("renderCodeMap", () => {
     expect(html).toContain("boundaries 1");
   });
 
+  it("makes the inbound-source count a click-to-reveal popover (DRILL-1)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const helpers = [
+      {
+        name: "merge",
+        file: "src/App.tsx",
+        line: 1,
+        verdict: "confluence / junction",
+        inSources: 3,
+        callerCount: 2,
+        inRoots: ["props.a", "state.b", "ctx.c"],
+        callers: [{ file: "src/Other.tsx", line: 9 }],
+        params: [],
+      },
+    ];
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [], helpers });
+    // The count is a peek trigger, with the members revealed in the popover.
+    expect(html).toContain('class="peek-label">3 inbound source(s)');
+    expect(html).toContain('class="peek-pop">');
+    expect(html).toContain("props.a");
+    // The term is glossed, not just named.
+    expect(html).toContain("independent source");
+    // The caller count reveals the distributary (a clickable cross-file link).
+    expect(html).toContain('class="peek-label">2 caller(s)');
+    expect(html).toContain("Other.tsx:9");
+  });
+
   it("sorts the inventory by score (worst first) and offers a sort control (SORT-1)", () => {
     const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
     const hi = { ...baseSink, id: "HI", line: 1, scores: { burden: 0.8 } };
@@ -432,6 +462,57 @@ describe("renderCodeMap", () => {
       (m) => m[1],
     );
     expect(order.indexOf("HI")).toBeLessThan(order.indexOf("LO"));
+  });
+
+  it("renders the sort control as a segmented group with an aligned label (HEAD-2/HEAD-3)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const hi = { ...baseSink, id: "HI", line: 1, scores: { burden: 0.8 } };
+    const lo = { ...baseSink, id: "LO", line: 2, scores: { burden: 0.1 } };
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [lo, hi] });
+    expect(html).toContain('class="entry-sort-label"');
+    expect(html).toContain('<div class="seg"');
+    expect(html).toContain('class="esort active" data-sort="score"');
+  });
+
+  it("pins the list header (count/filter/sort) so it stays visible (HEAD-4)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [baseSink] });
+    expect(html).toContain('class="finding-list-head"');
+  });
+
+  it("collapses consecutive same-line path steps and shows the snippet once (STEP-2)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    // Three steps on the SAME line (different kinds) must merge into one row.
+    const sink = {
+      ...baseSink,
+      representativeSteps: [
+        { kind: "source", label: "build()", file: "src/App.tsx", line: 1 },
+        { kind: "property-read", label: "build().x", file: "src/App.tsx", line: 1 },
+        { kind: "call", label: "build().x()", file: "src/App.tsx", line: 1 },
+        { kind: "call", label: "<div>{v}</div>", file: "src/App.tsx", line: 2 },
+      ],
+    };
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [sink] });
+    // The run 1–3 collapses to a single ordinal range with a ×3 repeat marker.
+    expect(html).toContain('<td class="step-no">1–3</td>');
+    expect(html).toContain("×3");
+    // The distinct kinds on the line are listed (not a vague "ops").
+    expect(html).toContain("source · read · call");
+  });
+
+  it("emphasizes branch-exclusive computations with an amber accent class (FORK-2)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const fork = {
+      id: "FORK-1",
+      file: "src/App.tsx",
+      line: 1,
+      discriminant: "props.type",
+      branchValues: ["a", "b"],
+      sites: [{ line: 1, kind: "ternary", value: "x" }],
+      branchExclusive: [{ line: 2, name: "barData", branch: "bar" }],
+    };
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [], forks: [fork] });
+    expect(html).toContain('class="why branch-exclusive"');
   });
 
   it("dims comments but not // inside strings (COMMENT-1)", () => {
@@ -453,6 +534,117 @@ describe("renderCodeMap", () => {
     expect(html).toContain('class="finding-alias"');
     expect(html).toContain("render-path data-flow hotspot");
   });
+
+  it("promotes unknown edges, relays, and fan-out into the list (ARCH-2)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [],
+      unknownEdges: [
+        { id: "U1", file: "src/App.tsx", line: 2, kind: "call", label: "fetchThing", occurrences: 4, affectedSinks: [] },
+      ],
+      relays: [
+        { parentFile: "src/App.tsx", line: 1, childComponent: "Card", childFile: "src/Card.tsx", props: ["a", "b", "c"], sharedProps: ["theme"], contextHooks: ["useTheme"], score: 6, signal: "shared bundle" },
+      ],
+      fanOut: [
+        {
+          root: "props.user",
+          kind: "property-read",
+          sinkCount: 5,
+          fileCount: 2,
+          line: 1,
+          maxDepth: 4,
+          sinks: [],
+          graphSinks: [
+            { id: "S1", file: "src/App.tsx", line: 2, label: "div / text" },
+            { id: "S2", file: "src/Card.tsx", line: 7, label: "span / title" },
+          ],
+        },
+      ],
+    });
+    // source-boundaries removed round-5 (folded away); the rest stay first-class.
+    expect(html).not.toContain('data-entry-type="source"');
+    expect(html).toContain('data-entry-type="unknown"');
+    expect(html).toContain('data-entry-type="relay"');
+    expect(html).toContain('data-entry-type="fan-out"');
+    // Each gets a filter chip and a typed badge.
+    expect(html).toContain('data-filter="fan-out"');
+    expect(html).toContain('class="badge q-relay"');
+    // The fan-out headline reports its cross-file reach.
+    expect(html).toContain("feeds 5 sink(s)");
+    // GRAPH-1: the fan-out entry renders a node/edge SVG of source → sinks,
+    // and (5 total > 2 shown) notes the cross-file remainder.
+    expect(html).toContain('class="fanout-graph"');
+    expect(html).toContain("<svg");
+    expect(html).toContain("+3 more sink(s) in other files");
+    // RELAY-1: the in-scope context hook is surfaced in the relay accent.
+    expect(html).toContain('ul class="why relay-context"');
+  });
+
+  it("offers a merge-width (sources) sort and a defended facet filter (ARCH-2 C)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const wide = {
+      ...baseSink,
+      id: "WIDE",
+      line: 1,
+      metrics: { mergeWidth: 5 },
+      defenses: [{ expression: "x ?? y", verdict: "possible", location: { line: 1 } }],
+    };
+    const narrow = { ...baseSink, id: "NARROW", line: 2, metrics: { mergeWidth: 1 }, defenses: [] };
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [narrow, wide] });
+    expect(html).toContain('data-sort="sources"');
+    expect(html).toContain('data-sort-sources="5"');
+    expect(html).toContain('data-filter="defended"');
+    // The defended finding carries the facet marker; the plain one does not.
+    expect(html).toMatch(/data-has-defenses="1"[^>]*>[\s\S]*WIDE/);
+  });
+
+  it("surfaces a per-file hotspots/path-census stats line (ARCH-2 D)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const s1 = { ...baseSink, id: "A", line: 1, scores: { burden: 0.6 }, metrics: { maximumPathDepth: 12 } };
+    const s2 = { ...baseSink, id: "B", line: 2, scores: { burden: 0.2 }, metrics: { maximumPathDepth: 4 } };
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [s1, s2] });
+    expect(html).toContain('class="file-stats meta"');
+    expect(html).toContain("worst 0.60");
+    expect(html).toContain("path depth max 12");
+  });
+
+  it("explains the Defenses count vs. listed guard sites (DEF-4)", () => {
+    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const sink = {
+      ...baseSink,
+      metrics: { actionableDefensiveOperationCount: 6 },
+      defenses: [{ expression: "a ?? b", verdict: "possible", type: "??", location: { line: 2 } }],
+    };
+    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [sink] });
+    expect(html).toContain("Defenses — 1");
+    expect(html).toContain("6 defensive operations across all paths");
+  });
+});
+
+describe("fanOutEntriesForFile (ARCH-2)", () => {
+  it("keeps roots that fan out (>=2 sinks) and touch the target file", () => {
+    const mk = (id, file, root) => ({
+      id,
+      file,
+      line: 1,
+      metrics: { maximumPathDepth: 3 },
+      rootInfos: [{ label: root, kind: "property-read" }],
+    });
+    const all = [
+      mk("a", "src/App.tsx", "props.user"),
+      mk("b", "src/Other.tsx", "props.user"),
+      mk("c", "src/App.tsx", "props.lonely"),
+    ];
+    const rows = fanOutEntriesForFile(all, "src/App.tsx");
+    const user = rows.find((r) => r.root === "props.user");
+    expect(user).toBeTruthy();
+    expect(user.sinkCount).toBe(2);
+    expect(user.fileCount).toBe(2);
+    // A root feeding only one sink is not fan-out.
+    expect(rows.find((r) => r.root === "props.lonely")).toBeFalsy();
+  });
 });
 
 describe("source peek", () => {
@@ -472,15 +664,18 @@ describe("source peek", () => {
     expect(html).not.toContain("const d = 4;");
   });
 
-  it("rewrites path:line references into peek popovers, skipping <pre>", () => {
+  it("rewrites path:line references into peek popovers, including inside <pre>", () => {
     const resolve = (p) => (p === "src/x.tsx" ? SRC : null);
     const html =
       "<p>see src/x.tsx:2 here</p><pre><code>src/x.tsx:3</code></pre>";
     const out = peekReferences(html, resolve);
     expect(out).toContain('<span class="peek">');
     expect(out).toContain("src/x.tsx:2");
-    // the reference inside <pre> is left untouched
-    expect(out).toContain("<pre><code>src/x.tsx:3</code></pre>");
+    // LINK-1: references inside <pre>/fenced blocks are now clickable too — the
+    // user clicked a "line N" inside a code block and could not navigate from it.
+    expect(out).not.toContain("<pre><code>src/x.tsx:3</code></pre>");
+    // two distinct references → two popovers
+    expect(out.match(/class="peek"/g)?.length).toBe(2);
   });
 
   it("leaves references with no resolvable source as plain text", () => {
@@ -498,6 +693,11 @@ describe("createServer", () => {
     expect(home.status).toBe(200);
     expect(home.body).toContain("/file?path=");
     expect(home.body).toContain("Render-path overview");
+    // OVERVIEW-1: optional per-type columns + the show/hide control are present.
+    expect(home.body).toContain('id="col-toggle"');
+    expect(home.body).toContain('id="overview-table"');
+    expect(home.body).toContain('class="col-fanout num">Fan-out</th>');
+    expect(home.body).toContain('data-col="boundaries"');
 
     const file = await call(
       handler,
@@ -548,13 +748,14 @@ describe("createServer", () => {
     expect(file.body).toContain("props.type");
   });
 
-  it("renders a sticky layer strip linking each section (LAYERS-1)", async () => {
+  it("no longer renders the sticky layer strip (LAYERS-2 removed it)", async () => {
     const project = await createFixtureProject(FIXTURE);
     const { handler } = createServer(project.args);
     const file = await call(handler, "/file?path=" + encodeURIComponent("src/Card.tsx"));
     expect(file.status).toBe(200);
-    expect(file.body).toContain('class="layer-strip"');
-    expect(file.body).toContain('href="#codemap"');
+    // The strip was removed; the sidebar "On this page" nav still provides jumps.
+    expect(file.body).not.toContain('class="layer-strip"');
+    expect(file.body).toContain("On this page");
     expect(file.body).toContain('href="#view-junctions"');
   });
 
@@ -700,8 +901,9 @@ describe("createServer", () => {
       "/file?path=" + encodeURIComponent("src/Forky.tsx"),
     );
     expect(file.status).toBe(200);
-    // Unified inventory with type filter + type tags.
-    expect(file.body).toContain("items in this file");
+    // Unified inventory with type filter + type tags. HEAD-1: the count now lives
+    // in the "All N" filter pill, not a redundant "N items in this file" line.
+    expect(file.body).toContain('data-filter="all"');
     expect(file.body).toContain('class="entry-filters"');
     expect(file.body).toContain('data-entry-type="fork"');
     expect(file.body).toContain("repeated fork");
@@ -744,6 +946,9 @@ describe("createServer", () => {
     expect(byBurden.body).toContain("<h2>Files by burden</h2>");
     expect(byBurden.body).toContain('class="sortable active"');
     expect(byBurden.body).toContain('<span class="caret"');
+    // CARET-1: the label is in its own span so the caret sits inline-right via
+    // flex, never wrapping to a new line or growing the header height.
+    expect(byBurden.body).toContain('<span class="th-label">');
     // Header is a link that re-sorts.
     expect(byBurden.body).toContain('href="/?sort=findings"');
 

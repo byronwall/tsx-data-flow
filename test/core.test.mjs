@@ -603,7 +603,7 @@ describe("render path data-flow analyzer", () => {
     expect(labels).not.toContain("NaN");
   });
 
-  it("treats imported values as source boundaries, not unknown edges", async () => {
+  it("treats imported values as known sources, not unknown edges", async () => {
     const project = await createFixtureProject({
       "src/MissingConst.tsx": `
         import { SCOPE } from "./tokens";
@@ -615,10 +615,6 @@ describe("render path data-flow analyzer", () => {
     const report = await analyzeProject(project.args);
     const scopeUnknown = report.unknownEdges.find((row) => row.label === "SCOPE");
     expect(scopeUnknown).toBeUndefined();
-    const boundary = report.sourceBoundaries.find(
-      (row) => row.symbol === "SCOPE" && row.kind === "import",
-    );
-    expect(boundary).toBeTruthy();
   });
 
   it("descends into first-party method calls instead of leaving them unknown", async () => {
@@ -825,50 +821,6 @@ describe("render path data-flow analyzer", () => {
     expect(callLabels).not.toContain("tag");
   });
 
-  it("distinguishes source-boundary rows by file, symbol, and kind", async () => {
-    const project = await createFixtureProject({
-      "src/Boundaries.tsx": `
-        declare function createResource<T>(fn: () => Promise<T>): [() => T | undefined];
-        import { importedHelper } from "./helpers";
-        export function Boundaries(props: { user: { name: string } }) {
-          const [profile] = createResource(async () => ({ title: props.user.name }));
-          let localTitle: string;
-          return <article>
-            <h2>{props.user.name}</h2>
-            <p>{localTitle}</p>
-            <b>{profile()?.title}</b>
-            <i>{importedHelper()}</i>
-            <em>{missingName}</em>
-          </article>;
-        }
-      `,
-    });
-    const report = await analyzeProject(project.args);
-    const boundary = (symbol, kind) =>
-      report.sourceBoundaries.find(
-        (row) => row.symbol === symbol && row.kind === kind,
-      );
-
-    expect(boundary("props.user", "prop-read")).toBeTruthy();
-    expect(boundary("localTitle", "source")).toBeTruthy();
-    expect(boundary("profile() resource", "solid-accessor")).toBeTruthy();
-    expect(boundary("importedHelper", "operation")).toBeTruthy();
-    expect(boundary("missingName", "unknown-source")).toBeTruthy();
-    expect(
-      report.sourceBoundaries.every((row) => row.file === "src/Boundaries.tsx"),
-    ).toBe(true);
-
-    const markdown = renderReport(report, {
-      ...project.args,
-      view: "source-boundaries",
-      format: "markdown",
-    });
-    expect(markdown).toContain("# Source Boundaries");
-    expect(markdown).toContain("props.user");
-    expect(markdown).toContain("solid-accessor");
-    expect(markdown).toContain("Sink reach");
-  });
-
   it("reports same-feature prop relay from context-aware parents", async () => {
     const project = await createFixtureProject({
       "src/feature/Feature.context.tsx": `
@@ -915,6 +867,66 @@ describe("render path data-flow analyzer", () => {
     expect(output).toContain("detail, selection, onSelect");
   });
 
+  it("indexes component usages by symbol for a where-used view (XREF-1)", async () => {
+    const project = await createFixtureProject({
+      "src/Button.tsx": `
+        export function Button(props: { label: string }) {
+          return <button>{props.label}</button>;
+        }
+      `,
+      "src/Page.tsx": `
+        import { Button } from "./Button";
+        export function Page() {
+          return <div><Button label="a" /><Button label="b" /></div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const button = (report.componentRefs ?? []).find((r) => r.name === "Button");
+    expect(button).toBeTruthy();
+    expect(button.file).toBe("src/Button.tsx");
+    // Both <Button/> sites resolve to the one definition (by symbol, not name).
+    expect(button.useCount).toBe(2);
+    expect(button.uses.every((u) => u.file === "src/Page.tsx")).toBe(true);
+
+    const markdown = renderReport(report, {
+      ...project.args,
+      view: "component-refs",
+      format: "markdown",
+    });
+    expect(markdown).toContain("# References");
+    expect(markdown).toContain("Button");
+    expect(markdown).toContain("src/Page.tsx:");
+  });
+
+  it("does not merge a common prop name across unrelated components (FANOUT-1)", async () => {
+    const project = await createFixtureProject({
+      "src/TwoComps.tsx": `
+        export function Alpha(props: { isOpen: boolean }) {
+          return <span>{props.isOpen ? "a" : "b"}{props.isOpen && "c"}</span>;
+        }
+        export function Beta(props: { isOpen: boolean }) {
+          return <span>{props.isOpen ? "x" : "y"}{props.isOpen && "z"}</span>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const output = renderReport(report, {
+      ...project.args,
+      view: "fan-out",
+      format: "markdown",
+    });
+    const sources = output
+      .split("\n")
+      .filter((l) => l.startsWith("| ") && !l.includes("---") && !l.includes("Source"))
+      .map((l) => l.split("|")[1].trim());
+    // Both components read `props.isOpen`, but they are different props — each is
+    // its own scoped fan-out row, never one merged "props.isOpen" entry.
+    expect(sources).toContain("Alpha › props.isOpen");
+    expect(sources).toContain("Beta › props.isOpen");
+    expect(sources).not.toContain("props.isOpen");
+  });
+
   it("excludes literals and bare parameters from fan-out, refining props to property reads", async () => {
     const project = await createFixtureProject({
       "src/FanOut.tsx": `
@@ -951,8 +963,11 @@ describe("render path data-flow analyzer", () => {
     expect(sourceCells).not.toContain('""');
     expect(sourceCells).not.toContain("false");
     expect(sourceCells).not.toContain("props");
-    // The first concrete property read off the parameter is the real source.
-    expect(sourceCells).toContain("props.meta");
+    // FANOUT-1: the first concrete property read off the parameter is the real
+    // source, and it is scoped to its owning component (`Component › props.x`) so
+    // a common prop name is not merged across unrelated components.
+    expect(sourceCells.some((cell) => cell.endsWith("props.meta"))).toBe(true);
+    expect(sourceCells).toContain("Badge › props.meta");
   });
 
   it("splits path families by depth band so trivial and deep paths differ", async () => {

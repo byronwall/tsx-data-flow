@@ -102,10 +102,22 @@ input[type="search"] { min-width: 220px; }
 .crumbs a { color: var(--accent); }
 /* Sortable table headers: clickable, with an active-direction caret. */
 th.sortable { padding: 0; }
-th.sortable a { display: block; padding: 6px 10px; color: inherit; }
+th.sortable a { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 10px; color: inherit; white-space: nowrap; }
 th.sortable a:hover { text-decoration: none; color: var(--accent); }
 th.sortable.active { background: var(--code-bg); }
-th.sortable .caret { color: var(--accent); margin-left: 4px; }
+th.sortable .caret { color: var(--accent); flex: 0 0 auto; font-size: 0.85em; }
+/* OVERVIEW-1: optional per-type count columns + the show/hide control. */
+.overview-table td.num, .overview-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.col-toggle {
+  display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center;
+  margin: 8px 0; padding: 6px 10px; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 13px;
+}
+.col-toggle label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+#overview-table.hide-boundaries .col-boundaries,
+#overview-table.hide-fanout .col-fanout,
+#overview-table.hide-relays .col-relays,
+#overview-table.hide-unknown .col-unknown { display: none; }
 
 /* Code map. NOTE: no overflow on .codemap — any non-visible overflow on an
    ancestor silently disables position:sticky on the panel. align-items:start
@@ -204,6 +216,19 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
 }
 .peek-pop.open { display: block; }
 .peek-pop .snip { margin: 4px 0; max-height: 320px; overflow: auto; }
+/* DRILL-1: count-reveal popovers carry lists, not just code snippets. The popup
+   is cloned to a body-level portal, so it needs styling outside .codemap. */
+.peek-pop .why { margin: 4px 0 2px; padding-left: 18px; max-height: 320px; overflow: auto; }
+.peek-pop .why li { margin: 2px 0; }
+.peek-pop .peek-gloss { margin: 2px 0 6px; max-width: 380px; line-height: 1.4; }
+/* GRAPH-1: fan-out node/edge diagram (source → sinks, colored by file). */
+.fanout-graph { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; padding: 6px; overflow-x: auto; }
+.fanout-graph svg { display: block; min-width: 480px; }
+.fanout-graph .fg-node { cursor: pointer; }
+.fanout-graph a:hover .fg-node rect { stroke-width: 2.5; }
+.fg-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.fg-key { display: inline-flex; align-items: center; gap: 5px; }
+.fg-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .codemap .panel .finding { display: none; }
 .codemap .panel .finding.active { display: block; }
 .codemap .panel h4 { margin: 0 0 2px; }
@@ -241,6 +266,11 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
 .codemap .panel table.path-table th:first-child,
 .codemap .panel table.path-table td.step-no { width: 28px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .codemap .panel table.path-table th:nth-child(2) { width: 64px; }
+/* STEP-3: Expression moved out of the far-right narrow slot into the 3rd column
+   with real width, ahead of the (taller) Location column; it no longer gets
+   squeezed into a tall narrow strip. */
+.codemap .panel table.path-table td.path-expr { overflow-wrap: anywhere; min-width: 160px; }
+.codemap .panel table.path-table td.path-expr code { white-space: normal; overflow-wrap: anywhere; }
 /* OVERFLOW-1: let the location wrap instead of forcing a horizontal scroll, and
    show the path at full height (no inner max-height) so the whole chain is
    visible without scrolling inside the panel. */
@@ -312,6 +342,11 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
 .tt-usage { color: var(--muted); background: var(--code-bg); }
 .tt-fork { color: var(--central); background: var(--central-bg); }
 .tt-junction, .tt-boundary { color: var(--accent); background: hsl(212 90% 60% / 0.12); }
+/* ARCH-2: promoted report types get their own badge colors so they read as
+   distinct facets in the unified list and filter chips. */
+.badge.q-relay, .tt-relay { color: #0d9488; background: hsl(175 60% 42% / 0.16); }
+.badge.q-fan-out, .tt-fan-out { color: #1d6fa5; background: hsl(205 70% 50% / 0.14); }
+.badge.q-unknown, .tt-unknown { color: #be185d; background: hsl(330 70% 55% / 0.14); }
 .codemap .panel .finding-row[data-hidden] { display: none; }
 .codemap .panel li[data-hidden] { display: none; }
 .codemap .panel .finding-list li[data-type="usage"] .finding-row { opacity: 0.72; }
@@ -321,6 +356,9 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
   border: 1px solid var(--border); background: var(--bg); color: var(--muted); cursor: pointer;
 }
 .entry-filters .efilter.active { color: var(--fg); border-color: var(--accent); background: var(--code-bg); }
+/* Cross-cutting facet chips (e.g. "defended") read with a dashed border so they
+   are distinct from the type chips they coexist with. */
+.entry-filters .efilter-facet { border-style: dashed; }
 
 /* Defensive markers (DEF-1/DEF-2/DEF-3): any fallback step reads as defensive.
    DEF-3: mark the row with a left-border accent rather than a green fill (which
@@ -332,6 +370,29 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
 .codemap .panel ul.def-list li.def-row { display: flex; gap: 6px; align-items: baseline; margin: 3px 0; }
 .codemap .panel ul.def-list .def-mark { flex: 0 0 auto; }
 .codemap .panel ul.def-list .def-body { min-width: 0; overflow-wrap: anywhere; }
+/* FORK-2: emphasize branch-exclusive computations with an amber accent (a left
+   border + amber links) so they stand out from the blue jump-links elsewhere. */
+.codemap .panel ul.branch-exclusive { list-style: none; padding-left: 0; }
+.codemap .panel ul.branch-exclusive li {
+  margin: 3px 0; padding: 2px 8px; border-left: 3px solid var(--central);
+  background: var(--central-bg); border-radius: 0 4px 4px 0;
+}
+.codemap .panel ul.branch-exclusive .goto-line { color: var(--central); border-bottom-color: var(--central); }
+/* RELAY-1: surface the relay's in-scope context hook (the shared-state target)
+   in the relay teal, and render forwarded props as inline chips so the bundle
+   reads as a set rather than a plain bulleted list. */
+.codemap .panel ul.relay-context { list-style: none; padding-left: 0; }
+.codemap .panel ul.relay-context li {
+  margin: 3px 0; padding: 2px 8px; border-left: 3px solid #0d9488;
+  background: hsl(175 60% 42% / 0.12); border-radius: 0 4px 4px 0;
+}
+.codemap .panel ul.relay-context code { color: #0d9488; font-weight: 600; }
+.codemap .panel ul.relay-prop { list-style: none; padding-left: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.codemap .panel ul.relay-prop li { margin: 0; }
+.codemap .panel ul.relay-prop code {
+  padding: 1px 7px; border-radius: 10px;
+  color: #1d6fa5; background: hsl(205 70% 50% / 0.14);
+}
 /* Numbered fork sites (FORK-1), matching the path-table step ordinals. */
 .codemap .panel ul.site-list { list-style: none; padding-left: 0; }
 .codemap .panel ul.site-list li { margin: 3px 0; }
@@ -341,13 +402,30 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
 }
 /* Human-readable alias under the finding id (TITLE-1). */
 .codemap .panel .finding-alias { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
-/* Sort control on the inventory list (SORT-1), styled like the filter chips. */
-.entry-sort { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; font-size: 11px; }
-.entry-sort .esort {
-  font-size: 11px; padding: 2px 9px; border-radius: 12px;
-  border: 1px solid var(--border); background: var(--bg); color: var(--muted); cursor: pointer;
+/* Sort control on the inventory list (SORT-1). HEAD-2: a single segmented button
+   group (shared border, internal dividers, one rounded outer radius), not three
+   loose pills. HEAD-3: the "Sort" label is centered against the group, not raised. */
+.entry-sort { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; font-size: 11px; }
+.entry-sort .entry-sort-label { color: var(--muted); font-size: 11px; line-height: 1; align-self: center; }
+.entry-sort .seg { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.entry-sort .seg .esort {
+  font-size: 11px; padding: 3px 11px; line-height: 1.4; border: 0; border-right: 1px solid var(--border);
+  background: var(--bg); color: var(--muted); cursor: pointer;
 }
-.entry-sort .esort.active { color: var(--fg); border-color: var(--accent); background: var(--code-bg); }
+.entry-sort .seg .esort:last-child { border-right: 0; }
+.entry-sort .seg .esort:hover { color: var(--fg); }
+.entry-sort .seg .esort.active { color: var(--fg); background: var(--code-bg); }
+/* HEAD-4: pin the count/description/filter/sort header to the top of the panel's
+   own scroll so it stays visible while the (long) list scrolls underneath. The
+   negative margins let it span the panel's full width and cover the padding gap. */
+.codemap .panel .finding-list-head {
+  position: sticky; top: 0; z-index: 3; background: var(--bg);
+  margin: -14px -16px 8px; padding: 12px 16px 8px; border-bottom: 1px solid var(--border);
+}
+.codemap .panel .finding-list-head p.meta { margin: 4px 0; }
+.codemap .panel .finding-list-head .file-stats { margin: 2px 0 4px; font-variant-numeric: tabular-nums; }
+.codemap .panel .finding-list-head .entry-filters,
+.codemap .panel .finding-list-head .entry-sort { margin: 6px 0 0; }
 .codemap .panel .def-jump { margin: 6px 0; }
 .codemap .panel .usage-note { margin: 6px 0; padding: 6px 9px; border-radius: 6px; background: var(--code-bg); color: var(--muted); font-size: 12px; }
 
@@ -367,20 +445,6 @@ th.sortable .caret { color: var(--accent); margin-left: 4px; }
 }
 .codemap td.gutter .path-step-no.def { background: hsl(140 60% 38%); }
 
-/* LAYERS-1: a sticky strip across the top of the file page that jumps to each
-   layer/section (the code map and every report view) without leaving the page. */
-.layer-strip {
-  position: sticky; top: 0; z-index: 50; display: flex; flex-wrap: wrap; gap: 6px;
-  align-items: center; padding: 8px 10px; margin: 0 0 14px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-  overflow-x: auto;
-}
-.layer-strip .layer-label { color: var(--muted); font-size: 12px; margin-right: 4px; white-space: nowrap; }
-.layer-strip a {
-  font-size: 12px; padding: 3px 10px; border-radius: 12px; white-space: nowrap;
-  border: 1px solid var(--border); background: var(--bg); color: var(--fg);
-}
-.layer-strip a:hover { border-color: var(--accent); text-decoration: none; color: var(--accent); }
 `;
 
 const SCRIPT = `
@@ -509,6 +573,10 @@ function sortFindingList(fl, mode) {
   var items = [].slice.call(ol.children);
   items.sort(function (a, b) {
     if (mode === 'line') return num(a, 'data-sort-line') - num(b, 'data-sort-line');
+    if (mode === 'sources') {
+      return (num(b, 'data-sort-sources') - num(a, 'data-sort-sources'))
+        || (num(b, 'data-sort-score') - num(a, 'data-sort-score'));
+    }
     if (mode === 'type') {
       return (num(a, 'data-sort-order') - num(b, 'data-sort-order'))
         || (num(a, 'data-sort-line') - num(b, 'data-sort-line'));
@@ -601,7 +669,10 @@ document.addEventListener('click', function (e) {
       efilter.classList.add('active');
       var want = efilter.getAttribute('data-filter');
       fl.querySelectorAll('ol > li').forEach(function (li) {
-        if (want === 'all' || li.getAttribute('data-type') === want) li.removeAttribute('data-hidden');
+        var show = want === 'all'
+          || (want === 'defended' ? li.getAttribute('data-has-defenses') === '1'
+                                  : li.getAttribute('data-type') === want);
+        if (show) li.removeAttribute('data-hidden');
         else li.setAttribute('data-hidden', '1');
       });
     }
@@ -725,6 +796,33 @@ document.addEventListener('DOMContentLoaded', function () {
       var sfl = map.querySelector('.finding-list');
       if (sfl) sortFindingList(sfl, lsort);
     }
+  }
+
+  // OVERVIEW-1: column-visibility toggle. Hiding a column adds a class to the
+  // table; the choice is remembered in localStorage so a refresh restores it.
+  var colToggle = document.getElementById('col-toggle');
+  var ovTable = document.getElementById('overview-table');
+  if (colToggle && ovTable) {
+    var COLS_KEY = 'tsxdf.overviewHiddenCols';
+    var hidden = {};
+    try { hidden = JSON.parse(localStorage.getItem(COLS_KEY) || '{}') || {}; }
+    catch (e) { hidden = {}; }
+    var boxes = colToggle.querySelectorAll('input[data-col]');
+    var applyCols = function () {
+      boxes.forEach(function (box) {
+        ovTable.classList.toggle('hide-' + box.getAttribute('data-col'), !box.checked);
+      });
+    };
+    boxes.forEach(function (box) {
+      var col = box.getAttribute('data-col');
+      if (hidden[col]) box.checked = false;
+      box.addEventListener('change', function () {
+        hidden[col] = !box.checked;
+        try { localStorage.setItem(COLS_KEY, JSON.stringify(hidden)); } catch (e) {}
+        applyCols();
+      });
+    });
+    applyCols();
   }
 });
 `;

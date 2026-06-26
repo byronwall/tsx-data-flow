@@ -79,32 +79,28 @@ export function sourceReferenceHtml(filePath, line, resolve) {
 // Matches root-relative `path/to/file.tsx:123` references.
 const REF = /([A-Za-z0-9_./-]+\.(?:tsx|ts|jsx|js|mjs|cjs)):(\d+)/g;
 
-// Rewrite references in `html`, skipping anything inside <pre>…</pre> (fenced
-// code such as the representative-path block, which already shows context and
-// uses `F1:line` shorthand the regex would not match anyway). `resolve(path)`
-// returns source text for a root-relative path, or null/"" when unavailable.
+// Rewrite every `path/to/file.tsx:123` reference in `html` into a click-to-reveal
+// popover. This runs inside fenced <pre> blocks too (LINK-1: the user clicked a
+// "line 30" inside a junction/inline-preview code block and could not navigate
+// from it). The strict REF regex only matches a real `path.ext:line`, so the
+// `F1:line` shorthand used inside some fenced blocks is left untouched.
+// `resolve(path)` returns source text for a root-relative path, or null/""
+// when unavailable.
 export function peekReferences(html, resolve) {
-  // Split on <pre> blocks, keeping them as untouched delimiters.
-  const parts = String(html).split(/(<pre[\s\S]*?<\/pre>)/);
-  return parts
-    .map((part, index) => {
-      if (index % 2 === 1) return part; // a <pre>…</pre> segment
-      return part.replace(REF, (whole, filePath, lineText) => {
-        let source;
-        try {
-          source = resolve(filePath);
-        } catch {
-          source = null;
-        }
-        if (!source) return whole;
-        const widget = inlinePeekHtml(
-          whole,
-          source,
-          Number.parseInt(lineText, 10),
-          filePath,
-        );
-        return widget ?? whole;
-      });
-    })
-    .join("");
+  return String(html).replace(REF, (whole, filePath, lineText) => {
+    let source;
+    try {
+      source = resolve(filePath);
+    } catch {
+      source = null;
+    }
+    if (!source) return whole;
+    const widget = inlinePeekHtml(
+      whole,
+      source,
+      Number.parseInt(lineText, 10),
+      filePath,
+    );
+    return widget ?? whole;
+  });
 }

@@ -96,32 +96,34 @@ function isDefensiveStep(step) {
   return step.kind === "fallback";
 }
 
-// Collapse consecutive steps that are the SAME expression on the SAME line into a
-// single group (STEP-1): a long run reading `props.metadata.relationship` over
-// and over reads as one operation "1–3", not three near-identical rows. Each
-// group keeps the original ordinals so the gutter overlay still lines up.
+// Collapse consecutive steps on the SAME line (same file) into a single group
+// (STEP-2): the user's repeated complaint is that the tall code snippet is
+// reprinted once per step even when steps 1,2,3 all sit on `Task.ts:72`. We now
+// group purely by file+line — regardless of kind/expression — so the snippet is
+// shown ONCE and the steps read as "1–3", with the distinct kinds/expressions
+// listed against that single snippet. Each group keeps the original ordinals so
+// the gutter overlay still lines up.
 function groupPathSteps(steps) {
   const groups = [];
   steps.forEach((step, index) => {
     const prev = groups[groups.length - 1];
-    const sameAsPrev =
-      prev &&
-      prev.step.line === step.line &&
-      (prev.step.label ?? "") === (step.label ?? "") &&
-      prev.step.file === step.file;
-    if (sameAsPrev) {
+    const sameLine =
+      prev && prev.step.line === step.line && prev.step.file === step.file;
+    const kindLabel = STEP_KIND_LABEL[step.kind] ?? step.kind ?? "step";
+    const label = step.label ?? "";
+    if (sameLine) {
       prev.end = index;
       prev.defensive = prev.defensive || isDefensiveStep(step);
-      if ((STEP_KIND_LABEL[prev.step.kind] ?? prev.step.kind) !==
-        (STEP_KIND_LABEL[step.kind] ?? step.kind))
-        prev.mixedKind = true;
+      if (!prev.kinds.includes(kindLabel)) prev.kinds.push(kindLabel);
+      if (label && !prev.labels.includes(label)) prev.labels.push(label);
     } else {
       groups.push({
         step,
         start: index,
         end: index,
         defensive: isDefensiveStep(step),
-        mixedKind: false,
+        kinds: [kindLabel],
+        labels: label ? [label] : [],
       });
     }
   });
@@ -136,9 +138,14 @@ function pathSection(sink, resolveSource, relPath) {
   const rows = groups
     .map((group) => {
       const step = group.step;
-      const kind = group.mixedKind
-        ? "ops"
-        : STEP_KIND_LABEL[step.kind] ?? step.kind ?? "step";
+      // STEP-2: list the distinct kinds in the run (e.g. "literal · read · call")
+      // rather than a vague "ops"; the snippet is shared so the kinds tell the
+      // story of what happens on that line.
+      const kinds = group.kinds.length ? group.kinds : ["step"];
+      const kind =
+        kinds.length > 3
+          ? `${kinds.slice(0, 3).join(" · ")} +${kinds.length - 3}`
+          : kinds.join(" · ");
       const shield = group.defensive
         ? ' <span class="def-icon" title="Defensive operation (fallback/guard)">🛡</span>'
         : "";
@@ -150,11 +157,21 @@ function pathSection(sink, resolveSource, relPath) {
         group.end > group.start
           ? ` <span class="meta">×${group.end - group.start + 1}</span>`
           : "";
+      // STEP-2: distinct expressions on the line, stacked once (short text), not a
+      // repeated tall snippet. STEP-3: Expression sits in the 2nd-from-left slot,
+      // ahead of the (taller, reveal-bearing) Location column.
+      const labels = group.labels.length ? group.labels : [step.label ?? ""];
+      const exprHtml = labels
+        .map(
+          (l, i) =>
+            `<code>${escapeHtml(l)}</code>${i === labels.length - 1 ? repeat : ""}`,
+        )
+        .join("<br>");
       return `<tr${group.defensive ? ' class="defensive-step"' : ""}>
 <td class="step-no">${ordinal}</td>
 <td><span class="k">${escapeHtml(kind)}</span>${shield}</td>
+<td class="path-expr">${exprHtml}</td>
 <td class="path-loc">${stepLocationHtml(step, resolveSource, relPath)}</td>
-<td><code>${escapeHtml(step.label ?? "")}</code>${repeat}</td>
 </tr>`;
     })
     .join("");
@@ -165,7 +182,7 @@ function pathSection(sink, resolveSource, relPath) {
     collapsed && groups.length !== steps.length
       ? `Path — ${steps.length} steps · ${groups.length} ops (source → sink)`
       : `Path — ${steps.length} steps (source → sink)`;
-  return `<details class="path-detail" open><summary>${summary}</summary><div class="path-scroll"><table class="path-table"><thead><tr><th>#</th><th>Kind</th><th>Location</th><th>Expression</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+  return `<details class="path-detail" open><summary>${summary}</summary><div class="path-scroll"><table class="path-table"><thead><tr><th>#</th><th>Kind</th><th>Expression</th><th>Location</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
 
 // Map of same-file path line → step ordinal, for the numbered source overlay
@@ -499,8 +516,28 @@ function findingPanel(sink, source, peers, relPath, meta, resolveSource) {
   ${pathSection(sink, resolveSource, relPath)}
   ${representationSection(sink)}
   ${reachSection(sink)}
-  ${defenses ? `<strong>Defenses — ${(sink.defenses ?? []).length}</strong><ul class="why def-list">${defenses}</ul>` : ""}
+  ${
+    defenses
+      ? `<strong>Defenses — ${(sink.defenses ?? []).length}</strong>${defenseNote(sink)}<ul class="why def-list">${defenses}</ul>`
+      : ""
+  }
 </div>`;
+}
+
+// DEF-4: the user noticed "it says six even though there's only a couple listed."
+// The header counts the explicit `??`/`?.` guard sites recorded in `defenses[]`,
+// while the metric counts every defensive operation across ALL paths through the
+// value (the panel shows the single worst path). When they differ, say so rather
+// than leave the gap looking like a bug.
+function defenseNote(sink) {
+  const shown = (sink.defenses ?? []).length;
+  const ops = sink.metrics?.actionableDefensiveOperationCount ?? 0;
+  if (ops <= shown) return "";
+  return `<div class="meta">${ops} defensive operation${
+    ops === 1 ? "" : "s"
+  } across all paths through this value; the ${shown} explicit <code>??</code>/<code>?.</code> guard site${
+    shown === 1 ? "" : "s"
+  } on the worst path ${shown === 1 ? "is" : "are"} listed.</div>`;
 }
 
 // Collapsible breakdown of how the burden score was computed: one bar per
@@ -742,6 +779,12 @@ const ENTRY_TYPES = {
   fork: { label: "fork", plural: "forks", order: 1 },
   junction: { label: "junction", plural: "junctions", order: 2 },
   boundary: { label: "boundary", plural: "boundaries", order: 3 },
+  // ARCH-2: report types promoted into the unified list as their own entries.
+  // (source-boundaries removed round-5: the "a source feeds N sinks" signal is
+  // already carried by the fan-out entry; a separate source row duplicated it.)
+  relay: { label: "relay", plural: "relays", order: 5 },
+  "fan-out": { label: "fan-out", plural: "fan-out", order: 6 },
+  unknown: { label: "unknown", plural: "unknown edges", order: 7 },
   usage: { label: "usage", plural: "usages", order: 9 },
 };
 
@@ -774,7 +817,9 @@ function entryRowHtml(entry, score = 0) {
   const order = ENTRY_TYPES[entry.type]?.order ?? 5;
   return `<li data-type="${entry.type}" data-sort-score="${score.toFixed(
     4,
-  )}" data-sort-line="${entry.line ?? 0}" data-sort-order="${order}"><button type="button" class="finding-row" data-finding="${escapeHtml(
+  )}" data-sort-line="${entry.line ?? 0}" data-sort-order="${order}" data-sort-sources="${
+    entry.sources ?? 0
+  }" data-has-defenses="${entry.hasDefenses ? 1 : 0}"><button type="button" class="finding-row" data-finding="${escapeHtml(
     entry.id,
   )}" style="--bt:${hue}">
 <span class="fr-loc">:${entry.line ?? "?"}</span>
@@ -810,6 +855,9 @@ function forkPanel(fork) {
         )}</span> <code>${escapeHtml(s.snippet ?? s.value ?? "")}</code></li>`,
     )
     .join("");
+  // FORK-2: branch-exclusive computations are the eager work done under only one
+  // branch — the user wanted these emphasized beyond the generic blue links, so
+  // give the list an amber accent (distinct from the blue goto-links elsewhere).
   const exclusive = (fork.branchExclusive ?? [])
     .map(
       (b) =>
@@ -846,7 +894,7 @@ function forkPanel(fork) {
     fork.namedValues?.length ? `: ${escapeHtml(fork.namedValues.join(", "))}` : ""
   }</div>
   ${sites ? `<strong>Fork sites — ${fork.siteCount ?? (fork.sites ?? []).length}</strong><ul class="why site-list">${sites}</ul>` : ""}
-  ${exclusive ? `<strong>Branch-exclusive computations — ${(fork.branchExclusive ?? []).length}</strong><ul class="why">${exclusive}</ul>` : ""}
+  ${exclusive ? `<strong>Branch-exclusive computations — ${(fork.branchExclusive ?? []).length}</strong><ul class="why branch-exclusive">${exclusive}</ul>` : ""}
   ${gated ? `<strong>Findings a split would fix — ${(fork.branchGatedSinks ?? []).length}</strong><ul class="why xref-list">${gated}</ul>` : ""}
 </div>`;
 }
@@ -856,39 +904,317 @@ function forkPanel(fork) {
 // (callers, click to open). Surfaces the "info down in the report" the user
 // wanted promoted into the finding view — and is the ONLY content on sink-less
 // .ts files (TS-1).
+// ARCH-2 C: fold the inline-preview view into the junction/boundary detail — a
+// keep-vs-inline recommendation. Mirrors core's inlineDecision (kept compact;
+// the helper is already a row, so this is a detail facet, not a new entry).
+function helperInlineHint(helper) {
+  if ((helper.inSources ?? 0) >= 3 && (helper.callerCount ?? 0) >= 2)
+    return { verdict: "Keep & formalize", why: "multiple callers + real internal work — make it a typed boundary." };
+  if (helper.passThrough && (helper.internalDepth ?? 0) <= 1)
+    return { verdict: "Inline", why: "pure forwarding hop — the indirection adds nothing." };
+  if ((helper.callerCount ?? 0) <= 2 && (helper.internalDepth ?? 0) <= 2 && !helper.typeLeak)
+    return { verdict: "Inline", why: "shallow body, few callers — indirection without consolidation." };
+  if (helper.typeLeak)
+    return { verdict: "Keep (fix boundary)", why: "the helper should exist but its type leaks — tighten it." };
+  return { verdict: "Keep", why: "genuine transformation — inlining would relocate the mess, not remove it." };
+}
+
+// DRILL-1: a "count → reveal" popover. The count is the trigger; clicking it
+// floats the members in a popover (reusing the source-peek portal machinery in
+// page.mjs — position:fixed, cloned to a body portal), so seeing what is inside a
+// count never shifts the layout. `summary` is the count text; `bodyHtml` the
+// popover content. Falls back to plain text when there is nothing to reveal.
+function countPeek(summary, bodyHtml) {
+  if (!bodyHtml) return escapeHtml(summary);
+  return `<span class="peek"><button type="button" class="peek-label">${escapeHtml(
+    summary,
+  )}</button><span class="peek-pop">${bodyHtml}</span></span>`;
+}
+
+// A capped <ul> with a "+N more" tail when the list runs longer than `cap`.
+function cappedList(items, cap = 14, cls = "why") {
+  if (!(items ?? []).length) return "";
+  const shown = items.slice(0, cap).join("");
+  const more =
+    items.length > cap
+      ? `<li class="meta">+${items.length - cap} more</li>`
+      : "";
+  return `<ul class="${cls}">${shown}${more}</ul>`;
+}
+
 function junctionPanel(helper, id, type) {
-  const tributaries = (helper.inRoots && helper.inRoots.length
-    ? helper.inRoots
-    : (helper.params ?? []).map((p) => p.name ?? p)
-  )
-    .filter(Boolean)
-    .map((t) => `<li><code>${escapeHtml(String(t))}</code></li>`)
-    .join("");
-  const distributaries = (helper.callers ?? [])
-    .map(
-      (c) =>
-        `<li><a class="xfile" href="/file?path=${encodeURIComponent(
-          c.file,
-        )}#L${c.line}">${escapeHtml(c.file.split("/").pop())}:${c.line} ↗</a></li>`,
-    )
-    .join("");
-  const badge = type === "boundary" ? "boundary" : "junction";
+  const inline = helperInlineHint(helper);
+  const what = type === "boundary" ? "boundary" : "junction";
+  const tribLabels = (
+    helper.inRoots && helper.inRoots.length
+      ? helper.inRoots
+      : (helper.params ?? []).map((p) => p.name ?? p)
+  ).filter(Boolean);
+  const tribItems = tribLabels.map(
+    (t) => `<li><code>${escapeHtml(String(t))}</code></li>`,
+  );
+  const callerItems = (helper.callers ?? []).map(
+    (c) =>
+      `<li><a class="xfile" href="/file?path=${encodeURIComponent(
+        c.file,
+      )}#L${c.line}">${escapeHtml(c.file.split("/").pop())}:${c.line} ↗</a></li>`,
+  );
+  // DRILL-3: gloss the terms inline so the count's meaning is not implied.
+  const inSources = helper.inSources ?? 0;
+  const named = tribItems.length;
+  const tribGloss =
+    `<div class="meta peek-gloss"><strong>Tributaries</strong> — independent source ` +
+    `lineages flowing into this ${what}.` +
+    (named && named < inSources
+      ? ` ${named} are named below; the rest are literals or bare parameters.`
+      : "") +
+    `</div>`;
+  const distGloss =
+    `<div class="meta peek-gloss"><strong>Distributaries</strong> — the call sites ` +
+    `the result re-spreads to.</div>`;
+  const tribPop = tribItems.length ? `${tribGloss}${cappedList(tribItems)}` : "";
+  const distPop = callerItems.length
+    ? `${distGloss}${cappedList(callerItems)}`
+    : "";
   return `<div class="finding" data-finding="${escapeHtml(
     id,
   )}" data-entry-type="${type}" data-path-lines="${helper.line ?? ""}" data-sink-line="${
     helper.line ?? ""
   }">
   <button class="panel-back" type="button" title="Back to the list">← Back to list</button>
-  <div class="finding-head"><h4>${escapeHtml(helper.name ?? "(helper)")} <span class="badge q-${type}">${badge}</span></h4></div>
+  <div class="finding-head"><h4>${escapeHtml(helper.name ?? "(helper)")} <span class="badge q-${type}">${what}</span></h4></div>
   <div class="meta">${escapeHtml(helper.file ?? "")}:${helper.line ?? "?"}${
     helper.returnType ? ` · returns ${escapeHtml(helper.returnType)}` : ""
   }</div>
-  <div class="def-jump"><strong>Verdict</strong> ${escapeHtml(helper.verdict ?? "—")} · ${
-    helper.inSources ?? 0
-  } inbound source(s) → ${helper.callerCount ?? 0} caller(s)</div>
-  ${tributaries ? `<strong>Tributaries (inbound lineages)</strong><ul class="why">${tributaries}</ul>` : ""}
-  ${distributaries ? `<strong>Distributaries (callers)</strong><ul class="why">${distributaries}</ul>` : ""}
+  <div class="def-jump"><strong>Verdict</strong> ${escapeHtml(helper.verdict ?? "—")} · ${countPeek(
+    `${inSources} inbound source(s)`,
+    tribPop,
+  )} → ${countPeek(`${helper.callerCount ?? 0} caller(s)`, distPop)}</div>
+  <div class="def-jump meta">Click a count to see what is inside it.</div>
+  <div class="def-jump"><strong>Inline?</strong> ${escapeHtml(
+    inline.verdict,
+  )} <span class="meta">— ${escapeHtml(inline.why)}</span></div>
 </div>`;
+}
+
+// A list of sinks affected by a promoted report entry (source boundary, unknown
+// edge, fan-out root). Same-file sinks become in-panel jump links (.xref selects
+// the finding); cross-file sinks open their own page.
+function affectedSinkList(sinks, relPath, omitted = 0) {
+  if (!(sinks ?? []).length) return "";
+  const items = sinks
+    .map((s) => {
+      const where = s.file === relPath
+        ? `<a class="xref" data-finding="${escapeHtml(s.id)}">:${s.line}</a>`
+        : `<a class="xfile" href="/file?path=${encodeURIComponent(
+            s.file,
+          )}#L${s.line}">${escapeHtml(s.file.split("/").pop())}:${s.line} ↗</a>`;
+      return `<li>${where}${
+        s.label ? ` <code>${escapeHtml(s.label)}</code>` : ""
+      }</li>`;
+    })
+    .join("");
+  const more = omitted > 0 ? `<li class="meta">+${omitted} more</li>` : "";
+  return `<ul class="why xref-list">${items}${more}</ul>`;
+}
+
+// ARCH-2: an unknown-edge panel — an unresolved call/identifier the analyzer
+// could not follow, and the findings whose paths cross it.
+function unknownEdgePanel(row, id, relPath) {
+  return `<div class="finding" data-finding="${escapeHtml(
+    id,
+  )}" data-entry-type="unknown" data-path-lines="${row.line ?? ""}" data-sink-line="${
+    row.line ?? ""
+  }">
+  <button class="panel-back" type="button" title="Back to the list">← Back to list</button>
+  <div class="finding-head"><h4>${escapeHtml(row.label ?? "(unknown)")} <span class="badge q-unknown">unknown edge</span></h4></div>
+  <div class="meta">${escapeHtml(row.file ?? "")}:${row.line ?? "?"} · ${escapeHtml(
+    row.kind ?? "unknown",
+  )}</div>
+  <div class="def-jump"><strong>Crosses</strong> ${
+    row.occurrences ?? 1
+  } render path(s) — an edge the analyzer could not resolve, so flow past it is unknown.</div>
+  ${
+    affectedSinkList(row.affectedSinks, relPath)
+      ? `<strong>Affected findings</strong>${affectedSinkList(row.affectedSinks, relPath)}`
+      : ""
+  }
+</div>`;
+}
+
+// ARCH-2: a context-relay panel — a parent JSX site forwarding a same-feature prop
+// bundle to a child, a candidate for moving the data into context.
+function relayPanel(row, id) {
+  const propList = (props, cls) =>
+    (props ?? []).length
+      ? `<ul class="why ${cls}">${props
+          .map((p) => `<li><code>${escapeHtml(String(p))}</code></li>`)
+          .join("")}</ul>`
+      : "";
+  const childOpen = row.childFile
+    ? ` → <a class="xfile" href="/file?path=${encodeURIComponent(
+        row.childFile,
+      )}">${escapeHtml(row.childFile.split("/").pop())} ↗</a>`
+    : "";
+  return `<div class="finding" data-finding="${escapeHtml(
+    id,
+  )}" data-entry-type="relay" data-path-lines="${row.line ?? ""}" data-sink-line="${
+    row.line ?? ""
+  }">
+  <button class="panel-back" type="button" title="Back to the list">← Back to list</button>
+  <div class="finding-head"><h4>${escapeHtml(row.childComponent ?? "(child)")} <span class="badge q-relay">relay</span></h4></div>
+  <div class="meta">${escapeHtml(row.parentFile ?? "")}:${row.line ?? "?"}${childOpen}</div>
+  <div class="def-jump"><strong>Signal</strong> ${escapeHtml(
+    row.signal ?? `${(row.props ?? []).length} props forwarded`,
+  )}</div>
+  ${
+    (row.sharedProps ?? []).length
+      ? `<strong>Shared-context props — ${row.sharedProps.length}</strong>${propList(
+          row.sharedProps,
+          "branch-exclusive",
+        )}`
+      : ""
+  }
+  ${
+    (row.props ?? []).length
+      ? `<strong>All forwarded props — ${row.props.length}</strong>${propList(row.props, "relay-prop")}`
+      : ""
+  }
+  ${
+    (row.contextHooks ?? []).length
+      ? `<strong>Context hooks in scope</strong>${propList(row.contextHooks, "relay-context")}`
+      : ""
+  }
+</div>`;
+}
+
+// ARCH-2: a fan-out panel — a source feeding many render sinks. The headline is
+// how widely it spreads (sink/file counts); the list is the sinks it drives here.
+// GRAPH-1: a deterministic hue per file so the fan-out graph colors sinks by the
+// file they live in (the user's "color by file" ask). Stable string hash → hue.
+function fileHue(file) {
+  let h = 0;
+  for (const ch of String(file)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return h;
+}
+
+const truncMid = (text, max = 26) => {
+  const s = String(text);
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+};
+
+// GRAPH-1 (first slice): a node/edge diagram for one fan-out source — the source
+// on the left, an edge to each reached sink on the right, each sink colored by
+// its file. This is the "circles with connections, colored by file" the user
+// asked for. It draws the cross-file sample (`graphSinks`, capped upstream);
+// deeper layering (intermediate hops) and an interactive file filter are the
+// next steps. In-file sinks select on the code map; cross-file sinks open.
+function fanOutGraphSvg(row, relPath) {
+  const sinks = row.graphSinks ?? row.sinks ?? [];
+  if (!sinks.length) return "";
+  const W = 540;
+  const rowH = 26;
+  const top = 16;
+  const H = Math.max(96, sinks.length * rowH + top + 12);
+  const srcCy = H / 2;
+  const srcW = 150;
+  const sinkX = W - 196;
+  const sinkW = 188;
+  const edges = [];
+  const nodes = [];
+  const files = new Set();
+  sinks.forEach((s, i) => {
+    const cy = top + i * rowH + 10;
+    const hue = fileHue(s.file);
+    files.add(s.file);
+    edges.push(
+      `<path d="M${srcW} ${srcCy} C ${srcW + 60} ${srcCy}, ${sinkX - 60} ${cy}, ${sinkX} ${cy}" fill="none" stroke="hsl(${hue} 60% 50% / 0.45)" stroke-width="1.5"/>`,
+    );
+    const inFile = s.file === relPath;
+    const label = escapeHtml(truncMid(`${s.file.split("/").pop()}:${s.line} ${s.label ?? ""}`.trim()));
+    const open = inFile
+      ? `<a class="xref" data-finding="${escapeHtml(s.id ?? "")}">`
+      : `<a class="xfile" href="/file?path=${encodeURIComponent(s.file)}#L${s.line}">`;
+    nodes.push(
+      `${open}<g class="fg-node">
+        <rect x="${sinkX}" y="${cy - 9}" width="${sinkW}" height="18" rx="9" fill="hsl(${hue} 70% 50% / 0.16)" stroke="hsl(${hue} 60% 50%)" stroke-width="${inFile ? 2 : 1}"/>
+        <text x="${sinkX + 9}" y="${cy + 4}" font-size="11" fill="currentColor">${label}</text>
+      </g></a>`,
+    );
+  });
+  const omitted = (row.sinkCount ?? sinks.length) - sinks.length;
+  const moreNode =
+    omitted > 0
+      ? `<text x="${sinkX}" y="${H - 4}" font-size="11" fill="var(--muted)">+${omitted} more sink(s) in other files</text>`
+      : "";
+  const legend = [...files]
+    .slice(0, 6)
+    .map(
+      (f) =>
+        `<span class="fg-key"><span class="fg-swatch" style="background:hsl(${fileHue(f)} 60% 50%)"></span>${escapeHtml(f.split("/").pop())}</span>`,
+    )
+    .join("");
+  return `<div class="fanout-graph">
+  <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Fan-out graph for ${escapeHtml(row.root ?? "source")}">
+    ${edges.join("")}
+    <g><rect x="0" y="${srcCy - 16}" width="${srcW}" height="32" rx="8" fill="hsl(205 70% 50% / 0.16)" stroke="hsl(205 70% 50%)" stroke-width="2"/>
+    <text x="10" y="${srcCy + 4}" font-size="11.5" fill="currentColor">${escapeHtml(truncMid(row.root ?? "source", 20))}</text></g>
+    ${nodes.join("")}
+    ${moreNode}
+  </svg>
+  <div class="fg-legend">${legend}</div>
+</div>`;
+}
+
+function fanOutPanel(row, id, relPath) {
+  return `<div class="finding" data-finding="${escapeHtml(
+    id,
+  )}" data-entry-type="fan-out" data-path-lines="${row.line ?? ""}" data-sink-line="${
+    row.line ?? ""
+  }">
+  <button class="panel-back" type="button" title="Back to the list">← Back to list</button>
+  <div class="finding-head"><h4>${escapeHtml(row.root ?? "(source)")} <span class="badge q-fan-out">fan-out</span></h4></div>
+  <div class="meta">${escapeHtml(row.kind ?? "source")} · feeds ${
+    row.sinkCount ?? 0
+  } sink(s)${row.fileCount > 1 ? ` across ${row.fileCount} files` : ""} · max depth ${
+    row.maxDepth ?? 0
+  }</div>
+  <div class="def-jump"><strong>Fans into</strong> ${
+    row.sinkCount ?? 0
+  } render output(s) — a shared source; centralizing it would touch them all.</div>
+  ${fanOutGraphSvg(row, relPath)}
+  ${
+    affectedSinkList(row.sinks, relPath)
+      ? `<strong>Sinks in this file</strong>${affectedSinkList(row.sinks, relPath)}`
+      : ""
+  }
+</div>`;
+}
+
+// ARCH-2 D: the hotspots roll-up + path-census for ONE file, folded into the
+// panel header. Hotspots/census have no per-row unit (they describe the file as a
+// whole), so they live here rather than as list entries. Computed directly from
+// the file's ranked sinks.
+function fileStatsHtml(sinks) {
+  const ranked = (sinks ?? []).filter((s) => s.tier !== "usage");
+  if (ranked.length === 0) return "";
+  const burdens = ranked.map((s) => s.scores?.burden ?? 0);
+  const worst = burdens.reduce((m, b) => Math.max(m, b), 0);
+  const total = burdens.reduce((a, b) => a + b, 0);
+  const depths = ranked
+    .map((s) => s.metrics?.maximumPathDepth ?? 0)
+    .filter((n) => n > 0)
+    .sort((a, b) => a - b);
+  const pct = (p) =>
+    depths.length ? depths[Math.min(depths.length - 1, Math.floor(p * depths.length))] : 0;
+  const depthBit = depths.length
+    ? ` · path depth max ${depths[depths.length - 1]} <span class="meta">(p90 ${pct(
+        0.9,
+      )}, median ${pct(0.5)})</span>`
+    : "";
+  return `<div class="file-stats meta">worst ${worst.toFixed(2)} · total burden ${total.toFixed(
+    1,
+  )}${depthBit}</div>`;
 }
 
 export function renderCodeMap({
@@ -900,6 +1226,9 @@ export function renderCodeMap({
   selectedFinding = null,
   forks = [],
   helpers = [],
+  unknownEdges = [],
+  relays = [],
+  fanOut = [],
 }) {
   const lines = source.split("\n");
 
@@ -994,6 +1323,7 @@ export function renderCodeMap({
       line: sink.line,
       sortLine: sink.line ?? 0,
       score: burden,
+      sortSources: sink.metrics?.mergeWidth ?? 0,
       row: {
         id: sink.id,
         type,
@@ -1002,6 +1332,8 @@ export function renderCodeMap({
         secondary: [ctx.tag, ctx.attribute].filter(Boolean).join("/"),
         metric: burden.toFixed(2),
         hue: burdenHue(burden),
+        sources: sink.metrics?.mergeWidth ?? 0,
+        hasDefenses: (sink.defenses ?? []).length > 0,
       },
       panelHtml: findingPanel(
         sink,
@@ -1058,6 +1390,73 @@ export function renderCodeMap({
     });
   });
 
+  // ARCH-2: promote the remaining report types into the same list. Each carries
+  // its own per-file {line} and a severity proxy derived from its counts, mirroring
+  // the helper pattern above. Unknown edges (unresolved flow), context relays
+  // (prop bundles), and fan-out (shared sources).
+  (unknownEdges ?? []).forEach((row, index) => {
+    const id = `UNK-${row.line ?? index}-${index}`;
+    entries.push({
+      id,
+      type: "unknown",
+      line: row.line,
+      sortLine: row.line ?? 0,
+      score: Math.min(0.4, 0.15 + (row.occurrences ?? 1) * 0.03),
+      row: {
+        id,
+        type: "unknown",
+        line: row.line,
+        primary: row.label ?? "(unknown)",
+        secondary: row.kind ?? "unknown",
+        metric: "",
+        hue: 320,
+      },
+      panelHtml: unknownEdgePanel(row, id, relPath),
+    });
+  });
+  (relays ?? []).forEach((row, index) => {
+    const id = `REL-${row.line ?? index}-${index}`;
+    entries.push({
+      id,
+      type: "relay",
+      line: row.line,
+      sortLine: row.line ?? 0,
+      score: Math.min(0.5, 0.1 + (row.score ?? 0) * 0.03),
+      row: {
+        id,
+        type: "relay",
+        line: row.line,
+        primary: row.childComponent ?? "(relay)",
+        secondary: `${(row.props ?? []).length} props`,
+        metric: "",
+        hue: 175,
+      },
+      panelHtml: relayPanel(row, id),
+    });
+  });
+  (fanOut ?? []).forEach((row, index) => {
+    const id = `FANOUT-${row.line ?? index}-${index}`;
+    entries.push({
+      id,
+      type: "fan-out",
+      line: row.line,
+      sortLine: row.line ?? 0,
+      score: Math.min(0.5, 0.12 + (row.sinkCount ?? 0) * 0.02),
+      sortSources: row.sinkCount ?? 0,
+      row: {
+        id,
+        type: "fan-out",
+        line: row.line,
+        primary: row.root ?? "(source)",
+        secondary: `${row.sinkCount ?? 0} sinks`,
+        metric: "",
+        hue: 205,
+        sources: row.sinkCount ?? 0,
+      },
+      panelHtml: fanOutPanel(row, id, relPath),
+    });
+  });
+
   // Default order is by SCORE (worst first) — the user wanted to "come in and see
   // the worst ones", not a line-number list (SORT-1). The client can re-sort by
   // type or line; data-sort-* on each row carries the keys.
@@ -1081,11 +1480,25 @@ export function renderCodeMap({
   // Type-filter chips, only for types actually present.
   const counts = {};
   for (const e of entries) counts[e.type] = (counts[e.type] ?? 0) + 1;
-  const filterTypes = ["finding", "fork", "junction", "boundary", "usage"].filter(
-    (t) => counts[t],
-  );
+  const filterTypes = [
+    "finding",
+    "fork",
+    "junction",
+    "boundary",
+    "relay",
+    "fan-out",
+    "unknown",
+    "usage",
+  ].filter((t) => counts[t]);
+  // A cross-cutting "defended" facet (ARCH-2 C, the defensive-ledger as a filter):
+  // findings that carry one or more guard sites, regardless of their type.
+  const defendedCount = entries.filter((e) => e.row?.hasDefenses).length;
+  const defendedChip =
+    defendedCount > 0
+      ? `<button type="button" class="efilter efilter-facet" data-filter="defended" title="Findings with defensive guards (??/?.)">defended ${defendedCount}</button>`
+      : "";
   const filterChips =
-    entries.length && filterTypes.length > 1
+    entries.length && (filterTypes.length > 1 || defendedChip)
       ? `<div class="entry-filters"><button type="button" class="efilter active" data-filter="all">All ${entries.length}</button>${filterTypes
           .map(
             (t) =>
@@ -1093,22 +1506,48 @@ export function renderCodeMap({
                 ENTRY_TYPES[t]?.plural ?? `${t}s`
               } ${counts[t]}</button>`,
           )
-          .join("")}</div>`
+          .join("")}${defendedChip}</div>`
       : "";
 
-  // Sort control (SORT-1): score (default) / type / line. Client re-sorts the
-  // list and persists the choice in the URL so a refresh restores it.
+  // Sort control (SORT-1): score (default) / type / line / sources. Rendered as a
+  // single segmented button group (HEAD-2) with the label vertically centered
+  // against it (HEAD-3). Client re-sorts the list and persists the choice in the
+  // URL so a refresh restores it. "sources" sorts by merge width (the fan-in
+  // facet, ARCH-2 C) — only offered when some entry carries that metric.
+  const hasMergeWidth = entries.some((e) => (e.sortSources ?? 0) > 0);
+  const sortButtons = [
+    `<button type="button" class="esort active" data-sort="score">score</button>`,
+    `<button type="button" class="esort" data-sort="type">type</button>`,
+    `<button type="button" class="esort" data-sort="line">line</button>`,
+    hasMergeWidth
+      ? `<button type="button" class="esort" data-sort="sources" title="Sort by merge width — how many sources fan in (fan-in)">sources</button>`
+      : "",
+  ].join("");
   const sortControl =
     entries.length > 1
-      ? `<div class="entry-sort"><span class="meta">Sort</span><button type="button" class="esort active" data-sort="score">score</button><button type="button" class="esort" data-sort="type">type</button><button type="button" class="esort" data-sort="line">line</button></div>`
+      ? `<div class="entry-sort"><span class="entry-sort-label">Sort</span><div class="seg" role="group" aria-label="Sort findings">${sortButtons}</div></div>`
       : "";
 
+  // HEAD-1: the "All N" filter pill already states the count, so the standalone
+  // "N items in this file" line is redundant — only show a count when there are no
+  // filter chips (a single-type file, where nothing else carries the total).
+  const countLine = filterChips
+    ? ""
+    : `<strong>${entries.length} item${entries.length === 1 ? "" : "s"} in this file</strong>`;
+
+  // ARCH-2 D: a per-file aggregate line in the header — the hotspots roll-up (worst
+  // + total burden) and the path-census (depth percentiles), scoped to this file.
+  // These views have no per-row unit, so they belong here, not in the list.
+  const statsHtml = fileStatsHtml(sinks);
   const listHtml = entries.length
     ? `<div class="finding-list">
-<strong>${entries.length} item${entries.length === 1 ? "" : "s"} in this file</strong>
-<p class="meta">Findings, repeated forks, junctions, boundaries, and plain usages. Click any to inspect it; selecting one highlights its path on the source.</p>
+<div class="finding-list-head">
+${countLine}
+${statsHtml}
+<p class="meta">Everything the analyzer found here — findings, repeated forks, junctions, boundaries, sources, relays, fan-out, unknown edges, and plain usages. Click any to inspect it; selecting one highlights its path on the source.</p>
 ${filterChips}
 ${sortControl}
+</div>
 <ol>${entries.map((e) => entryRowHtml(e.row, e.score ?? 0)).join("")}</ol>
 </div>`
     : '<p class="empty">Nothing analyzed in this file.</p>';
