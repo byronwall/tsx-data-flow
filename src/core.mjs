@@ -8,6 +8,7 @@ import {
   locationOf,
   spanOf,
 } from "./analysis/graph.mjs";
+import { unique } from "./analysis/collections.mjs";
 import { findingTitle } from "./analysis/finding-title.mjs";
 import { buildHelperReport as buildHelperReportImpl } from "./analysis/helper-report.mjs";
 import { fanOutIdentity, fanOutRootsFor } from "./analysis/fan-out.mjs";
@@ -16,6 +17,7 @@ import {
   packRiskForVerdict,
 } from "./analysis/pack-groups.mjs";
 import { familyRows } from "./analysis/ranking.mjs";
+import { queueFor } from "./analysis/reachability.mjs";
 import {
   buildReport as buildReportImpl,
   makeFileMatcher,
@@ -27,7 +29,14 @@ import {
   sinkAttributeName,
   sinkFamilyOf,
 } from "./analysis/sink-shape.mjs";
-import { reachedSinkDescriptor } from "./analysis/sink-descriptor.mjs";
+import {
+  buildFileContext,
+  getCallName,
+  getFileContextCached,
+  getFunctionReturnExpression,
+  identifierResolvesTo,
+  resolveCatalogFn,
+} from "./analysis/trace-support.mjs";
 import {
   code,
   fenced,
@@ -82,11 +91,6 @@ export {
 // transforms it counts, and deduped per sink so a shared hop isn't counted once
 // per render sub-path that crosses it.
 const REPRESENTATION_KINDS = new Set(["alias", "object-pack", "object-spread"]);
-// Upper bound on enumerated reached-sinks stored per source, to keep the
-// reachedVia structure from going O(n^2) on a very high fan-out source. The
-// true count is kept separately so the UI can show "+N more".
-const REACHED_VIA_CAP = 50;
-
 // Conventional prop names that a custom list/collection component uses to receive
 // the iterable it renders one row per (`<RowList items={…}>{(row) => …}</RowList>`).
 // When such a component takes a render-callback child, its parameter is an element
@@ -542,8 +546,6 @@ function buildReport(
   return buildReportImpl(ts, program, args, typescriptModulePath, routing, {
     analyzeSourceFile,
     buildHelperReport,
-    groundReachability,
-    unique,
   });
 }
 
@@ -1142,275 +1144,6 @@ function detectRepeatedForks(ts, checker, sourceFile, root) {
     }
   }
   return findings.sort((a, b) => b.severity - a.severity);
-}
-
-function buildFileContext(ts, sourceFile) {
-  const variables = new Map();
-  const functions = new Map();
-  const accessors = new Map();
-  const parameters = new Set();
-  // Local names bound by an import. A value imported from another module is a
-  // genuine source boundary (the value enters the component from outside), not
-  // an unresolved edge — so identifiers we cannot place locally are checked
-  // against this set before dead-ending as `unknown-source`.
-  const imports = new Set();
-
-  const visit = (node) => {
-    if (ts.isImportDeclaration(node)) {
-      registerImports(ts, node, imports);
-    }
-    if (ts.isVariableDeclaration(node)) {
-      registerVariable(ts, node, variables, accessors);
-    }
-    if (ts.isFunctionDeclaration(node) && node.name) {
-      functions.set(node.name.text, node);
-      for (const parameter of node.parameters) {
-        if (ts.isIdentifier(parameter.name))
-          parameters.add(parameter.name.text);
-      }
-    }
-    if (
-      (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
-      node.parent &&
-      ts.isVariableDeclaration(node.parent) &&
-      ts.isIdentifier(node.parent.name)
-    ) {
-      functions.set(node.parent.name.text, node);
-      for (const parameter of node.parameters) {
-        if (ts.isIdentifier(parameter.name))
-          parameters.add(parameter.name.text);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
-  return { variables, functions, accessors, parameters, imports };
-}
-
-// Collect the local names an import declaration binds: default, namespace, and
-// named specifiers. `import type` declarations are skipped (type-only bindings
-// never appear in a render value).
-function registerImports(ts, node, imports) {
-  const clause = node.importClause;
-  if (!clause || clause.isTypeOnly) return;
-  if (clause.name) imports.add(clause.name.text);
-  const bindings = clause.namedBindings;
-  if (!bindings) return;
-  if (ts.isNamespaceImport(bindings)) {
-    imports.add(bindings.name.text);
-  } else if (ts.isNamedImports(bindings)) {
-    for (const element of bindings.elements) {
-      if (!element.isTypeOnly) imports.add(element.name.text);
-    }
-  }
-}
-
-function registerVariable(ts, node, variables, accessors) {
-  if (ts.isIdentifier(node.name)) {
-    variables.set(node.name.text, node);
-    if (node.initializer && isCallNamed(ts, node.initializer, "createMemo")) {
-      accessors.set(node.name.text, { kind: "memo", declaration: node });
-    }
-    return;
-  }
-
-  if (ts.isArrayBindingPattern(node.name) && node.initializer) {
-    const callName = getCallName(ts, node.initializer);
-    node.name.elements.forEach((element, index) => {
-      if (ts.isBindingElement(element) && ts.isIdentifier(element.name)) {
-        variables.set(element.name.text, node);
-        if (
-          index === 0 &&
-          ["createSignal", "createResource"].includes(callName)
-        ) {
-          accessors.set(element.name.text, {
-            kind: callName === "createSignal" ? "signal" : "resource",
-            declaration: node,
-          });
-        }
-      }
-    });
-    return;
-  }
-
-  if (ts.isObjectBindingPattern(node.name)) {
-    node.name.elements.forEach((element) => {
-      if (ts.isBindingElement(element) && ts.isIdentifier(element.name)) {
-        variables.set(element.name.text, node);
-      }
-    });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Cross-file tracing (shared enabler for the helper-boundary views)
-// ---------------------------------------------------------------------------
-
-// Per-file contexts are reused across every sink and every cross-file descent,
-// so build each at most once.
-function getFileContextCached(ts, sourceFile, crossFile) {
-  let context = crossFile.contextCache.get(sourceFile);
-  if (!context) {
-    context = buildFileContext(ts, sourceFile);
-    crossFile.contextCache.set(sourceFile, context);
-  }
-  return context;
-}
-
-// The same-file `functions`/`accessors`/`variables` maps are keyed by name and
-// span the whole file, so two same-named bindings in sibling scopes (e.g. a
-// `pos` createMemo in one component and a `pos` helper in another) collapse to a
-// single entry. Before trusting a by-name hit, confirm the type checker resolves
-// this exact identifier to the declaration we found — otherwise the trace would
-// descend into the wrong scope's binding. `storedNode` is the function node (for
-// `functions`) or the variable declaration (for `accessors`/`variables`).
-// Returns true when the symbol can't be resolved, preserving prior behavior.
-function identifierResolvesTo(ts, checker, identifier, storedNode) {
-  let symbol = checker.getSymbolAtLocation(identifier);
-  // A shorthand property (`return { color }`) resolves to the property symbol,
-  // whose declaration is the ShorthandPropertyAssignment — not the local binding
-  // it aliases. Step through to the value symbol so the check sees the binding.
-  if (
-    symbol &&
-    identifier.parent &&
-    ts.isShorthandPropertyAssignment(identifier.parent)
-  ) {
-    symbol =
-      checker.getShorthandAssignmentValueSymbol(identifier.parent) ?? symbol;
-  }
-  const decls = symbol?.declarations;
-  if (!decls || decls.length === 0) return true;
-  return decls.some((decl) => {
-    // function declaration (storedNode === decl) or arrow/fn-expr bound to a
-    // variable (storedNode === decl.initializer).
-    if (decl === storedNode) return true;
-    if (ts.isVariableDeclaration(decl) && decl.initializer === storedNode)
-      return true;
-    // Accessor/variable entries store the VariableDeclaration; a binding-pattern
-    // element (signal/resource) resolves up to it.
-    for (let node = decl; node; node = node.parent) {
-      if (node === storedNode) return true;
-    }
-    return false;
-  });
-}
-
-// Given a function/variable symbol, find a traceable declaration: a function
-// declaration, or an arrow/function-expression bound to a name. Returns the
-// function node plus its naming identifier, or null.
-function traceableFromSymbol(ts, symbol) {
-  for (const decl of symbol.declarations ?? []) {
-    if (ts.isFunctionDeclaration(decl) && decl.name) {
-      return { fnNode: decl, nameNode: decl.name };
-    }
-    if (
-      ts.isVariableDeclaration(decl) &&
-      ts.isIdentifier(decl.name) &&
-      decl.initializer &&
-      (ts.isArrowFunction(decl.initializer) ||
-        ts.isFunctionExpression(decl.initializer))
-    ) {
-      return { fnNode: decl.initializer, nameNode: decl.name };
-    }
-    // A class/object method (`entityManager().getRelation(id)`) or a get
-    // accessor — resolved when the receiver's method is first-party. Has the
-    // same `.parameters`/`.body` shape makeCatalogRecord and the return-expr
-    // extractor expect.
-    if (
-      (ts.isMethodDeclaration(decl) || ts.isGetAccessorDeclaration(decl)) &&
-      ts.isIdentifier(decl.name)
-    ) {
-      return { fnNode: decl, nameNode: decl.name };
-    }
-    // A method-as-property: `getRelation = (id) => ...` on a class, or a
-    // `{ getRelation: (id) => ... }` object-literal method.
-    if (
-      (ts.isPropertyDeclaration(decl) || ts.isPropertyAssignment(decl)) &&
-      ts.isIdentifier(decl.name) &&
-      decl.initializer &&
-      (ts.isArrowFunction(decl.initializer) ||
-        ts.isFunctionExpression(decl.initializer))
-    ) {
-      return { fnNode: decl.initializer, nameNode: decl.name };
-    }
-  }
-  return null;
-}
-
-// True when a declaration lives in first-party source we analyze (not a .d.ts,
-// not node_modules, inside the project root) — the only helpers safe to descend.
-function isFirstPartyDecl(decl, args) {
-  const file = decl.getSourceFile();
-  if (file.isDeclarationFile) return false;
-  const relative = relativePath(args.root, file.fileName);
-  return !relative.startsWith("..") && !relative.includes("node_modules/");
-}
-
-// Cheap up-front record: signature shape only, no checker type queries and no
-// body tracing. The expensive parts (return type, internal metrics) are computed
-// lazily in buildHelperReport for functions actually reached on a render path —
-// tracing every function body in a large repo is what blows up memory.
-function makeCatalogRecord(ts, found, symbol, args) {
-  const { fnNode, nameNode } = found;
-  const sourceFile = fnNode.getSourceFile();
-  const location = locationOf(sourceFile, nameNode);
-  const params = fnNode.parameters
-    .filter((parameter) => ts.isIdentifier(parameter.name))
-    .map((parameter) => ({
-      name: parameter.name.text,
-      // Syntactic annotation only (cheap); unannotated params are left unknown.
-      type: parameter.type ? collapse(parameter.type.getText()) : "unknown",
-    }));
-  return {
-    symbol,
-    name: nameNode.text,
-    file: relativePath(args.root, sourceFile.fileName),
-    line: location.line,
-    params,
-    arity: params.length,
-    callerCount: 0,
-    callers: [],
-    fnNode,
-    returnExpr: getFunctionReturnExpression(ts, fnNode),
-    sourceFile,
-  };
-}
-
-// Lazily resolve a callee identifier to a catalog record for a first-party
-// function, creating and caching the (cheap) record the first time. Follows
-// import aliases so `import { groupBarSeries }` lands on the definition. Returns
-// null for library/builtin/unresolvable callees; that null is cached too so the
-// same call site isn't re-resolved. The catalog only ever holds functions a
-// render path actually calls, keeping memory bounded on large repos.
-//
-// The checker calls are wrapped because type resolution on a pathologically deep
-// expression can overflow TypeScript's own recursion; treat as unresolved.
-function resolveCatalogFn(ts, checker, calleeIdent, crossFile, args) {
-  if (!calleeIdent) return null;
-  let symbol;
-  try {
-    symbol = checker.getSymbolAtLocation(calleeIdent);
-    if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
-      symbol = checker.getAliasedSymbol(symbol);
-    }
-  } catch {
-    return null;
-  }
-  if (!symbol) return null;
-  if (crossFile.catalog.has(symbol)) return crossFile.catalog.get(symbol);
-
-  const found = traceableFromSymbol(ts, symbol);
-  const record =
-    found && isFirstPartyDecl(found.fnNode, args ?? crossFile.args)
-      ? makeCatalogRecord(ts, found, symbol, args ?? crossFile.args)
-      : null;
-  // Remember which checker resolved this record. With per-config programs (so
-  // path-alias imports resolve), a record's nodes belong to that program; later
-  // enrichment must use the same checker, not whichever one is passed in.
-  if (record) record.checker = checker;
-  crossFile.catalog.set(symbol, record);
-  return record;
 }
 
 function buildHelperReport(ts, checker, crossFile, args, sourceFiles) {
@@ -2668,61 +2401,6 @@ function isCertaintyBoundaryDefense(defense) {
   return /parser-boundary|compatibility|optional|solid prop default|api-choice/i.test(
     defense.origin ?? "",
   );
-}
-
-// Whole-graph grounding pass. The trace graph does not deduplicate nodes across
-// sinks, so downstream reach cannot be read off the raw graph per source node.
-// Instead aggregate by source identity (label): a source's reach is the number
-// of distinct render sinks its actionable roots feed. Each sink then inherits
-// the reach of its most-central source. This replaces the former constant base
-// reach in centralityScore and the hardcoded `reachable sinks: 1`.
-function groundReachability(sinks) {
-  // Map each fan-out source identity to every sink it feeds, so reach is not
-  // just a number but an enumerable set — the report can show *which* sinks a
-  // shared source reaches, grouped by that source (the chain root → sinks).
-  const sinksByRoot = new Map();
-  for (const sink of sinks) {
-    for (const info of fanOutRootsFor(sink)) {
-      if (!sinksByRoot.has(info.label)) sinksByRoot.set(info.label, []);
-      sinksByRoot.get(info.label).push(sink);
-    }
-  }
-  for (const sink of sinks) {
-    let reach = 1;
-    // Group the other sinks this sink's sources also feed, keyed by the shared
-    // source. Only roots with genuine fan-out (>1 sink) are interesting.
-    const reachedVia = [];
-    for (const info of fanOutRootsFor(sink)) {
-      const fed = sinksByRoot.get(info.label) ?? [sink];
-      reach = Math.max(reach, fed.length);
-      const others = fed.filter((other) => other.nodeId !== sink.nodeId);
-      if (others.length > 0) {
-        reachedVia.push({
-          source: info.label,
-          total: others.length,
-          // Cap stored descriptors so a high fan-out source can't make this
-          // O(n^2); `total` preserves the true count for the "+N more" hint.
-          sinks: others
-            .slice(0, REACHED_VIA_CAP)
-            .map((other) => reachedSinkDescriptor(other)),
-        });
-      }
-    }
-    sink.metrics.reachableSinks = reach;
-    sink.reachedVia = reachedVia;
-  }
-  // Queues depend on reach, so finalize them here (buildSinkRecord runs before
-  // grounding). The central-leverage cutoff is the report's own top reach
-  // quartile rather than a fixed magic number: it adapts to codebase size and
-  // keeps central-leverage a meaningful minority. The floor of 3 means a sink
-  // must feed at least three render sinks to qualify on small/flat projects.
-  const reaches = sinks
-    .map((sink) => sink.metrics.reachableSinks)
-    .sort((a, b) => a - b);
-  const reachThreshold = Math.max(3, percentile(reaches, 0.75));
-  for (const sink of sinks) {
-    sink.queue = queueFor(sink.metrics, sink.defenses, reachThreshold);
-  }
 }
 
 function defenseRecord(ts, checker, guardedExpression, node, operation) {
@@ -5280,31 +4958,6 @@ function classifyAttribute(name) {
   return "attribute";
 }
 
-function getFunctionReturnExpression(ts, fn) {
-  if (!fn) return null;
-  if (ts.isArrowFunction(fn) && !ts.isBlock(fn.body)) return fn.body;
-  let found = null;
-  const visit = (node) => {
-    if (!found && ts.isReturnStatement(node) && node.expression)
-      found = node.expression;
-    if (!found) ts.forEachChild(node, visit);
-  };
-  if (fn.body) visit(fn.body);
-  return found;
-}
-
-function isCallNamed(ts, node, name) {
-  return ts.isCallExpression(node) && getCallName(ts, node) === name;
-}
-
-function getCallName(ts, node) {
-  if (!ts.isCallExpression(node)) return "";
-  if (ts.isIdentifier(node.expression)) return node.expression.text;
-  if (ts.isPropertyAccessExpression(node.expression))
-    return node.expression.name.text;
-  return "";
-}
-
 function appendBaseline(lines, report) {
   if (!report.baseline) return;
   const baseline = report.baseline;
@@ -5377,24 +5030,6 @@ function confidenceFor(metrics, defenses) {
   };
 }
 
-function queueFor(metrics, defenses, reachThreshold = 3) {
-  if (
-    metrics.unknownEdgeCount > 0 ||
-    defenses.some((defense) => defense.verdict === "unknown")
-  ) {
-    return "investigation";
-  }
-  // Central-leverage = a source that feeds many render sinks (top reach
-  // quartile for the report, passed in) or a pathologically deep relay path.
-  if (
-    metrics.reachableSinks >= reachThreshold ||
-    metrics.maximumPathDepth > 10
-  ) {
-    return "central-leverage";
-  }
-  return "peripheral-quick-win";
-}
-
 function findingSentence(sink) {
   if (sink.metrics.impossibleDefenseCount > 0) {
     return "A nullish fallback or optional access is unreachable under the checked TypeScript program.";
@@ -5406,13 +5041,6 @@ function severityFor(sink) {
   if (sink.metrics.impossibleDefenseCount > 0) return "HIGH";
   if (sink.scores.burden > 0.55) return "MEDIUM";
   return "LOW";
-}
-
-function percentile(values, target) {
-  if (values.length === 0) return 0;
-  return values[
-    Math.min(values.length - 1, Math.floor(values.length * target))
-  ];
 }
 
 function normalized(value) {
@@ -5436,8 +5064,4 @@ function relativePath(root, file) {
 
 function safeTypeText(value = "") {
   return value || "unknown";
-}
-
-function unique(values) {
-  return Array.from(new Set(values.filter(Boolean)));
 }

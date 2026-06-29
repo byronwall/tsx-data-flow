@@ -1,9 +1,11 @@
 import { countDistinctUnknownEdges, createGraph } from "./graph.mjs";
 import { compareBaseline } from "./baseline-compare.mjs";
+import { unique } from "./collections.mjs";
 import { buildComponentRefs } from "./component-refs.mjs";
 import { analyzeContextRelay } from "./context-relay.mjs";
 import { applyPackEvidence, computePackGroups } from "./pack-groups.mjs";
 import { familyRows, rankSinks } from "./ranking.mjs";
+import { groundReachability } from "./reachability.mjs";
 import { buildUnknownEdgeRows } from "./unknown-edges.mjs";
 import { computeConcentration, computeWorkUnits } from "./work-units.mjs";
 import { shouldAnalyzeFile } from "../project/files.mjs";
@@ -16,8 +18,7 @@ export function buildReport(
   routing = null,
   dependencies,
 ) {
-  const { analyzeSourceFile, buildHelperReport, groundReachability, unique } =
-    dependencies;
+  const { analyzeSourceFile, buildHelperReport } = dependencies;
   const checker = program.getTypeChecker();
   const graph = createGraph(args.root);
   const sourceFiles = program

@@ -8,7 +8,7 @@ date: 2026-06-29
 
 ## Current Status
 
-This branch has implemented the first major cleanup tranche from `20260629-deep-structural-refactor-audit-plan.md`, plus follow-up shrink passes. The work is intentionally still in-progress: `src/core.mjs` is smaller and less facade-heavy, but it remains the owner of analyzer orchestration, render-path tracing, recommendation prose, most markdown view renderers, and thin dependency-injection wrappers for helper-report enrichment and compare summary/stop recommendation. Report assembly, component references, unknown-edge projection, helper-report boundary scoring, sink ranking, path-family grouping, sink shape classification, pack evidence, work-unit/concentration rollups, fan-out root identity, and context-relay analysis now live under `src/analysis/`; compare projection and summary logic are report-owned.
+This branch has implemented the first major cleanup tranche from `20260629-deep-structural-refactor-audit-plan.md`, plus follow-up shrink passes. The work is intentionally still in-progress: `src/core.mjs` is smaller and less facade-heavy, but it remains the owner of analyzer orchestration, render-path tracing, recommendation prose, most markdown view renderers, and thin dependency-injection wrappers for helper-report enrichment and compare summary/stop recommendation. Report assembly, component references, unknown-edge projection, helper-report boundary scoring, sink ranking, path-family grouping, sink shape classification, pack evidence, work-unit/concentration rollups, fan-out root identity, reachability grounding, trace support/cataloging, and context-relay analysis now live under `src/analysis/`; compare projection and summary logic are report-owned.
 
 Validation at this checkpoint:
 
@@ -17,22 +17,25 @@ rtk pnpm exec vitest run test/core.test.mjs test/integration/golden.test.mjs
 rtk pnpm test
 ```
 
-Current focused run after the sink-shape, fan-out, pack evidence, work-unit/concentration, and context-relay extractions: 2 test files passed, 105 tests passed. Full suite after this shrink pass: 12 test files passed, 179 tests passed. VS Code diagnostics reported no errors in the touched source files checked during this pass.
+Current focused run after the reachability, trace-support, and collection-helper extractions: 2 test files passed, 105 tests passed. Full suite after this shrink pass: 12 test files passed, 179 tests passed. VS Code diagnostics reported no errors in the touched source files checked during this pass.
 
 Current size checkpoint:
 
-- `src/core.mjs`: 5,443 lines
-- `src/analysis/report-builder.mjs`: 310 lines
+- `src/core.mjs`: 5,068 lines
+- `src/analysis/report-builder.mjs`: 307 lines
 - `src/analysis/baseline-compare.mjs`: 63 lines
+- `src/analysis/collections.mjs`: 2 lines
 - `src/analysis/context-relay.mjs`: 202 lines
 - `src/analysis/fan-out.mjs`: 62 lines
 - `src/analysis/helper-report.mjs`: 248 lines
 - `src/analysis/pack-groups.mjs`: 202 lines
 - `src/analysis/ranking.mjs`: 313 lines
+- `src/analysis/reachability.mjs`: 86 lines
 - `src/analysis/component-refs.mjs`: 62 lines
 - `src/analysis/unknown-edges.mjs`: 99 lines
 - `src/analysis/sink-descriptor.mjs`: 10 lines
 - `src/analysis/sink-shape.mjs`: 228 lines
+- `src/analysis/trace-support.mjs`: 296 lines
 - `src/analysis/work-units.mjs`: 119 lines
 - `src/reports/format-helpers.mjs`: 117 lines
 
@@ -60,8 +63,10 @@ New or extracted production modules:
   - Owns `findingTitle` outside the core facade.
 - `src/analysis/report-builder.mjs`
   - Owns `buildReport`, report-level file/scope filtering, repeated-fork relation, constant-sink suppression, and summary assembly.
-  - Imports component references, unknown-edge projection, ranking, path-family grouping, pack evidence, work-unit/concentration rollups, and context-relay analysis directly from sibling analysis modules.
-  - Still receives a dependency object from `src/core.mjs` for core-owned tracing/report helper dependencies: `analyzeSourceFile`, `buildHelperReport`, `groundReachability`, and `unique`.
+  - Imports component references, unknown-edge projection, ranking, path-family grouping, pack evidence, work-unit/concentration rollups, reachability grounding, shared collection helpers, and context-relay analysis directly from sibling analysis modules.
+  - Still receives a dependency object from `src/core.mjs` for the two core-owned tracing/report-helper dependencies: `analyzeSourceFile` and `buildHelperReport`.
+- `src/analysis/collections.mjs`
+  - Owns the shared `unique` collection helper so report-builder no longer receives it through the core adapter.
 - `src/analysis/component-refs.mjs`
   - Owns symbol-accurate JSX component reference indexing for the component-refs report field.
 - `src/analysis/unknown-edges.mjs`
@@ -80,9 +85,13 @@ New or extracted production modules:
   - Owns same-feature context relay detection and JSX/import helpers for the context relay report field.
 - `src/analysis/helper-report.mjs`
   - Owns helper report shaping, caller counting, helper-boundary classification, and boundary debt ranking.
-  - Still receives tracing dependencies from the thin `src/core.mjs` wrapper: `traceExpression`, `getFileContextCached`, `metricsFor`, `fanOutRootsFor`, `resolveCatalogFn`, and `safeTypeText`.
+  - Still receives tracing dependencies from the thin `src/core.mjs` wrapper: `traceExpression`, `getFileContextCached`, `metricsFor`, `fanOutRootsFor`, `resolveCatalogFn`, and `safeTypeText`. `getFileContextCached` and `resolveCatalogFn` now come from `src/analysis/trace-support.mjs`; `traceExpression`, `metricsFor`, and `safeTypeText` remain core-owned.
 - `src/analysis/ranking.mjs`
   - Owns sink ranking, burden/centrality/change-risk scoring, background classification, and path-family row grouping.
+- `src/analysis/reachability.mjs`
+  - Owns sink reachability grounding, `reachedVia` population, and queue classification (`investigation`, `central-leverage`, `peripheral-quick-win`).
+- `src/analysis/trace-support.mjs`
+  - Owns per-file trace context construction/caching, import/variable/function indexing, symbol-to-helper catalog resolution, first-party helper catalog records, call-name extraction, and function return-expression extraction.
 - `src/analysis/baseline-compare.mjs`
   - Owns JSON baseline comparison and per-sink baseline diffing. `src/core.mjs` no longer imports `node:fs` for this path.
 - `src/html/styles.mjs`
@@ -157,10 +166,10 @@ The last six are compatibility facade re-exports from `src/reports/overview-sele
 - `src/reports/json.mjs` uses selectors from `src/reports/overview-selectors.mjs`; keep report projection modules from importing `src/core.mjs`.
 - `src/reports/compare.mjs` still does not import `src/core.mjs`; report modules have no core import. `src/reports/compare-summary.mjs` is extracted, but still adapter-injected from core while recommendation/severity dependencies remain core-owned.
 - `src/analysis/report-builder.mjs` imports `compareBaseline` directly from `src/analysis/baseline-compare.mjs` and imports `shouldAnalyzeFile` directly from `src/project/files.mjs`; keep this direction so core does not regain file-system or project-file filtering ownership.
-- `src/analysis/report-builder.mjs` now also imports `buildComponentRefs`, `buildUnknownEdgeRows`, `rankSinks`, `familyRows`, `computePackGroups`, `applyPackEvidence`, `computeWorkUnits`, `computeConcentration`, and `analyzeContextRelay` directly. Do not reintroduce those through the core adapter.
+- `src/analysis/report-builder.mjs` now also imports `buildComponentRefs`, `buildUnknownEdgeRows`, `rankSinks`, `familyRows`, `computePackGroups`, `applyPackEvidence`, `computeWorkUnits`, `computeConcentration`, `groundReachability`, `unique`, and `analyzeContextRelay` directly. Do not reintroduce those through the core adapter.
 - `src/analysis/sink-shape.mjs` is now the owner for sink family/path shape classification. Recommendation prose can import from it, but new analysis modules should prefer this owner instead of duplicating shape constants in core.
 - `src/analysis/fan-out.mjs` is now the fan-out root/identity owner. `src/core.mjs` still imports it for renderers and helper-report injection, but future analysis code should import it directly.
-- `src/analysis/helper-report.mjs` intentionally uses dependency injection for tracing because `traceExpression`, catalog resolution, and file-context caching still live in core. Moving that cluster is the next meaningful way to remove the helper-report wrapper.
+- `src/analysis/helper-report.mjs` intentionally uses dependency injection for tracing because `traceExpression`, `metricsFor`, and `safeTypeText` still live in core. Catalog resolution and file-context caching have moved to `src/analysis/trace-support.mjs`, so the next meaningful reduction is moving the remaining trace engine/body metrics cluster or carrying the small helper-report adapter with a new analyzer/tracing module.
 - `src/reports/baseline-parser.mjs` deliberately keeps old `dossier.md` and `transformation-ledger.md` parsing as optional compatibility for old baseline directories.
 - Temporary refactor scripts were written under `tmp/` per workspace instructions. They are review artifacts and were not cleaned up.
 - The working tree includes an untracked copy of the original plan: `docs/plans/20260629-deep-structural-refactor-audit-plan.md`. It came from the user attachment/session context and should be reviewed before commit.
@@ -173,9 +182,9 @@ Completed: `buildReport` and its immediate assembly helpers now live in `src/ana
 
 Next slice:
 
-- Move the remaining cohesive dependencies currently injected from core into non-core owners. The report-builder adapter is now down to `analyzeSourceFile`, `buildHelperReport`, `groundReachability`, and `unique`.
-- Remove the `buildHelperReport` wrapper by moving trace/catalog helpers as a cluster, or by creating a tracing module that owns `traceExpression`, `resolveCatalogFn`, file-context caching, body metrics, and the helper-report adapter together.
-- Consider moving `groundReachability` with the reached-sink/graph grounding helpers if it can import `reachedSinkDescriptor` and graph helpers without reaching back into core.
+- Move the remaining cohesive dependencies currently injected from core into non-core owners. The report-builder adapter is now down to `analyzeSourceFile` and `buildHelperReport`.
+- Remove the `buildHelperReport` wrapper by moving the remaining trace/body-metrics helpers as a cluster, or by creating a tracing module that owns `traceExpression`, `metricsFor`, `safeTypeText`, and the helper-report adapter together. Catalog resolution and file-context caching are already in `src/analysis/trace-support.mjs`.
+- Consider moving `analyzeSourceFile` together with sink-expression detection and the trace engine once the helper-report wrapper no longer needs to bridge back through core.
 - Keep `src/analysis/report-builder.mjs` free of `src/core.mjs` imports. Prefer direct imports from `src/analysis/*`, `src/reports/*`, and `src/project/*` over adding more adapter entries.
 - Validate each reduction with `test/core.test.mjs` and `test/integration/golden.test.mjs`.
 
@@ -238,6 +247,9 @@ rtk pnpm test
 
 ## Current Validation Snapshot
 
+- `rtk pnpm exec vitest run test/core.test.mjs test/integration/golden.test.mjs` passed after moving reachability grounding, trace support/cataloging, and the shared `unique` helper out of `src/core.mjs`: 2 files, 105 tests.
+- `rtk pnpm test` passed after this shrink pass: 12 test files passed, 179 tests passed.
+- VS Code diagnostics reported no errors in `src/core.mjs`, `src/analysis/report-builder.mjs`, `src/analysis/reachability.mjs`, `src/analysis/trace-support.mjs`, and `src/analysis/collections.mjs` after this pass.
 - `rtk pnpm exec vitest run test/core.test.mjs test/integration/golden.test.mjs` passed after moving sink-shape, fan-out, pack grouping/evidence, work-unit/concentration, and context-relay analysis out of `src/core.mjs`: 2 files, 105 tests.
 - `rtk pnpm test` passed after this shrink pass: 12 test files passed, 179 tests passed.
 - VS Code diagnostics reported no errors in `src/core.mjs`, `src/analysis/report-builder.mjs`, `src/analysis/sink-shape.mjs`, `src/analysis/fan-out.mjs`, `src/analysis/pack-groups.mjs`, `src/analysis/work-units.mjs`, and `src/analysis/context-relay.mjs` after this pass.
