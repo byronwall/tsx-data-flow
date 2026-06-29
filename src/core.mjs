@@ -2981,7 +2981,15 @@ function traceIdentifier(ts, checker, graph, expression, context) {
     !context.parameters.has(name) &&
     identifierResolvesTo(ts, checker, expression, context.functions.get(name))
   ) {
-    return sourceTrace(graph, expression, "source", name, false, "source");
+    return sourceTrace(
+      graph,
+      expression,
+      "source",
+      name,
+      false,
+      "source",
+      definitionLocationOf(ts, checker, expression, graph.root),
+    );
   }
   // A value imported from another module (`import { SCOPE } from "./view"`,
   // `import { Portal } from "solid-js/web"`) is a source boundary — the value
@@ -2994,7 +3002,15 @@ function traceIdentifier(ts, checker, graph, expression, context) {
     !context.parameters.has(name) &&
     !context.variables.has(name)
   ) {
-    return sourceTrace(graph, expression, "import", name, false, "import");
+    return sourceTrace(
+      graph,
+      expression,
+      "import",
+      name,
+      false,
+      "import",
+      definitionLocationOf(ts, checker, expression, graph.root),
+    );
   }
 
   // A reference to an `enum`/`class`/`namespace` used as a value (`Emphasis.NONE`,
@@ -3534,7 +3550,39 @@ function uniqueRootInfos(rootInfos) {
   return Array.from(seen.values());
 }
 
-function sourceTrace(graph, expression, kind, label, unknown, rootKind = kind) {
+// FANOUT-DEF-1: resolve a root expression to its DEFINITION location (where the
+// symbol is declared), not the use site we are currently tracing. This lets the
+// fan-out graph's source node link straight to where a shared source like
+// `useCommitsTableContext` is defined — the user shouldn't have to click into a
+// usage and chase an import. Best-effort: returns null when the symbol is
+// unresolved or only declared externally (node_modules / `.d.ts`).
+function definitionLocationOf(ts, checker, expression, root) {
+  let symbol;
+  try {
+    symbol = checker.getSymbolAtLocation(expression);
+    if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+      symbol = checker.getAliasedSymbol(symbol);
+    }
+  } catch {
+    return null;
+  }
+  const declarations = symbol?.declarations ?? [];
+  if (declarations.length === 0) return null;
+  const internal = declarations.find((declaration) => {
+    const file = declaration.getSourceFile();
+    if (file.isDeclarationFile) return false;
+    const relative = relativePath(root, file.fileName);
+    return !relative.startsWith("..") && !relative.includes("node_modules/");
+  });
+  if (!internal) return null;
+  const declFile = internal.getSourceFile();
+  const position = declFile.getLineAndCharacterOfPosition(
+    internal.getStart(declFile),
+  );
+  return { file: relativePath(root, declFile.fileName), line: position.line + 1 };
+}
+
+function sourceTrace(graph, expression, kind, label, unknown, rootKind = kind, def = null) {
   const sourceFile = expression.getSourceFile();
   const file = relativePath(graph.root, sourceFile.fileName);
   const location = locationOf(sourceFile, expression);
@@ -3548,7 +3596,7 @@ function sourceTrace(graph, expression, kind, label, unknown, rootKind = kind) {
   return {
     lastNodeId: node.id,
     roots: [label],
-    rootInfos: [{ label, kind: rootKind }],
+    rootInfos: [{ label, kind: rootKind, ...(def ? { def } : {}) }],
     edges: [],
     defenses: [],
     representationSteps: [],
@@ -3686,6 +3734,11 @@ function reachedSinkDescriptor(sink) {
     file: sink.file,
     line: sink.line,
     label: where || sink.label || sink.expression || sink.id,
+    // FANOUT-DEPTH-1: the sink's own longest source→sink path length, so the
+    // fan-out graph can show how *derived* each reached sink is right next to it.
+    // Cheap (already computed); this is the sink's overall depth, not a measured
+    // distance from this particular root (that enhancement is deferred).
+    depth: sink.metrics?.maximumPathDepth ?? 0,
   };
 }
 
@@ -5248,14 +5301,47 @@ function renderDossier(report) {
   return lines.join("\n");
 }
 
+// REPORT-RECONCILE-1: the fan-out report mirrors the web "network view" — for each
+// shared source it lists *every* reached sink grouped by file, with each sink's
+// depth, plus the source's definition location and a single/cross-file tag. This is
+// the markdown the agent consumes, so it carries the same "lists everything, shows
+// depth and usage" content as the on-page graph (not the old 5-column summary).
 function renderFanOut(report, args) {
-  const rows = fanOutRows(report.sinks).slice(0, args.maxItems);
-  return tableReport(
-    "Consumer Fan-Out",
-    ["Source", "Sinks", "Files", "Example sink", "Max depth"],
-    rows,
-    viewIntro("fan-out", report),
-  );
+  const entries = fanOutEntriesGlobal(
+    report.rankings?.all ?? report.sinks ?? [],
+  ).slice(0, args.maxItems);
+  const lines = ["# Consumer Fan-Out", "", ...viewIntro("fan-out", report)];
+  if (!entries.length) {
+    lines.push("_No shared source fans out to ≥2 render sinks._", "");
+    return `${lines.join("\n")}\n`;
+  }
+  for (const entry of entries) {
+    const tag =
+      entry.fileCount === 1
+        ? "single-file (candidate split)"
+        : `${entry.fileCount} files (cross-file usage)`;
+    lines.push(
+      `## ${entry.root} — ${entry.sinkCount} sinks · ${tag} · max depth ${entry.maxDepth}`,
+      "",
+    );
+    if (entry.def) {
+      lines.push(`Defined at \`${entry.def.file}:${entry.def.line}\`.`, "");
+    }
+    const byFile = new Map();
+    for (const sink of entry.graphSinks) {
+      if (!byFile.has(sink.file)) byFile.set(sink.file, []);
+      byFile.get(sink.file).push(sink);
+    }
+    for (const [file, sinks] of byFile) {
+      lines.push(`- **${file}** (${sinks.length})`);
+      for (const sink of sinks) {
+        const label = sink.label ? ` ${sink.label}` : "";
+        lines.push(`  - \`${file}:${sink.line}\`${label} · depth ${sink.depth ?? 0}`);
+      }
+    }
+    lines.push("");
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 function renderFanIn(report, args) {
@@ -7730,42 +7816,6 @@ function countDistinctUnknownEdges(graph) {
   return seen.size;
 }
 
-// Per source, collect what a reader needs to act without re-grepping: how many
-// render sinks it feeds, in how many files, a representative sink to open first
-// (deepest path — the most likely cleanup target), and the worst path depth.
-// Replaces the former opaque `Operations` (a slice-size sum) with `Max depth`.
-function fanOutRows(sinks) {
-  const map = new Map();
-  for (const sink of sinks) {
-    for (const info of fanOutRootsFor(sink)) {
-      const { key, label } = fanOutIdentity(sink, info);
-      let entry = map.get(key);
-      if (!entry) {
-        entry = { label, sinks: 0, files: new Set(), example: null, maxDepth: 0 };
-        map.set(key, entry);
-      }
-      entry.sinks += 1;
-      entry.files.add(sink.file);
-      entry.maxDepth = Math.max(entry.maxDepth, sink.metrics.maximumPathDepth);
-      if (
-        !entry.example ||
-        sink.metrics.maximumPathDepth > entry.example.metrics.maximumPathDepth
-      ) {
-        entry.example = sink;
-      }
-    }
-  }
-  return Array.from(map.values())
-    .map((value) => [
-      value.label,
-      String(value.sinks),
-      String(value.files.size),
-      value.example ? `${value.example.file}:${value.example.line}` : "",
-      String(value.maxDepth),
-    ])
-    .sort((left, right) => Number(right[1]) - Number(left[1]));
-}
-
 // ARCH-2 (B): fan-out entries scoped to a single file, for the code-map unified
 // list. A fan-out row is a source that feeds many render sinks; its natural unit
 // is cross-file (how widely the value spreads), so we compute over ALL sinks to
@@ -7782,6 +7832,9 @@ export function fanOutEntriesForFile(allSinks, relPath) {
         entry = {
           root: label,
           kind: info.kind,
+          // FANOUT-DEF-1: definition location of the source (when resolvable), so
+          // the graph's source node links to where it is declared, not a usage.
+          def: info.def ?? null,
           total: 0,
           files: new Set(),
           inFile: [],
@@ -7820,6 +7873,7 @@ export function fanOutEntriesForFile(allSinks, relPath) {
     .map((entry) => ({
       root: entry.root,
       kind: entry.kind,
+      def: entry.def,
       sinkCount: entry.total,
       fileCount: entry.files.size,
       line: entry.example?.line ?? entry.inFile[0]?.line ?? null,
@@ -7845,6 +7899,7 @@ export function fanOutEntriesGlobal(allSinks) {
         entry = {
           root: label,
           kind: info.kind,
+          def: info.def ?? null,
           total: 0,
           files: new Set(),
           graphSinks: [],
@@ -7866,6 +7921,7 @@ export function fanOutEntriesGlobal(allSinks) {
     .map((entry) => ({
       root: entry.root,
       kind: entry.kind,
+      def: entry.def,
       sinkCount: entry.total,
       fileCount: entry.files.size,
       line: null,

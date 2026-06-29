@@ -1119,13 +1119,17 @@ const truncMid = (text, max = 26) => {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 };
 
-// GRAPH-1 + GRAPH-GROUP-1: a node/edge diagram for one fan-out source — the source
-// on the left, an edge to each reached sink on the right. Sinks are GROUPED into a
-// labeled band per file (filename shown once, sinks as `:line` leaves) instead of
-// repeating the filename on every node, and every file gets a distinct color
-// (GRAPH-COLOR-1). No caps: all reached sinks and all files are drawn (the user's
-// "render them all" call). In-file sinks select on the code map; cross-file sinks
-// open the target file. `relPath` may be null (overview = purely cross-file).
+// GRAPH-1 + GRAPH-GROUP-1 (+ round 7): a node/edge diagram for one fan-out source.
+// The source sits on the LEFT (column 1) and links to its DEFINITION when we could
+// resolve it (FANOUT-DEF-1); the reached sinks are GROUPED into a labeled band per
+// file (filename shown once, sinks as `:line where · depth` leaves — FANOUT-DEPTH-1
+// shows how derived each one is), every file gets a distinct color (GRAPH-COLOR-1),
+// and the bands flow across TWO columns (columns 2 & 3 — FANOUT-GRID-1) so a wide
+// fan is half as tall and fills the empty right margin. Exactly ONE edge runs from
+// the source to each file band, not one per sink (FANOUT-EDGE-1): the band carries
+// membership, the per-sink fan was just noise. No caps. `relPath` may be null
+// (overview = purely cross-file); in-file sinks select on the code map, cross-file
+// sinks open the target file.
 export function fanOutGraphSvg(row, relPath) {
   const sinks = row.graphSinks ?? row.sinks ?? [];
   if (!sinks.length) return "";
@@ -1138,59 +1142,74 @@ export function fanOutGraphSvg(row, relPath) {
   const fileList = [...byFile.keys()];
   const colors = fanoutFileColors(fileList);
 
-  const W = 560;
-  const rowH = 22; // height of one sink leaf
+  const rowH = 20; // height of one sink leaf
   const headH = 22; // height of a file band header
-  const bandGap = 10;
+  const bandGap = 12;
   const top = 14;
   const srcW = 150;
-  const bandX = W - 252;
-  const bandW = 246;
-  const leafX = bandX + 14;
+  const bandW = 236;
+  const colGap = 20;
+  const colAX = srcW + 60;
+  const colBX = colAX + bandW + colGap;
+  const W = colBX + bandW;
 
-  let totalH = top;
-  for (const list of byFile.values())
-    totalH += headH + list.length * rowH + bandGap;
-  totalH = Math.max(96, totalH + 2);
+  // FANOUT-GRID-1: distribute the file bands across two columns, always adding the
+  // next band to the currently-shorter column, so the columns stay balanced and the
+  // graph is ~half the height of the old single stack.
+  const bandHeightOf = (file) => headH + byFile.get(file).length * rowH;
+  const cols = [
+    { x: colAX, y: top, items: [] },
+    { x: colBX, y: top, items: [] },
+  ];
+  for (const file of fileList) {
+    const col = cols[0].y <= cols[1].y ? cols[0] : cols[1];
+    const h = bandHeightOf(file);
+    col.items.push({ file, top: col.y, h });
+    col.y += h + bandGap;
+  }
+  const totalH = Math.max(96, Math.max(cols[0].y, cols[1].y) + 2);
   const srcCy = totalH / 2;
 
   const edges = [];
   const bands = [];
-  let y = top;
-  for (const file of fileList) {
-    const list = byFile.get(file);
-    const { hue, sat, light } = colors.get(file);
-    const hsl = `${hue} ${sat}% ${light}%`;
-    const bandTop = y;
-    const bandH = headH + list.length * rowH;
-    bands.push(
-      `<rect x="${bandX}" y="${bandTop}" width="${bandW}" height="${bandH}" rx="8" fill="hsl(${hsl} / 0.06)" stroke="hsl(${hsl})" stroke-width="1"/>
+  for (const col of cols) {
+    for (const { file, top: bandTop, h } of col.items) {
+      const list = byFile.get(file);
+      const { hue, sat, light } = colors.get(file);
+      const hsl = `${hue} ${sat}% ${light}%`;
+      const bandX = col.x;
+      const leafX = bandX + 14;
+      bands.push(
+        `<rect x="${bandX}" y="${bandTop}" width="${bandW}" height="${h}" rx="8" fill="hsl(${hsl} / 0.06)" stroke="hsl(${hsl})" stroke-width="1"/>
       <rect x="${bandX + 11}" y="${bandTop + 7}" width="9" height="9" rx="2" fill="hsl(${hsl})"/>
       <text x="${bandX + 25}" y="${bandTop + 15}" font-size="11" font-weight="600" fill="currentColor">${escapeHtml(
-        truncMid(file.split("/").pop(), 30),
+        truncMid(file.split("/").pop(), 28),
       )}</text>`,
-    );
-    list.forEach((s, j) => {
-      const cy = bandTop + headH + j * rowH + rowH / 2;
-      const inFile = relPath != null && s.file === relPath;
-      const label = escapeHtml(truncMid(`:${s.line} ${s.label ?? ""}`.trim(), 36));
-      const open = inFile
-        ? `<a class="xref" data-finding="${escapeHtml(s.id ?? "")}">`
-        : `<a class="xfile" href="/file?path=${encodeURIComponent(s.file)}#L${s.line}">`;
-      bands.push(
-        `${open}<g class="fg-node"><rect class="fg-hit" x="${bandX + 4}" y="${
-          cy - rowH / 2 + 1
-        }" width="${bandW - 8}" height="${rowH - 2}" rx="4"/><text x="${leafX}" y="${
-          cy + 4
-        }" font-size="11" fill="currentColor"${
-          inFile ? ' font-weight="600"' : ""
-        }>${label}</text></g></a>`,
       );
+      list.forEach((s, j) => {
+        const cy = bandTop + headH + j * rowH + rowH / 2;
+        const inFile = relPath != null && s.file === relPath;
+        const where = escapeHtml(truncMid(`:${s.line} ${s.label ?? ""}`.trim(), 30));
+        const depth = `<tspan fill="hsl(${hsl})" font-weight="600"> · d${s.depth ?? 0}</tspan>`;
+        const open = inFile
+          ? `<a class="xref" data-finding="${escapeHtml(s.id ?? "")}">`
+          : `<a class="xfile" href="/file?path=${encodeURIComponent(s.file)}#L${s.line}">`;
+        bands.push(
+          `${open}<g class="fg-node"><rect class="fg-hit" x="${bandX + 4}" y="${
+            cy - rowH / 2 + 1
+          }" width="${bandW - 8}" height="${rowH - 2}" rx="4"/><text x="${leafX}" y="${
+            cy + 4
+          }" font-size="11" fill="currentColor"${
+            inFile ? ' font-weight="600"' : ""
+          }>${where}${depth}</text></g></a>`,
+        );
+      });
+      // FANOUT-EDGE-1: one edge from the source to this file band's center.
+      const bandCy = bandTop + h / 2;
       edges.push(
-        `<path d="M${srcW} ${srcCy} C ${srcW + 70} ${srcCy}, ${bandX - 50} ${cy}, ${bandX} ${cy}" fill="none" stroke="hsl(${hsl} / 0.4)" stroke-width="1.3"/>`,
+        `<path d="M${srcW} ${srcCy} C ${srcW + 70} ${srcCy}, ${bandX - 50} ${bandCy}, ${bandX} ${bandCy}" fill="none" stroke="hsl(${hsl} / 0.55)" stroke-width="1.6"/>`,
       );
-    });
-    y = bandTop + bandH + bandGap;
+    }
   }
 
   const legend = fileList
@@ -1202,11 +1221,27 @@ export function fanOutGraphSvg(row, relPath) {
     })
     .join("");
 
+  // FANOUT-DEF-1: link the source node to where it's DEFINED when the analyzer
+  // resolved it; for a single-file fan-out fall back to the one file it lives in. A
+  // cross-file source we couldn't resolve stays an unlinked node (honest — we don't
+  // know where it's declared rather than guessing a usage).
+  const defTarget =
+    row.def != null
+      ? `/file?path=${encodeURIComponent(row.def.file)}#L${row.def.line}`
+      : row.fileCount === 1 && fileList[0]
+        ? `/file?path=${encodeURIComponent(fileList[0])}`
+        : null;
+  const srcLabel = escapeHtml(truncMid(row.root ?? "source", 20));
+  const srcNode = `<g class="fg-src"><rect x="0" y="${srcCy - 16}" width="${srcW}" height="32" rx="8" fill="hsl(205 70% 50% / 0.16)" stroke="hsl(205 70% 50%)" stroke-width="2"/>
+    <text x="10" y="${srcCy + 4}" font-size="11.5" fill="currentColor">${srcLabel}</text></g>`;
+  const source = defTarget
+    ? `<a class="xfile" href="${defTarget}" aria-label="Jump to definition of ${srcLabel}">${srcNode}</a>`
+    : srcNode;
+
   return `<div class="fanout-graph">
   <svg viewBox="0 0 ${W} ${totalH}" width="100%" height="${totalH}" role="img" aria-label="Fan-out graph for ${escapeHtml(row.root ?? "source")}">
     ${edges.join("")}
-    <g><rect x="0" y="${srcCy - 16}" width="${srcW}" height="32" rx="8" fill="hsl(205 70% 50% / 0.16)" stroke="hsl(205 70% 50%)" stroke-width="2"/>
-    <text x="10" y="${srcCy + 4}" font-size="11.5" fill="currentColor">${escapeHtml(truncMid(row.root ?? "source", 20))}</text></g>
+    ${source}
     ${bands.join("")}
   </svg>
   <div class="fg-legend">${legend}</div>

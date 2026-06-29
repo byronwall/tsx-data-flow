@@ -223,7 +223,7 @@ th.sortable .caret { color: var(--accent); flex: 0 0 auto; font-size: 0.85em; }
 .peek-pop .peek-gloss { margin: 2px 0 6px; max-width: 380px; line-height: 1.4; }
 /* GRAPH-1: fan-out node/edge diagram (source → sinks, colored by file). */
 .fanout-graph { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; padding: 6px; overflow-x: auto; }
-.fanout-graph svg { display: block; min-width: 480px; }
+.fanout-graph svg { display: block; width: 100%; height: auto; min-width: 480px; }
 .fanout-graph .fg-node { cursor: pointer; }
 .fanout-graph .fg-hit { fill: transparent; }
 .fanout-graph a:hover .fg-node .fg-hit { fill: rgba(127,127,127,0.14); }
@@ -235,6 +235,30 @@ th.sortable .caret { color: var(--accent); flex: 0 0 auto; font-size: 0.85em; }
 .fanout-entry { margin: 14px 0; scroll-margin-top: 16px; }
 .fanout-entry h3 { margin: 0 0 4px; font-size: 14px; }
 .fanout-entry .meta { font-weight: 400; }
+/* ARCH-1: page-level report tab strip (the on-page replacement for the sidebar). */
+.report-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 14px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.report-tab { font-size: 12.5px; padding: 4px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; white-space: nowrap; }
+.report-tab:hover { background: var(--panel); color: var(--fg); }
+.report-tab.active { background: var(--accent); color: #fff; font-weight: 600; }
+/* FANOUT-LIST-1: the fan-out source selector (tab strip + dropdown) + sort + tags. */
+.fo-explain { margin: 4px 0 10px; max-width: 72ch; }
+.fo-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.fo-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fo-tab { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--fg); text-decoration: none; background: var(--panel); }
+.fo-tab:hover { border-color: var(--accent); }
+.fo-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.fo-tab-val { font-size: 11px; font-variant-numeric: tabular-nums; opacity: 0.8; }
+.fo-tab.active .fo-tab-val { opacity: 0.95; }
+.fo-more { font-size: 12.5px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--fg); }
+.fo-sort { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.fo-sort-btn { font-size: 12px; padding: 2px 8px; border-radius: 6px; color: var(--muted); text-decoration: none; }
+.fo-sort-btn:hover { background: var(--panel); color: var(--fg); }
+.fo-sort-btn.active { background: var(--accent); color: #fff; font-weight: 600; }
+.fo-tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; vertical-align: middle; }
+.fo-tag-single { background: var(--central-bg); color: var(--central); }
+.fo-tag-cross { background: var(--quick-bg); color: var(--quick); }
+/* REPORT-RECONCILE-1: the raw markdown shown beneath the network view. */
+.md-mirror { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 0 14px; margin-top: 6px; }
 .codemap .panel .finding { display: none; }
 .codemap .panel .finding.active { display: block; }
 .codemap .panel h4 { margin: 0 0 2px; }
@@ -466,6 +490,15 @@ function legacyCopy(text) {
   try { document.execCommand('copy'); } catch (err) {}
   document.body.removeChild(ta);
 }
+
+// FANOUT-LIST-1: a <select> that navigates on change — the chosen fan-out source
+// lives in the URL (its option value is the target href), so a refresh restores it.
+document.addEventListener('change', function (e) {
+  var sel = e.target;
+  if (sel && sel.matches && sel.matches('select[data-nav-select]') && sel.value) {
+    window.location.href = sel.value;
+  }
+});
 
 // ---- finding selection + path overlay (shared by clicks and initial load) ----
 function clearPathOverlay(map) {

@@ -761,6 +761,106 @@ describe("fanOutGraphSvg (GRAPH-COLOR-1 / GRAPH-GROUP-1)", () => {
     const scoped = fanOutGraphSvg(row, "src/App.tsx");
     expect(scoped).toContain('class="xref" data-finding="S1"');
   });
+
+  it("draws one edge per file band, shows per-sink depth, and links the source to its definition (round 7)", () => {
+    const r = {
+      root: "useThing",
+      kind: "import",
+      sinkCount: 3,
+      fileCount: 2,
+      maxDepth: 4,
+      def: { file: "src/hooks/useThing.ts", line: 5 },
+      graphSinks: [
+        { id: "S1", file: "src/App.tsx", line: 2, label: "div / text", depth: 3 },
+        { id: "S2", file: "src/App.tsx", line: 9, label: "span / title", depth: 4 },
+        { id: "S3", file: "src/Card.tsx", line: 7, label: "div / class", depth: 1 },
+      ],
+    };
+    const svg = fanOutGraphSvg(r, null);
+    // FANOUT-EDGE-1: one edge per FILE band (2 files), not one per sink (3 sinks).
+    expect((svg.match(/<path d="M/g) ?? []).length).toBe(2);
+    // FANOUT-DEPTH-1: each leaf carries its own depth.
+    expect(svg).toContain("· d3");
+    expect(svg).toContain("· d4");
+    // FANOUT-DEF-1: the source node links to its DEFINITION, not a usage.
+    expect(svg).toContain('href="/file?path=src%2Fhooks%2FuseThing.ts#L5"');
+  });
+
+  it("links a single-file fan-out's source to the one file when no definition resolved", () => {
+    const r = {
+      root: "X › props.isOpen",
+      kind: "prop-read",
+      sinkCount: 2,
+      fileCount: 1,
+      maxDepth: 2,
+      def: null,
+      graphSinks: [
+        { id: "A", file: "src/X.tsx", line: 3, label: "Show / when", depth: 2 },
+        { id: "B", file: "src/X.tsx", line: 8, label: "div", depth: 1 },
+      ],
+    };
+    expect(fanOutGraphSvg(r, null)).toContain('href="/file?path=src%2FX.tsx"');
+  });
+});
+
+describe("fan-out viewer + report tab strip (round 7)", () => {
+  const FANOUT_FIXTURE = {
+    "src/Two.tsx": `
+      export function Comp(props: { isOpen: boolean; mode: string }) {
+        return <div>
+          {props.isOpen ? "a" : "b"}
+          {props.isOpen && "c"}
+          {props.mode === "x" ? "y" : "z"}
+          {props.mode}
+        </div>;
+      }
+    `,
+  };
+
+  it("renders the selectable fan-out viewer (not a stack of graphs) on the overview", async () => {
+    const project = await createFixtureProject(FANOUT_FIXTURE);
+    const { handler } = createServer(project.args);
+    const home = await call(handler, "/");
+    // ARCH-1: the page-level report tab strip is present.
+    expect(home.body).toContain('class="report-tabs"');
+    // FANOUT-LIST-1: the selector + explanatory copy + a sort control.
+    expect(home.body).toContain("fo-explain");
+    expect(home.body).toContain('class="fo-tab');
+    expect(home.body).toContain('class="fo-sort-btn');
+    // Exactly ONE graph renders at a time, even with multiple detected sources.
+    expect((home.body.match(/class="fanout-graph"/g) ?? []).length).toBe(1);
+  });
+
+  it("selects a specific source and sort via URL params (refresh-safe)", async () => {
+    const project = await createFixtureProject(FANOUT_FIXTURE);
+    const { handler } = createServer(project.args);
+    const anchor = fanOutAnchor("Comp › props.mode");
+    const picked = await call(handler, "/?fanout=" + anchor + "&fosort=depth");
+    // The chosen source's graph is the one rendered.
+    expect(picked.body).toContain(`id="${anchor}"`);
+    expect(picked.body).toContain("Comp › props.mode");
+    // The active sort is reflected (FANOUT-SORT-1).
+    expect(picked.body).toContain('class="fo-sort-btn active"');
+  });
+
+  it("fan-out report shows the network view with the raw markdown beneath it", async () => {
+    const project = await createFixtureProject(FANOUT_FIXTURE);
+    const { handler } = createServer(project.args);
+    const report = await call(handler, "/report?view=fan-out");
+    expect(report.body).toContain('class="report-tab active"');
+    expect(report.body).toContain('class="fo-tabs"');
+    // REPORT-RECONCILE-1: the agent-facing markdown is rendered below the view.
+    expect(report.body).toContain('class="body md-mirror"');
+    expect(report.body).toContain("Markdown report");
+  });
+
+  it("tags single-file fan-outs as candidate splits vs cross-file usage", async () => {
+    const project = await createFixtureProject(FANOUT_FIXTURE);
+    const { handler } = createServer(project.args);
+    const home = await call(handler, "/");
+    // props.isOpen / props.mode are component-scoped → single-file (FANOUT-COPY-1).
+    expect(home.body).toContain("single-file · candidate split");
+  });
 });
 
 describe("source peek", () => {
@@ -1097,7 +1197,7 @@ describe("createServer", () => {
     expect(all.body).toContain("Paginate");
   });
 
-  it("shows a back-to-overview breadcrumb on file and report pages", async () => {
+  it("links back to the overview from the file page and the report tab strip", async () => {
     const project = await createFixtureProject(FIXTURE);
     const { handler } = createServer(project.args);
 
@@ -1110,9 +1210,12 @@ describe("createServer", () => {
     // The sidebar title is a home link here too (consistent with the file page).
     expect(file.body).toContain('<h1><a href="/">tsx-dataflow</a></h1>');
 
+    // ARCH-1: report pages now carry the page-level tab strip; its "Overview" tab
+    // is the back-link, and the active view's tab is marked.
     const report = await call(handler, "/report?view=findings");
-    expect(report.body).toContain('class="crumbs"');
-    expect(report.body).toContain('<a href="/">← Overview</a>');
+    expect(report.body).toContain('class="report-tabs"');
+    expect(report.body).toContain('href="/">Overview</a>');
+    expect(report.body).toContain('class="report-tab active"');
   });
 
   it("pre-selects a finding on the file page via ?finding=", async () => {

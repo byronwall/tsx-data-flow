@@ -34,8 +34,16 @@ there. The user returned to this every session:
   unknown edges are unified into the per-file list today. `source-boundaries` was
   retired (round 5) — its "a source feeds N sinks" signal is the fan-out entry, so
   a separate row only duplicated it. The standalone Reports section now also
-  alphabetizes. Remaining tail: a network/graph view and a code-map "where used"
-  overlay (both started as first slices, see §3/§7)._
+  alphabetizes. **Round 7:** the overview gained a **page-level report tab strip**
+  (the on-page replacement for opening reports from the sidebar) — the sidebar is
+  now slated for retirement once enough reports become on-page viewers. Remaining
+  tail: a code-map "where used" overlay (started as a first slice, see §3/§7)._
+- **A view that stacks every detail at once still violates this section, even when
+  each detail is good.** A list of N things, each fully materialized, is not a list
+  — it's a wall. Surface the N as a *selectable* index; render the heavy detail for
+  the *selected* one. (round 7: the overview fan-out section stacked a dozen full
+  node-edge graphs; it became a tab strip of the heaviest sources + a dropdown for
+  the rest, rendering one graph at a time, selection in the URL.)
 
 ## 2. Never make the user leave the code map
 
@@ -151,6 +159,20 @@ Small inconsistencies and lies read as bugs and erode confidence fast.
   - _The diagram **groups sinks by file** (one file label per group, sinks as
     leaves) rather than repeating the filename on every node, and **colors every
     file distinctly** (a color the user can't tell apart is a §6 trust problem)._
+  - _Status (round 7): the fan-out picture is **governed by selection** — a tab
+    strip (heaviest sources) + a dropdown (the rest) selects ONE source; only that
+    source's graph renders, and the selection lives in the URL. Each derived sink
+    shows its **depth**, the source node **links to its definition**, and a
+    **single-file (candidate split) vs cross-file (real usage)** tag explains the
+    kind. The fan-out report mirrors this view with the **raw markdown beneath it**
+    (the markdown is the agent's deliverable, so its quality must be inspectable next
+    to the rich view)._
+- **Collapse redundant visual signal.** In a relationship picture, draw **one
+  connector per group, not one per leaf** — N parallel edges into a single labeled
+  box are noise, not information; the group membership is the signal. And lay a wide
+  fan across **multiple columns** rather than one tall list. (round 7: the fan-out
+  graph drew one edge per sink into each file band; it now draws one edge per band,
+  and flows the file bands across two columns — source · consumers · consumers.)
 
 ## 8. It must look designed
 
@@ -160,6 +182,12 @@ Small inconsistencies and lies read as bugs and erode confidence fast.
 **Implications**
 - No raw/unstyled browser widgets. Everything matches the design system, light
   and dark. Polish is part of trust.
+- _Direction (round 7): the homepage is moving toward **page-level tabbed report
+  viewers** — each analysis type a holistic on-page viewer (a rich view with the raw
+  markdown beneath, kept in sync), selectable from a tab strip, with the left
+  "Reports" sidebar slated for retirement once enough viewers are on-page. The
+  fan-out viewer is the first; the rest still render their current report content
+  under the tab strip until each is reviewed and upgraded or retired._
 
 ---
 

@@ -284,16 +284,11 @@ describe("render path data-flow analyzer", () => {
     }
   });
 
-  it("gives fan-out actionable location detail with an example sink and file count", async () => {
+  it("gives fan-out actionable location detail with per-sink depth (REPORT-RECONCILE-1)", async () => {
     const project = await createFixtureProject({
       "src/fan/A.tsx": `
         export function A(props: { entity: { id: string } }) {
-          return <div>{props.entity.id}</div>;
-        }
-      `,
-      "src/fan/B.tsx": `
-        export function B(props: { entity: { id: string } }) {
-          return <span>{props.entity.id}</span>;
+          return <div>{props.entity.id}{props.entity.id}</div>;
         }
       `,
     });
@@ -304,11 +299,15 @@ describe("render path data-flow analyzer", () => {
       format: "markdown",
     });
 
-    expect(output).toContain("Example sink");
-    expect(output).toContain("Files");
+    // The report now mirrors the network view: a heading per shared source with its
+    // sink count + single/cross-file tag, then every reached sink grouped by file
+    // with a concrete file:line and its depth (not the old summary table).
+    expect(output).toContain("Consumer Fan-Out");
+    expect(output).toContain("A › props.entity");
+    expect(output).toContain("single-file (candidate split)");
     expect(output).not.toContain("Operations");
-    // The example-sink column points at a concrete file:line a reader can open.
-    expect(output).toMatch(/src\/fan\/[AB]\.tsx:\d+/);
+    expect(output).toMatch(/src\/fan\/A\.tsx:\d+/);
+    expect(output).toMatch(/· depth \d+/);
   });
 
   it("renders only actionable sources in findings (no literals, globals, or bare params)", async () => {
@@ -378,9 +377,11 @@ describe("render path data-flow analyzer", () => {
       `,
     });
     const report = await analyzeProject(project.args);
+    // fan-out no longer renders a table (it mirrors the network view), so exercise
+    // the prettier-style table aligner against a view that still uses tableReport.
     const output = renderReport(report, {
       ...project.args,
-      view: "fan-out",
+      view: "fan-in",
       format: "markdown",
     });
     const tableLines = output
@@ -916,12 +917,13 @@ describe("render path data-flow analyzer", () => {
       view: "fan-out",
       format: "markdown",
     });
+    // Each shared source is a `## <root> — …` heading in the network-style report.
     const sources = output
       .split("\n")
-      .filter((l) => l.startsWith("| ") && !l.includes("---") && !l.includes("Source"))
-      .map((l) => l.split("|")[1].trim());
+      .filter((l) => l.startsWith("## "))
+      .map((l) => l.slice(3).split(" — ")[0].trim());
     // Both components read `props.isOpen`, but they are different props — each is
-    // its own scoped fan-out row, never one merged "props.isOpen" entry.
+    // its own scoped fan-out entry, never one merged "props.isOpen" entry.
     expect(sources).toContain("Alpha › props.isOpen");
     expect(sources).toContain("Beta › props.isOpen");
     expect(sources).not.toContain("props.isOpen");
@@ -950,13 +952,8 @@ describe("render path data-flow analyzer", () => {
 
     const sourceCells = output
       .split("\n")
-      .filter(
-        (line) =>
-          line.startsWith("| ") &&
-          !line.includes("---") &&
-          !line.includes("Source"),
-      )
-      .map((line) => line.split("|")[1].trim());
+      .filter((line) => line.startsWith("## "))
+      .map((line) => line.slice(3).split(" — ")[0].trim());
 
     // Literals (0, "", false) and the bare `props` object must not rank as sources.
     expect(sourceCells).not.toContain("0");

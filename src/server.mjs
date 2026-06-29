@@ -145,19 +145,36 @@ export function createServer(args) {
         const view = url.searchParams.get("view");
         if (!isReportView(view)) return send(res, 404, notFoundPage());
         const md = renderReport(cache.full, reportArgs(args, view));
-        const html = peekReferences(markdownToHtml(md), sourceFor);
+        const mdHtml = peekReferences(markdownToHtml(md), sourceFor);
+        let main;
+        if (view === "fan-out") {
+          // REPORT-RECONCILE-1: the fan-out report IS the network view; the raw
+          // markdown (what the agent consumes) is shown beneath it so any quality
+          // gap between the two is visible side by side.
+          const fanOuts = fanOutEntriesGlobal(
+            cache.full.rankings?.all ?? cache.full.sinks ?? [],
+          );
+          const viewer = fanOutViewer(fanOuts, {
+            selected: url.searchParams.get("fanout"),
+            sortKey: url.searchParams.get("fosort"),
+            hrefFor: (overrides) => paramHref(url, overrides),
+          });
+          main = `${viewer}
+<h2>Markdown report <span class="meta">— what the agent consumes; compare it with the view above</span></h2>
+<div class="body md-mirror">${mdHtml}</div>`;
+        } else {
+          main = `<div class="body">${mdHtml}</div>`;
+        }
         return send(
           res,
           200,
           page({
             title: `${VIEW_LABELS[view] ?? view} · tsx-dataflow`,
-            body: `<nav class="crumbs"><a href="/">← Overview</a><span>/</span><span>${escapeHtml(
-              VIEW_LABELS[view] ?? view,
-            )}</span></nav><div class="toolbar"><h1 style="margin:0">${escapeHtml(
+            body: `${reportTabs(view)}<div class="toolbar"><h1 style="margin:0">${escapeHtml(
               VIEW_LABELS[view] ?? view,
             )}</h1><a class="btn" href="/api/report.${encodeURIComponent(
               view,
-            )}.md">Markdown</a></div><div class="body">${html}</div>`,
+            )}.md">Markdown</a></div>${main}`,
             nav: overviewNav(cache.full, url),
           }),
         );
@@ -363,6 +380,131 @@ function reportAssets(state) {
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
+// Build an href from the current URL, overriding/deleting the given query params
+// and keeping everything else — so a control can change one bit of state (the
+// selected fan-out, the sort) without dropping the rest (INTENT §5: state in URL).
+function paramHref(url, overrides) {
+  const next = new URL(url.href);
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value == null) next.searchParams.delete(key);
+    else next.searchParams.set(key, String(value));
+  }
+  return `${next.pathname}${next.search}`;
+}
+
+// ARCH-1: page-level report tab strip — the on-page replacement for opening reports
+// from the left sidebar. "Overview" is first; the rest mirror the alphabetized
+// report list. The active tab is highlighted; selection is just the URL, so a
+// refresh restores it. `activeView` is null on the overview, or the report view id.
+function reportTabs(activeView) {
+  const tabs = [
+    { view: null, label: "Overview", href: "/" },
+    ...REPORT_VIEWS.map((view) => ({
+      view,
+      label: viewLabel(view),
+      href: `/report?view=${encodeURIComponent(view)}`,
+    })).sort((a, b) => a.label.localeCompare(b.label)),
+  ];
+  return `<nav class="report-tabs" aria-label="Report sections">${tabs
+    .map((tab) => {
+      const on = tab.view === activeView;
+      return `<a class="report-tab${on ? " active" : ""}"${
+        on ? ' aria-current="page"' : ""
+      } href="${escapeHtml(tab.href)}">${escapeHtml(tab.label)}</a>`;
+    })
+    .join("")}</nav>`;
+}
+
+// FANOUT-SORT-1: only sort keys already on the entry — no new analysis. The active
+// key's value is shown on each tab so the order is never a mystery (INTENT §6).
+const FANOUT_SORTS = [
+  { key: "spread", label: "spread", get: (f) => f.sinkCount, dir: -1 },
+  { key: "depth", label: "depth", get: (f) => f.maxDepth, dir: -1 },
+  { key: "files", label: "files", get: (f) => f.fileCount, dir: -1 },
+  { key: "name", label: "name", get: (f) => f.root, dir: 1 },
+];
+const FANOUT_TAB_LIMIT = 5;
+
+function sortFanOuts(fanOuts, sortKey) {
+  const sort = FANOUT_SORTS.find((s) => s.key === sortKey) ?? FANOUT_SORTS[0];
+  const sorted = [...fanOuts].sort((a, b) => {
+    const av = sort.get(a);
+    const bv = sort.get(b);
+    if (typeof av === "string") return sort.dir * av.localeCompare(bv);
+    return sort.dir * (av - bv) || b.sinkCount - a.sinkCount;
+  });
+  return { sorted, sort };
+}
+
+// FANOUT-LIST-1 (+ COUNT-1, COPY-1, SORT-1): the on-page fan-out "network view". A
+// tab strip of the heaviest sources + a dropdown holding the rest selects ONE
+// source; only that source's graph renders. Every detected fan-out is reachable
+// (the dropdown answers "what are the other N?"), the sort key + value are visible
+// and controllable, and a single-file vs cross-file tag explains the kind. Selection
+// and sort live in the URL via `hrefFor`.
+function fanOutViewer(fanOuts, { selected, sortKey, hrefFor }) {
+  if (!fanOuts.length)
+    return `<p class="meta">No shared source fans out to ≥2 render sinks.</p>`;
+  const { sorted, sort } = sortFanOuts(fanOuts, sortKey);
+  const active =
+    sorted.find((f) => fanOutAnchor(f.root) === selected) ?? sorted[0];
+  const tabsList = sorted.slice(0, FANOUT_TAB_LIMIT);
+  const rest = sorted.slice(FANOUT_TAB_LIMIT);
+  const valueOf = (f) =>
+    sort.key === "name" ? `${f.fileCount}f` : String(sort.get(f));
+  const tabs = tabsList
+    .map((f) => {
+      const on = f === active;
+      return `<a class="fo-tab${on ? " active" : ""}"${
+        on ? ' aria-current="true"' : ""
+      } href="${escapeHtml(hrefFor({ fanout: fanOutAnchor(f.root) }))}">${escapeHtml(
+        f.root,
+      )} <span class="fo-tab-val">${escapeHtml(valueOf(f))}</span></a>`;
+    })
+    .join("");
+  const dropdown = rest.length
+    ? `<select class="fo-more" data-nav-select aria-label="Other fan-out sources">
+  <option value="" disabled${rest.includes(active) ? "" : " selected"}>+${
+    rest.length
+  } more…</option>
+  ${rest
+    .map(
+      (f) =>
+        `<option value="${escapeHtml(hrefFor({ fanout: fanOutAnchor(f.root) }))}"${
+          f === active ? " selected" : ""
+        }>${escapeHtml(f.root)} · ${f.sinkCount} sinks · depth ${f.maxDepth}</option>`,
+    )
+    .join("")}
+</select>`
+    : "";
+  const sortControl = `<span class="fo-sort"><span class="meta">Sort:</span> ${FANOUT_SORTS.map(
+    (s) =>
+      `<a class="fo-sort-btn${s.key === sort.key ? " active" : ""}" href="${escapeHtml(
+        hrefFor({ fosort: s.key, fanout: fanOutAnchor(active.root) }),
+      )}">${escapeHtml(s.label)}</a>`,
+  ).join("")}</span>`;
+  const tag =
+    active.fileCount === 1
+      ? `<span class="fo-tag fo-tag-single" title="One source consumed many times within a single file — usually a prop-drilling pattern that wants to be split.">single-file · candidate split</span>`
+      : `<span class="fo-tag fo-tag-cross" title="One source consumed across many files — real cross-file usage; centralizing it touches them all.">${active.fileCount} files · cross-file usage</span>`;
+  const defLine = active.def
+    ? ` · defined at <a class="xfile" href="/file?path=${encodeURIComponent(
+        active.def.file,
+      )}#L${active.def.line}">${escapeHtml(active.def.file)}:${active.def.line}</a>`
+    : "";
+  return `<p class="meta fo-explain">A <strong>fan-out</strong> is a single source whose value is consumed by many render sinks; changing it touches every one. Pick a source to see where it spreads — the source node links to its definition, each sink to its file.</p>
+<div class="fo-controls">
+  <div class="fo-tabs">${tabs}${dropdown}</div>
+  ${sortControl}
+</div>
+<section class="fanout-entry" id="${fanOutAnchor(active.root)}">
+  <h3>${escapeHtml(active.root)} ${tag} <span class="meta">· ${
+    active.sinkCount
+  } sinks · max depth ${active.maxDepth}${defLine}</span></h3>
+  ${fanOutGraphSvg(active, null)}
+</section>`;
+}
+
 function overviewNav(report, url = new URL("http://localhost/")) {
   const state = overviewState(url);
   const groups = overviewRows(report, state);
@@ -526,33 +668,22 @@ ${typeCells(g.key)}
         ? `<nav class="pager" aria-label="File result pages">${showAllToggle}</nav>`
         : "";
 
-  // HOME-1: the cross-file fan-out graphs live here, on the overview — a
-  // "here are the detected fan-outs" starting point that motivates drilling into a
-  // file (each sink node links to its file page). We render the top sources as full
-  // graphs; the standalone /report?view=fan-out table still lists every source.
-  const FANOUT_GRAPH_LIMIT = 12;
+  // HOME-1 + FANOUT-LIST-1: the cross-file fan-outs live here as a selectable viewer
+  // — a tab strip of the heaviest sources + a dropdown for the rest, rendering ONE
+  // graph at a time (not a stacked wall of graphs). It is the same viewer the
+  // fan-out report tab uses; the full report (with the agent-facing markdown) lives
+  // at /report?view=fan-out.
   const fanOuts = fanOutEntriesGlobal(report.rankings?.all ?? report.sinks ?? []);
-  const shownFanOuts = fanOuts.slice(0, FANOUT_GRAPH_LIMIT);
   const fanOutSection = fanOuts.length
-    ? `<h2>Detected fan-outs</h2>
-<p class="meta">Shared sources that fan out to many render sinks across files. Each sink node links to its file. ${
-        fanOuts.length > FANOUT_GRAPH_LIMIT
-          ? `Showing the top ${FANOUT_GRAPH_LIMIT} of ${fanOuts.length} by spread — the <a href="/report?view=fan-out">full fan-out report</a> lists them all.`
-          : `${fanOuts.length} source${fanOuts.length === 1 ? "" : "s"}.`
-      }</p>
-${shownFanOuts
-  .map(
-    (fo) => `<section class="fanout-entry" id="${fanOutAnchor(fo.root)}">
-  <h3>${escapeHtml(fo.root)} <span class="meta">· ${fo.sinkCount} sinks across ${
-    fo.fileCount
-  } file${fo.fileCount === 1 ? "" : "s"} · max depth ${fo.maxDepth}</span></h3>
-  ${fanOutGraphSvg(fo, null)}
-</section>`,
-  )
-  .join("")}`
+    ? `<h2 id="detected-fan-outs">Detected fan-outs <a class="meta" href="/report?view=fan-out">open report →</a></h2>
+${fanOutViewer(fanOuts, {
+        selected: url.searchParams.get("fanout"),
+        sortKey: url.searchParams.get("fosort"),
+        hrefFor: (overrides) => paramHref(url, overrides),
+      })}`
     : "";
 
-  const body = `<div class="toolbar">
+  const body = `${reportTabs(null)}<div class="toolbar">
   <h1 style="margin:0">Render-path overview</h1>
   <form action="/refresh" method="post"><button type="submit">↻ Re-analyze</button></form>
 </div>
