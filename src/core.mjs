@@ -10,11 +10,23 @@ import {
 } from "./analysis/graph.mjs";
 import { findingTitle } from "./analysis/finding-title.mjs";
 import { buildHelperReport as buildHelperReportImpl } from "./analysis/helper-report.mjs";
+import { fanOutIdentity, fanOutRootsFor } from "./analysis/fan-out.mjs";
+import {
+  packGroupForSink,
+  packRiskForVerdict,
+} from "./analysis/pack-groups.mjs";
 import { familyRows } from "./analysis/ranking.mjs";
 import {
   buildReport as buildReportImpl,
   makeFileMatcher,
 } from "./analysis/report-builder.mjs";
+import {
+  classifyPathShape,
+  CONTROL_FLOW_ATTRIBUTES,
+  primaryAdviceShape,
+  sinkAttributeName,
+  sinkFamilyOf,
+} from "./analysis/sink-shape.mjs";
 import { reachedSinkDescriptor } from "./analysis/sink-descriptor.mjs";
 import {
   code,
@@ -75,47 +87,6 @@ const REPRESENTATION_KINDS = new Set(["alias", "object-pack", "object-spread"]);
 // true count is kept separately so the UI can show "+N more".
 const REACHED_VIA_CAP = 50;
 
-// --- Shape vocabulary (shared across path classification and sink families) ---
-// Kept in one place so the geometry/style/control sets never drift between the
-// path-shape classifier (Phase 1), fix suggestions (Phase 2), and sink-family
-// grouping (Phase 3).
-
-// Attributes that size the SVG/HTML shell itself. Split out from geometry so a
-// plain width={...} is not lumped with bar-coordinate math when grouping sinks.
-const SVG_SHELL_ATTRIBUTES = new Set(["width", "height", "viewBox", "viewbox"]);
-// Per-element coordinate/shape attributes — the bar-geometry family.
-const GEOMETRY_FAMILY_ATTRIBUTES = new Set([
-  "transform",
-  "x",
-  "y",
-  "cx",
-  "cy",
-  "d",
-  "points",
-  "r",
-  "dx",
-  "dy",
-  "x1",
-  "y1",
-  "x2",
-  "y2",
-  "rx",
-  "ry",
-]);
-const LOCAL_SCALAR_GEOMETRY_ATTRIBUTES = new Set([
-  ...GEOMETRY_FAMILY_ATTRIBUTES,
-  "stroke-dasharray",
-  "strokeDasharray",
-  "stroke-dashoffset",
-  "strokeDashoffset",
-]);
-// The union is what "this path computes geometry" keys off of (Phase 1).
-const GEOMETRY_ATTRIBUTES = new Set([
-  ...SVG_SHELL_ATTRIBUTES,
-  ...GEOMETRY_FAMILY_ATTRIBUTES,
-]);
-const STYLE_ATTRIBUTES = new Set(["class", "className", "style"]);
-const CONTROL_FLOW_ATTRIBUTES = new Set(["when", "each", "fallback"]);
 // Conventional prop names that a custom list/collection component uses to receive
 // the iterable it renders one row per (`<RowList items={…}>{(row) => …}</RowList>`).
 // When such a component takes a render-callback child, its parameter is an element
@@ -128,14 +99,6 @@ const RENDER_PROP_ITERABLE_ATTRIBUTES = new Set([
   "list",
   "entries",
   "options",
-]);
-const IDENTITY_ATTRIBUTES = new Set([
-  "id",
-  "href",
-  "xlink:href",
-  "for",
-  "name",
-  "headers",
 ]);
 
 // Calls/identifiers that are opaque *by design*, not because tracing failed.
@@ -578,13 +541,8 @@ function buildReport(
 ) {
   return buildReportImpl(ts, program, args, typescriptModulePath, routing, {
     analyzeSourceFile,
-    analyzeContextRelay,
     buildHelperReport,
-    computeConcentration,
-    computePackGroups,
-    computeWorkUnits,
     groundReachability,
-    applyPackEvidence,
     unique,
   });
 }
@@ -3075,102 +3033,6 @@ function primaryShapeOf(sink) {
   return primaryAdviceShape(sink) ?? "uncategorized";
 }
 
-function primaryAdviceShape(sink, shapes = classifyPathShape(sink)) {
-  if (sinkFamilyOf(sink) === "svg-shell" && shapes.includes("svg-shell")) {
-    return "svg-shell";
-  }
-  if (sink.category === "style" && shapes.includes("presentation-pack")) {
-    return "presentation-pack";
-  }
-  if (
-    sink.category === "render-control" &&
-    shapes.includes("control-flow-gate")
-  ) {
-    return "control-flow-gate";
-  }
-  if (
-    shapes.includes("solid-prop-default-boundary") &&
-    (shapes[0] === "domain-normalization" || shapes.length === 1)
-  ) {
-    return "solid-prop-default-boundary";
-  }
-  return shapes[0] ?? null;
-}
-
-// Approach 3 — collapse file-local sinks that share a cause into one work unit.
-// Two sinks join the same unit when they share a packed object (packs[].key) or
-// share BOTH their primary pivot and primary shape (so a geometry chain and a
-// leaky relay in the same file stay separate units — guarding the "don't
-// force-merge different fixes" risk). The representative is the highest-burden
-// member. Returned burden-sorted by representative.
-function computeWorkUnits(sinks) {
-  const byFile = new Map();
-  for (const sink of sinks) {
-    if (!byFile.has(sink.file)) byFile.set(sink.file, []);
-    byFile.get(sink.file).push(sink);
-  }
-  const units = [];
-  for (const fileSinks of byFile.values()) {
-    const groups = [];
-    for (const sink of fileSinks) {
-      const packKeys = new Set((sink.packs ?? []).map((pack) => pack.key));
-      const pivot = primaryPivotOf(sink);
-      const shape = primaryShapeOf(sink);
-      let group = groups.find(
-        (candidate) =>
-          [...packKeys].some((key) => candidate.packKeys.has(key)) ||
-          (pivot !== null &&
-            candidate.pivot === pivot &&
-            candidate.shape === shape),
-      );
-      if (!group) {
-        group = { sinks: [], packKeys: new Set(), pivot, shape };
-        groups.push(group);
-      }
-      group.sinks.push(sink);
-      for (const key of packKeys) group.packKeys.add(key);
-    }
-    for (const group of groups) {
-      const members = group.sinks
-        .slice()
-        .sort((left, right) => right.scores.burden - left.scores.burden);
-      units.push(makeWorkUnit(members[0], members));
-    }
-  }
-  return units.sort((left, right) => right.scores.burden - left.scores.burden);
-}
-
-// A work unit IS its representative sink (so every existing renderer keeps
-// working) plus a `.unit` block describing the sinks it covers.
-function makeWorkUnit(representative, members) {
-  const pivots = unique(
-    members.flatMap((member) =>
-      fanOutRootsFor(member).map((info) => formatExpression(info.label, 40)),
-    ),
-  ).slice(0, 4);
-  const causes = unique(
-    members.flatMap((member) =>
-      (member.representativeSteps ?? [])
-        .filter((step) => step.kind === "call")
-        .map((step) => formatExpression(step.label, 40)),
-    ),
-  ).slice(0, 4);
-  return {
-    ...representative,
-    unit: {
-      sinkCount: members.length,
-      members: members.map((member) => ({
-        id: member.id,
-        line: member.line,
-        label: formatExpression(member.label, 40),
-      })),
-      pivots,
-      causes,
-      shape: primaryShapeOf(representative),
-    },
-  };
-}
-
 // For each file with at least one shown item, how many of its ranked siblings
 // were NOT shown — the "+N more" collapsed tally that keeps the concentration
 // signal visible (the "don't hide the worst" risk).
@@ -3337,38 +3199,6 @@ function suppressionLines(suppressed) {
     `_Suppressed (still hot, shown collapsed): ${parts.join(", ")} — see the Hotspots section of \`--view overview\` for the full count._`,
     "",
   ];
-}
-
-// Approach 5 — quantify how concentrated the ranked burden is, so the clustering
-// the user noticed becomes a reported fact rather than a surprise.
-function computeConcentration(sinks) {
-  const burdenByFile = new Map();
-  const countByFile = new Map();
-  let total = 0;
-  for (const sink of sinks) {
-    total += sink.scores.burden;
-    burdenByFile.set(
-      sink.file,
-      (burdenByFile.get(sink.file) ?? 0) + sink.scores.burden,
-    );
-    countByFile.set(sink.file, (countByFile.get(sink.file) ?? 0) + 1);
-  }
-  const fileBurdens = Array.from(burdenByFile.values()).sort(
-    (left, right) => right - left,
-  );
-  const frac = (n) =>
-    total > 0
-      ? fileBurdens.slice(0, n).reduce((sum, value) => sum + value, 0) / total
-      : 0;
-  return {
-    fileCount: burdenByFile.size,
-    sinkCount: sinks.length,
-    totalBurden: total,
-    top5: frac(5),
-    top9: frac(9),
-    hot4Plus: Array.from(countByFile.values()).filter((count) => count >= 4)
-      .length,
-  };
 }
 
 // Approach 5 — the "Coverage" paragraph shown in the packet/repair-map headers.
@@ -3903,53 +3733,6 @@ function mirrorSingletonRiskFor(sink) {
     !classifyPathShape(sink).includes("collection-render-model") &&
     !sink.packVerdicts?.includes("cohesive-render-model")
   );
-}
-
-function isLocalScalarGeometry(sink) {
-  const attribute = sinkAttributeName(sink);
-  if (!attribute || !LOCAL_SCALAR_GEOMETRY_ATTRIBUTES.has(attribute)) {
-    return false;
-  }
-  if (
-    ![
-      "cx",
-      "cy",
-      "r",
-      "stroke-dasharray",
-      "strokeDasharray",
-      "stroke-dashoffset",
-      "strokeDashoffset",
-    ].includes(attribute)
-  ) {
-    return false;
-  }
-  if (sinkFamilyOf(sink) === "svg-shell") return false;
-  if (sink.packVerdicts?.includes("cohesive-render-model")) return false;
-  if (
-    classifyPathText(sink).match(
-      /\b(?:map|filter|flatMap|reduce|For|each|index\s*\(|value\s*=>)\b/,
-    )
-  ) {
-    return false;
-  }
-  const metrics = sink.metrics ?? {};
-  if ((metrics.packRisk ?? 0) > 0) return false;
-  const text = classifyPathText(sink);
-  const hasScalarMath =
-    /[-+*/%]/.test(text) ||
-    /\b(?:Math\.|PI|circumference|radius|center|dash|size|strokeWidth|stroke-width)\b/i.test(
-      text,
-    );
-  if (!hasScalarMath) return false;
-  return true;
-}
-
-function classifyPathText(sink) {
-  return [
-    sink.label,
-    sink.expression,
-    ...(sink.representativeSteps ?? []).map((step) => step.label),
-  ].join(" ");
 }
 
 function appendGroupedRecommendations(lines, report, args) {
@@ -4770,93 +4553,6 @@ function featureKeyFor(file) {
   return directoryParts.slice(0, 3).join("/") || path.dirname(file);
 }
 
-// The JSX attribute name a sink renders into (`transform` from `transform={...}`),
-// or null for bare rendered values / text nodes.
-function sinkAttributeName(sink) {
-  const match = /^([A-Za-z0-9_-]+)=\{/.exec(sink.label ?? "");
-  return match ? match[1] : null;
-}
-
-// Phase 1 — classify the data-flow path feeding a sink into zero or more shape
-// tags, derived purely from the sink's own trace (no repo scanning). Tags are
-// non-exclusive; the array is returned in a fixed priority order so callers can
-// treat element 0 as the primary shape.
-function classifyPathShape(sink) {
-  const attribute = sinkAttributeName(sink);
-  const steps = sink.representativeSteps ?? [];
-  const kinds = new Set(steps.map((step) => step.kind));
-  const labelText = steps.map((step) => step.label).join(" ");
-  const metrics = sink.metrics;
-  const rootInfos = sink.rootInfos ?? [];
-  const tags = [];
-
-  if (attribute && SVG_SHELL_ATTRIBUTES.has(attribute)) {
-    tags.push("svg-shell");
-  }
-
-  if (isLocalScalarGeometry(sink)) {
-    tags.push("local-scalar-geometry");
-  }
-
-  const hasArithmetic = /[-+*/%]/.test(labelText) || kinds.has("template");
-  if (
-    (attribute && GEOMETRY_FAMILY_ATTRIBUTES.has(attribute)) ||
-    (kinds.has("template") &&
-      hasArithmetic &&
-      metrics.controlDependencyCount > 0)
-  ) {
-    tags.push("geometry-chain");
-  }
-
-  if (
-    (sink.category === "render-control" && attribute === "each") ||
-    /\.(map|filter|sort|flatMap|reduce|slice)\(/.test(labelText)
-  ) {
-    tags.push("collection-render-model");
-  }
-
-  if (
-    (attribute && (attribute === "when" || attribute === "fallback")) ||
-    (metrics.controlDependencyCount > 0 &&
-      metrics.defensiveOperationCount > 0 &&
-      sink.category === "render-control")
-  ) {
-    tags.push("control-flow-gate");
-  }
-
-  if (
-    sink.category === "style" ||
-    (kinds.has("object-pack") && attribute && STYLE_ATTRIBUTES.has(attribute))
-  ) {
-    tags.push("presentation-pack");
-  }
-
-  if (
-    metrics.defensiveOperationCount > 0 ||
-    (metrics.controlDependencyCount > 0 &&
-      rootInfos.some((info) => info.kind === "prop-read"))
-  ) {
-    tags.push("domain-normalization");
-  }
-
-  if (hasSolidPropDefaultBoundary(sink)) {
-    tags.push("solid-prop-default-boundary");
-  }
-
-  if (
-    metrics.mergeWidth > 1 &&
-    metrics.helperHops === 0 &&
-    rootInfos.length > 0 &&
-    rootInfos.every(
-      (info) => info.kind === "prop-read" || info.kind === "parameter",
-    )
-  ) {
-    tags.push("cross-component-relay");
-  }
-
-  return tags;
-}
-
 // Plain-English noun for a shape tag — used in reviewer summaries (Phase 6).
 const SHAPE_PHRASES = {
   "svg-shell": "SVG shell sizing",
@@ -4997,12 +4693,6 @@ function candidateEditsFor(sink, group = null) {
   return edits;
 }
 
-function hasSolidPropDefaultBoundary(sink) {
-  return (sink.defenses ?? []).some((defense) =>
-    /solid prop default/i.test(defense.origin ?? ""),
-  );
-}
-
 function solidPropDefaultNames(sink) {
   return unique(
     (sink.defenses ?? [])
@@ -5129,213 +4819,6 @@ function providerEvidenceSummary(evidence) {
 
 function hasContextHookRoot(sink) {
   return sink.roots.some((root) => /^use[A-Z]/.test(root));
-}
-
-// Phase 3a — the render region a sink belongs to. width/height/viewBox are the
-// SVG/HTML *shell*; coordinate attributes are *geometry*; when/each/fallback are
-// *control-flow*; class/style are *style*; id/href-like fields are *identity*;
-// bare values are *text*.
-function sinkFamilyOf(sink) {
-  const attribute = sinkAttributeName(sink);
-  if (attribute && SVG_SHELL_ATTRIBUTES.has(attribute)) return "svg-shell";
-  if (attribute && GEOMETRY_FAMILY_ATTRIBUTES.has(attribute)) return "geometry";
-  if (attribute && CONTROL_FLOW_ATTRIBUTES.has(attribute))
-    return "control-flow";
-  if (attribute && STYLE_ATTRIBUTES.has(attribute)) return "style";
-  if (attribute && IDENTITY_ATTRIBUTES.has(attribute)) return "identity";
-  if (sink.category === "rendered-value") return "text";
-  return "other";
-}
-
-// Phase 3b/3c — group sinks that flow through the same packed object (a
-// createMemo/object literal). The verdict is evidence-based: a pack can be a
-// useful normalization boundary or cohesive render model, not just wrapper
-// churn; it becomes suspicious when it mixes sink families, mirrors props, or
-// expands one source into broad relay work.
-function computePackGroups(sinks) {
-  const byPack = new Map();
-  for (const sink of sinks) {
-    for (const pack of sink.packs ?? []) {
-      let entry = byPack.get(pack.key);
-      if (!entry) {
-        entry = { key: pack.key, label: pack.label, sinks: [] };
-        byPack.set(pack.key, entry);
-      }
-      entry.sinks.push(sink);
-    }
-  }
-
-  const groups = [];
-  for (const entry of byPack.values()) {
-    if (entry.sinks.length < 2) continue;
-    const familyMembers = new Map();
-    for (const sink of entry.sinks) {
-      const family = sinkFamilyOf(sink);
-      if (!familyMembers.has(family)) familyMembers.set(family, new Set());
-      familyMembers
-        .get(family)
-        .add(sinkAttributeName(sink) ?? formatExpression(sink.expression, 24));
-    }
-    const families = Array.from(familyMembers.keys());
-    const evidence = packEvidenceFor(entry, families);
-    groups.push({
-      key: entry.key,
-      label: formatExpression(entry.label, 48),
-      sinkCount: entry.sinks.length,
-      families,
-      familyMembers: Object.fromEntries(
-        Array.from(familyMembers.entries()).map(([family, members]) => [
-          family,
-          Array.from(members),
-        ]),
-      ),
-      evidence,
-      verdict: packVerdictFor(evidence),
-    });
-  }
-  return groups.sort(
-    (left, right) =>
-      packRiskForVerdict(right.verdict) - packRiskForVerdict(left.verdict) ||
-      right.families.length - left.families.length ||
-      right.sinkCount - left.sinkCount,
-  );
-}
-
-function packEvidenceFor(entry, families) {
-  const sinks = entry.sinks;
-  const roots = unique(
-    sinks.flatMap((sink) =>
-      fanOutRootsFor(sink).map((info) => formatExpression(info.label, 48)),
-    ),
-  );
-  const steps = sinks.flatMap((sink) => sink.representativeSteps ?? []);
-  const callText = steps
-    .filter((step) => step.kind === "call")
-    .map((step) => step.label)
-    .join(" ");
-  const packText = `${entry.label} ${callText}`;
-  const parserBoundary =
-    /\b(?:parse|parser|extract|decode|token|match|css|shadow|normalize|normalise)\b/iu.test(
-      packText,
-    );
-  const helperBoundary =
-    /\b(?:selection|choices?|model|view|derive|build|create)\b/iu.test(
-      callText,
-    );
-  const defensiveOps = sum(
-    sinks,
-    (sink) => sink.metrics.defensiveOperationCount,
-  );
-  const representationChurn = sum(
-    sinks,
-    (sink) => sink.metrics.representationChurn,
-  );
-  const helperHops = sum(sinks, (sink) => sink.metrics.helperHops);
-  const maxReach = Math.max(
-    0,
-    ...sinks.map((sink) => sink.metrics.reachableSinks),
-  );
-  const propRoots = roots.filter((root) => /^props\./.test(root));
-  const geometryOnly = families.every((family) =>
-    ["geometry", "svg-shell", "other"].includes(family),
-  );
-  const sourceFamilies = new Set(roots.map(sourceFamilyKey));
-  const mirrorLike =
-    roots.length >= 2 &&
-    geometryOnly &&
-    !helperBoundary &&
-    propRoots.length / roots.length >= 0.75 &&
-    helperHops <= sinks.length &&
-    defensiveOps === 0 &&
-    families.length <= 2;
-
-  return {
-    familyCount: families.length,
-    sourceRootCount: roots.length,
-    sourceFamilyCount: sourceFamilies.size,
-    defensiveOps,
-    representationChurn,
-    helperHops,
-    maxReach,
-    parserBoundary,
-    helperBoundary,
-    mirrorLike,
-    relayLike: maxReach >= 6 && families.length >= 2 && roots.length >= 2,
-  };
-}
-
-function packVerdictFor(evidence) {
-  if (
-    evidence.parserBoundary &&
-    (evidence.defensiveOps > 0 || evidence.helperHops > 0)
-  ) {
-    return "normalization-boundary";
-  }
-  if (evidence.mirrorLike) return "mirror-object";
-  if (evidence.relayLike) return "relay-bag";
-  if (evidence.familyCount >= 2) return "overpacked-bag";
-  return "cohesive-render-model";
-}
-
-function sourceFamilyKey(root) {
-  const parts = String(root).split(".");
-  return parts.slice(0, Math.min(parts.length, 2)).join(".");
-}
-
-function packRiskForVerdict(verdict) {
-  switch (verdict) {
-    case "relay-bag":
-      return 12;
-    case "overpacked-bag":
-      return 9;
-    case "mirror-object":
-      return 7;
-    case "cohesive-render-model":
-      return 0;
-    case "normalization-boundary":
-      return 0;
-    default:
-      return 4;
-  }
-}
-
-function applyPackEvidence(sinks, packGroups) {
-  const groupsByKey = new Map(packGroups.map((group) => [group.key, group]));
-  for (const sink of sinks) {
-    const groups = (sink.packs ?? [])
-      .map((pack) => groupsByKey.get(pack.key))
-      .filter(Boolean);
-    if (groups.length === 0) continue;
-    sink.packVerdicts = unique(groups.map((group) => group.verdict));
-    sink.metrics.packFamilyDiversity = Math.max(
-      0,
-      ...groups.map((group) => group.families.length),
-    );
-    sink.metrics.packRisk = Math.max(
-      0,
-      ...groups.map((group) => packRiskForVerdict(group.verdict)),
-    );
-    sink.metrics.suspiciousPackCount = groups.filter(
-      (group) => packRiskForVerdict(group.verdict) > 0,
-    ).length;
-  }
-}
-
-// The pack group (if any) that a given sink flows through — suspicious groups
-// win, then broader family spread, then larger sink count.
-function packGroupForSink(sink, packGroups) {
-  const keys = new Set((sink.packs ?? []).map((pack) => pack.key));
-  return (
-    (packGroups ?? [])
-      .filter((group) => keys.has(group.key))
-      .sort(
-        (left, right) =>
-          packRiskForVerdict(right.verdict) -
-            packRiskForVerdict(left.verdict) ||
-          right.families.length - left.families.length ||
-          right.sinkCount - left.sinkCount,
-      )[0] ?? null
-  );
 }
 
 // Human labels for the sink families in a split recommendation.
@@ -5820,254 +5303,6 @@ function getCallName(ts, node) {
   if (ts.isPropertyAccessExpression(node.expression))
     return node.expression.name.text;
   return "";
-}
-
-// Global identifiers and language keywords that the local file context cannot
-// resolve and that surface as `unknown-source` roots, but are never an ownable
-// domain "source" a developer could centralize. Excluded from fan-out ranking.
-const NON_FAN_OUT_GLOBALS = new Set([
-  "undefined",
-  "null",
-  "NaN",
-  "Infinity",
-  "Math",
-  "JSON",
-  "Object",
-  "Array",
-  "Number",
-  "String",
-  "Boolean",
-  "Date",
-  "console",
-  "window",
-  "document",
-  "globalThis",
-]);
-
-// Fan-out ranks the sources a value flows from. Literals/primitives (`0`,
-// `false`, `""`, `[]`) and bare parameter objects (`props`) are not actionable
-// "sources" — a developer cannot own or centralize them — so they are excluded,
-// as are unresolved language globals (`undefined`, `Math`). Property reads off
-// a parameter (`props.meta`) and named locals are kept.
-function fanOutRootsFor(sink) {
-  const infos =
-    sink.rootInfos ??
-    sink.roots.map((root) => ({ label: root, kind: "source" }));
-  return infos.filter(
-    (info) =>
-      info.kind !== "literal" &&
-      info.kind !== "parameter" &&
-      // BUG-1: an "operation" root is a synthetic placeholder for a no-input
-      // operation (e.g. an empty `{}` object-pack). It is not a shared source and
-      // must never collapse into a global fan-out entry keyed on its bare label.
-      info.kind !== "operation" &&
-      !NON_FAN_OUT_GLOBALS.has(info.label),
-  );
-}
-
-// FANOUT-1: a `prop-read` root (`props.isOpen`) is local to the component that
-// declares those props — two different components reading `props.isOpen` are
-// different values. Keying fan-out by the bare expression text merged unrelated
-// props across the whole repo (badly so for common names like `isOpen`) and
-// inflated the consumer count. So scope prop-derived roots by their owning
-// component; module-level/hook/import/context roots stay globally keyed because
-// those genuinely are one shared source feeding many files. The display label is
-// qualified with the component so the grouping basis is visible, not implied.
-const PROP_SCOPED_FANOUT_KINDS = new Set(["prop-read"]);
-function fanOutIdentity(sink, info) {
-  if (PROP_SCOPED_FANOUT_KINDS.has(info.kind)) {
-    const component = sink.renderContext?.component ?? null;
-    const scope = component ?? sink.file ?? "";
-    return {
-      key: `${scope}::${info.label}`,
-      label: component ? `${component} › ${info.label}` : info.label,
-    };
-  }
-  return { key: info.label, label: info.label };
-}
-
-function analyzeContextRelay(ts, sourceFiles, root) {
-  return sourceFiles
-    .flatMap((sourceFile) => contextRelayFindingsForFile(ts, sourceFile, root))
-    .sort(
-      (left, right) =>
-        right.score - left.score ||
-        right.props.length - left.props.length ||
-        left.parentFile.localeCompare(right.parentFile),
-    );
-}
-
-function contextRelayFindingsForFile(ts, sourceFile, root) {
-  if (
-    !sourceFile.fileName.endsWith(".tsx") &&
-    !sourceFile.fileName.endsWith(".jsx")
-  ) {
-    return [];
-  }
-
-  const importMap = localComponentImportMap(ts, sourceFile, root);
-  const contextHooks = contextHookNames(ts, sourceFile);
-  if (contextHooks.size === 0) return [];
-
-  const usedContextHooks = new Set();
-  const findings = [];
-  const currentFeature = featureKeyFor(relativePath(root, sourceFile.fileName));
-
-  const visit = (node) => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      contextHooks.has(node.expression.text)
-    ) {
-      usedContextHooks.add(node.expression.text);
-    }
-
-    const jsx = jsxTagAndAttributes(ts, node);
-    if (jsx) {
-      const imported = importMap.get(jsx.tag);
-      if (imported?.feature === currentFeature) {
-        const props = jsx.attributes
-          .map((attribute) => jsxAttributeName(ts, attribute))
-          .filter(Boolean)
-          .filter((name) => !localDisplayPropNames.has(name));
-        const sharedProps = props.filter(isSharedContextPropName);
-        if (props.length >= 3 || sharedProps.length > 0) {
-          const location = locationOf(sourceFile, jsx.node);
-          findings.push({
-            parentFile: relativePath(root, sourceFile.fileName),
-            line: location.line,
-            column: location.column,
-            childComponent: jsx.tag,
-            childFile: imported.file,
-            contextHooks: Array.from(
-              usedContextHooks.size > 0 ? usedContextHooks : contextHooks,
-            ),
-            props,
-            sharedProps,
-            score: sharedProps.length * 3 + props.length,
-            signal:
-              sharedProps.length > 0
-                ? "shared prop names"
-                : "same-feature prop bundle",
-          });
-        }
-      }
-    }
-
-    ts.forEachChild(node, visit);
-  };
-
-  visit(sourceFile);
-  return findings;
-}
-
-function localComponentImportMap(ts, sourceFile, root) {
-  const imports = new Map();
-  for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement)) continue;
-    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    const specifier = statement.moduleSpecifier.text;
-    if (!specifier.startsWith(".")) continue;
-    const clause = statement.importClause;
-    if (!clause) continue;
-    const importedFile = relativePath(
-      root,
-      path.resolve(path.dirname(sourceFile.fileName), specifier),
-    );
-    const feature = featureKeyFor(importedFile);
-    if (clause.name && /^[A-Z]/.test(clause.name.text)) {
-      imports.set(clause.name.text, { file: importedFile, feature });
-    }
-    const namedBindings = clause.namedBindings;
-    if (namedBindings && ts.isNamedImports(namedBindings)) {
-      for (const element of namedBindings.elements) {
-        if (/^[A-Z]/.test(element.name.text)) {
-          imports.set(element.name.text, { file: importedFile, feature });
-        }
-      }
-    }
-  }
-  return imports;
-}
-
-function contextHookNames(ts, sourceFile) {
-  const hooks = new Set();
-  const visit = (node) => {
-    if (
-      ts.isImportDeclaration(node) &&
-      ts.isStringLiteral(node.moduleSpecifier)
-    ) {
-      const specifier = node.moduleSpecifier.text;
-      if (specifier.includes("context") || specifier.includes("Context")) {
-        const namedBindings = node.importClause?.namedBindings;
-        if (namedBindings && ts.isNamedImports(namedBindings)) {
-          for (const element of namedBindings.elements) {
-            if (/^use[A-Z]/.test(element.name.text))
-              hooks.add(element.name.text);
-          }
-        }
-      }
-    }
-    if (
-      ts.isFunctionDeclaration(node) &&
-      node.name &&
-      /^use[A-Z]/.test(node.name.text)
-    ) {
-      hooks.add(node.name.text);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return hooks;
-}
-
-function jsxTagAndAttributes(ts, node) {
-  if (ts.isJsxSelfClosingElement(node) && ts.isIdentifier(node.tagName)) {
-    return {
-      node,
-      tag: node.tagName.text,
-      attributes: Array.from(node.attributes.properties),
-    };
-  }
-  if (ts.isJsxOpeningElement(node) && ts.isIdentifier(node.tagName)) {
-    return {
-      node,
-      tag: node.tagName.text,
-      attributes: Array.from(node.attributes.properties),
-    };
-  }
-  return null;
-}
-
-function jsxAttributeName(ts, attribute) {
-  if (!ts.isJsxAttribute(attribute)) return "";
-  return attribute.name.getText();
-}
-
-const localDisplayPropNames = new Set([
-  "aria-label",
-  "as",
-  "children",
-  "class",
-  "className",
-  "data-testid",
-  "disabled",
-  "fallback",
-  "href",
-  "id",
-  "key",
-  "label",
-  "ref",
-  "style",
-  "title",
-  "variant",
-]);
-
-const sharedContextPropPattern =
-  /^(action|actions|can[A-Z]|colorSwatches|detail|filters|fragments|inspector|metadata|model|modes|nodeByDomPath|notes|on[A-Z]|pending|section|selected|selection|settings|state|table|toolModes|view|workspace|zoom)$/u;
-
-function isSharedContextPropName(name) {
-  return sharedContextPropPattern.test(name);
 }
 
 function appendBaseline(lines, report) {

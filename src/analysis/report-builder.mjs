@@ -1,8 +1,11 @@
 import { countDistinctUnknownEdges, createGraph } from "./graph.mjs";
 import { compareBaseline } from "./baseline-compare.mjs";
 import { buildComponentRefs } from "./component-refs.mjs";
+import { analyzeContextRelay } from "./context-relay.mjs";
+import { applyPackEvidence, computePackGroups } from "./pack-groups.mjs";
 import { familyRows, rankSinks } from "./ranking.mjs";
 import { buildUnknownEdgeRows } from "./unknown-edges.mjs";
+import { computeConcentration, computeWorkUnits } from "./work-units.mjs";
 import { shouldAnalyzeFile } from "../project/files.mjs";
 
 export function buildReport(
@@ -13,17 +16,8 @@ export function buildReport(
   routing = null,
   dependencies,
 ) {
-  const {
-    analyzeSourceFile,
-    analyzeContextRelay,
-    buildHelperReport,
-    computeConcentration,
-    computePackGroups,
-    computeWorkUnits,
-    groundReachability,
-    applyPackEvidence,
-    unique,
-  } = dependencies;
+  const { analyzeSourceFile, buildHelperReport, groundReachability, unique } =
+    dependencies;
   const checker = program.getTypeChecker();
   const graph = createGraph(args.root);
   const sourceFiles = program
