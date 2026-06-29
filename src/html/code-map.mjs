@@ -503,12 +503,14 @@ function findingPanel(sink, source, peers, relPath, meta, resolveSource) {
   ${
     isUsage
       ? ""
-      : `<dl>
+      : `<div class="burden-row">
+    <dl>
     <dt>burden</dt><dd>${(sink.scores?.burden ?? 0).toFixed(3)}</dd>
     <dt>confidence</dt><dd>${sink.confidence}%</dd>
     <dt>risk</dt><dd>${escapeHtml(sink.confidenceRisk ?? "—")}</dd>
   </dl>
   ${burdenBreakdownHtml(sink)}
+  </div>
   ${sink.confidenceReason ? `<div class="meta">${escapeHtml(sink.confidenceReason)}</div>` : ""}
   ${why ? `<strong>Why selected</strong><ul class="why">${why}</ul>` : ""}`
   }
@@ -540,9 +542,12 @@ function defenseNote(sink) {
   } on the worst path ${shown === 1 ? "is" : "are"} listed.</div>`;
 }
 
-// Collapsible breakdown of how the burden score was computed: one bar per
-// weighted metric term, widest contribution first. Only terms that actually
-// contribute are listed, so a clean path shows an empty (zero-burden) note.
+// BURDEN-1: the breakdown of how the burden score was computed, rendered as
+// always-visible inline pills (no click-to-expand, no full-width bars) in the
+// whitespace beside the burden/confidence/risk list. Each pill names a weighted
+// metric and its share of the total; the exact `weight × normalized(raw)` math is
+// in the tooltip. Only terms that actually contribute are listed, widest first,
+// so a clean path shows a short "burden is 0" note instead.
 function burdenBreakdownHtml(sink) {
   const breakdown = sink.scores?.burdenBreakdown;
   if (!breakdown) return "";
@@ -550,21 +555,17 @@ function burdenBreakdownHtml(sink) {
   const contributing = (breakdown.terms ?? []).filter(
     (term) => term.contribution > 0,
   );
-  const max = contributing.reduce(
-    (m, term) => Math.max(m, term.contribution),
-    0,
-  );
-  const rows = contributing
+  if (!contributing.length) {
+    return `<div class="burden-breakdown"><div class="meta">No weighted metrics contribute — burden is 0.</div></div>`;
+  }
+  const pills = contributing
     .map((term) => {
       const pct = total > 0 ? Math.round((term.contribution / total) * 100) : 0;
-      const width = max > 0 ? Math.round((term.contribution / max) * 100) : 0;
-      return `<li>
-      <span class="bd-label">${escapeHtml(term.label)}</span>
-      <span class="bd-bar"><span class="bd-fill" style="width:${width}%"></span></span>
-      <span class="bd-val" title="weight ${term.weight} × normalized(${term.raw}) = ${term.contribution.toFixed(
+      return `<li class="bd-pill" title="weight ${term.weight} × normalized(${term.raw}) = ${term.contribution.toFixed(
         3,
-      )}">${term.contribution.toFixed(3)} · ${pct}%</span>
-    </li>`;
+      )}">${escapeHtml(term.label)} <span class="bd-pct">${term.contribution.toFixed(
+        3,
+      )} · ${pct}%</span></li>`;
     })
     .join("");
   const penalty = breakdown.backgroundPenalty ?? 1;
@@ -578,15 +579,12 @@ function burdenBreakdownHtml(sink) {
     (breakdown.rawSum ?? 0) > 1
       ? `<div class="meta">raw sum ${breakdown.rawSum.toFixed(3)} clamped to 1.000</div>`
       : "";
-  const body = contributing.length
-    ? `<ul class="burden-breakdown">${rows}</ul>${penaltyNote}${clampNote}`
-    : `<div class="meta">No weighted metrics contribute — burden is 0.</div>`;
-  return `<details class="burden-detail">
-    <summary>burden breakdown — ${total.toFixed(3)} from ${contributing.length} metric${
+  return `<div class="burden-breakdown">
+    <div class="bd-lead meta">burden breakdown — ${total.toFixed(3)} from ${contributing.length} metric${
       contributing.length === 1 ? "" : "s"
-    }</summary>
-    ${body}
-  </details>`;
+    }</div>
+    <ul class="bd-pills">${pills}</ul>${penaltyNote}${clampNote}
+  </div>`;
 }
 
 // Pick the highest-burden sink on a line to drive the gutter color.
@@ -1088,14 +1086,32 @@ function relayPanel(row, id) {
 </div>`;
 }
 
-// ARCH-2: a fan-out panel — a source feeding many render sinks. The headline is
-// how widely it spreads (sink/file counts); the list is the sinks it drives here.
-// GRAPH-1: a deterministic hue per file so the fan-out graph colors sinks by the
-// file they live in (the user's "color by file" ask). Stable string hash → hue.
-function fileHue(file) {
-  let h = 0;
-  for (const ch of String(file)) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  return h;
+// GRAPH-COLOR-1: assign every file in a fan-out graph a *distinct* color. The old
+// per-file string hash collided files onto near-identical hues ("I can't tell if
+// those are different"). Here hues walk the golden angle (≈137.5°) so consecutive
+// files land far apart on the wheel, and a slow lightness cycle keeps them apart
+// once the wheel wraps. Deterministic per render (insertion order of files).
+function fanoutFileColors(files) {
+  const map = new Map();
+  files.forEach((file, i) => {
+    const hue = Math.round((i * 137.508) % 360);
+    const sat = 62;
+    const light = 46 + (Math.floor((i * 137.508) / 360) % 3) * 7;
+    map.set(file, { hue, sat, light });
+  });
+  return map;
+}
+
+// Stable anchor for a fan-out source, so the per-file panel (HOME-2) can link to
+// the same source's graph in the overview's "Detected fan-outs" section (HOME-1).
+export function fanOutAnchor(root) {
+  return (
+    "fanout-" +
+    String(root ?? "source")
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase()
+  );
 }
 
 const truncMid = (text, max = 26) => {
@@ -1103,70 +1119,105 @@ const truncMid = (text, max = 26) => {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 };
 
-// GRAPH-1 (first slice): a node/edge diagram for one fan-out source — the source
-// on the left, an edge to each reached sink on the right, each sink colored by
-// its file. This is the "circles with connections, colored by file" the user
-// asked for. It draws the cross-file sample (`graphSinks`, capped upstream);
-// deeper layering (intermediate hops) and an interactive file filter are the
-// next steps. In-file sinks select on the code map; cross-file sinks open.
-function fanOutGraphSvg(row, relPath) {
+// GRAPH-1 + GRAPH-GROUP-1: a node/edge diagram for one fan-out source — the source
+// on the left, an edge to each reached sink on the right. Sinks are GROUPED into a
+// labeled band per file (filename shown once, sinks as `:line` leaves) instead of
+// repeating the filename on every node, and every file gets a distinct color
+// (GRAPH-COLOR-1). No caps: all reached sinks and all files are drawn (the user's
+// "render them all" call). In-file sinks select on the code map; cross-file sinks
+// open the target file. `relPath` may be null (overview = purely cross-file).
+export function fanOutGraphSvg(row, relPath) {
   const sinks = row.graphSinks ?? row.sinks ?? [];
   if (!sinks.length) return "";
-  const W = 540;
-  const rowH = 26;
-  const top = 16;
-  const H = Math.max(96, sinks.length * rowH + top + 12);
-  const srcCy = H / 2;
+
+  const byFile = new Map();
+  for (const s of sinks) {
+    if (!byFile.has(s.file)) byFile.set(s.file, []);
+    byFile.get(s.file).push(s);
+  }
+  const fileList = [...byFile.keys()];
+  const colors = fanoutFileColors(fileList);
+
+  const W = 560;
+  const rowH = 22; // height of one sink leaf
+  const headH = 22; // height of a file band header
+  const bandGap = 10;
+  const top = 14;
   const srcW = 150;
-  const sinkX = W - 196;
-  const sinkW = 188;
+  const bandX = W - 252;
+  const bandW = 246;
+  const leafX = bandX + 14;
+
+  let totalH = top;
+  for (const list of byFile.values())
+    totalH += headH + list.length * rowH + bandGap;
+  totalH = Math.max(96, totalH + 2);
+  const srcCy = totalH / 2;
+
   const edges = [];
-  const nodes = [];
-  const files = new Set();
-  sinks.forEach((s, i) => {
-    const cy = top + i * rowH + 10;
-    const hue = fileHue(s.file);
-    files.add(s.file);
-    edges.push(
-      `<path d="M${srcW} ${srcCy} C ${srcW + 60} ${srcCy}, ${sinkX - 60} ${cy}, ${sinkX} ${cy}" fill="none" stroke="hsl(${hue} 60% 50% / 0.45)" stroke-width="1.5"/>`,
+  const bands = [];
+  let y = top;
+  for (const file of fileList) {
+    const list = byFile.get(file);
+    const { hue, sat, light } = colors.get(file);
+    const hsl = `${hue} ${sat}% ${light}%`;
+    const bandTop = y;
+    const bandH = headH + list.length * rowH;
+    bands.push(
+      `<rect x="${bandX}" y="${bandTop}" width="${bandW}" height="${bandH}" rx="8" fill="hsl(${hsl} / 0.06)" stroke="hsl(${hsl})" stroke-width="1"/>
+      <rect x="${bandX + 11}" y="${bandTop + 7}" width="9" height="9" rx="2" fill="hsl(${hsl})"/>
+      <text x="${bandX + 25}" y="${bandTop + 15}" font-size="11" font-weight="600" fill="currentColor">${escapeHtml(
+        truncMid(file.split("/").pop(), 30),
+      )}</text>`,
     );
-    const inFile = s.file === relPath;
-    const label = escapeHtml(truncMid(`${s.file.split("/").pop()}:${s.line} ${s.label ?? ""}`.trim()));
-    const open = inFile
-      ? `<a class="xref" data-finding="${escapeHtml(s.id ?? "")}">`
-      : `<a class="xfile" href="/file?path=${encodeURIComponent(s.file)}#L${s.line}">`;
-    nodes.push(
-      `${open}<g class="fg-node">
-        <rect x="${sinkX}" y="${cy - 9}" width="${sinkW}" height="18" rx="9" fill="hsl(${hue} 70% 50% / 0.16)" stroke="hsl(${hue} 60% 50%)" stroke-width="${inFile ? 2 : 1}"/>
-        <text x="${sinkX + 9}" y="${cy + 4}" font-size="11" fill="currentColor">${label}</text>
-      </g></a>`,
-    );
-  });
-  const omitted = (row.sinkCount ?? sinks.length) - sinks.length;
-  const moreNode =
-    omitted > 0
-      ? `<text x="${sinkX}" y="${H - 4}" font-size="11" fill="var(--muted)">+${omitted} more sink(s) in other files</text>`
-      : "";
-  const legend = [...files]
-    .slice(0, 6)
-    .map(
-      (f) =>
-        `<span class="fg-key"><span class="fg-swatch" style="background:hsl(${fileHue(f)} 60% 50%)"></span>${escapeHtml(f.split("/").pop())}</span>`,
-    )
+    list.forEach((s, j) => {
+      const cy = bandTop + headH + j * rowH + rowH / 2;
+      const inFile = relPath != null && s.file === relPath;
+      const label = escapeHtml(truncMid(`:${s.line} ${s.label ?? ""}`.trim(), 36));
+      const open = inFile
+        ? `<a class="xref" data-finding="${escapeHtml(s.id ?? "")}">`
+        : `<a class="xfile" href="/file?path=${encodeURIComponent(s.file)}#L${s.line}">`;
+      bands.push(
+        `${open}<g class="fg-node"><rect class="fg-hit" x="${bandX + 4}" y="${
+          cy - rowH / 2 + 1
+        }" width="${bandW - 8}" height="${rowH - 2}" rx="4"/><text x="${leafX}" y="${
+          cy + 4
+        }" font-size="11" fill="currentColor"${
+          inFile ? ' font-weight="600"' : ""
+        }>${label}</text></g></a>`,
+      );
+      edges.push(
+        `<path d="M${srcW} ${srcCy} C ${srcW + 70} ${srcCy}, ${bandX - 50} ${cy}, ${bandX} ${cy}" fill="none" stroke="hsl(${hsl} / 0.4)" stroke-width="1.3"/>`,
+      );
+    });
+    y = bandTop + bandH + bandGap;
+  }
+
+  const legend = fileList
+    .map((f) => {
+      const { hue, sat, light } = colors.get(f);
+      return `<span class="fg-key"><span class="fg-swatch" style="background:hsl(${hue} ${sat}% ${light}%)"></span>${escapeHtml(
+        f.split("/").pop(),
+      )}</span>`;
+    })
     .join("");
+
   return `<div class="fanout-graph">
-  <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Fan-out graph for ${escapeHtml(row.root ?? "source")}">
+  <svg viewBox="0 0 ${W} ${totalH}" width="100%" height="${totalH}" role="img" aria-label="Fan-out graph for ${escapeHtml(row.root ?? "source")}">
     ${edges.join("")}
     <g><rect x="0" y="${srcCy - 16}" width="${srcW}" height="32" rx="8" fill="hsl(205 70% 50% / 0.16)" stroke="hsl(205 70% 50%)" stroke-width="2"/>
     <text x="10" y="${srcCy + 4}" font-size="11.5" fill="currentColor">${escapeHtml(truncMid(row.root ?? "source", 20))}</text></g>
-    ${nodes.join("")}
-    ${moreNode}
+    ${bands.join("")}
   </svg>
   <div class="fg-legend">${legend}</div>
 </div>`;
 }
 
-function fanOutPanel(row, id, relPath) {
+// HOME-2: the per-file fan-out panel collapses to a single headline + an up-link to
+// the full node/edge graph, which now lives on the overview (HOME-1). The in-file
+// SVG was removed: a fan-out is a cross-file story, so its picture belongs on the
+// cross-file page, not scoped to one file.
+function fanOutPanel(row, id) {
   return `<div class="finding" data-finding="${escapeHtml(
     id,
   )}" data-entry-type="fan-out" data-path-lines="${row.line ?? ""}" data-sink-line="${
@@ -1181,13 +1232,9 @@ function fanOutPanel(row, id, relPath) {
   }</div>
   <div class="def-jump"><strong>Fans into</strong> ${
     row.sinkCount ?? 0
-  } render output(s) — a shared source; centralizing it would touch them all.</div>
-  ${fanOutGraphSvg(row, relPath)}
-  ${
-    affectedSinkList(row.sinks, relPath)
-      ? `<strong>Sinks in this file</strong>${affectedSinkList(row.sinks, relPath)}`
-      : ""
-  }
+  } render output(s) — a shared source; centralizing it would touch them all. <a href="/#${fanOutAnchor(
+    row.root,
+  )}">See the full fan-out graph on the overview →</a></div>
 </div>`;
 }
 
@@ -1453,7 +1500,7 @@ export function renderCodeMap({
         hue: 205,
         sources: row.sinkCount ?? 0,
       },
-      panelHtml: fanOutPanel(row, id, relPath),
+      panelHtml: fanOutPanel(row, id),
     });
   });
 

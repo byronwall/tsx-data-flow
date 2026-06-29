@@ -138,9 +138,19 @@ Small inconsistencies and lies read as bugs and erode confidence fast.
   location — and it must reveal **without shifting the layout** (a floating
   popover, not an inline expansion). The count and the revealed list must agree
   (don't cap the data behind a larger count and imply you showed it all).
+- **Don't hide a payload behind a click when there's room to just show it.** A
+  disclosure earns its click only when the hidden content is large or secondary; a
+  handful of metrics with space beside them should render inline, not behind a
+  `<details>`. (round 6: the burden breakdown's expandable bars became inline pills.)
 - Prefer a real picture over a table where the relationships are the point: a
   fan-out/connectivity diagram (nodes + edges, colored by file) shows spread a
-  ranked table cannot. A first fan-out graph slice shipped (round 5).
+  ranked table cannot.
+  - _Status (round 6): the fan-out graph's **home is the overview** — a cross-file
+    "here are the detected fan-outs" starting point that motivates drilling into a
+    file; the per-file panel is just a one-line up-link to it, not its own graph._
+  - _The diagram **groups sinks by file** (one file label per group, sinks as
+    leaves) rather than repeating the filename on every node, and **colors every
+    file distinctly** (a color the user can't tell apart is a §6 trust problem)._
 
 ## 8. It must look designed
 

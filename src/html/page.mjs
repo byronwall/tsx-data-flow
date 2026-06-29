@@ -225,31 +225,35 @@ th.sortable .caret { color: var(--accent); flex: 0 0 auto; font-size: 0.85em; }
 .fanout-graph { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; padding: 6px; overflow-x: auto; }
 .fanout-graph svg { display: block; min-width: 480px; }
 .fanout-graph .fg-node { cursor: pointer; }
-.fanout-graph a:hover .fg-node rect { stroke-width: 2.5; }
+.fanout-graph .fg-hit { fill: transparent; }
+.fanout-graph a:hover .fg-node .fg-hit { fill: rgba(127,127,127,0.14); }
+.fanout-graph a:hover .fg-node text { text-decoration: underline; }
 .fg-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11px; color: var(--muted); }
 .fg-key { display: inline-flex; align-items: center; gap: 5px; }
 .fg-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+/* HOME-1: a fan-out source's graph as an overview section. */
+.fanout-entry { margin: 14px 0; scroll-margin-top: 16px; }
+.fanout-entry h3 { margin: 0 0 4px; font-size: 14px; }
+.fanout-entry .meta { font-weight: 400; }
 .codemap .panel .finding { display: none; }
 .codemap .panel .finding.active { display: block; }
 .codemap .panel h4 { margin: 0 0 2px; }
 .codemap .panel .meta { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
-.codemap .panel dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0; }
+.codemap .panel dl { display: grid; grid-template-columns: auto auto; gap: 2px 10px; margin: 8px 0; align-content: start; }
 .codemap .panel dt { color: var(--muted); }
 .codemap .panel .why { margin: 6px 0; padding-left: 18px; }
-.codemap .panel ul.burden-breakdown { list-style: none; margin: 6px 0; padding: 0; }
-.codemap .panel ul.burden-breakdown li {
-  display: grid; grid-template-columns: 130px 1fr auto;
-  align-items: center; gap: 8px; margin: 3px 0; font-size: 12px;
+/* BURDEN-1: burden/confidence/risk on the left, metric-contribution pills filling
+   the whitespace to the right (no click-to-expand, no full-width bars). */
+.codemap .panel .burden-row { display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: flex-start; margin: 8px 0; }
+.codemap .panel .burden-row dl { margin: 0; flex: 0 0 auto; }
+.codemap .panel .burden-breakdown { flex: 1 1 240px; min-width: 0; }
+.codemap .panel .bd-lead { margin: 0 0 4px; }
+.codemap .panel ul.bd-pills { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.codemap .panel ul.bd-pills li.bd-pill {
+  font-size: 11px; padding: 2px 9px; border: 1px solid var(--border);
+  border-radius: 999px; color: var(--text); white-space: nowrap;
 }
-.codemap .panel .bd-label { color: var(--muted); }
-.codemap .panel .bd-bar {
-  height: 8px; border-radius: 4px; background: var(--border, #ddd); overflow: hidden;
-}
-.codemap .panel .bd-fill {
-  display: block; height: 100%; border-radius: 4px;
-  background: hsl(18 80% 55%);
-}
-.codemap .panel .bd-val { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.codemap .panel .bd-pct { color: var(--muted); font-variant-numeric: tabular-nums; }
 /* Detailed "show, don't tell" sections: path, representation hops, reach. */
 .codemap .panel details { margin: 8px 0; }
 .codemap .panel details > summary {

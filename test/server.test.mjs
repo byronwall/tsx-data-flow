@@ -7,11 +7,16 @@ import {
   analyzeProject,
   createAnalyzer,
   fanOutEntriesForFile,
+  fanOutEntriesGlobal,
   parseArgs,
   REPORT_VIEWS,
 } from "../src/core.mjs";
 import { markdownToHtml } from "../src/html/markdown-to-html.mjs";
-import { renderCodeMap } from "../src/html/code-map.mjs";
+import {
+  renderCodeMap,
+  fanOutGraphSvg,
+  fanOutAnchor,
+} from "../src/html/code-map.mjs";
 import { snippetBlockHtml, peekReferences } from "../src/html/source-peek.mjs";
 import { createServer } from "../src/server.mjs";
 
@@ -573,13 +578,46 @@ describe("renderCodeMap", () => {
     expect(html).toContain('class="badge q-relay"');
     // The fan-out headline reports its cross-file reach.
     expect(html).toContain("feeds 5 sink(s)");
-    // GRAPH-1: the fan-out entry renders a node/edge SVG of source → sinks,
-    // and (5 total > 2 shown) notes the cross-file remainder.
-    expect(html).toContain('class="fanout-graph"');
-    expect(html).toContain("<svg");
-    expect(html).toContain("+3 more sink(s) in other files");
+    // HOME-2: the per-file panel collapses — no in-file SVG — and links up to the
+    // full fan-out graph on the overview (which now owns the cross-file picture).
+    expect(html).not.toContain('class="fanout-graph"');
+    expect(html).toContain(`/#${fanOutAnchor("props.user")}`);
+    expect(html).toContain("See the full fan-out graph on the overview");
     // RELAY-1: the in-scope context hook is surfaced in the relay accent.
     expect(html).toContain('ul class="why relay-context"');
+  });
+
+  it("renders the burden breakdown as always-visible inline pills (BURDEN-1)", () => {
+    const sink = {
+      ...baseSink,
+      id: "BD",
+      line: 1,
+      scores: {
+        burden: 0.5,
+        burdenBreakdown: {
+          total: 0.5,
+          rawSum: 0.5,
+          backgroundPenalty: 1,
+          terms: [
+            { label: "path depth", weight: 0.15, raw: 5, contribution: 0.3 },
+            { label: "helper hops", weight: 0.13, raw: 3, contribution: 0.2 },
+          ],
+        },
+      },
+    };
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source: "const x = 1;",
+      sinks: [sink],
+    });
+    // No click-to-expand, no full-width bars — pills shown inline.
+    expect(html).not.toContain("burden-detail");
+    expect(html).not.toContain('class="bd-bar"');
+    expect(html).not.toContain('class="bd-fill"');
+    expect(html).toContain('class="burden-row"');
+    expect(html).toContain('ul class="bd-pills"');
+    expect(html).toContain("burden breakdown — 0.500 from 2 metrics");
+    expect(html).toContain("path depth");
   });
 
   it("offers a merge-width (sources) sort and a defended facet filter (ARCH-2 C)", () => {
@@ -644,6 +682,84 @@ describe("fanOutEntriesForFile (ARCH-2)", () => {
     expect(user.fileCount).toBe(2);
     // A root feeding only one sink is not fan-out.
     expect(rows.find((r) => r.root === "props.lonely")).toBeFalsy();
+  });
+});
+
+describe("fanOutEntriesGlobal (HOME-1)", () => {
+  const mk = (id, file, root) => ({
+    id,
+    file,
+    line: 1,
+    metrics: { maximumPathDepth: 3 },
+    rootInfos: [{ label: root, kind: "property-read" }],
+  });
+
+  it("returns every fan-out source (>=2 sinks) with no per-file filter", () => {
+    const all = [
+      mk("a", "src/App.tsx", "props.user"),
+      mk("b", "src/Other.tsx", "props.user"),
+      mk("c", "src/Far.tsx", "props.theme"),
+      mk("d", "src/Edge.tsx", "props.theme"),
+      mk("e", "src/Solo.tsx", "props.lonely"),
+    ];
+    const rows = fanOutEntriesGlobal(all);
+    // both multi-sink sources are present even though no relPath was given
+    expect(rows.map((r) => r.root).sort()).toEqual(["props.theme", "props.user"]);
+    const user = rows.find((r) => r.root === "props.user");
+    expect(user.sinkCount).toBe(2);
+    expect(user.fileCount).toBe(2);
+    // the full cross-file sink set is retained for the graph (uncapped)
+    expect(user.graphSinks.length).toBe(2);
+    // single-sink sources are not fan-out
+    expect(rows.find((r) => r.root === "props.lonely")).toBeFalsy();
+  });
+});
+
+describe("fanOutGraphSvg (GRAPH-COLOR-1 / GRAPH-GROUP-1)", () => {
+  const row = {
+    root: "props.user",
+    kind: "property-read",
+    sinkCount: 5,
+    fileCount: 2,
+    maxDepth: 4,
+    graphSinks: [
+      { id: "S1", file: "src/App.tsx", line: 2, label: "div / text" },
+      { id: "S2", file: "src/App.tsx", line: 9, label: "span / title" },
+      { id: "S3", file: "src/Card.tsx", line: 7, label: "div / class" },
+    ],
+  };
+
+  it("groups sinks by file (filename once) and draws no '+N more' cap node", () => {
+    const svg = fanOutGraphSvg(row, null);
+    expect(svg).toContain('class="fanout-graph"');
+    expect(svg).toContain("<svg");
+    // Each file's name appears once as a band header + once as a legend key, not
+    // once per sink (GRAPH-GROUP-1). `>name<` matches visible text, not the
+    // url-encoded href on each sink link.
+    expect(svg.match(/>App\.tsx</g).length).toBe(2);
+    expect(svg.match(/>Card\.tsx</g).length).toBe(2);
+    // No caps / "+N more" overflow node anymore (round 6: render them all).
+    expect(svg).not.toContain("more sink(s)");
+    // Leaves carry just the :line, not a repeated filename prefix.
+    expect(svg).toContain(":2 div / text");
+  });
+
+  it("gives each file a distinct color (GRAPH-COLOR-1)", () => {
+    const svg = fanOutGraphSvg(row, null);
+    const hues = [...svg.matchAll(/hsl\((\d+) /g)].map((m) => m[1]);
+    const fileHues = new Set(hues.filter((h) => h !== "205")); // 205 = source node
+    // two files → two distinct hues
+    expect(fileHues.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it("links cross-file sinks to their file and selects in-file sinks", () => {
+    // relPath null → every sink is cross-file (overview use): all open by href.
+    const overview = fanOutGraphSvg(row, null);
+    expect(overview).toContain('href="/file?path=src%2FApp.tsx#L2"');
+    expect(overview).not.toContain('class="xref"');
+    // relPath set → in-file sinks select on the code map instead.
+    const scoped = fanOutGraphSvg(row, "src/App.tsx");
+    expect(scoped).toContain('class="xref" data-finding="S1"');
   });
 });
 

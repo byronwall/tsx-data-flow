@@ -13,6 +13,7 @@ import {
   modalValue,
   firstCutFor,
   fanOutEntriesForFile,
+  fanOutEntriesGlobal,
   entryTypeCountsByFile,
   REPORT_VIEWS,
 } from "./core.mjs";
@@ -28,7 +29,11 @@ const OVERVIEW_TYPE_COLUMNS = [
 ];
 import { markdownToHtml } from "./html/markdown-to-html.mjs";
 import { page, escapeHtml } from "./html/page.mjs";
-import { renderCodeMap } from "./html/code-map.mjs";
+import {
+  renderCodeMap,
+  fanOutGraphSvg,
+  fanOutAnchor,
+} from "./html/code-map.mjs";
 import { peekReferences } from "./html/source-peek.mjs";
 
 // Short human labels for the per-file view sections.
@@ -521,6 +526,32 @@ ${typeCells(g.key)}
         ? `<nav class="pager" aria-label="File result pages">${showAllToggle}</nav>`
         : "";
 
+  // HOME-1: the cross-file fan-out graphs live here, on the overview — a
+  // "here are the detected fan-outs" starting point that motivates drilling into a
+  // file (each sink node links to its file page). We render the top sources as full
+  // graphs; the standalone /report?view=fan-out table still lists every source.
+  const FANOUT_GRAPH_LIMIT = 12;
+  const fanOuts = fanOutEntriesGlobal(report.rankings?.all ?? report.sinks ?? []);
+  const shownFanOuts = fanOuts.slice(0, FANOUT_GRAPH_LIMIT);
+  const fanOutSection = fanOuts.length
+    ? `<h2>Detected fan-outs</h2>
+<p class="meta">Shared sources that fan out to many render sinks across files. Each sink node links to its file. ${
+        fanOuts.length > FANOUT_GRAPH_LIMIT
+          ? `Showing the top ${FANOUT_GRAPH_LIMIT} of ${fanOuts.length} by spread — the <a href="/report?view=fan-out">full fan-out report</a> lists them all.`
+          : `${fanOuts.length} source${fanOuts.length === 1 ? "" : "s"}.`
+      }</p>
+${shownFanOuts
+  .map(
+    (fo) => `<section class="fanout-entry" id="${fanOutAnchor(fo.root)}">
+  <h3>${escapeHtml(fo.root)} <span class="meta">· ${fo.sinkCount} sinks across ${
+    fo.fileCount
+  } file${fo.fileCount === 1 ? "" : "s"} · max depth ${fo.maxDepth}</span></h3>
+  ${fanOutGraphSvg(fo, null)}
+</section>`,
+  )
+  .join("")}`
+    : "";
+
   const body = `<div class="toolbar">
   <h1 style="margin:0">Render-path overview</h1>
   <form action="/refresh" method="post"><button type="submit">↻ Re-analyze</button></form>
@@ -564,7 +595,7 @@ ${pagination}`;
 
   return page({
     title: "tsx-dataflow",
-    body: `${body}${reports}`,
+    body: `${body}${fanOutSection}${reports}`,
     nav: overviewNav(report, url),
   });
 }

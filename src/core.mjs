@@ -7795,8 +7795,9 @@ export function fanOutEntriesForFile(allSinks, relPath) {
       }
       entry.total += 1;
       entry.files.add(sink.file);
-      if (entry.graphSinks.length < 40)
-        entry.graphSinks.push(reachedSinkDescriptor(sink));
+      // GRAPH (round 6): no cap — the graph draws every reached sink, grouped by
+      // file. (Was previously capped at 40 with a "+N more" node.)
+      entry.graphSinks.push(reachedSinkDescriptor(sink));
       entry.maxDepth = Math.max(
         entry.maxDepth,
         sink.metrics?.maximumPathDepth ?? 0,
@@ -7824,6 +7825,52 @@ export function fanOutEntriesForFile(allSinks, relPath) {
       line: entry.example?.line ?? entry.inFile[0]?.line ?? null,
       maxDepth: entry.maxDepth,
       sinks: entry.inFile,
+      graphSinks: entry.graphSinks,
+    }))
+    .sort((left, right) => right.sinkCount - left.sinkCount);
+}
+
+// HOME-1: the cross-file fan-out entries for the OVERVIEW page — same grouping as
+// `fanOutEntriesForFile` but with no per-file filter, so every shared source that
+// reaches ≥2 sinks is returned with its full (uncapped) cross-file sink set for the
+// graph. The overview is the "here are the detected fan-outs" starting point that
+// motivates drilling into a file (each sink node links to its file page).
+export function fanOutEntriesGlobal(allSinks) {
+  const map = new Map();
+  for (const sink of allSinks ?? []) {
+    for (const info of fanOutRootsFor(sink)) {
+      const { key, label } = fanOutIdentity(sink, info);
+      let entry = map.get(key);
+      if (!entry) {
+        entry = {
+          root: label,
+          kind: info.kind,
+          total: 0,
+          files: new Set(),
+          graphSinks: [],
+          maxDepth: 0,
+        };
+        map.set(key, entry);
+      }
+      entry.total += 1;
+      entry.files.add(sink.file);
+      entry.graphSinks.push(reachedSinkDescriptor(sink));
+      entry.maxDepth = Math.max(
+        entry.maxDepth,
+        sink.metrics?.maximumPathDepth ?? 0,
+      );
+    }
+  }
+  return Array.from(map.values())
+    .filter((entry) => entry.total >= 2)
+    .map((entry) => ({
+      root: entry.root,
+      kind: entry.kind,
+      sinkCount: entry.total,
+      fileCount: entry.files.size,
+      line: null,
+      maxDepth: entry.maxDepth,
+      sinks: entry.graphSinks,
       graphSinks: entry.graphSinks,
     }))
     .sort((left, right) => right.sinkCount - left.sinkCount);
