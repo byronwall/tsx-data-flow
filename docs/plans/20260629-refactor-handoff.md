@@ -8,7 +8,7 @@ date: 2026-06-29
 
 ## Current Status
 
-This branch has implemented the first major cleanup tranche from `20260629-deep-structural-refactor-audit-plan.md`, plus follow-up shrink passes. The work is intentionally still in-progress: `src/core.mjs` is smaller and less facade-heavy, but it remains the owner of analyzer orchestration, render-path tracing, recommendation prose, most markdown view renderers, and thin dependency-injection wrappers for helper-report enrichment and compare summary/stop recommendation. Report assembly, component references, unknown-edge projection, helper-report boundary scoring, sink ranking, path-family grouping, sink shape classification, pack evidence, work-unit/concentration rollups, fan-out root identity, reachability grounding, trace support/cataloging, and context-relay analysis now live under `src/analysis/`; compare projection and summary logic are report-owned.
+This branch has implemented the first major cleanup tranche from `20260629-deep-structural-refactor-audit-plan.md`, plus follow-up shrink passes. The core shrink target has now been reached: `src/core.mjs` is a 104-line facade/orchestration module. It owns only the public analyzer wrappers, JSON/markdown/compare report dispatch, `--view all` rendering, and compatibility re-exports. Render-path tracing and source-file analysis now live in `src/analysis/source-file.mjs`; markdown view rendering and recommendation prose now live in `src/reports/markdown-views.mjs`. Report assembly, component references, unknown-edge projection, helper-report boundary scoring, sink ranking, path-family grouping, sink shape classification, pack evidence, work-unit/concentration rollups, fan-out root identity, reachability grounding, trace support/cataloging, and context-relay analysis live under `src/analysis/`; compare projection and compare summary logic remain report-owned.
 
 Validation at this checkpoint:
 
@@ -17,12 +17,14 @@ rtk pnpm exec vitest run test/core.test.mjs test/integration/golden.test.mjs
 rtk pnpm test
 ```
 
-Current focused run after the reachability, trace-support, and collection-helper extractions: 2 test files passed, 105 tests passed. Full suite after this shrink pass: 12 test files passed, 179 tests passed. VS Code diagnostics reported no errors in the touched source files checked during this pass.
+Current focused run after the source-analysis and markdown-view extractions: 3 test files passed, 106 tests passed. Full suite after this shrink pass: 12 test files passed, 179 tests passed. VS Code diagnostics reported no errors in the touched source files checked during this pass.
 
 Current size checkpoint:
 
-- `src/core.mjs`: 5,068 lines
-- `src/analysis/report-builder.mjs`: 307 lines
+- `src/core.mjs`: 104 lines
+- `src/analysis/source-file.mjs`: 2,546 lines
+- `src/reports/markdown-views.mjs`: 2,437 lines
+- `src/analysis/report-builder.mjs`: 306 lines
 - `src/analysis/baseline-compare.mjs`: 63 lines
 - `src/analysis/collections.mjs`: 2 lines
 - `src/analysis/context-relay.mjs`: 202 lines
@@ -64,7 +66,7 @@ New or extracted production modules:
 - `src/analysis/report-builder.mjs`
   - Owns `buildReport`, report-level file/scope filtering, repeated-fork relation, constant-sink suppression, and summary assembly.
   - Imports component references, unknown-edge projection, ranking, path-family grouping, pack evidence, work-unit/concentration rollups, reachability grounding, shared collection helpers, and context-relay analysis directly from sibling analysis modules.
-  - Still receives a dependency object from `src/core.mjs` for the two core-owned tracing/report-helper dependencies: `analyzeSourceFile` and `buildHelperReport`.
+  - Imports `analyzeSourceFile` and `buildHelperReport` directly from `src/analysis/source-file.mjs`; the old core dependency adapter is gone.
 - `src/analysis/collections.mjs`
   - Owns the shared `unique` collection helper so report-builder no longer receives it through the core adapter.
 - `src/analysis/component-refs.mjs`
@@ -85,7 +87,10 @@ New or extracted production modules:
   - Owns same-feature context relay detection and JSX/import helpers for the context relay report field.
 - `src/analysis/helper-report.mjs`
   - Owns helper report shaping, caller counting, helper-boundary classification, and boundary debt ranking.
-  - Still receives tracing dependencies from the thin `src/core.mjs` wrapper: `traceExpression`, `getFileContextCached`, `metricsFor`, `fanOutRootsFor`, `resolveCatalogFn`, and `safeTypeText`. `getFileContextCached` and `resolveCatalogFn` now come from `src/analysis/trace-support.mjs`; `traceExpression`, `metricsFor`, and `safeTypeText` remain core-owned.
+  - Still uses dependency injection for tracing/enrichment, but the injection now comes from `src/analysis/source-file.mjs`, not `src/core.mjs`.
+- `src/analysis/source-file.mjs`
+  - Owns source-file sink detection, repeated-fork detection, render-path tracing, cross-file helper descent, trace metrics, defense classification, sink-record shaping, and the helper-report adapter.
+  - Exports `analyzeSourceFile`, `buildHelperReport`, and `isCertaintyBoundaryDefense`.
 - `src/analysis/ranking.mjs`
   - Owns sink ranking, burden/centrality/change-risk scoring, background classification, and path-family row grouping.
 - `src/analysis/reachability.mjs`
@@ -122,7 +127,9 @@ New or extracted production modules:
   - Uses injected current-run helpers from core, `reportSummaryForCompare` and `stopRecommendationFor`; it must not import `src/core.mjs`.
 - `src/reports/compare-summary.mjs`
   - Owns `reportSummaryForCompare`, `findingFamiliesFor`, `uniqueDefenseEntries`, `uniqueActionableDefenseEntries`, and `stopRecommendationFor`.
-  - `src/core.mjs` keeps thin local wrappers that inject core-owned dependencies: `severityFor`, `isProviderContextCandidate`, `groupedRenderRecommendations`, `mirrorSingletonRiskFor`, `isCertaintyBoundaryDefense`, and `findingTitle`.
+- `src/reports/markdown-views.mjs`
+  - Owns `renderMarkdownView`, all markdown view renderers, selection/diversity helpers, recommendation prose, extraction proposal prose, baseline markdown rendering, and the thin compare-summary wrappers that inject report-owned recommendation helpers.
+  - `src/core.mjs` imports and re-exports `renderMarkdownView` for facade compatibility.
 
 ### Test split progress
 
@@ -163,50 +170,50 @@ The last six are compatibility facade re-exports from `src/reports/overview-sele
 ## Important Constraints and Gotchas
 
 - `buildReport` has moved to `src/analysis/report-builder.mjs`, so the old blocker for moving `analyzeProject`, `createAnalyzer`, and `analyzeProgram` is gone. The remaining blocker is the dependency adapter: moving wrappers is reasonable once the wrapper module can depend directly on report-builder plus non-core owners for tracing/scoring helpers, or once the adapter is intentionally carried with the analyzer module.
+- `src/core.mjs` is now intentionally tiny. Future work should avoid rebuilding core by convenience imports; new analysis/report code should import owning modules directly.
+- `buildReport` has moved to `src/analysis/report-builder.mjs`, and the old report-builder dependency adapter is gone. Moving `analyzeProject`, `createAnalyzer`, and `analyzeProgram` into `src/analysis/analyzer.mjs` is now straightforward if desired, but it is no longer required for shrinking core.
 - `src/reports/json.mjs` uses selectors from `src/reports/overview-selectors.mjs`; keep report projection modules from importing `src/core.mjs`.
-- `src/reports/compare.mjs` still does not import `src/core.mjs`; report modules have no core import. `src/reports/compare-summary.mjs` is extracted, but still adapter-injected from core while recommendation/severity dependencies remain core-owned.
+- `src/reports/compare.mjs`, `src/reports/compare-summary.mjs`, and `src/reports/markdown-views.mjs` do not import `src/core.mjs`; keep report modules core-free.
 - `src/analysis/report-builder.mjs` imports `compareBaseline` directly from `src/analysis/baseline-compare.mjs` and imports `shouldAnalyzeFile` directly from `src/project/files.mjs`; keep this direction so core does not regain file-system or project-file filtering ownership.
 - `src/analysis/report-builder.mjs` now also imports `buildComponentRefs`, `buildUnknownEdgeRows`, `rankSinks`, `familyRows`, `computePackGroups`, `applyPackEvidence`, `computeWorkUnits`, `computeConcentration`, `groundReachability`, `unique`, and `analyzeContextRelay` directly. Do not reintroduce those through the core adapter.
 - `src/analysis/sink-shape.mjs` is now the owner for sink family/path shape classification. Recommendation prose can import from it, but new analysis modules should prefer this owner instead of duplicating shape constants in core.
-- `src/analysis/fan-out.mjs` is now the fan-out root/identity owner. `src/core.mjs` still imports it for renderers and helper-report injection, but future analysis code should import it directly.
-- `src/analysis/helper-report.mjs` intentionally uses dependency injection for tracing because `traceExpression`, `metricsFor`, and `safeTypeText` still live in core. Catalog resolution and file-context caching have moved to `src/analysis/trace-support.mjs`, so the next meaningful reduction is moving the remaining trace engine/body metrics cluster or carrying the small helper-report adapter with a new analyzer/tracing module.
+- `src/analysis/fan-out.mjs` is the fan-out root/identity owner. `src/reports/markdown-views.mjs` and `src/analysis/source-file.mjs` import it directly.
+- `src/analysis/source-file.mjs` is intentionally large after this tranche. The next meaningful quality pass is splitting it into smaller tracing, sink detection, repeated-fork, and defense/metrics modules without routing anything through core.
+- `src/reports/markdown-views.mjs` is also intentionally large after this tranche. It is now the markdown renderer owner; split it by view family only after tests lock the current behavior.
 - `src/reports/baseline-parser.mjs` deliberately keeps old `dossier.md` and `transformation-ledger.md` parsing as optional compatibility for old baseline directories.
 - Temporary refactor scripts were written under `tmp/` per workspace instructions. They are review artifacts and were not cleaned up.
 - The working tree includes an untracked copy of the original plan: `docs/plans/20260629-deep-structural-refactor-audit-plan.md`. It came from the user attachment/session context and should be reviewed before commit.
 
 ## Recommended Next Tranches
 
-### 1. Reduce the report-builder dependency adapter
+### 1. Split `src/analysis/source-file.mjs`
 
-Completed: `buildReport` and its immediate assembly helpers now live in `src/analysis/report-builder.mjs`; baseline comparison, component refs, unknown-edge projection, helper-report scoring, and ranking/path-family grouping live under `src/analysis/`; report-builder stays free of `src/core.mjs` imports.
+Completed: `analyzeSourceFile`, render-path tracing, repeated-fork detection, sink-record shaping, defense classification, metrics, and the helper-report adapter moved out of `src/core.mjs`. `src/analysis/report-builder.mjs` imports the source analysis functions directly.
 
 Next slice:
 
-- Move the remaining cohesive dependencies currently injected from core into non-core owners. The report-builder adapter is now down to `analyzeSourceFile` and `buildHelperReport`.
-- Remove the `buildHelperReport` wrapper by moving the remaining trace/body-metrics helpers as a cluster, or by creating a tracing module that owns `traceExpression`, `metricsFor`, `safeTypeText`, and the helper-report adapter together. Catalog resolution and file-context caching are already in `src/analysis/trace-support.mjs`.
-- Consider moving `analyzeSourceFile` together with sink-expression detection and the trace engine once the helper-report wrapper no longer needs to bridge back through core.
-- Keep `src/analysis/report-builder.mjs` free of `src/core.mjs` imports. Prefer direct imports from `src/analysis/*`, `src/reports/*`, and `src/project/*` over adding more adapter entries.
-- Validate each reduction with `test/core.test.mjs` and `test/integration/golden.test.mjs`.
+- Split `src/analysis/source-file.mjs` by cohesive concern: sink detection/JSX context, repeated-fork detection, trace engine/cross-file descent, defense classification, and trace metrics/sink-record shaping.
+- Keep the first split behavior-preserving; validate with `test/core.test.mjs` and `test/integration/golden.test.mjs`.
+- Keep `src/analysis/report-builder.mjs` free of `src/core.mjs` imports. Prefer direct imports from `src/analysis/*`, `src/reports/*`, and `src/project/*`.
 
-### 2. Move analyzer wrappers after adapter shape improves
+### 2. Split `src/reports/markdown-views.mjs`
 
-`buildReport` no longer lives in core and the report-builder adapter is much smaller, so `analyzeProject`, `createAnalyzer`, and `analyzeProgram` can be revisited. Do not simply move them into a module that imports a large adapter back from core; either move the remaining adapter with them as an intentional analysis boundary or first extract enough tracing/scoring dependencies that the wrappers can import clean owning modules.
+Completed: `renderMarkdownView`, markdown view renderers, recommendation prose, extraction proposal prose, baseline markdown section rendering, and compare-summary dependency wrappers moved out of `src/core.mjs`.
 
 Suggested route:
 
-1. Create `src/analysis/analyzer.mjs` only when it can import `buildReport` from `src/analysis/report-builder.mjs` and `buildProgram` from `src/project/typescript.mjs` without reaching into `src/core.mjs`; carrying the current small adapter there may now be reasonable if it is explicit and tests keep the facade stable.
-2. Keep `src/core.mjs` as facade re-exports of `analyzeProject`, `createAnalyzer`, `analyzeProgram`, and report renderers.
+1. Split pure recommendation/prose helpers from view renderers, or split by view family (`overview/work-packets`, helper-boundary views, relay/fan reports).
+2. Keep `src/core.mjs` as facade re-exports and dispatch only.
 3. Validate with `test/core.test.mjs`, `test/integration/golden.test.mjs`, and `test/integration/facade-exports.test.mjs`.
 
-### 3. Keep compare summary report-owned while dependencies settle
+### 3. Optional analyzer wrapper move
 
-Completed: baseline parsing, `renderCompareReport`/compare markdown projection, and compare current-run summary helpers now live under `src/reports/`.
+`buildReport` no longer lives in core and no longer needs a core-owned adapter, so `analyzeProject`, `createAnalyzer`, and `analyzeProgram` can move to `src/analysis/analyzer.mjs` whenever desired. This is now a facade tidying step, not a core-shrink blocker.
 
 Next slice:
 
-- Keep `src/reports/compare.mjs` and `src/reports/compare-summary.mjs` free of `src/core.mjs` imports.
-- Keep `src/core.mjs` wrappers thin until severity/finding-family/grouped recommendation helpers have a non-core owner.
-- Once those recommendation helpers move out of core, remove the compare-summary dependency adapter from core.
+- Create `src/analysis/analyzer.mjs` importing `buildReport` from `src/analysis/report-builder.mjs` and `buildProgram` from `src/project/typescript.mjs`.
+- Keep `src/core.mjs` as compatibility re-exports plus report dispatch.
 - Validate with `test/core.test.mjs` and `test/integration/golden.test.mjs`.
 
 ### 4. Split more HTML tests
@@ -247,6 +254,9 @@ rtk pnpm test
 
 ## Current Validation Snapshot
 
+- `rtk pnpm exec vitest run test/core.test.mjs test/integration/golden.test.mjs test/integration/facade-exports.test.mjs` passed after moving source analysis and markdown views out of `src/core.mjs`: 3 files, 106 tests.
+- `rtk pnpm test` passed after this core-shrink tranche: 12 test files passed, 179 tests passed.
+- VS Code diagnostics reported no errors in `src/core.mjs`, `src/analysis/report-builder.mjs`, `src/analysis/source-file.mjs`, and `src/reports/markdown-views.mjs` after this pass.
 - `rtk pnpm exec vitest run test/core.test.mjs test/integration/golden.test.mjs` passed after moving reachability grounding, trace support/cataloging, and the shared `unique` helper out of `src/core.mjs`: 2 files, 105 tests.
 - `rtk pnpm test` passed after this shrink pass: 12 test files passed, 179 tests passed.
 - VS Code diagnostics reported no errors in `src/core.mjs`, `src/analysis/report-builder.mjs`, `src/analysis/reachability.mjs`, `src/analysis/trace-support.mjs`, and `src/analysis/collections.mjs` after this pass.

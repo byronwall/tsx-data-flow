@@ -6,6 +6,7 @@ import { analyzeContextRelay } from "./context-relay.mjs";
 import { applyPackEvidence, computePackGroups } from "./pack-groups.mjs";
 import { familyRows, rankSinks } from "./ranking.mjs";
 import { groundReachability } from "./reachability.mjs";
+import { analyzeSourceFile, buildHelperReport } from "./source-file.mjs";
 import { buildUnknownEdgeRows } from "./unknown-edges.mjs";
 import { computeConcentration, computeWorkUnits } from "./work-units.mjs";
 import { shouldAnalyzeFile } from "../project/files.mjs";
@@ -16,9 +17,7 @@ export function buildReport(
   args,
   typescriptModulePath = null,
   routing = null,
-  dependencies,
 ) {
-  const { analyzeSourceFile, buildHelperReport } = dependencies;
   const checker = program.getTypeChecker();
   const graph = createGraph(args.root);
   const sourceFiles = program
