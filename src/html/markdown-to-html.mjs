@@ -4,18 +4,9 @@
 // horizontal rules, bold, and inline code. It is deliberately not a general
 // CommonMark engine — it only needs to be correct for the markup produced in
 // src/core.mjs, which keeps the project dependency-free.
+import { escapeHtml } from "./escape.mjs";
 
-const HTML_ESCAPES = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#39;",
-};
-
-export function escapeHtml(text) {
-  return String(text).replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
-}
+export { escapeHtml };
 
 // Render inline markup (bold + inline code) within already-block-split text.
 // Inline code is extracted first so its contents are never treated as markup,
@@ -52,16 +43,18 @@ function renderInline(text) {
 // HTML-escaped. Applied only to non-code inline segments.
 function formatEmphasis(text) {
   const escaped = escapeHtml(text);
-  return escaped
-    .replace(
-      /\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
-      (_, label, href) => `<a href="${href}">${label}</a>`,
-    )
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    // Emphasis: `*x*`, and `_x_` only when the underscores sit on a word
-    // boundary, so intra-identifier underscores are left untouched.
-    .replace(/\*([^*\s][^*]*?)\*/g, "<em>$1</em>")
-    .replace(/(^|[\s(])_([^_]+)_(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>");
+  return (
+    escaped
+      .replace(
+        /\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+        (_, label, href) => `<a href="${href}">${label}</a>`,
+      )
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      // Emphasis: `*x*`, and `_x_` only when the underscores sit on a word
+      // boundary, so intra-identifier underscores are left untouched.
+      .replace(/\*([^*\s][^*]*?)\*/g, "<em>$1</em>")
+      .replace(/(^|[\s(])_([^_]+)_(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>")
+  );
 }
 
 // Split a GFM table row into cells, honoring escaped pipes (`\|`).
@@ -90,7 +83,8 @@ function splitRow(line) {
 }
 
 const isTableSeparator = (line) =>
-  /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(line) && line.includes("-");
+  /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(line) &&
+  line.includes("-");
 
 const isTableRow = (line) => line.includes("|");
 
@@ -121,7 +115,9 @@ export function markdownToHtml(markdown) {
       const body = [];
       i += 1;
       while (i < lines.length) {
-        const closing = new RegExp(`^\\s*${marker === "`" ? "`" : "~"}{${len},}\\s*$`);
+        const closing = new RegExp(
+          `^\\s*${marker === "`" ? "`" : "~"}{${len},}\\s*$`,
+        );
         if (closing.test(lines[i])) {
           i += 1;
           break;
@@ -151,11 +147,19 @@ export function markdownToHtml(markdown) {
     }
 
     // GFM table: a header row immediately followed by a separator row.
-    if (isTableRow(line) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+    if (
+      isTableRow(line) &&
+      i + 1 < lines.length &&
+      isTableSeparator(lines[i + 1])
+    ) {
       const header = splitRow(line);
       i += 2; // skip header + separator
       const rows = [];
-      while (i < lines.length && isTableRow(lines[i]) && lines[i].trim() !== "") {
+      while (
+        i < lines.length &&
+        isTableRow(lines[i]) &&
+        lines[i].trim() !== ""
+      ) {
         rows.push(splitRow(lines[i]));
         i += 1;
       }
@@ -212,7 +216,11 @@ export function markdownToHtml(markdown) {
       !/^(#{1,6})\s+/.test(lines[i]) &&
       !isFence(lines[i]) &&
       !/^\s*[-*]\s+/.test(lines[i]) &&
-      !(isTableRow(lines[i]) && i + 1 < lines.length && isTableSeparator(lines[i + 1]))
+      !(
+        isTableRow(lines[i]) &&
+        i + 1 < lines.length &&
+        isTableSeparator(lines[i + 1])
+      )
     ) {
       para.push(lines[i]);
       i += 1;

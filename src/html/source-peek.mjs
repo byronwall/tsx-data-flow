@@ -4,7 +4,7 @@
 //     HTML into a click-to-reveal popover showing the cited source lines.
 // HTML is the reason this is possible at all — the Markdown reports can only
 // name a location; here we can show the code it points at.
-import { escapeHtml } from "./page.mjs";
+import { escapeHtml } from "./escape.mjs";
 
 // A window of lines around `line` (1-based), each tagged as the hit or context.
 function snippetRows(sourceText, line, context) {

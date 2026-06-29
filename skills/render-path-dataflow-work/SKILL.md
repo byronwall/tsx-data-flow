@@ -5,7 +5,7 @@ description: Run and act on the tsx-dataflow render-path data-flow analyzer. Use
 
 # Render Path Dataflow Work
 
-Use this skill to turn `tsx-dataflow` output into bounded implementation work. The analyzer builds a typed interprocedural graph from source values to JSX render sinks, then projects it into reports for findings, work packets, dossiers, paths, ledgers, helper-boundary judgment, before/after comparison, and repair planning.
+Use this skill to turn `tsx-dataflow` output into bounded implementation work. The analyzer builds a typed interprocedural graph from source values to JSX render sinks, then projects it into reports for findings, work packets, a consolidated overview summary, paths, ledgers, helper-boundary judgment, before/after comparison, and repair planning.
 
 `tsx-dataflow` is a global CLI. Install it with your package manager (`npm install -g tsx-data-flow`, `pnpm add -g tsx-data-flow`, or `bun add -g tsx-data-flow`), or run it on demand (`npx tsx-data-flow`, `pnpm dlx tsx-data-flow`, or `bunx tsx-data-flow`). Run it from the target project root; it auto-discovers `src/` and the nearest `tsconfig.json`. For a non-standard layout pass `--source` / `--tsconfig` explicitly (for example `--source app/src --tsconfig app/tsconfig.json`). The target project must have `typescript` installed, or pass `--typescript-from <dir>`.
 
@@ -41,7 +41,7 @@ From the project root, start with the architectural triage reports:
 ```bash
 tsx-dataflow --view prop-relay --format markdown --out tmp/tsx-dataflow/prop-relay.md
 tsx-dataflow --view fan-out    --format markdown --out tmp/tsx-dataflow/fan-out.md
-tsx-dataflow --view repair-map --format markdown --out tmp/tsx-dataflow/repair-map.md
+tsx-dataflow --view overview --format markdown --out tmp/tsx-dataflow/overview.md
 ```
 
 When the user asks for a broad inventory, a handoff bundle, or "all functionality",
@@ -83,10 +83,10 @@ Read the **Pack verdict** block before creating or deleting a render model:
 - `cohesive render model`: object packing is not the problem by itself; narrow or name the model instead of splitting solely because it is an object.
 - `overpacked bag`, `mirror object`, or `relay bag`: split by render responsibility, inline mirror fields, or move ownership closer to consumers.
 
-Use JSON when comparing baselines, scripting, or handing structured evidence to another agent:
+Use JSON when comparing baselines, scripting, or handing structured evidence to another agent. Any view emitted with `--format json` carries the full structured payload — summary, ranked sinks, and the bounded graph (nodes/edges) that the retired `dossier` view used to print. `--view overview --format json` additionally includes the hotspot rollup, concentration, and unknown edges:
 
 ```bash
-tsx-dataflow --view dossier --format json --out tmp/tsx-dataflow/dossier.json
+tsx-dataflow --view overview --format json --out tmp/tsx-dataflow/overview.json
 ```
 
 For a human-readable before/after cleanup loop, save an all-report directory before edits, another after edits, then run compare mode:
@@ -102,10 +102,10 @@ The compare report summarizes computed analyzer signals: worst burden score, fin
 
 When reading deltas, do not treat the largest numeric increase as automatically decisive. Wrapper steps are representation-only aliases/object packs/spreads; they are a reviewability warning. Balance them against whether worst burden score, defensive operation entries, remaining finding families, pack verdicts, and stop recommendation improved. A wrapper-step spike is most concerning when it comes with no defensive/family improvement or with relay-bag/overpacked-bag findings.
 
-For CI-style guardrails, save a JSON dossier first, then compare later reports against it:
+For CI-style guardrails, save a JSON baseline first, then compare later reports against it:
 
 ```bash
-tsx-dataflow --view dossier --format json --out tmp/tsx-dataflow/baseline.json
+tsx-dataflow --view overview --format json --out tmp/tsx-dataflow/baseline.json
 tsx-dataflow --view work-packets --baseline tmp/tsx-dataflow/baseline.json --out tmp/tsx-dataflow/work-packets-after.md
 tsx-dataflow --view work-packets --baseline tmp/tsx-dataflow/baseline.json --fail-on-regression
 ```
@@ -117,25 +117,23 @@ nonzero only when the comparison regresses.
 
 ## Available Views
 
+- `overview`: the orientation document — read it first. It guides you to every other report (what each is for) and carries the workspace aggregates: the hotspot rollup by file (or feature with `--by feature`), concentration, the repair buckets (peripheral quick wins / central leverage / investigate), and an unknown-edge diagnostic section. `coverage` is a legacy alias for it.
 - `work-packets`: implementation-ready ranked work items plus Feature Clusters, Grouped Recommendations, Extraction shape checks, Stop Recommendation, and Background Findings. Use as supporting detail after triage; actionable packets exclude paths classified as low-value background.
 - `findings`: compact ranked findings for triage.
-- `repair-map`: grouped remediation areas and likely edit strategy. Good for identifying central-leverage clusters.
 - `prop-relay`: prop pass-through and relay paths. Best signal for broad prop bundles and missing context/store ownership.
-- `context-relay`: same-feature children receiving shared-looking props from parents that already use a local context hook. Use as the Provider/Context completion audit; expect some presentational leaf false positives and classify them explicitly.
-- `fan-out`: sources that reach many render sinks. Use to find values that should be owned once and read by consumers.
+- `context-relay`: same-feature children receiving shared-looking props from parents that already use a local context hook. Lists each relay's evidence (the parent's context hooks, the forwarded props, the shared-named ones). Use as the Provider/Context completion audit; expect some presentational leaf false positives and classify them explicitly.
+- `fan-out`: sources that reach many render sinks, grouped by consuming file with per-sink depth. Use to find values that should be owned once and read by consumers.
 - `fan-in`: sinks fed by many upstream inputs. Use to spot local render surfaces that may need a smaller typed view model.
 - `defensive-ledger`: nullish/default/logical defenses, including type-impossible defenses. Recent output deduplicates a defense across reachable sinks and shows sink count, so one row may represent a repeated cleanup.
-- `transformation-ledger`: representation-only wrappers and conversions on the heaviest path.
-- `path-gallery`: representative source-to-sink paths.
-- `path-census`: counts and distributions.
-- `path-families`: related path groups.
+- `path-families`: related path groups by structural signature, with a representative (deepest) example path per family so the recurring shape is concrete.
 - `boundary-report`: first-party functions on render paths, scored as boundaries such as clean pipe, pass-through, leaky, junction, or messy. Use it to decide whether a helper should stay as a typed boundary or be simplified.
 - `junctions`: helper functions where independent source lineages converge and re-spread to multiple callers. Use for high-leverage helper formalization or splitting work.
 - `inline-preview`: per-helper inline-vs-keep verdict. It proposes whether folding a helper would shorten a path; it never rewrites code.
-- `hotspots`: breadth map by file, or by feature with `--by feature`, showing finding count, worst burden, dominant shape/ownership hint, first-cut suggestion, and concentration. `coverage` is an alias.
-- `dossier`: graph-oriented JSON with nodes, edges, traces, metrics, and omitted counts.
+- `component-refs`: where each component is used, resolved by symbol (not name).
 - `all`: meta-view that writes every concrete report in one run when paired with `--out <dir>`.
 - `--compare <dir>` is not a view; it compares the current analysis with a prior `--view all` directory and emits one markdown compare report.
+
+> The `dossier`, `path-gallery`, `path-census`, `transformation-ledger`, `hotspots`, and `unknown-edges` markdown views were retired: the heaviest-path walk is already in `findings`/`work-packets`, and the aggregators (hotspots, repair map, unknown edges) are now sections of the single `overview` report. The structural graph the old `dossier` printed is available on any `--format json` run.
 
 Common options:
 
@@ -146,7 +144,7 @@ Common options:
 - `--spread` is shorthand for `--sort spread`; pair with `--per-file <n>` and `--per-feature <n>` when one hot file dominates the top rows.
 - `--diversity <0..1>` re-ranks by burden plus novelty; use it when a report is too clustered but you still want the worst item preserved.
 - `--units` collapses file-local sinks sharing a cause into "fix once, N sinks improve" work units. Use for planning a larger slice; spot-check before editing because units are heuristic.
-- `--by file|feature` controls `hotspots` rollup granularity.
+- `--by file|feature` controls the `overview` report's hotspot rollup granularity.
 - `--include-tests` includes test files.
 - `--baseline <json>` compares against a prior JSON report.
 - `--compare <dir>` compares the current run against a prior all-report directory.
@@ -163,9 +161,9 @@ If the user does not specify a mode, use **Fix Worst Architectural One**.
 
 Use for ordinary requests like "run this", "fix a data-flow finding", or "start cleaning this up".
 
-1. Run `prop-relay`, `fan-out`, and `repair-map`.
+1. Run `prop-relay`, `fan-out`, and `overview`.
 2. Pick the first grounded target that shows real architectural pressure: many component boundaries, repeated wrappers/shape conversions, broad prop bundles, sibling/deep consumers, or a plausible Provider/Context or store extraction.
-3. Use `work-packets`, `path-gallery`, or scoped reports only to inspect the chosen target in detail. If `work-packets` has a Grouped Recommendation, inspect that cohesive fix before individual member findings.
+3. Use `work-packets`, `findings`, or scoped reports only to inspect the chosen target in detail (both carry the representative source-to-sink path). If `work-packets` has a Grouped Recommendation, inspect that cohesive fix before individual member findings.
 4. Skip tiny local helpers, style object sinks, parser-only findings, unchecked-array-index false positives, healthy shared helper reads, and isolated JSX formatting unless no architectural targets are present.
 5. Inspect source code and confirm the data is being pushed through components or repeatedly reshaped instead of owned near its consumers.
 6. Fix one bounded ownership/relay slice. Prefer a feature-scoped Provider/Context, `createStore`/feature model, typed selector hook, or colocated normalized view model over broad prop forwarding. If the packet is a control-flow gate, prefer scalar predicates/selected values before packing a broad `ready` object.
@@ -179,7 +177,7 @@ Use for ordinary requests like "run this", "fix a data-flow finding", or "start 
 
 Use only when the user asks for parallel cleanup, bulk remediation, or a larger campaign.
 
-1. Generate `prop-relay`, `fan-out`, `repair-map`, and `work-packets`.
+1. Generate `prop-relay`, `fan-out`, `overview`, and `work-packets`.
 2. Group the top findings by owning feature, Provider/Context candidate, route model, component family, or domain.
 3. Split only independent groups. Do not assign overlapping files to concurrent workers.
 4. Give each worker one bounded group plus the relevant report excerpt.
@@ -190,7 +188,7 @@ Use only when the user asks for parallel cleanup, bulk remediation, or a larger 
 
 Use when top findings cluster around one route model, helper, component family, Provider/Context candidate, parser, or render surface.
 
-1. Run `prop-relay`, `fan-out`, `repair-map`, `path-families`, and then `defensive-ledger` only if defensive logic is central to the issue.
+1. Run `prop-relay`, `fan-out`, `overview`, `path-families`, and then `defensive-ledger` only if defensive logic is central to the issue.
 2. Identify the shared ownership problem or invariant causing repeated work, such as broad prop relay, missing context/store, repeated view-model construction, nullable draft state, repeated resource fallback, or repeated string-to-domain conversion.
 3. Fix the boundary once instead of editing every sink.
 4. Keep the helper feature-scoped unless there is proven cross-feature use.
@@ -210,7 +208,7 @@ Use when the user explicitly asks for a report, summary, ranking, or spot check 
 Use when the user asks for all reports, a current capability sweep, or a bundle another agent/person can inspect.
 
 1. Run `tsx-dataflow --view all --format markdown --out tmp/tsx-dataflow`.
-2. Start the summary with `hotspots`/`coverage` for breadth, then `repair-map` for strategy, then `work-packets` for concrete grouped recommendations, stop signal, and background findings.
+2. Start the summary with `overview` — it leads with the report guide and carries breadth (hotspot rollup + concentration) and strategy (repair buckets) — then `work-packets` for concrete grouped recommendations, stop signal, and background findings.
 3. Mention helper-boundary evidence from `boundary-report`, `junctions`, and `inline-preview` only when helper tracing was enabled and those views contain rows.
 4. Use `prop-relay`, `context-relay`, `fan-out`, and `fan-in` to explain ownership pressure. Use ledgers and path views as supporting evidence.
 5. Do not paste every report. Link report files, summarize the highest-confidence themes, and call out false-positive classes.
@@ -223,7 +221,7 @@ Use when the user asks to establish a baseline, compare before/after work, or gu
 2. After edits, save `tsx-dataflow --view all --format markdown --out tmp/tsx-dataflow-after`.
 3. Run `tsx-dataflow --view work-packets --compare tmp/tsx-dataflow-before --out tmp/tsx-dataflow-compare.md`.
 4. Read the compare report: worst burden score, finding count (hotspots), defensive operation entries, representation-only wrapper steps, removed/remaining finding families, and stop verdict.
-5. For CI-style pass/fail, also save `tsx-dataflow --view dossier --format json --out tmp/tsx-dataflow/baseline.json` and run the selected human report with `--baseline tmp/tsx-dataflow/baseline.json` or `--fail-on-regression`.
+5. For CI-style pass/fail, also save `tsx-dataflow --view overview --format json --out tmp/tsx-dataflow/baseline.json` and run the selected human report with `--baseline tmp/tsx-dataflow/baseline.json` or `--fail-on-regression`.
 6. In the final report, state both qualitative changes (ownership/relay/helper boundary/render-item extraction) and compare/baseline delta. If a new top appears, inspect it before claiming the cleanup improved the overall project.
 
 ### Loop Until Clean
@@ -291,7 +289,7 @@ For architectural data-flow work, also rerun the views that selected the target:
 ```bash
 tsx-dataflow --view prop-relay    --format markdown --out tmp/tsx-dataflow/prop-relay-after.md
 tsx-dataflow --view fan-out       --format markdown --out tmp/tsx-dataflow/fan-out-after.md
-tsx-dataflow --view repair-map    --format markdown --out tmp/tsx-dataflow/repair-map-after.md
+tsx-dataflow --view overview    --format markdown --out tmp/tsx-dataflow/overview-after.md
 tsx-dataflow --view context-relay --format markdown --scope <feature-folder-or-component> --out tmp/tsx-dataflow/context-relay-after.md
 ```
 

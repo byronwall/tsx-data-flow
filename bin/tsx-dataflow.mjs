@@ -5,9 +5,8 @@ import {
   parseArgs,
   renderAllReports,
   renderReport,
-  writeAllReports,
-  writeReport,
 } from "../src/core.mjs";
+import { writeAllReports, writeReport } from "../src/reports/output.mjs";
 
 try {
   const args = parseArgs(process.argv.slice(2));

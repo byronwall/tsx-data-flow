@@ -9,64 +9,38 @@ import {
   createAnalyzer,
   renderReport,
   renderMarkdownView,
-  hotspotGroups,
-  modalValue,
-  firstCutFor,
-  fanOutEntriesForFile,
-  fanOutEntriesGlobal,
-  entryTypeCountsByFile,
   REPORT_VIEWS,
 } from "./core.mjs";
-
-// OVERVIEW-1: the optional per-type count columns the user can show/hide. `key`
-// matches the entryTypeCountsByFile field; `col` is the CSS/toggle id. Findings
-// is always-on (it is the primary signal) so it is not in this list.
-const OVERVIEW_TYPE_COLUMNS = [
-  { key: "boundaries", col: "boundaries", label: "Boundaries" },
-  { key: "fanOut", col: "fanout", label: "Fan-out" },
-  { key: "relays", col: "relays", label: "Relays" },
-  { key: "unknown", col: "unknown", label: "Unknown" },
-];
+import {
+  entryTypeCountsByFile,
+  fanOutEntriesForFile,
+  fanOutEntriesGlobal,
+  firstCutFor,
+  hotspotGroups,
+  modalValue,
+} from "./reports/overview-selectors.mjs";
 import { markdownToHtml } from "./html/markdown-to-html.mjs";
-import { page, escapeHtml } from "./html/page.mjs";
+import { escapeHtml } from "./html/escape.mjs";
+import { page } from "./html/page.mjs";
 import {
   renderCodeMap,
   fanOutGraphSvg,
   fanOutAnchor,
+  boundaryGraphSvg,
+  boundaryAnchor,
 } from "./html/code-map.mjs";
 import { peekReferences } from "./html/source-peek.mjs";
-
-// Short human labels for the per-file view sections.
-const VIEW_LABELS = {
-  findings: "Findings",
-  "repeated-forks": "Repeated forks",
-  "work-packets": "Work packets",
-  "fan-out": "Fan-out",
-  "fan-in": "Fan-in",
-  "path-gallery": "Path gallery",
-  "path-census": "Path census",
-  "path-families": "Path families",
-  "transformation-ledger": "Transformation ledger",
-  "defensive-ledger": "Defensive ledger",
-  "prop-relay": "Prop relay",
-  "context-relay": "Context relay",
-  "repair-map": "Repair map",
-  "boundary-report": "Boundary report",
-  "unknown-edges": "Unknown edges",
-  junctions: "Junctions",
-  "inline-preview": "Inline preview",
-  "component-refs": "References",
-  hotspots: "Hotspots",
-};
-
-const viewLabel = (view) => VIEW_LABELS[view] ?? view;
-
-// Report lists are presented alphabetically by label (the curated REPORT_VIEWS
-// order is kept for the CLI `--view all` emission only). `dossier` is a
-// JSON-oriented view (offered via /api instead) and is omitted from the page.
-const FILE_VIEWS = REPORT_VIEWS.filter((view) => view !== "dossier").sort(
-  (a, b) => viewLabel(a).localeCompare(viewLabel(b)),
-);
+import { FILE_VIEWS, VIEW_LABELS, viewLabel } from "./server/view-config.mjs";
+import {
+  OVERVIEW_PAGE_SIZE,
+  OVERVIEW_TYPE_COLUMNS,
+  SORT_HEADING,
+} from "./server/overview-config.mjs";
+import {
+  overviewHref,
+  overviewState,
+  paramHref,
+} from "./server/url-helpers.mjs";
 
 function send(res, status, body, type = "text/html; charset=utf-8") {
   res.writeHead(status, { "Content-Type": type });
@@ -162,6 +136,18 @@ export function createServer(args) {
           main = `${viewer}
 <h2>Markdown report <span class="meta">— what the agent consumes; compare it with the view above</span></h2>
 <div class="body md-mirror">${mdHtml}</div>`;
+        } else if (view === "boundary-report") {
+          // VIZ-1: the boundary report IS the two-sided network view (the template
+          // for fan-in/junctions/prop-relay), with the raw markdown beneath it
+          // (REPORT-RECONCILE pattern), so the web view and the agent's deliverable
+          // stay inspectable side by side.
+          const viewer = boundaryViewer(cache.full.helpers ?? [], {
+            selected: url.searchParams.get("boundary"),
+            hrefFor: (overrides) => paramHref(url, overrides),
+          });
+          main = `${viewer}
+<h2>Markdown report <span class="meta">— what the agent consumes; compare it with the view above</span></h2>
+<div class="body md-mirror">${mdHtml}</div>`;
         } else {
           main = `<div class="body">${mdHtml}</div>`;
         }
@@ -170,12 +156,13 @@ export function createServer(args) {
           200,
           page({
             title: `${VIEW_LABELS[view] ?? view} · tsx-dataflow`,
-            body: `${reportTabs(view)}<div class="toolbar"><h1 style="margin:0">${escapeHtml(
+            body: `<div class="toolbar"><h1 style="margin:0">${escapeHtml(
               VIEW_LABELS[view] ?? view,
             )}</h1><a class="btn" href="/api/report.${encodeURIComponent(
               view,
             )}.md">Markdown</a></div>${main}`,
-            nav: overviewNav(cache.full, url),
+            tabs: reportTabs(view),
+            context: cache.full.meta.root,
           }),
         );
       }
@@ -183,7 +170,8 @@ export function createServer(args) {
       const markdownMatch = route.match(/^\/api\/report\.([A-Za-z0-9-]+)\.md$/);
       if (markdownMatch) {
         const view = markdownMatch[1];
-        if (!isReportView(view)) return send(res, 404, "not found", "text/plain");
+        if (!isReportView(view))
+          return send(res, 404, "not found", "text/plain");
         return send(
           res,
           200,
@@ -254,11 +242,6 @@ export function createServer(args) {
 
 // --- Page renderers --------------------------------------------------------
 
-const OVERVIEW_FILTERS = new Set(["all", "findings", "unknown", "participating"]);
-const OVERVIEW_SORTS = new Set(["burden", "findings", "depth", "file"]);
-const OVERVIEW_PAGE_SIZE = 25;
-const OVERVIEW_NAV_FILE_LIMIT = 40;
-
 function isReportView(view) {
   return REPORT_VIEWS.includes(view);
 }
@@ -275,40 +258,6 @@ function reportArgs(args, view) {
     maxItems: args.maxItems ?? 20,
   };
 }
-
-function overviewState(url) {
-  const q = (url.searchParams.get("q") ?? "").trim();
-  const filter = url.searchParams.get("filter") ?? "all";
-  const sort = url.searchParams.get("sort") ?? "burden";
-  const page = Math.max(1, Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
-  return {
-    q,
-    filter: OVERVIEW_FILTERS.has(filter) ? filter : "all",
-    sort: OVERVIEW_SORTS.has(sort) ? sort : "burden",
-    page,
-    all: url.searchParams.get("all") === "1",
-  };
-}
-
-function overviewHref(state, changes = {}) {
-  const next = { ...state, ...changes };
-  const params = new URLSearchParams();
-  if (next.q) params.set("q", next.q);
-  if (next.filter && next.filter !== "all") params.set("filter", next.filter);
-  if (next.sort && next.sort !== "burden") params.set("sort", next.sort);
-  if (next.all) params.set("all", "1");
-  else if (next.page && next.page !== 1) params.set("page", String(next.page));
-  const query = params.toString();
-  return query ? `/?${query}` : "/";
-}
-
-// Heading reflects the active sort so it never lies (it was hard-coded "by burden").
-const SORT_HEADING = {
-  burden: "Files by burden",
-  findings: "Files by finding count",
-  depth: "Files by path depth",
-  file: "Files by path",
-};
 
 function graphParticipationFiles(report) {
   const files = new Set();
@@ -344,7 +293,8 @@ function overviewRows(report, state) {
     // behaved like "all". Honor it: only files that actually have a finding.
     if (state.filter === "findings" && !(group.count > 0)) return false;
     if (state.filter === "unknown" && !fileHasUnknownEdges(group)) return false;
-    if (state.filter === "participating" && !participating.has(group.key)) return false;
+    if (state.filter === "participating" && !participating.has(group.key))
+      return false;
     if (q && !searchableGroupText(group).includes(q)) return false;
     return true;
   });
@@ -352,44 +302,55 @@ function overviewRows(report, state) {
   sorted.sort((left, right) => {
     if (state.sort === "file") return left.key.localeCompare(right.key);
     if (state.sort === "findings") {
-      return right.count - left.count || right.worst - left.worst || left.key.localeCompare(right.key);
+      return (
+        right.count - left.count ||
+        right.worst - left.worst ||
+        left.key.localeCompare(right.key)
+      );
     }
     if (state.sort === "depth") {
       const leftDepth = left.worstSink?.metrics?.maximumPathDepth ?? 0;
       const rightDepth = right.worstSink?.metrics?.maximumPathDepth ?? 0;
-      return rightDepth - leftDepth || right.worst - left.worst || left.key.localeCompare(right.key);
+      return (
+        rightDepth - leftDepth ||
+        right.worst - left.worst ||
+        left.key.localeCompare(right.key)
+      );
     }
     // The "Worst" column shows each file's single highest burden (g.worst), so
     // sort by that — not by summed burden, which made the column look unsorted.
-    return right.worst - left.worst || right.sumBurden - left.sumBurden || left.key.localeCompare(right.key);
+    return (
+      right.worst - left.worst ||
+      right.sumBurden - left.sumBurden ||
+      left.key.localeCompare(right.key)
+    );
   });
   return sorted;
 }
 
-function reportAssets(state) {
-  const q = state.q.toLowerCase();
-  return REPORT_VIEWS.map((view) => ({
-    view,
-    label: viewLabel(view),
-  }))
-    .filter((asset) =>
-      !q ||
-      asset.view.toLowerCase().includes(q) ||
-      asset.label.toLowerCase().includes(q)
+// SHELL-5: a reusable custom popover — the on-page replacement for native <select>s
+// (INTENT §8). The trigger shows `label: <current>`; the panel is a listbox of
+// option links, so picking one navigates and the choice lives in the URL. Open/close,
+// outside-click, Escape, and positioning are handled once in page.mjs.
+function popover({ id, label, options, ariaLabel, triggerValue }) {
+  const current = options.find((option) => option.active);
+  const shown = triggerValue ?? current?.label ?? options[0]?.label ?? "";
+  const items = options
+    .map(
+      (option) =>
+        `<a role="option" class="popover-opt${option.active ? " active" : ""}"${
+          option.active ? ' aria-selected="true"' : ""
+        } href="${escapeHtml(option.href)}">${escapeHtml(option.label)}</a>`,
     )
-    .sort((a, b) => a.label.localeCompare(b.label));
-}
-
-// Build an href from the current URL, overriding/deleting the given query params
-// and keeping everything else — so a control can change one bit of state (the
-// selected fan-out, the sort) without dropping the rest (INTENT §5: state in URL).
-function paramHref(url, overrides) {
-  const next = new URL(url.href);
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value == null) next.searchParams.delete(key);
-    else next.searchParams.set(key, String(value));
-  }
-  return `${next.pathname}${next.search}`;
+    .join("");
+  return `<div class="popover" data-popover data-popover-id="${escapeHtml(id)}">
+  <button type="button" class="popover-trigger" aria-haspopup="listbox" aria-expanded="false" data-popover-trigger>
+    <span class="popover-label">${escapeHtml(label)}:</span>
+    <span class="popover-value">${escapeHtml(shown)}</span>
+    <span class="popover-caret" aria-hidden="true">▾</span>
+  </button>
+  <div class="popover-panel" role="listbox" aria-label="${escapeHtml(ariaLabel ?? label)}">${items}</div>
+</div>`;
 }
 
 // ARCH-1: page-level report tab strip — the on-page replacement for opening reports
@@ -463,21 +424,23 @@ function fanOutViewer(fanOuts, { selected, sortKey, hrefFor }) {
     })
     .join("");
   const dropdown = rest.length
-    ? `<select class="fo-more" data-nav-select aria-label="Other fan-out sources">
-  <option value="" disabled${rest.includes(active) ? "" : " selected"}>+${
-    rest.length
-  } more…</option>
-  ${rest
-    .map(
-      (f) =>
-        `<option value="${escapeHtml(hrefFor({ fanout: fanOutAnchor(f.root) }))}"${
-          f === active ? " selected" : ""
-        }>${escapeHtml(f.root)} · ${f.sinkCount} sinks · depth ${f.maxDepth}</option>`,
-    )
-    .join("")}
-</select>`
+    ? popover({
+        id: "fanout-src",
+        label: "More",
+        ariaLabel: "Other fan-out sources",
+        triggerValue: rest.includes(active)
+          ? undefined
+          : `+${rest.length} more…`,
+        options: rest.map((f) => ({
+          label: `${f.root} · ${f.sinkCount} sinks · depth ${f.maxDepth}`,
+          href: hrefFor({ fanout: fanOutAnchor(f.root) }),
+          active: f === active,
+        })),
+      })
     : "";
-  const sortControl = `<span class="fo-sort"><span class="meta">Sort:</span> ${FANOUT_SORTS.map(
+  // SORT-1: name what the control orders — the *source picker* (which fan-out is
+  // shown first), not the sinks inside the rendered graph (which are depth-ordered).
+  const sortControl = `<span class="fo-sort" title="Orders the source picker (the tabs + list), not the sinks inside the graph."><span class="meta">Sort sources:</span> ${FANOUT_SORTS.map(
     (s) =>
       `<a class="fo-sort-btn${s.key === sort.key ? " active" : ""}" href="${escapeHtml(
         hrefFor({ fosort: s.key, fanout: fanOutAnchor(active.root) }),
@@ -505,36 +468,58 @@ function fanOutViewer(fanOuts, { selected, sortKey, hrefFor }) {
 </section>`;
 }
 
-function overviewNav(report, url = new URL("http://localhost/")) {
-  const state = overviewState(url);
-  const groups = overviewRows(report, state);
-  const shown = groups.slice(0, OVERVIEW_NAV_FILE_LIMIT);
-  const items = shown
-    .map(
-      (g) =>
-        `<li><a href="/file?path=${encodeURIComponent(g.key)}">${escapeHtml(
-          g.key,
-        )}</a> <span class="meta">(${g.count})</span></li>`,
-    )
+const BOUNDARY_TAB_LIMIT = 5;
+
+// VIZ-1: the boundary viewer — the two-sided-diagram analogue of the fan-out viewer
+// and the template for fan-in/junctions/prop-relay. A tab strip of the heaviest-debt
+// boundaries + a popover for the rest selects ONE helper (selection in the URL via
+// `?boundary=`), and only that helper's sources → boundary → callers diagram renders.
+function boundaryViewer(helpers, { selected, hrefFor }) {
+  if (!helpers.length)
+    return `<p class="meta">No first-party helper functions were reached on a render path. (Imported library calls stay opaque; try --max-helper-depth.)</p>`;
+  const active =
+    helpers.find((h) => boundaryAnchor(h) === selected) ?? helpers[0];
+  const tabsList = helpers.slice(0, BOUNDARY_TAB_LIMIT);
+  const rest = helpers.slice(BOUNDARY_TAB_LIMIT);
+  const tabs = tabsList
+    .map((h) => {
+      const on = h === active;
+      return `<a class="fo-tab${on ? " active" : ""}"${
+        on ? ' aria-current="true"' : ""
+      } href="${escapeHtml(hrefFor({ boundary: boundaryAnchor(h) }))}">${escapeHtml(
+        h.name,
+      )} <span class="fo-tab-val">${escapeHtml(h.verdict ?? "")}</span></a>`;
+    })
     .join("");
-  const more =
-    groups.length > shown.length
-      ? `<li class="meta">+${groups.length - shown.length} more; use search or the table pager</li>`
-      : "";
-  const reports = reportAssets(state)
-    .map(
-      ({ view, label }) =>
-        `<li><a href="/report?view=${encodeURIComponent(view)}">${escapeHtml(
-          label,
-        )}</a></li>`,
-    )
-    .join("");
-  return `<h1><a href="/">tsx-dataflow</a></h1>
-<div class="sub">${escapeHtml(report.meta.root)}</div>
-<strong>Files</strong>
-<ul class="side-files">${items || '<li class="meta">no matching files</li>'}${more}</ul>
-<strong>Reports</strong>
-<ul>${reports || '<li class="meta">no matching reports</li>'}</ul>`;
+  const dropdown = rest.length
+    ? popover({
+        id: "boundary-src",
+        label: "More",
+        ariaLabel: "Other boundaries",
+        triggerValue: rest.includes(active)
+          ? undefined
+          : `+${rest.length} more…`,
+        options: rest.map((h) => ({
+          label: `${h.name} · ${h.callerCount} caller(s) · ${h.verdict}`,
+          href: hrefFor({ boundary: boundaryAnchor(h) }),
+          active: h === active,
+        })),
+      })
+    : "";
+  return `<p class="meta fo-explain">A <strong>boundary</strong> is a first-party function on a render path. The diagram shows its inbound source lineages on the left, the function in the middle (click to jump to its definition), and the call sites it re-spreads to on the right — pick one to inspect where it sits between sources and consumers.</p>
+<div class="fo-controls">
+  <div class="fo-tabs">${tabs}${dropdown}</div>
+</div>
+<section class="fanout-entry" id="${boundaryAnchor(active)}">
+  <h3>${escapeHtml(active.name)}() <span class="fo-tag fo-tag-cross">${escapeHtml(
+    active.verdict,
+  )}</span> <span class="meta">· ${active.inSources} inbound source(s) · ${
+    active.callerCount
+  } caller(s) · defined at <a class="xfile" href="/file?path=${encodeURIComponent(
+    active.file,
+  )}#L${active.line}">${escapeHtml(active.file)}:${active.line}</a></span></h3>
+  ${boundaryGraphSvg(active)}
+</section>`;
 }
 
 function renderOverview(report, url = new URL("http://localhost/")) {
@@ -600,30 +585,47 @@ ${typeCells(g.key)}
     const active = state.sort === sort;
     // CARET-1: the caret is a flex sibling pushed to the right, never wrapping to
     // a new line or growing the header height. The label sits in its own span.
-    const caret = active ? '<span class="caret" aria-hidden="true">▼</span>' : "";
+    const caret = active
+      ? '<span class="caret" aria-hidden="true">▼</span>'
+      : "";
     return `<th class="sortable${active ? " active" : ""}"${
       active ? ' aria-sort="descending"' : ""
     }><a href="${escapeHtml(
       overviewHref(pageState, { sort, page: 1 }),
     )}"><span class="th-label">${escapeHtml(label)}</span>${caret}</a></th>`;
   };
-  const filterOption = (value, label) =>
-    `<option value="${value}"${state.filter === value ? " selected" : ""}>${escapeHtml(
+  // SHELL-5: filter/sort are custom popovers (no native <select>). Each option is a
+  // link that navigates (state in the URL), resetting pagination to the first page.
+  const filterPopover = popover({
+    id: "filter",
+    label: "Show",
+    ariaLabel: "Filter files",
+    options: [
+      ["all", "All files"],
+      ["findings", "Files with findings"],
+      ["unknown", "Files with unknown edges"],
+      ["participating", "Graph-participating files"],
+    ].map(([value, label]) => ({
       label,
-    )}</option>`;
-  const sortOption = (value, label) =>
-    `<option value="${value}"${state.sort === value ? " selected" : ""}>${escapeHtml(
+      href: paramHref(url, { filter: value, page: null }),
+      active: state.filter === value,
+    })),
+  });
+  const sortPopover = popover({
+    id: "sort",
+    label: "Sort",
+    ariaLabel: "Sort files",
+    options: [
+      ["burden", "Burden"],
+      ["findings", "Finding count"],
+      ["depth", "Path depth"],
+      ["file", "File path"],
+    ].map(([value, label]) => ({
       label,
-    )}</option>`;
-  const reportLinks = reportAssets(state)
-    .map(
-      ({ view, label }) => `<li>
-<a href="/report?view=${encodeURIComponent(view)}">${escapeHtml(label)}</a>
-<span class="meta">·</span>
-<a href="/api/report.${encodeURIComponent(view)}.md">Markdown</a>
-</li>`,
-    )
-    .join("");
+      href: paramHref(url, { sort: value, page: null }),
+      active: state.sort === value,
+    })),
+  });
   // OVERVIEW-1: optional per-type columns + a control to choose which show. The
   // count columns are not sortable in this first slice (plain headers).
   const typeHeaders = OVERVIEW_TYPE_COLUMNS.map(
@@ -656,11 +658,15 @@ ${typeCells(g.key)}
     !showAll && totalPages > 1
       ? `<nav class="pager" aria-label="File result pages">
   <a class="btn${currentPage === 1 ? " disabled" : ""}" href="${escapeHtml(
-    currentPage === 1 ? overviewHref(pageState) : overviewHref(pageState, { page: currentPage - 1 }),
+    currentPage === 1
+      ? overviewHref(pageState)
+      : overviewHref(pageState, { page: currentPage - 1 }),
   )}">Previous</a>
   <span class="meta">Page ${currentPage} of ${totalPages}</span>
   <a class="btn${currentPage === totalPages ? " disabled" : ""}" href="${escapeHtml(
-    currentPage === totalPages ? overviewHref(pageState) : overviewHref(pageState, { page: currentPage + 1 }),
+    currentPage === totalPages
+      ? overviewHref(pageState)
+      : overviewHref(pageState, { page: currentPage + 1 }),
   )}">Next</a>
   ${showAllToggle}
 </nav>`
@@ -669,42 +675,25 @@ ${typeCells(g.key)}
         : "";
 
   // HOME-1 + FANOUT-LIST-1: the cross-file fan-outs live here as a selectable viewer
-  // — a tab strip of the heaviest sources + a dropdown for the rest, rendering ONE
-  // graph at a time (not a stacked wall of graphs). It is the same viewer the
-  // fan-out report tab uses; the full report (with the agent-facing markdown) lives
-  // at /report?view=fan-out.
-  const fanOuts = fanOutEntriesGlobal(report.rankings?.all ?? report.sinks ?? []);
-  const fanOutSection = fanOuts.length
-    ? `<h2 id="detected-fan-outs">Detected fan-outs <a class="meta" href="/report?view=fan-out">open report →</a></h2>
-${fanOutViewer(fanOuts, {
-        selected: url.searchParams.get("fanout"),
-        sortKey: url.searchParams.get("fosort"),
-        hrefFor: (overrides) => paramHref(url, overrides),
-      })}`
-    : "";
-
-  const body = `${reportTabs(null)}<div class="toolbar">
+  // SHELL-4: the overview no longer renders the fan-out graph inline. Now that the
+  // Fan-out tab hosts the same viewer (and the agent-facing markdown), an inline
+  // copy on the homepage was redundant — the user clicks the Fan-out tab for it.
+  const body = `<div class="toolbar">
   <h1 style="margin:0">Render-path overview</h1>
   <form action="/refresh" method="post"><button type="submit">↻ Re-analyze</button></form>
 </div>
 <div class="cards">${cards}</div>
-<form class="toolbar" action="/" method="get">
-  <input name="q" type="search" value="${escapeHtml(state.q)}" placeholder="Search files and reports">
-  <select name="filter">
-    ${filterOption("all", "All files")}
-    ${filterOption("findings", "Files with findings")}
-    ${filterOption("unknown", "Files with unknown edges")}
-    ${filterOption("participating", "Graph-participating files")}
-  </select>
-  <select name="sort">
-    ${sortOption("burden", "Sort by burden")}
-    ${sortOption("findings", "Sort by finding count")}
-    ${sortOption("depth", "Sort by path depth")}
-    ${sortOption("file", "Sort by file path")}
-  </select>
-  <button type="submit">Apply</button>
+<div class="toolbar">
+  <form action="/" method="get">
+    <input name="q" type="search" value="${escapeHtml(state.q)}" placeholder="Search files and reports">
+    ${state.filter !== "all" ? `<input type="hidden" name="filter" value="${escapeHtml(state.filter)}">` : ""}
+    ${state.sort !== "burden" ? `<input type="hidden" name="sort" value="${escapeHtml(state.sort)}">` : ""}
+    <button type="submit">Search</button>
+  </form>
+  ${filterPopover}
+  ${sortPopover}
   <a class="btn" href="/">Reset</a>
-</form>
+</div>
 <h2>${escapeHtml(SORT_HEADING[state.sort] ?? "Files")}</h2>
 ${concNote}
 <p class="meta">Each row is one file on a render path. <strong>Findings</strong> = ranked findings in it; <strong>Worst</strong> = its highest burden score; <strong>Path depth</strong> = longest source→sink chain. Click a column header to re-sort.</p>
@@ -721,27 +710,35 @@ ${columnToggle}
 <tbody>${rows || `<tr><td colspan="${7 + OVERVIEW_TYPE_COLUMNS.length}" class="meta">No matching files.</td></tr>`}</tbody>
 </table>
 ${pagination}`;
-  const reports = `<h2>Report assets</h2>
-<ul>${reportLinks || '<li class="meta">No matching report assets.</li>'}</ul>`;
 
   return page({
     title: "tsx-dataflow",
-    body: `${body}${fanOutSection}${reports}`,
-    nav: overviewNav(report, url),
+    body,
+    tabs: reportTabs(null),
+    context: report.meta.root,
   });
 }
 
-function fileNav(relPath, report) {
-  const sinkCount = report.rankings.all.length;
-  const views = FILE_VIEWS.map(
-    (view) =>
-      `<li><a href="#view-${view}">${escapeHtml(VIEW_LABELS[view] ?? view)}</a></li>`,
-  ).join("");
-  return `<h1><a href="/">tsx-dataflow</a></h1>
-<div class="sub">${escapeHtml(relPath)}</div>
-<p class="meta">${sinkCount} ranked finding(s)</p>
-<strong>On this page</strong>
-<ul><li><a href="#codemap">Code map</a></li>${views}</ul>`;
+// SHELL-3: the file page is a tab strip — the code map is its own first tab, then one
+// tab per file-scoped report. The active tab lives in `?view=` (empty/"codemap" = the
+// code map), so a refresh restores the same tab.
+function fileTabs(relPath, activeView) {
+  const base = `/file?path=${encodeURIComponent(relPath)}`;
+  const onMap = !activeView || activeView === "codemap";
+  const tabs = [
+    `<a class="report-tab${onMap ? " active" : ""}"${
+      onMap ? ' aria-current="page"' : ""
+    } href="${base}">Code map</a>`,
+    ...FILE_VIEWS.map((view) => {
+      const on = view === activeView;
+      return `<a class="report-tab${on ? " active" : ""}"${
+        on ? ' aria-current="page"' : ""
+      } href="${base}&view=${encodeURIComponent(view)}">${escapeHtml(
+        VIEW_LABELS[view] ?? view,
+      )}</a>`;
+    }),
+  ];
+  return `<nav class="report-tabs" aria-label="File sections">${tabs.join("")}</nav>`;
 }
 
 function renderFilePage(
@@ -791,26 +788,30 @@ function renderFilePage(
       })
     : `<p class="meta">Source not found on disk: ${escapeHtml(relPath)}</p>`;
 
-  const sections = FILE_VIEWS.map((view) => {
+  // SHELL-3: render exactly one tab's content — the code map (default), or the one
+  // selected file-scoped report. No more stacked `<details>`; the tab strip in the
+  // top bar switches views, with the active tab in `?view=`.
+  const activeView = FILE_VIEWS.includes(openView) ? openView : null;
+  const codeMapPane = `<h2 id="codemap">Code map</h2>
+<p class="meta">Lines with a colored dot render a ranked finding — click to inspect. Color signals <strong>burden</strong> (severity): the hotter the line, the heavier the render path. Faintly bordered lines lie on a representative path through this file.</p>
+<div class="heat-legend"><span>low burden</span><span class="bar"></span><span>high burden</span></div>
+${codeMap}`;
+  let pane;
+  if (activeView) {
     const md = renderMarkdownView(report, {
       ...args,
-      view,
+      view: activeView,
       file: [relPath],
       maxItems: args.maxItems ?? 20,
     });
     // Rewrite `path:line` references into click-to-reveal source previews.
     const html = peekReferences(markdownToHtml(md), resolveSource);
-    const open = view === openView ? " open" : "";
-    return `<details id="view-${view}"${open}>
-<summary>${escapeHtml(VIEW_LABELS[view] ?? view)}</summary>
-<div class="body">${html}</div>
-</details>`;
-  }).join("\n");
+    pane = `<h2>${escapeHtml(VIEW_LABELS[activeView] ?? activeView)}</h2>
+<div class="body">${html}</div>`;
+  } else {
+    pane = codeMapPane;
+  }
 
-  // LAYERS-2: the sticky "Layers" jump-strip was removed — the user found it
-  // unhelpful ("just get rid of the sticky Layers thing") and wants the report
-  // views folded into the code-map list instead (ARCH-2). The sidebar "On this
-  // page" nav (fileNav) still provides jump links.
   const body = `<nav class="crumbs"><a href="/">← Overview</a><span>/</span><span>${escapeHtml(
     relPath,
   )}</span></nav>
@@ -821,12 +822,13 @@ function renderFilePage(
     encodeURIComponent(relPath),
   )}"><button type="submit">↻ Re-analyze</button></form>
 </div>
-<h2 id="codemap">Code map</h2>
-<p class="meta">Lines with a colored dot render a ranked finding — click to inspect. Color signals <strong>burden</strong> (severity): the hotter the line, the heavier the render path. Faintly bordered lines lie on a representative path through this file.</p>
-<div class="heat-legend"><span>low burden</span><span class="bar"></span><span>high burden</span></div>
-${codeMap}
-<h2>Reports</h2>
-${sections}`;
+${pane}`;
 
-  return page({ title: relPath, body, nav: fileNav(relPath, report), wide: true });
+  return page({
+    title: relPath,
+    body,
+    tabs: fileTabs(relPath, activeView),
+    context: relPath,
+    wide: true,
+  });
 }

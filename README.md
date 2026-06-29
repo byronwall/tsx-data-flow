@@ -37,13 +37,13 @@ tsx-dataflow
 # architectural triage, written to files
 tsx-dataflow --view prop-relay --out .tsx-dataflow/prop-relay.md
 tsx-dataflow --view fan-out    --out .tsx-dataflow/fan-out.md
-tsx-dataflow --view repair-map --out .tsx-dataflow/repair-map.md
+tsx-dataflow --view overview   --out .tsx-dataflow/overview.md
 
 # every view at once, one file per view in a directory
 tsx-dataflow --view all --out .tsx-dataflow
 
 # structured output for scripting / baselines
-tsx-dataflow --view dossier --format json --out .tsx-dataflow/dossier.json
+tsx-dataflow --view overview --format json --out .tsx-dataflow/overview.json
 ```
 
 Every Markdown report ends with the exact command that regenerates it, so a report stays self-describing once it's detached from the shell that produced it.
@@ -106,57 +106,53 @@ props.task, props.actor, props.preferences, preferences.accentColor
 A nullish fallback or optional access is unreachable under the checked TypeScript program.
 ````
 
-The more useful view for planning work is [`examples/bad-ish-solid/reports/work-packets.md`](examples/bad-ish-solid/reports/work-packets.md): it turns the same graph into ranked cleanup packets with a representative source-to-sink path, candidate edits, and risk queue. The companion [`prop-relay.md`](examples/bad-ish-solid/reports/prop-relay.md), [`fan-out.md`](examples/bad-ish-solid/reports/fan-out.md), [`defensive-ledger.md`](examples/bad-ish-solid/reports/defensive-ledger.md), and [`repair-map.md`](examples/bad-ish-solid/reports/repair-map.md) reports show why that code would be a good target for introducing a feature-scoped store/context or thinner component props.
+The more useful view for planning work is [`examples/bad-ish-solid/reports/work-packets.md`](examples/bad-ish-solid/reports/work-packets.md): it turns the same graph into ranked cleanup packets with a representative source-to-sink path, candidate edits, and risk queue. The companion [`overview.md`](examples/bad-ish-solid/reports/overview.md), [`prop-relay.md`](examples/bad-ish-solid/reports/prop-relay.md), [`fan-out.md`](examples/bad-ish-solid/reports/fan-out.md), and [`defensive-ledger.md`](examples/bad-ish-solid/reports/defensive-ledger.md) reports show why that code would be a good target for introducing a feature-scoped store/context or thinner component props.
 
 ## Options
 
-| Option                      | Behavior                                                                                                                                                            |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--root <path>`             | Project root. Defaults to the current working directory.                                                                                                            |
-| `--source <path>`           | Source root. Defaults to `./src`, then `./app/src`, then the root.                                                                                                  |
+| Option                      | Behavior                                                                                                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--root <path>`             | Project root. Defaults to the current working directory.                                                                                                                        |
+| `--source <path>`           | Source root. Defaults to `./src`, then `./app/src`, then the root.                                                                                                              |
 | `--tsconfig <path>`         | TypeScript config. Auto-discovered (walk-up, solution-file expansion, monorepo scan). A valid config is required; the analyzer errors out instead of using non-strict defaults. |
-| `--typescript-from <path>`  | Extra directory used to resolve the `typescript` package.                                                                                                           |
-| `--format <json\|markdown>` | Output format. Defaults to `markdown`.                                                                                                                              |
-| `--view <name>`             | Report view (see below), or `all` for every view. Defaults to `work-packets`.                                                                                       |
-| `--scope <text>`            | Limit rows to a file, component, or symbol substring.                                                                                                               |
-| `--max-items <n>`           | Bound displayed findings / graph rows. Defaults to 20.                                                                                                              |
-| `--sort <mode>`             | Selection lens for `work-packets`/`findings`: `burden` (default, worst-first), `spread` (per-file/feature caps), `coverage` (one per file, then fill), `quick-win`. |
-| `--spread`                  | Shorthand for `--sort spread`.                                                                                                                                      |
-| `--diversity <0..1>`        | MMR re-rank balancing burden against novelty (0 = pure burden, 1 = max spread). Overrides `--sort`.                                                                 |
-| `--per-file <n>`            | Max items from one file in spread mode (default 2).                                                                                                                 |
-| `--per-feature <n>`         | Max items from one feature area in spread mode (default 4).                                                                                                         |
-| `--units`                   | Collapse file-local sinks that share a cause into one work unit ("fix once, N sinks improve").                                                                      |
-| `--by <file\|feature>`      | Roll-up granularity for the `hotspots` view. Defaults to `file`.                                                                                                    |
-| `--baseline <path>`         | Compare worst burden score against a prior JSON report.                                                                                                             |
-| `--compare <dir>`           | Compare this run against a prior `--view all` report directory and emit a markdown before/after summary.                                                            |
-| `--fail-on-regression`      | Exit non-zero only when the baseline comparison regresses.                                                                                                          |
-| `--out <path>`              | Write the report to a file instead of stdout. With `--view all`, names a directory to fill with one file per view.                                                  |
-| `--include-tests`           | Include `*.test.*` and `*.spec.*` files.                                                                                                                            |
-| `--help`                    | Show usage.                                                                                                                                                         |
+| `--typescript-from <path>`  | Extra directory used to resolve the `typescript` package.                                                                                                                       |
+| `--format <json\|markdown>` | Output format. Defaults to `markdown`.                                                                                                                                          |
+| `--view <name>`             | Report view (see below), or `all` for every view. Defaults to `work-packets`.                                                                                                   |
+| `--scope <text>`            | Limit rows to a file, component, or symbol substring.                                                                                                                           |
+| `--max-items <n>`           | Bound displayed findings / graph rows. Defaults to 20.                                                                                                                          |
+| `--sort <mode>`             | Selection lens for `work-packets`/`findings`: `burden` (default, worst-first), `spread` (per-file/feature caps), `coverage` (one per file, then fill), `quick-win`.             |
+| `--spread`                  | Shorthand for `--sort spread`.                                                                                                                                                  |
+| `--diversity <0..1>`        | MMR re-rank balancing burden against novelty (0 = pure burden, 1 = max spread). Overrides `--sort`.                                                                             |
+| `--per-file <n>`            | Max items from one file in spread mode (default 2).                                                                                                                             |
+| `--per-feature <n>`         | Max items from one feature area in spread mode (default 4).                                                                                                                     |
+| `--units`                   | Collapse file-local sinks that share a cause into one work unit ("fix once, N sinks improve").                                                                                  |
+| `--by <file\|feature>`      | Roll-up granularity for the `overview` breadth map. Defaults to `file`.                                                                                                         |
+| `--baseline <path>`         | Compare worst burden score against a prior JSON report.                                                                                                                         |
+| `--compare <dir>`           | Compare this run against a prior `--view all` report directory and emit a markdown before/after summary.                                                                        |
+| `--fail-on-regression`      | Exit non-zero only when the baseline comparison regresses.                                                                                                                      |
+| `--out <path>`              | Write the report to a file instead of stdout. With `--view all`, names a directory to fill with one file per view.                                                              |
+| `--include-tests`           | Include `*.test.*` and `*.spec.*` files.                                                                                                                                        |
+| `--help`                    | Show usage.                                                                                                                                                                     |
 
 ## Views
 
-| View                    | Purpose                                                                                                                                                               |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `work-packets`          | Ranked implementation items with grouped render recommendations, background findings, stop recommendation, scope, path, candidate edits, and risk.                    |
-| `findings`              | Compact ranked findings for triage.                                                                                                                                   |
-| `repeated-forks`        | Components that test the same discriminant across multiple sibling branch sites (ternary / `if` / `&&` / Solid `<Match>`/`<Show>`) — the "split into discriminated sub-components" smell, with fork sites, branch-exclusive eager computations, and the findings a split would fix. |
-| `repair-map`            | Grouped quick-win, central-leverage, and investigation queues.                                                                                                        |
-| `prop-relay`            | Prop pass-through and relay paths — best signal for broad prop bundles and missing context/store ownership.                                                           |
-| `context-relay`         | Same-feature children receiving shared-looking props from context-aware parents (Provider/Context completion audit).                                                  |
-| `fan-out`               | Sources that reach many render sinks.                                                                                                                                 |
-| `fan-in`                | Sinks fed by many upstream inputs.                                                                                                                                    |
-| `defensive-ledger`      | Nullish/default/logical defenses, including type-impossible ones.                                                                                                     |
-| `transformation-ledger` | Representation-only wrapper steps and conversions.                                                                                                                    |
-| `path-gallery`          | Representative source-to-sink paths.                                                                                                                                  |
-| `path-census`           | Aggregate source/sink/path-depth counts.                                                                                                                              |
-| `path-families`         | Grouped path signatures.                                                                                                                                              |
-| `boundary-report`       | First-party functions on render paths, scored as data-flow boundaries (clean pipe / pass-through / leaky / junction / messy).                                         |
-| `junctions`             | Confluence functions where independent lineages fork in and re-spread — the load-bearing knots, with tributaries and distributaries.                                  |
-| `inline-preview`        | Inline-vs-keep decision per helper: how the path changes if folded in, with a verdict (proposes, never rewrites).                                                     |
-| `dossier`               | Graph-oriented JSON (nodes, edges, traces, metrics, omitted counts).                                                                                                  |
-| `hotspots` (`coverage`) | Breadth map: one row per file (or `--by feature`) with finding count, worst burden, dominant shape/ownership, and a suggested first cut, plus a concentration footer. |
-| `all`                   | Generate every view above in one run; pair with `--out <dir>` to write one file per view.                                                                             |
+| View               | Purpose                                                                                                                                                                                                                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `overview`         | Orientation report with the report guide, feature/file breadth map, repair buckets, unknown-edge diagnostics, concentration, and stop recommendation.                                                                                                                               |
+| `work-packets`     | Ranked implementation items with grouped render recommendations, background findings, stop recommendation, scope, path, candidate edits, and risk.                                                                                                                                  |
+| `findings`         | Compact ranked findings for triage.                                                                                                                                                                                                                                                 |
+| `repeated-forks`   | Components that test the same discriminant across multiple sibling branch sites (ternary / `if` / `&&` / Solid `<Match>`/`<Show>`) — the "split into discriminated sub-components" smell, with fork sites, branch-exclusive eager computations, and the findings a split would fix. |
+| `prop-relay`       | Prop pass-through and relay paths — best signal for broad prop bundles and missing context/store ownership.                                                                                                                                                                         |
+| `context-relay`    | Same-feature children receiving shared-looking props from context-aware parents (Provider/Context completion audit).                                                                                                                                                                |
+| `fan-out`          | Sources that reach many render sinks.                                                                                                                                                                                                                                               |
+| `fan-in`           | Sinks fed by many upstream inputs.                                                                                                                                                                                                                                                  |
+| `defensive-ledger` | Nullish/default/logical defenses, including type-impossible ones.                                                                                                                                                                                                                   |
+| `path-families`    | Grouped path signatures.                                                                                                                                                                                                                                                            |
+| `boundary-report`  | First-party functions on render paths, scored as data-flow boundaries (clean pipe / pass-through / leaky / junction / messy).                                                                                                                                                       |
+| `junctions`        | Confluence functions where independent lineages fork in and re-spread — the load-bearing knots, with tributaries and distributaries.                                                                                                                                                |
+| `inline-preview`   | Inline-vs-keep decision per helper: how the path changes if folded in, with a verdict (proposes, never rewrites).                                                                                                                                                                   |
+| `component-refs`   | Where each component is used.                                                                                                                                                                                                                                                       |
+| `all`              | Generate every view above in one run; pair with `--out <dir>` to write one file per view.                                                                                                                                                                                           |
 
 ### Cross-file tracing
 
@@ -184,9 +180,9 @@ depth for breadth without losing the worst finding:
   re-rank that defers redundant siblings (same file / shape / pivot).
 - `--sort coverage` reaches one packet per file before filling by burden;
   `--sort quick-win` leads with peripheral, low-risk wins.
-- `--view hotspots` is the breadth **map**: one row per file (or `--by feature`),
+- `--view overview` includes the breadth **map**: one row per file (or `--by feature`),
   every place with a finding shown once, with a concentration footer. The same
-  concentration summary heads `work-packets` and `repair-map`.
+  concentration summary heads `work-packets`.
 
 The default stays `--sort burden` (today's exact ordering); everything above is
 additive.
@@ -220,7 +216,7 @@ tsx-dataflow-serve --root . --port 4317 --open
 pnpm serve -- --root examples/bad-ish-solid --open
 ```
 
-- **Overview** (`/`) — project summary plus searchable/sortable hotspots (one
+- **Overview** (`/`) — project summary plus searchable/sortable file rows (one
   row per file: finding count, worst burden, path depth, dominant shape,
   ownership, suggested first cut), each linking into its file. Query params are
   shareable: `q=<text>`, `filter=all|findings|unknown|participating`, and

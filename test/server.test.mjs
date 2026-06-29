@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createServerFixtureProject as createFixtureProject } from "./helpers/fixture-project.mjs";
+import { call } from "./helpers/http.mjs";
 import {
   analyzeProject,
   createAnalyzer,
@@ -11,55 +11,9 @@ import {
   parseArgs,
   REPORT_VIEWS,
 } from "../src/core.mjs";
-import { markdownToHtml } from "../src/html/markdown-to-html.mjs";
-import {
-  renderCodeMap,
-  fanOutGraphSvg,
-  fanOutAnchor,
-} from "../src/html/code-map.mjs";
-import { snippetBlockHtml, peekReferences } from "../src/html/source-peek.mjs";
+import { renderCodeMap, fanOutAnchor } from "../src/html/code-map.mjs";
+import { peekReferences } from "../src/html/source-peek.mjs";
 import { createServer } from "../src/server.mjs";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const appRoot = resolve(__dirname, "..");
-
-async function createFixtureProject(files) {
-  const root = await mkdtemp(resolve(tmpdir(), "render-path-server-"));
-  await mkdir(resolve(root, "src"), { recursive: true });
-  await writeFile(
-    resolve(root, "tsconfig.json"),
-    JSON.stringify({
-      compilerOptions: {
-        target: "ESNext",
-        module: "ESNext",
-        moduleResolution: "bundler",
-        jsx: "preserve",
-        strict: true,
-        noEmit: true,
-        skipLibCheck: true,
-      },
-      include: ["src"],
-    }),
-  );
-  for (const [relativePath, content] of Object.entries(files)) {
-    const target = resolve(root, relativePath);
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, content);
-  }
-  return {
-    root,
-    args: parseArgs([
-      "--root",
-      root,
-      "--source",
-      "src",
-      "--tsconfig",
-      "tsconfig.json",
-      "--typescript-from",
-      appRoot,
-    ]),
-  };
-}
 
 const FIXTURE = {
   "src/Card.tsx": `
@@ -69,77 +23,6 @@ const FIXTURE = {
     }
   `,
 };
-
-// Drive the server handler with a minimal mock req/res, returning the response.
-function call(handler, url, method = "GET") {
-  return new Promise((resolve) => {
-    const chunks = [];
-    const res = {
-      _status: 200,
-      _headers: {},
-      writeHead(status, headers) {
-        this._status = status;
-        if (headers) Object.assign(this._headers, headers);
-      },
-      end(body) {
-        if (body) chunks.push(body);
-        resolve({ status: this._status, headers: this._headers, body: chunks.join("") });
-      },
-    };
-    handler({ url, method }, res);
-  });
-}
-
-describe("markdownToHtml", () => {
-  it("renders GFM tables to thead/tbody", () => {
-    const html = markdownToHtml(
-      ["| A | B |", "| - | - |", "| 1 | 2 |", "| 3 | 4 |"].join("\n"),
-    );
-    expect(html).toContain("<table>");
-    expect(html).toContain("<th>A</th>");
-    expect(html).toContain("<td>1</td>");
-    expect(html).toContain("<td>4</td>");
-  });
-
-  it("escapes pipes inside table cells", () => {
-    const html = markdownToHtml(
-      ["| Type |", "| - |", "| string \\| number |"].join("\n"),
-    );
-    expect(html).toContain("<td>string | number</td>");
-  });
-
-  it("renders fenced code with embedded backticks and escapes HTML", () => {
-    const html = markdownToHtml(
-      ["````", "const a = `x` + `<y>`;", "````"].join("\n"),
-    );
-    expect(html).toContain("<pre><code>");
-    expect(html).toContain("`x` + `&lt;y&gt;`");
-  });
-
-  it("renders headings, blockquotes, bold, inline code, and lists", () => {
-    const html = markdownToHtml(
-      [
-        "# Title",
-        "",
-        "> a **bold** note with `code`",
-        "",
-        "- one",
-        "- two",
-      ].join("\n"),
-    );
-    expect(html).toContain("<h1>Title</h1>");
-    expect(html).toContain("<blockquote>");
-    expect(html).toContain("<strong>bold</strong>");
-    expect(html).toContain("<code>code</code>");
-    expect(html).toMatch(/<ul>\s*<li>one<\/li>\s*<li>two<\/li>\s*<\/ul>/);
-  });
-
-  it("treats underscores inside identifiers as literal", () => {
-    const html = markdownToHtml("the view_model value");
-    expect(html).toContain("view_model");
-    expect(html).not.toContain("<em>");
-  });
-});
 
 describe("createAnalyzer", () => {
   it("reprojects the same report as analyzeProject", async () => {
@@ -190,7 +73,9 @@ describe("renderCodeMap", () => {
 
   it("marks sink lines, escapes source, and renders commentary", async () => {
     const project = await createFixtureProject(FIXTURE);
-    const report = createAnalyzer(project.args).report({ file: ["src/Card.tsx"] });
+    const report = createAnalyzer(project.args).report({
+      file: ["src/Card.tsx"],
+    });
     const sinks = report.rankings.all.filter((s) => s.file === "src/Card.tsx");
     const source = `const x = a < b && c > d;\nconst y = 2;`;
     const html = renderCodeMap({ relPath: "src/Card.tsx", source, sinks });
@@ -209,7 +94,9 @@ describe("renderCodeMap", () => {
 
   it("pre-activates a finding when selectedFinding is provided", async () => {
     const project = await createFixtureProject(FIXTURE);
-    const report = createAnalyzer(project.args).report({ file: ["src/Card.tsx"] });
+    const report = createAnalyzer(project.args).report({
+      file: ["src/Card.tsx"],
+    });
     const sinks = report.rankings.all.filter((s) => s.file === "src/Card.tsx");
     const source = `const x = 1;\nconst y = 2;`;
     const target = sinks[0].id;
@@ -253,12 +140,15 @@ describe("renderCodeMap", () => {
   });
 
   it("renders representative paths as dense rows with source-peek locations", () => {
-    const source = ["export function App() {", "  return <div>{value}</div>;", "}"].join(
-      "\n",
-    );
-    const helperSource = ["export const value = build();", "function build() { return 1; }"].join(
-      "\n",
-    );
+    const source = [
+      "export function App() {",
+      "  return <div>{value}</div>;",
+      "}",
+    ].join("\n");
+    const helperSource = [
+      "export const value = build();",
+      "function build() { return 1; }",
+    ].join("\n");
     const sink = {
       ...baseSink,
       line: 2,
@@ -266,7 +156,12 @@ describe("renderCodeMap", () => {
       representativeSteps: [
         { kind: "source", label: "build()", file: "src/helper.ts", line: 2 },
         { kind: "alias", label: "value", file: "src/helper.ts", line: 1 },
-        { kind: "call", label: "<div>{value}</div>", file: "src/App.tsx", line: 2 },
+        {
+          kind: "call",
+          label: "<div>{value}</div>",
+          file: "src/App.tsx",
+          line: 2,
+        },
       ],
     };
     const html = renderCodeMap({
@@ -278,7 +173,9 @@ describe("renderCodeMap", () => {
     expect(html).toContain('class="path-table"');
     // STEP-3: Expression sits ahead of the (taller) Location column, not buried
     // in the far-right narrow slot.
-    expect(html).toContain("<th>#</th><th>Kind</th><th>Expression</th><th>Location</th>");
+    expect(html).toContain(
+      "<th>#</th><th>Kind</th><th>Expression</th><th>Location</th>",
+    );
     expect(html).toContain('<td class="step-no">1</td>');
     // Cross-file hop → a real link to that file's page (so hops navigate).
     expect(html).toContain(
@@ -317,9 +214,14 @@ describe("renderCodeMap", () => {
 
   it("emits a copyable debug payload with absolute paths and the full trace", async () => {
     const project = await createFixtureProject(FIXTURE);
-    const report = createAnalyzer(project.args).report({ file: ["src/Card.tsx"] });
+    const report = createAnalyzer(project.args).report({
+      file: ["src/Card.tsx"],
+    });
     const sinks = report.rankings.all.filter((s) => s.file === "src/Card.tsx");
-    const source = await readFile(resolve(project.root, "src/Card.tsx"), "utf8");
+    const source = await readFile(
+      resolve(project.root, "src/Card.tsx"),
+      "utf8",
+    );
     const html = renderCodeMap({
       relPath: "src/Card.tsx",
       source,
@@ -355,18 +257,41 @@ describe("renderCodeMap", () => {
   });
 
   it("collapses consecutive same-expression path steps into a range (STEP-1)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
     const sink = {
       ...baseSink,
       line: 2,
       representativeSteps: [
         { kind: "source", label: "props", file: "src/App.tsx", line: 1 },
-        { kind: "property-read", label: "props.metadata.relationship", file: "src/App.tsx", line: 5 },
-        { kind: "property-read", label: "props.metadata.relationship", file: "src/App.tsx", line: 5 },
-        { kind: "property-read", label: "props.metadata.relationship", file: "src/App.tsx", line: 5 },
+        {
+          kind: "property-read",
+          label: "props.metadata.relationship",
+          file: "src/App.tsx",
+          line: 5,
+        },
+        {
+          kind: "property-read",
+          label: "props.metadata.relationship",
+          file: "src/App.tsx",
+          line: 5,
+        },
+        {
+          kind: "property-read",
+          label: "props.metadata.relationship",
+          file: "src/App.tsx",
+          line: 5,
+        },
       ],
     };
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [sink] });
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [sink],
+    });
     // Three identical hops on line 5 collapse into one "2–4" row with a ×3 count.
     expect(html).toContain('<td class="step-no">2–4</td>');
     expect(html).toContain("×3");
@@ -375,7 +300,11 @@ describe("renderCodeMap", () => {
   });
 
   it("numbers fork sites like path steps (FORK-1)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
     const fork = {
       id: "FK1",
       file: "src/App.tsx",
@@ -387,14 +316,23 @@ describe("renderCodeMap", () => {
         { line: 3, kind: "switch-match", snippet: 't().type === "b"' },
       ],
     };
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [], forks: [fork] });
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [],
+      forks: [fork],
+    });
     expect(html).toContain("site-list");
     expect(html).toContain('<span class="site-no">1</span>');
     expect(html).toContain('<span class="site-no">2</span>');
   });
 
   it("promotes ALL reached helpers, coloring junctions vs benign boundaries (ARCH-2)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
     const helpers = [
       {
         name: "getAskedBy",
@@ -417,7 +355,12 @@ describe("renderCodeMap", () => {
         params: [],
       },
     ];
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [], helpers });
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [],
+      helpers,
+    });
     // Both the strict junction AND the benign boundary are promoted into the list.
     expect(html).toContain('data-type="junction"');
     expect(html).toContain('data-type="boundary"');
@@ -429,7 +372,11 @@ describe("renderCodeMap", () => {
   });
 
   it("makes the inbound-source count a click-to-reveal popover (DRILL-1)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
     const helpers = [
       {
         name: "merge",
@@ -443,7 +390,12 @@ describe("renderCodeMap", () => {
         params: [],
       },
     ];
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [], helpers });
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [],
+      helpers,
+    });
     // The count is a peek trigger, with the members revealed in the popover.
     expect(html).toContain('class="peek-label">3 inbound source(s)');
     expect(html).toContain('class="peek-pop">');
@@ -456,48 +408,85 @@ describe("renderCodeMap", () => {
   });
 
   it("sorts the inventory by score (worst first) and offers a sort control (SORT-1)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
     const hi = { ...baseSink, id: "HI", line: 1, scores: { burden: 0.8 } };
     const lo = { ...baseSink, id: "LO", line: 2, scores: { burden: 0.1 } };
     // Pass low-burden first to prove the default sort reorders by score, not input.
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [lo, hi] });
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [lo, hi],
+    });
     expect(html).toContain('class="esort active" data-sort="score"');
     expect(html).toContain("data-sort-score=");
-    const order = [...html.matchAll(/class="finding-row" data-finding="([^"]+)"/g)].map(
-      (m) => m[1],
-    );
+    const order = [
+      ...html.matchAll(/class="finding-row" data-finding="([^"]+)"/g),
+    ].map((m) => m[1]);
     expect(order.indexOf("HI")).toBeLessThan(order.indexOf("LO"));
   });
 
   it("renders the sort control as a segmented group with an aligned label (HEAD-2/HEAD-3)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
     const hi = { ...baseSink, id: "HI", line: 1, scores: { burden: 0.8 } };
     const lo = { ...baseSink, id: "LO", line: 2, scores: { burden: 0.1 } };
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [lo, hi] });
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [lo, hi],
+    });
     expect(html).toContain('class="entry-sort-label"');
     expect(html).toContain('<div class="seg"');
     expect(html).toContain('class="esort active" data-sort="score"');
   });
 
   it("pins the list header (count/filter/sort) so it stays visible (HEAD-4)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [baseSink] });
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [baseSink],
+    });
     expect(html).toContain('class="finding-list-head"');
   });
 
   it("collapses consecutive same-line path steps and shows the snippet once (STEP-2)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
     // Three steps on the SAME line (different kinds) must merge into one row.
     const sink = {
       ...baseSink,
       representativeSteps: [
         { kind: "source", label: "build()", file: "src/App.tsx", line: 1 },
-        { kind: "property-read", label: "build().x", file: "src/App.tsx", line: 1 },
+        {
+          kind: "property-read",
+          label: "build().x",
+          file: "src/App.tsx",
+          line: 1,
+        },
         { kind: "call", label: "build().x()", file: "src/App.tsx", line: 1 },
         { kind: "call", label: "<div>{v}</div>", file: "src/App.tsx", line: 2 },
       ],
     };
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [sink] });
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [sink],
+    });
     // The run 1–3 collapses to a single ordinal range with a ×3 repeat marker.
     expect(html).toContain('<td class="step-no">1–3</td>');
     expect(html).toContain("×3");
@@ -506,7 +495,11 @@ describe("renderCodeMap", () => {
   });
 
   it("emphasizes branch-exclusive computations with an amber accent class (FORK-2)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
     const fork = {
       id: "FORK-1",
       file: "src/App.tsx",
@@ -516,7 +509,12 @@ describe("renderCodeMap", () => {
       sites: [{ line: 1, kind: "ternary", value: "x" }],
       branchExclusive: [{ line: 2, name: "barData", branch: "bar" }],
     };
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [], forks: [fork] });
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [],
+      forks: [fork],
+    });
     expect(html).toContain('class="why branch-exclusive"');
   });
 
@@ -534,23 +532,53 @@ describe("renderCodeMap", () => {
   });
 
   it("shows a human alias under the finding id (TITLE-1)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [baseSink] });
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [baseSink],
+    });
     expect(html).toContain('class="finding-alias"');
     expect(html).toContain("render-path data-flow hotspot");
   });
 
   it("promotes unknown edges, relays, and fan-out into the list (ARCH-2)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
     const html = renderCodeMap({
       relPath: "src/App.tsx",
       source,
       sinks: [],
       unknownEdges: [
-        { id: "U1", file: "src/App.tsx", line: 2, kind: "call", label: "fetchThing", occurrences: 4, affectedSinks: [] },
+        {
+          id: "U1",
+          file: "src/App.tsx",
+          line: 2,
+          kind: "call",
+          label: "fetchThing",
+          occurrences: 4,
+          affectedSinks: [],
+        },
       ],
       relays: [
-        { parentFile: "src/App.tsx", line: 1, childComponent: "Card", childFile: "src/Card.tsx", props: ["a", "b", "c"], sharedProps: ["theme"], contextHooks: ["useTheme"], score: 6, signal: "shared bundle" },
+        {
+          parentFile: "src/App.tsx",
+          line: 1,
+          childComponent: "Card",
+          childFile: "src/Card.tsx",
+          props: ["a", "b", "c"],
+          sharedProps: ["theme"],
+          contextHooks: ["useTheme"],
+          score: 6,
+          signal: "shared bundle",
+        },
       ],
       fanOut: [
         {
@@ -621,16 +649,32 @@ describe("renderCodeMap", () => {
   });
 
   it("offers a merge-width (sources) sort and a defended facet filter (ARCH-2 C)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
     const wide = {
       ...baseSink,
       id: "WIDE",
       line: 1,
       metrics: { mergeWidth: 5 },
-      defenses: [{ expression: "x ?? y", verdict: "possible", location: { line: 1 } }],
+      defenses: [
+        { expression: "x ?? y", verdict: "possible", location: { line: 1 } },
+      ],
     };
-    const narrow = { ...baseSink, id: "NARROW", line: 2, metrics: { mergeWidth: 1 }, defenses: [] };
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [narrow, wide] });
+    const narrow = {
+      ...baseSink,
+      id: "NARROW",
+      line: 2,
+      metrics: { mergeWidth: 1 },
+      defenses: [],
+    };
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [narrow, wide],
+    });
     expect(html).toContain('data-sort="sources"');
     expect(html).toContain('data-sort-sources="5"');
     expect(html).toContain('data-filter="defended"');
@@ -639,23 +683,58 @@ describe("renderCodeMap", () => {
   });
 
   it("surfaces a per-file hotspots/path-census stats line (ARCH-2 D)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
-    const s1 = { ...baseSink, id: "A", line: 1, scores: { burden: 0.6 }, metrics: { maximumPathDepth: 12 } };
-    const s2 = { ...baseSink, id: "B", line: 2, scores: { burden: 0.2 }, metrics: { maximumPathDepth: 4 } };
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [s1, s2] });
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
+    const s1 = {
+      ...baseSink,
+      id: "A",
+      line: 1,
+      scores: { burden: 0.6 },
+      metrics: { maximumPathDepth: 12 },
+    };
+    const s2 = {
+      ...baseSink,
+      id: "B",
+      line: 2,
+      scores: { burden: 0.2 },
+      metrics: { maximumPathDepth: 4 },
+    };
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [s1, s2],
+    });
     expect(html).toContain('class="file-stats meta"');
     expect(html).toContain("worst 0.60");
     expect(html).toContain("path depth max 12");
   });
 
   it("explains the Defenses count vs. listed guard sites (DEF-4)", () => {
-    const source = ["export function App() {", "  return <div>{v}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{v}</div>;",
+      "}",
+    ].join("\n");
     const sink = {
       ...baseSink,
       metrics: { actionableDefensiveOperationCount: 6 },
-      defenses: [{ expression: "a ?? b", verdict: "possible", type: "??", location: { line: 2 } }],
+      defenses: [
+        {
+          expression: "a ?? b",
+          verdict: "possible",
+          type: "??",
+          location: { line: 2 },
+        },
+      ],
     };
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [sink] });
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [sink],
+    });
     expect(html).toContain("Defenses — 1");
     expect(html).toContain("6 defensive operations across all paths");
   });
@@ -704,7 +783,10 @@ describe("fanOutEntriesGlobal (HOME-1)", () => {
     ];
     const rows = fanOutEntriesGlobal(all);
     // both multi-sink sources are present even though no relPath was given
-    expect(rows.map((r) => r.root).sort()).toEqual(["props.theme", "props.user"]);
+    expect(rows.map((r) => r.root).sort()).toEqual([
+      "props.theme",
+      "props.user",
+    ]);
     const user = rows.find((r) => r.root === "props.user");
     expect(user.sinkCount).toBe(2);
     expect(user.fileCount).toBe(2);
@@ -712,94 +794,6 @@ describe("fanOutEntriesGlobal (HOME-1)", () => {
     expect(user.graphSinks.length).toBe(2);
     // single-sink sources are not fan-out
     expect(rows.find((r) => r.root === "props.lonely")).toBeFalsy();
-  });
-});
-
-describe("fanOutGraphSvg (GRAPH-COLOR-1 / GRAPH-GROUP-1)", () => {
-  const row = {
-    root: "props.user",
-    kind: "property-read",
-    sinkCount: 5,
-    fileCount: 2,
-    maxDepth: 4,
-    graphSinks: [
-      { id: "S1", file: "src/App.tsx", line: 2, label: "div / text" },
-      { id: "S2", file: "src/App.tsx", line: 9, label: "span / title" },
-      { id: "S3", file: "src/Card.tsx", line: 7, label: "div / class" },
-    ],
-  };
-
-  it("groups sinks by file (filename once) and draws no '+N more' cap node", () => {
-    const svg = fanOutGraphSvg(row, null);
-    expect(svg).toContain('class="fanout-graph"');
-    expect(svg).toContain("<svg");
-    // Each file's name appears once as a band header + once as a legend key, not
-    // once per sink (GRAPH-GROUP-1). `>name<` matches visible text, not the
-    // url-encoded href on each sink link.
-    expect(svg.match(/>App\.tsx</g).length).toBe(2);
-    expect(svg.match(/>Card\.tsx</g).length).toBe(2);
-    // No caps / "+N more" overflow node anymore (round 6: render them all).
-    expect(svg).not.toContain("more sink(s)");
-    // Leaves carry just the :line, not a repeated filename prefix.
-    expect(svg).toContain(":2 div / text");
-  });
-
-  it("gives each file a distinct color (GRAPH-COLOR-1)", () => {
-    const svg = fanOutGraphSvg(row, null);
-    const hues = [...svg.matchAll(/hsl\((\d+) /g)].map((m) => m[1]);
-    const fileHues = new Set(hues.filter((h) => h !== "205")); // 205 = source node
-    // two files → two distinct hues
-    expect(fileHues.size).toBeGreaterThanOrEqual(2);
-  });
-
-  it("links cross-file sinks to their file and selects in-file sinks", () => {
-    // relPath null → every sink is cross-file (overview use): all open by href.
-    const overview = fanOutGraphSvg(row, null);
-    expect(overview).toContain('href="/file?path=src%2FApp.tsx#L2"');
-    expect(overview).not.toContain('class="xref"');
-    // relPath set → in-file sinks select on the code map instead.
-    const scoped = fanOutGraphSvg(row, "src/App.tsx");
-    expect(scoped).toContain('class="xref" data-finding="S1"');
-  });
-
-  it("draws one edge per file band, shows per-sink depth, and links the source to its definition (round 7)", () => {
-    const r = {
-      root: "useThing",
-      kind: "import",
-      sinkCount: 3,
-      fileCount: 2,
-      maxDepth: 4,
-      def: { file: "src/hooks/useThing.ts", line: 5 },
-      graphSinks: [
-        { id: "S1", file: "src/App.tsx", line: 2, label: "div / text", depth: 3 },
-        { id: "S2", file: "src/App.tsx", line: 9, label: "span / title", depth: 4 },
-        { id: "S3", file: "src/Card.tsx", line: 7, label: "div / class", depth: 1 },
-      ],
-    };
-    const svg = fanOutGraphSvg(r, null);
-    // FANOUT-EDGE-1: one edge per FILE band (2 files), not one per sink (3 sinks).
-    expect((svg.match(/<path d="M/g) ?? []).length).toBe(2);
-    // FANOUT-DEPTH-1: each leaf carries its own depth.
-    expect(svg).toContain("· d3");
-    expect(svg).toContain("· d4");
-    // FANOUT-DEF-1: the source node links to its DEFINITION, not a usage.
-    expect(svg).toContain('href="/file?path=src%2Fhooks%2FuseThing.ts#L5"');
-  });
-
-  it("links a single-file fan-out's source to the one file when no definition resolved", () => {
-    const r = {
-      root: "X › props.isOpen",
-      kind: "prop-read",
-      sinkCount: 2,
-      fileCount: 1,
-      maxDepth: 2,
-      def: null,
-      graphSinks: [
-        { id: "A", file: "src/X.tsx", line: 3, label: "Show / when", depth: 2 },
-        { id: "B", file: "src/X.tsx", line: 8, label: "div", depth: 1 },
-      ],
-    };
-    expect(fanOutGraphSvg(r, null)).toContain('href="/file?path=src%2FX.tsx"');
   });
 });
 
@@ -817,25 +811,29 @@ describe("fan-out viewer + report tab strip (round 7)", () => {
     `,
   };
 
-  it("renders the selectable fan-out viewer (not a stack of graphs) on the overview", async () => {
+  it("renders the selectable fan-out viewer (not a stack of graphs) on the Fan-out tab", async () => {
     const project = await createFixtureProject(FANOUT_FIXTURE);
     const { handler } = createServer(project.args);
-    const home = await call(handler, "/");
+    // SHELL-4: the viewer lives on the Fan-out report tab, not inline on the overview.
+    const view = await call(handler, "/report?view=fan-out");
     // ARCH-1: the page-level report tab strip is present.
-    expect(home.body).toContain('class="report-tabs"');
+    expect(view.body).toContain('class="report-tabs"');
     // FANOUT-LIST-1: the selector + explanatory copy + a sort control.
-    expect(home.body).toContain("fo-explain");
-    expect(home.body).toContain('class="fo-tab');
-    expect(home.body).toContain('class="fo-sort-btn');
+    expect(view.body).toContain("fo-explain");
+    expect(view.body).toContain('class="fo-tab');
+    expect(view.body).toContain('class="fo-sort-btn');
     // Exactly ONE graph renders at a time, even with multiple detected sources.
-    expect((home.body.match(/class="fanout-graph"/g) ?? []).length).toBe(1);
+    expect((view.body.match(/class="fanout-graph"/g) ?? []).length).toBe(1);
   });
 
   it("selects a specific source and sort via URL params (refresh-safe)", async () => {
     const project = await createFixtureProject(FANOUT_FIXTURE);
     const { handler } = createServer(project.args);
     const anchor = fanOutAnchor("Comp › props.mode");
-    const picked = await call(handler, "/?fanout=" + anchor + "&fosort=depth");
+    const picked = await call(
+      handler,
+      "/report?view=fan-out&fanout=" + anchor + "&fosort=depth",
+    );
     // The chosen source's graph is the one rendered.
     expect(picked.body).toContain(`id="${anchor}"`);
     expect(picked.body).toContain("Comp › props.mode");
@@ -857,46 +855,9 @@ describe("fan-out viewer + report tab strip (round 7)", () => {
   it("tags single-file fan-outs as candidate splits vs cross-file usage", async () => {
     const project = await createFixtureProject(FANOUT_FIXTURE);
     const { handler } = createServer(project.args);
-    const home = await call(handler, "/");
+    const view = await call(handler, "/report?view=fan-out");
     // props.isOpen / props.mode are component-scoped → single-file (FANOUT-COPY-1).
-    expect(home.body).toContain("single-file · candidate split");
-  });
-});
-
-describe("source peek", () => {
-  const SRC = ["const a = 1;", "const b = 2;", "const c = 3;", "const d = 4;"].join(
-    "\n",
-  );
-
-  it("builds a span-only excerpt with the cited line highlighted", () => {
-    const html = snippetBlockHtml(SRC, 2, { context: 1 });
-    expect(html).toContain('<span class="snip">');
-    expect(html).not.toContain("<pre");
-    expect(html).not.toContain("<div");
-    expect(html).toContain('class="snip-row snip-hit"');
-    // context window is lines 1..3, not line 4
-    expect(html).toContain("const a = 1;");
-    expect(html).toContain("const c = 3;");
-    expect(html).not.toContain("const d = 4;");
-  });
-
-  it("rewrites path:line references into peek popovers, including inside <pre>", () => {
-    const resolve = (p) => (p === "src/x.tsx" ? SRC : null);
-    const html =
-      "<p>see src/x.tsx:2 here</p><pre><code>src/x.tsx:3</code></pre>";
-    const out = peekReferences(html, resolve);
-    expect(out).toContain('<span class="peek">');
-    expect(out).toContain("src/x.tsx:2");
-    // LINK-1: references inside <pre>/fenced blocks are now clickable too — the
-    // user clicked a "line N" inside a code block and could not navigate from it.
-    expect(out).not.toContain("<pre><code>src/x.tsx:3</code></pre>");
-    // two distinct references → two popovers
-    expect(out.match(/class="peek"/g)?.length).toBe(2);
-  });
-
-  it("leaves references with no resolvable source as plain text", () => {
-    const out = peekReferences("<p>src/missing.tsx:9</p>", () => null);
-    expect(out).toBe("<p>src/missing.tsx:9</p>");
+    expect(view.body).toContain("single-file · candidate split");
   });
 });
 
@@ -954,25 +915,36 @@ describe("createServer", () => {
       `,
     });
     const { handler } = createServer(project.args);
+    // SHELL-3: the file page is tabbed — the repeated-forks report renders when its
+    // tab is selected via ?view=, not stacked as a <details> on the code-map page.
     const file = await call(
       handler,
-      "/file?path=" + encodeURIComponent("src/Chart.tsx"),
+      "/file?path=" +
+        encodeURIComponent("src/Chart.tsx") +
+        "&view=repeated-forks",
     );
     expect(file.status).toBe(200);
-    expect(file.body).toContain('id="view-repeated-forks"');
+    expect(file.body).toContain('class="report-tab active"');
     expect(file.body).toContain("Repeated forks");
     expect(file.body).toContain("props.type");
   });
 
-  it("no longer renders the sticky layer strip (LAYERS-2 removed it)", async () => {
+  it("file page shows the code map by default and swaps to a single report when a view is selected (SHELL-3)", async () => {
     const project = await createFixtureProject(FIXTURE);
     const { handler } = createServer(project.args);
-    const file = await call(handler, "/file?path=" + encodeURIComponent("src/Card.tsx"));
-    expect(file.status).toBe(200);
-    // The strip was removed; the sidebar "On this page" nav still provides jumps.
-    expect(file.body).not.toContain('class="layer-strip"');
-    expect(file.body).toContain("On this page");
-    expect(file.body).toContain('href="#view-junctions"');
+    const base = "/file?path=" + encodeURIComponent("src/Card.tsx");
+
+    // Default: the code map renders (its burden heat legend is the tell).
+    const map = await call(handler, base);
+    expect(map.status).toBe(200);
+    expect(map.body).toContain("low burden");
+
+    // Selecting a view swaps the pane to that one report — the code map is replaced,
+    // not stacked beneath every report as it used to be.
+    const junctions = await call(handler, base + "&view=junctions");
+    expect(junctions.status).toBe(200);
+    expect(junctions.body).toContain("Junctions");
+    expect(junctions.body).not.toContain("low burden");
   });
 
   it("names each burden metric consistently across views (LABEL-1)", async () => {
@@ -998,22 +970,21 @@ describe("createServer", () => {
     const { handler } = createServer(project.args);
 
     const home = await call(handler, "/");
-    expect(home.body).toContain('name="q"');
-    expect(home.body).toContain('name="filter"');
-    expect(home.body).toContain('name="sort"');
     expect(home.body).toContain("src/Card.tsx");
     expect(home.body).toContain("src/Other.tsx");
 
+    // Search filters the file rows to matches only.
     const searched = await call(handler, "/?q=Other&sort=file");
     expect(searched.status).toBe(200);
     expect(searched.body).toContain("src/Other.tsx");
     expect(searched.body).not.toContain("src/Card.tsx");
+    // Sort controls navigate and preserve the active query (q) in the URL.
     expect(searched.body).toContain("/?q=Other&amp;sort=findings");
-    expect(searched.body).toContain('option value="file" selected');
 
+    // The `unknown` filter keeps only files with unknown edges (empty fixture here).
     const unknownOnly = await call(handler, "/?filter=unknown");
     expect(unknownOnly.status).toBe(200);
-    expect(unknownOnly.body).toContain('option value="unknown" selected');
+    expect(unknownOnly.body).not.toContain("src/Other.tsx");
   });
 
   it("paginates long overview file lists", async () => {
@@ -1127,7 +1098,11 @@ describe("createServer", () => {
   });
 
   it("marks fallback path steps as defensive and numbers path steps (DEF/ANNO)", async () => {
-    const source = ["export function App() {", "  return <div>{value}</div>;", "}"].join("\n");
+    const source = [
+      "export function App() {",
+      "  return <div>{value}</div>;",
+      "}",
+    ].join("\n");
     const sink = {
       id: "F1",
       file: "src/App.tsx",
@@ -1144,10 +1119,19 @@ describe("createServer", () => {
       representativeSteps: [
         { kind: "source", label: "raw", file: "src/App.tsx", line: 1 },
         { kind: "fallback", label: "raw ?? 0", file: "src/App.tsx", line: 2 },
-        { kind: "call", label: "<div>{value}</div>", file: "src/App.tsx", line: 2 },
+        {
+          kind: "call",
+          label: "<div>{value}</div>",
+          file: "src/App.tsx",
+          line: 2,
+        },
       ],
     };
-    const html = renderCodeMap({ relPath: "src/App.tsx", source, sinks: [sink] });
+    const html = renderCodeMap({
+      relPath: "src/App.tsx",
+      source,
+      sinks: [sink],
+    });
     expect(html).toContain('class="defensive-step"');
     expect(html).toContain('class="def-icon"');
     // Step map for the numbered overlay: line:ordinal[:d].
@@ -1191,7 +1175,9 @@ describe("createServer", () => {
 
     const all = await call(handler, "/?sort=file&all=1");
     expect(all.body).toContain("Showing all 30 files");
-    expect(all.body).not.toContain('aria-label="File result pages">\n  <a class="btn');
+    expect(all.body).not.toContain(
+      'aria-label="File result pages">\n  <a class="btn',
+    );
     expect(all.body).toContain("src/Big00.tsx");
     expect(all.body).toContain("src/Big29.tsx");
     expect(all.body).toContain("Paginate");
@@ -1207,8 +1193,8 @@ describe("createServer", () => {
     );
     expect(file.body).toContain('class="crumbs"');
     expect(file.body).toContain('<a href="/">← Overview</a>');
-    // The sidebar title is a home link here too (consistent with the file page).
-    expect(file.body).toContain('<h1><a href="/">tsx-dataflow</a></h1>');
+    // SHELL-1: the persistent top-bar brand is a home link on every page.
+    expect(file.body).toContain('<a class="brand" href="/">tsx-dataflow</a>');
 
     // ARCH-1: report pages now carry the page-level tab strip; its "Overview" tab
     // is the back-link, and the active view's tab is marked.
@@ -1222,14 +1208,18 @@ describe("createServer", () => {
     const project = await createFixtureProject(FIXTURE);
     const analyzer = createAnalyzer(project.args);
     const report = analyzer.report({ file: ["src/Card.tsx"] });
-    const target = report.rankings.all.find((s) => s.file === "src/Card.tsx").id;
+    const target = report.rankings.all.find(
+      (s) => s.file === "src/Card.tsx",
+    ).id;
     const { handler } = createServer(project.args);
     const file = await call(
       handler,
       "/file?path=" + encodeURIComponent("src/Card.tsx") + "&finding=" + target,
     );
     expect(file.body).toContain('class="panel show-detail"');
-    expect(file.body).toContain(`class="finding active" data-finding="${target}"`);
+    expect(file.body).toContain(
+      `class="finding active" data-finding="${target}"`,
+    );
   });
 
   it("adds an Open-file link inside source-peek popovers", () => {
@@ -1246,9 +1236,10 @@ describe("createServer", () => {
     const { handler } = createServer(project.args);
 
     const home = await call(handler, "/");
+    // SHELL-1: the overview tab strip links every report view; each report page
+    // exposes its own `/api/report.<view>.md` Markdown button (checked below).
     for (const view of REPORT_VIEWS) {
       expect(home.body).toContain(`/report?view=${view}`);
-      expect(home.body).toContain(`/api/report.${view}.md`);
     }
 
     const htmlReport = await call(handler, "/report?view=work-packets");
