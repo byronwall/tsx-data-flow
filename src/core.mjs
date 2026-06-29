@@ -29,30 +29,26 @@ const REACHED_VIA_CAP = 50;
 const VALID_FORMATS = new Set(["json", "markdown"]);
 // The concrete report views, in the order `--view all` emits them.
 export const REPORT_VIEWS = [
+  // The orientation document first: it guides an agent to every other report and
+  // carries the workspace aggregates (concentration, repair buckets, unknown edges).
+  "overview",
   "findings",
   "repeated-forks",
   "work-packets",
-  "dossier",
   "fan-out",
   "fan-in",
-  "path-gallery",
-  "path-census",
   "path-families",
-  "transformation-ledger",
   "defensive-ledger",
   "prop-relay",
   "context-relay",
-  "repair-map",
   "boundary-report",
-  "unknown-edges",
   "junctions",
   "inline-preview",
   "component-refs",
-  "hotspots",
 ];
 // `all` is a meta-view: build the report once and emit every concrete view.
 const ALL_VIEWS = "all";
-// `coverage` is an accepted alias for `hotspots` (normalized in parseArgs).
+// `coverage` is an accepted legacy alias, normalized to `overview` in parseArgs.
 const VALID_VIEWS = new Set([...REPORT_VIEWS, ALL_VIEWS, "coverage"]);
 
 // Selection lenses for the packet/finding views (Approach 6).
@@ -483,8 +479,9 @@ export function parseArgs(argv, defaults = {}) {
       `--view must be one of: ${Array.from(VALID_VIEWS).join(", ")}`,
     );
   }
-  // `coverage` is an alias for the hotspots roll-up view.
-  if (args.view === "coverage") args.view = "hotspots";
+  // `coverage` is a legacy alias for the hotspots roll-up, which now lives inside
+  // the consolidated `overview` report.
+  if (args.view === "coverage") args.view = "overview";
   if (!VALID_SORTS.has(args.sort)) {
     throw new Error(
       `--sort must be one of: ${Array.from(VALID_SORTS).join(", ")}`,
@@ -1063,46 +1060,34 @@ export function renderReport(report, args) {
 
 export function renderMarkdownView(report, args) {
   switch (args.view) {
+    case "overview":
+      return renderOverviewReport(report, args);
     case "findings":
       return renderFindings(report, args);
     case "repeated-forks":
       return renderRepeatedForks(report, args);
     case "work-packets":
       return renderWorkPackets(report, args);
-    case "dossier":
-      return renderDossier(report);
     case "fan-out":
       return renderFanOut(report, args);
     case "fan-in":
       return renderFanIn(report, args);
-    case "path-gallery":
-      return renderPathGallery(report, args);
-    case "path-census":
-      return renderPathCensus(report);
     case "path-families":
       return renderPathFamilies(report, args);
-    case "transformation-ledger":
-      return renderTransformationLedger(report);
     case "defensive-ledger":
       return renderDefensiveLedger(report, args);
     case "prop-relay":
       return renderPropRelay(report, args);
     case "context-relay":
       return renderContextRelay(report, args);
-    case "repair-map":
-      return renderRepairMap(report, args);
     case "boundary-report":
       return renderBoundaryReport(report, args);
-    case "unknown-edges":
-      return renderUnknownEdges(report, args);
     case "component-refs":
       return renderComponentRefs(report, args);
     case "junctions":
       return renderJunctions(report, args);
     case "inline-preview":
       return renderInlinePreview(report, args);
-    case "hotspots":
-      return renderHotspots(report, args);
     default:
       return renderWorkPackets(report, args);
   }
@@ -1178,7 +1163,7 @@ function regenCommand(args, view) {
   if (args.perFeature != null)
     parts.push("--per-feature", String(args.perFeature));
   if (args.units) parts.push("--units");
-  if (view === "hotspots" && args.by && args.by !== "file")
+  if (view === "overview" && args.by && args.by !== "file")
     parts.push("--by", args.by);
   if (args.format && args.format !== "markdown")
     parts.push("--format", args.format);
@@ -2434,7 +2419,14 @@ function buildComponentRefs(ts, checker, sourceFiles, root) {
 }
 
 function countCallers(ts, checker, sourceFiles, reached, crossFile, args) {
-  const bySymbol = new Map(reached.map((record) => [record.symbol, record]));
+  // BUG-2: match call sites to helpers by a program-independent identity
+  // (defFile:defLine:name), not the raw TypeScript Symbol object. With path-alias
+  // tsconfigs a helper's catalog symbol is minted by its *owner* program while
+  // call sites here resolve through the *primary* checker; Symbol objects are not
+  // shared across programs, so the old `bySymbol` comparison always missed for
+  // aliased helpers — an exported, clearly-used function showed "0 caller(s)".
+  const keyOf = (record) => `${record.file}:${record.line}:${record.name}`;
+  const byKey = new Map(reached.map((record) => [keyOf(record), record]));
   const names = new Set(reached.map((record) => record.name));
   let budget = 6000;
   for (const sourceFile of sourceFiles) {
@@ -2448,8 +2440,9 @@ function countCallers(ts, checker, sourceFiles, reached, crossFile, args) {
             : null;
         if (ident && names.has(ident.text)) {
           budget -= 1;
-          const record = resolveCatalogFn(ts, checker, ident, crossFile, args);
-          if (record && bySymbol.has(record.symbol)) {
+          const resolved = resolveCatalogFn(ts, checker, ident, crossFile, args);
+          const record = resolved ? byKey.get(keyOf(resolved)) : null;
+          if (record) {
             record.callerCount += 1;
             if (record.callers.length < 8) {
               record.callers.push({
@@ -2560,10 +2553,58 @@ function boundaryDebt(record) {
   );
 }
 
+// BUG-1: an inline object literal with no dynamic sub-expression — an empty `{}`,
+// or one built only from literals like `style={{ color: "red" }}` — is inert: it
+// renders a constant value, not a tracked source, so it is neither a render-path
+// finding nor a fan-out source. A literal-like node is a primitive literal (or a
+// nested object/array of such); anything dynamic (identifier reference, property
+// access, call, shorthand, spread, …) makes the object a real sink we keep.
+function isLiteralLikeExpression(ts, node) {
+  switch (node.kind) {
+    case ts.SyntaxKind.StringLiteral:
+    case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
+    case ts.SyntaxKind.NumericLiteral:
+    case ts.SyntaxKind.BigIntLiteral:
+    case ts.SyntaxKind.TrueKeyword:
+    case ts.SyntaxKind.FalseKeyword:
+    case ts.SyntaxKind.NullKeyword:
+      return true;
+    default:
+      break;
+  }
+  if (ts.isIdentifier(node) && node.text === "undefined") return true;
+  if (
+    ts.isPrefixUnaryExpression(node) &&
+    (node.operator === ts.SyntaxKind.MinusToken ||
+      node.operator === ts.SyntaxKind.PlusToken)
+  )
+    return isLiteralLikeExpression(ts, node.operand);
+  if (ts.isParenthesizedExpression(node))
+    return isLiteralLikeExpression(ts, node.expression);
+  if (ts.isArrayLiteralExpression(node))
+    return node.elements.every((element) =>
+      isLiteralLikeExpression(ts, element),
+    );
+  if (ts.isObjectLiteralExpression(node)) return isInertObjectLiteral(ts, node);
+  return false;
+}
+
+function isInertObjectLiteral(ts, node) {
+  if (!ts.isObjectLiteralExpression(node)) return false;
+  // Empty object → vacuously inert. Otherwise every property must be a plain
+  // literal value; a shorthand (`{ x }`), spread, method, or accessor is dynamic.
+  return node.properties.every(
+    (property) =>
+      ts.isPropertyAssignment(property) &&
+      isLiteralLikeExpression(ts, property.initializer),
+  );
+}
+
 function getSinkExpression(ts, node) {
   if (ts.isJsxExpression(node) && node.expression) {
     const parent = node.parent;
     if (parent && ts.isJsxAttribute(parent)) return null;
+    if (isInertObjectLiteral(ts, node.expression)) return null;
     const jsx = jsxElementContext(ts, node);
     return {
       expression: node.expression,
@@ -2580,6 +2621,7 @@ function getSinkExpression(ts, node) {
   ) {
     const expression = node.initializer.expression;
     if (!expression) return null;
+    if (isInertObjectLiteral(ts, expression)) return null;
     const name = node.name.getText();
     const event = /^on[A-Z]/.test(name);
     const jsx = jsxElementContext(ts, node);
@@ -4545,7 +4587,7 @@ function suppressionLines(suppressed) {
     .slice(0, 6)
     .map(([file, count]) => `${file.split("/").at(-1)} +${count}`);
   return [
-    `_Suppressed (still hot, shown collapsed): ${parts.join(", ")} — see \`--view hotspots\` for the full count._`,
+    `_Suppressed (still hot, shown collapsed): ${parts.join(", ")} — see the Hotspots section of \`--view overview\` for the full count._`,
     "",
   ];
 }
@@ -4595,7 +4637,7 @@ function concentrationLines(report, shownCount) {
   if (concentration.hot4Plus > 0)
     sentence += `, ${concentration.hot4Plus} have ≥4`;
   sentence +=
-    ". Use --spread / --diversity to widen, or `--view hotspots` for the full per-file map._";
+    ". Use --spread / --diversity to widen; the Hotspots section below has the full per-file map._";
   return ["**Coverage**", "", sentence, ""];
 }
 
@@ -5263,44 +5305,6 @@ function groupedFieldName(sink) {
   );
 }
 
-function renderDossier(report) {
-  const summary = report.summary;
-  const topSink = report.rankings.all[0];
-  const lines = ["# Render Graph Dossier", "", ...viewIntro("dossier", report)];
-  lines.push(
-    ...formatMarkdownTable(
-      ["Nodes", "Edges", "Sources", "Sinks", "Path families", "Unknown edges"],
-      [
-        [
-          String(summary.nodes),
-          String(summary.edges),
-          String(summary.sources),
-          String(summary.sinks),
-          String(summary.pathFamilies),
-          String(summary.unknownEdges),
-        ],
-      ],
-    ),
-  );
-  lines.push("");
-  lines.push("## Primary pivot");
-  lines.push("");
-  lines.push(
-    ...formatMarkdownTable(
-      ["Pivot", "Sink reach", "Burden score"],
-      [
-        [
-          code(topSink ? actionableSourceLabels(topSink, 3) : "none"),
-          String(topSink ? topSink.metrics.reachableSinks : 0),
-          topSink ? topSink.scores.burden.toFixed(2) : "0.00",
-        ],
-      ],
-    ),
-  );
-  lines.push("");
-  return lines.join("\n");
-}
-
 // REPORT-RECONCILE-1: the fan-out report mirrors the web "network view" — for each
 // shared source it lists *every* reached sink grouped by file, with each sink's
 // depth, plus the source's definition location and a single/cross-file tag. This is
@@ -5332,11 +5336,15 @@ function renderFanOut(report, args) {
       if (!byFile.has(sink.file)) byFile.set(sink.file, []);
       byFile.get(sink.file).push(sink);
     }
+    // MD-1: print the full path once on the file header; sink rows carry only the
+    // bare `:line` (+ label/depth). The path is the same for every row in the group,
+    // so repeating it is pure token waste — the client resolves the file from the
+    // enclosing group header for code previews.
     for (const [file, sinks] of byFile) {
       lines.push(`- **${file}** (${sinks.length})`);
       for (const sink of sinks) {
         const label = sink.label ? ` ${sink.label}` : "";
-        lines.push(`  - \`${file}:${sink.line}\`${label} · depth ${sink.depth ?? 0}`);
+        lines.push(`  - \`:${sink.line}\`${label} · depth ${sink.depth ?? 0}`);
       }
     }
     lines.push("");
@@ -5361,92 +5369,41 @@ function renderFanIn(report, args) {
   );
 }
 
-function renderPathGallery(report, args) {
-  const sinks = report.rankings.all.slice(0, args.maxItems);
-  const lines = ["# Path Gallery", "", ...viewIntro("path-gallery", report)];
-  for (const sink of sinks) {
-    lines.push(
-      `## ${sink.file}:${sink.line} depth=${sink.metrics.maximumPathDepth}`,
-    );
-    lines.push("");
-    lines.push(...fenced(representativePathLines(sink)));
-    lines.push("");
-  }
-  return `${lines.join("\n")}\n`;
-}
-
-function renderPathCensus(report) {
-  const depths = report.sinks
-    .map((sink) => sink.metrics.maximumPathDepth)
-    .sort((a, b) => a - b);
-  return [
-    "# Path Census",
-    "",
-    ...viewIntro("path-census", report),
-    ...metricTable([
-      ["Sources", report.summary.sources],
-      ["Sinks", report.summary.sinks],
-      ["Known path families", report.summary.pathFamilies],
-      ["Unknown edges", report.summary.unknownEdges],
-    ]),
-    "",
-    "## Path depth",
-    "",
-    ...metricTable([
-      ["median", percentile(depths, 0.5)],
-      ["p90", percentile(depths, 0.9)],
-      ["maximum", depths.at(-1) ?? 0],
-    ]),
-    "",
-  ].join("\n");
-}
-
 function renderPathFamilies(report, args) {
-  const rows = familyRows(report.sinks)
-    .slice(0, args.maxItems)
-    .map(([signature, ...rest]) => [code(signature), ...rest]);
-  return tableReport(
+  const families = familyRows(report.sinks).slice(0, args.maxItems);
+  const rows = families.map((family) => [
+    code(family.signature),
+    String(family.paths),
+    String(family.sinks),
+    String(family.maxDepth),
+  ]);
+  const lines = tableReport(
     "Path Families",
     ["Signature", "Paths", "Sinks", "Max depth"],
     rows,
     viewIntro("path-families", report),
-  );
-}
+  ).split("\n");
 
-function renderTransformationLedger(report) {
-  const sink = report.rankings.all[0];
-  if (!sink) return "# Transformation Ledger\n\nNo sinks found.\n";
-  const lines = [
-    "# Transformation Ledger",
-    "",
-    ...viewIntro("transformation-ledger", report),
-    `${sink.file}:${sink.line}`,
-    "",
-  ];
-  const steps =
-    sink.representativeSteps ??
-    sink.representativePath.map((label) => ({ label, kind: "data-flow" }));
-  lines.push(
-    ...formatMarkdownTable(
-      ["#", "Step", "Operation"],
-      steps.map((step, index) => [
-        String(index + 1),
-        code(formatExpression(step.label)),
-        step.kind ?? "data-flow",
-      ]),
-    ),
-  );
-  lines.push("");
-  lines.push("## Summary");
-  lines.push("");
-  lines.push(
-    ...metricTable([
-      ["semantic transformations", sink.metrics.helperHops],
-      ["representation-only wrapper steps", sink.metrics.representationChurn],
-      ["defensive steps", sink.metrics.defensiveOperationCount],
-      ["total steps", sink.metrics.maximumPathDepth],
-    ]),
-  );
+  // MD-7: the table only counts; show a representative example per family — the
+  // deepest member's path — so the recurring shape is concrete and a single shared
+  // fix can be reasoned about. Biggest/gnarliest families first.
+  const withExamples = families
+    .filter((family) => family.example)
+    .sort((a, b) => b.sinks * b.maxDepth - a.sinks * a.maxDepth);
+  if (withExamples.length) {
+    lines.push("## Representative examples", "");
+    for (const family of withExamples) {
+      const sink = family.example;
+      lines.push(
+        `### ${code(family.signature)} — ${plural(family.sinks, "sink")}, max depth ${family.maxDepth}`,
+        "",
+        `Deepest member: \`${sink.file}:${sink.line}\``,
+        "",
+        ...fenced(representativePathLines(sink)),
+        "",
+      );
+    }
+  }
   return `${lines.join("\n")}\n`;
 }
 
@@ -5526,35 +5483,121 @@ function renderPropRelay(report, args) {
 }
 
 function renderContextRelay(report, args) {
-  const rows = report.contextRelay
-    .slice(0, args.maxItems)
-    .map((finding) => [
-      `${finding.parentFile}:${finding.line}`,
-      finding.childComponent,
-      finding.contextHooks.join(", "),
-      finding.props.join(", "),
-      finding.signal,
-    ]);
-  return tableReport(
+  const findings = report.contextRelay.slice(0, args.maxItems);
+  const rows = findings.map((finding) => [
+    `${finding.parentFile}:${finding.line}`,
+    finding.childComponent,
+    finding.contextHooks.join(", "),
+    finding.props.join(", "),
+    finding.signal,
+  ]);
+  const lines = tableReport(
     "Context Relay",
     ["Parent", "Child", "Context hooks in parent", "Passed props", "Signal"],
     rows,
     viewIntro("context-relay", report),
-  );
+  ).split("\n");
+
+  // MD-6: the table summarizes; the evidence below shows *why* each example reads as
+  // a relay so an agent can act without re-deriving it — the parent already holds the
+  // context, and the props it forwards (especially the shared-named ones) duplicate
+  // values the child could read from context directly.
+  if (findings.length) {
+    lines.push("## Why these are relays", "");
+    for (const finding of findings) {
+      lines.push(
+        `### ${finding.childComponent} — \`${finding.parentFile}:${finding.line}\``,
+        "",
+        `- Parent reads context via ${finding.contextHooks.map((hook) => code(hook)).join(", ") || "_(context hooks in scope)_"}.`,
+        `- It forwards ${plural(finding.props.length, "prop")} to \`${finding.childComponent}\`: ${finding.props.map((prop) => code(prop)).join(", ")}.`,
+      );
+      if (finding.sharedProps?.length) {
+        lines.push(
+          `- ${plural(finding.sharedProps.length, "prop")} reuse a context-shaped name — ${finding.sharedProps
+            .map((prop) => code(prop))
+            .join(", ")} — so the child could read ${finding.sharedProps.length === 1 ? "it" : "them"} from context instead of receiving ${finding.sharedProps.length === 1 ? "it" : "them"} as ${finding.sharedProps.length === 1 ? "a prop" : "props"}.`,
+        );
+      } else {
+        lines.push(
+          `- Signal: ${finding.signal} — the whole bundle is forwarded from a context-aware parent.`,
+        );
+      }
+      lines.push(
+        `- Open \`${finding.parentFile}:${finding.line}\` to see the hand-off.`,
+        "",
+      );
+    }
+  }
+  return `${lines.join("\n")}\n`;
 }
 
-function renderRepairMap(report, args) {
-  const lines = ["# Repair Map", "", ...viewIntro("repair-map", report)];
+// MD-5: the consolidated, agent- *and* human-facing summary. It absorbs the old
+// repair-map, hotspots, and unknown-edges aggregators into ONE document and opens
+// with a manifest of every other report, so an agent landing in the dumped markdown
+// has a single place to orient before reading the focused reports.
+function reportManifestLines() {
+  const lines = [
+    "## Report guide",
+    "",
+    "Every analysis is emitted as its own markdown file. Start here, then open the one that fits the task:",
+    "",
+  ];
+  for (const view of REPORT_VIEWS) {
+    if (view === "overview") continue;
+    const blurb = VIEW_BLURBS[view] ?? "";
+    // First sentence only — a one-line purpose, not the full intro.
+    const purpose = blurb ? blurb.split(/(?<=\.)\s/)[0] : "";
+    lines.push(`- \`${view}.md\` — ${purpose}`);
+  }
+  lines.push("");
+  return lines;
+}
+
+function renderOverviewReport(report, args) {
+  const lines = ["# Overview", "", ...viewIntro("overview", report)];
+  lines.push(...reportManifestLines());
+
+  // Concentration + feature clusters (from the old repair-map).
   appendFeatureClusters(lines, report, args);
   lines.push(...concentrationLines(report, report.rankings.all.length));
+
+  // Hotspots: one row per file (or per feature with --by feature) so the spread of
+  // work is visible at a glance (old hotspots view).
+  const by = args.by === "feature" ? "feature" : "file";
+  const groups = hotspotGroups(report, by).slice(0, args.maxItems);
+  if (groups.length) {
+    lines.push("## Hotspots", "");
+    lines.push(
+      ...formatMarkdownTable(
+        [
+          by === "feature" ? "Feature" : "File",
+          "Findings",
+          "Worst",
+          "Dominant shape",
+          "Ownership",
+          "First cut",
+        ],
+        groups.map((group) => [
+          group.key,
+          String(group.count),
+          group.worst.toFixed(2),
+          modalValue(group.shapes),
+          modalValue(group.ownership),
+          firstCutFor(group.worstSink),
+        ]),
+      ),
+    );
+    lines.push("");
+  }
+
+  // Repair buckets (old repair-map).
   for (const [heading, sinks] of [
     ["Peripheral quick wins", report.rankings.quickWins],
     ["Central leverage", report.rankings.centralLeverage],
     ["Investigate", report.rankings.investigations],
   ]) {
-    lines.push(`## ${heading}`);
-    lines.push("");
-    const selected = sinks.slice(0, args.maxItems);
+    lines.push(`## ${heading}`, "");
+    const selected = (sinks ?? []).slice(0, args.maxItems);
     if (selected.length === 0) lines.push("- none");
     selected.forEach((sink) => {
       lines.push(
@@ -5563,6 +5606,28 @@ function renderRepairMap(report, args) {
     });
     lines.push("");
   }
+
+  // Unknown edges, folded in as a diagnostic section (not its own file). The user
+  // keeps the signal — "if a whole file is unknown, that flags a problem."
+  const unknown = (report.unknownEdges ?? []).slice(0, args.maxItems);
+  lines.push("## Unknown edges (diagnostic)", "");
+  if (unknown.length === 0) {
+    lines.push("No unresolved graph edges in the selected render paths.", "");
+  } else {
+    lines.push(
+      ...formatMarkdownTable(
+        ["Where", "Kind", "Unresolved", "Affected sinks"],
+        unknown.map((row) => [
+          `${row.file}:${row.line ?? "?"}`,
+          row.kind,
+          code(formatExpression(row.label, 48)),
+          affectedSinkSummary(row.affectedSinks),
+        ]),
+      ),
+    );
+    lines.push("");
+  }
+
   appendStopRecommendation(lines, report);
   appendBaseline(lines, report);
   return `${lines.join("\n")}\n`;
@@ -5645,56 +5710,6 @@ export function hotspotGroups(report, by) {
   );
 }
 
-// Approach 4 — the Hotspots view. One row per file/feature so the spread of
-// work is visible at a glance, with a Concentration footer (Approach 5).
-function renderHotspots(report, args) {
-  const by = args.by === "feature" ? "feature" : "file";
-  const groups = hotspotGroups(report, by);
-  const shown = groups.slice(0, args.maxItems);
-  const columnLabel = by === "feature" ? "Feature" : "File";
-  const rows = shown.map((group) => [
-    group.key,
-    String(group.count),
-    group.worst.toFixed(2),
-    modalValue(group.shapes),
-    modalValue(group.ownership),
-    firstCutFor(group.worstSink),
-  ]);
-  const lines = tableReport(
-    `Hotspots  (by ${by})`,
-    [
-      columnLabel,
-      "Hotspots",
-      "Worst",
-      "Dominant shape",
-      "Ownership",
-      "First cut",
-    ],
-    rows,
-    viewIntro("hotspots", report),
-  ).split("\n");
-
-  const concentration = report.concentration;
-  if (concentration && concentration.fileCount > 0) {
-    lines.push("## Concentration");
-    lines.push("");
-    const topN = Math.min(5, concentration.fileCount);
-    lines.push(
-      `- Top ${plural(topN, "file")} hold${topN === 1 ? "s" : ""} ${Math.round(concentration.top5 * 100)}% of total ranked burden.`,
-    );
-    lines.push(
-      `- ${plural(concentration.fileCount, "file")} ${concentration.fileCount === 1 ? "has" : "have"} ≥1 finding; ${concentration.hot4Plus} ${concentration.hot4Plus === 1 ? "has" : "have"} ≥4.`,
-    );
-    if (groups.length > shown.length) {
-      lines.push(
-        `- ${groups.length} ${by}s total; showing the top ${shown.length} by burden (raise --max-items for more).`,
-      );
-    }
-    lines.push("");
-  }
-  return lines.join("\n");
-}
-
 // Approach 2 — classify every function reached on a render path as a data-flow
 // boundary, ranked by "boundary debt".
 function renderBoundaryReport(report, args) {
@@ -5738,24 +5753,6 @@ function renderBoundaryReport(report, args) {
   }
   lines.push("");
   return `${lines.join("\n")}`;
-}
-
-function renderUnknownEdges(report, args) {
-  const rows = (report.unknownEdges ?? []).slice(0, args.maxItems);
-  if (rows.length === 0) {
-    return `# Unknown Edges\n\n${viewIntro("unknown-edges", report).join("\n")}No unresolved graph edges were found in the selected render paths.\n`;
-  }
-  return tableReport(
-    "Unknown Edges",
-    ["Where", "Kind", "Unresolved", "Affected sinks"],
-    rows.map((row) => [
-      `${row.file}:${row.line ?? "?"}`,
-      row.kind,
-      code(formatExpression(row.label, 48)),
-      affectedSinkSummary(row.affectedSinks),
-    ]),
-    viewIntro("unknown-edges", report),
-  );
 }
 
 // XREF-1: "where used" for components. Each row is a component definition and
@@ -5923,6 +5920,24 @@ function renderInlinePreview(report, args) {
         `verdict: ${decision.verdict} — ${decision.why}`,
       ]),
     );
+    // INLINE-1: list the actual consumers (call sites) so "could this be inlined?"
+    // is answerable — you can see every place the fold would land. Caller counts are
+    // now truthful across path-alias programs (BUG-2), so a "0 callers" here is real.
+    const callers = helper.callers ?? [];
+    if (callers.length === 0) {
+      lines.push(
+        "",
+        `Consumers: none resolved${helper.callerCount > 0 ? ` (${helper.callerCount} counted)` : ""}.`,
+      );
+    } else {
+      lines.push("", "Consumers (call sites):");
+      for (const caller of callers) {
+        lines.push(`- \`${caller.file}:${caller.line}\``);
+      }
+      if (helper.callerCount > callers.length) {
+        lines.push(`- _+${helper.callerCount - callers.length} more_`);
+      }
+    }
     lines.push("");
   }
   return `${lines.join("\n")}`;
@@ -7143,24 +7158,20 @@ function selectViewPayload(report, args) {
       args.view === "context-relay"
         ? report.contextRelay.slice(0, args.maxItems)
         : undefined,
-    graph:
-      args.view === "dossier"
-        ? boundedGraph(report.graph, args.maxItems)
-        : undefined,
     helpers: ["boundary-report", "junctions", "inline-preview"].includes(
       args.view,
     )
       ? (report.helpers ?? []).slice(0, args.maxItems)
       : undefined,
     unknownEdges:
-      args.view === "unknown-edges"
+      args.view === "overview"
         ? (report.unknownEdges ?? []).slice(0, args.maxItems)
         : undefined,
-    packGroups: ["work-packets", "findings", "dossier"].includes(args.view)
+    packGroups: ["work-packets", "findings"].includes(args.view)
       ? (report.packGroups ?? []).slice(0, args.maxItems)
       : undefined,
     hotspots:
-      args.view === "hotspots"
+      args.view === "overview"
         ? hotspotGroups(report, args.by === "feature" ? "feature" : "file")
             .slice(0, args.maxItems)
             .map((group) => ({
@@ -7174,7 +7185,11 @@ function selectViewPayload(report, args) {
               firstCut: firstCutFor(group.worstSink),
             }))
         : undefined,
-    concentration: args.view === "hotspots" ? report.concentration : undefined,
+    concentration: args.view === "overview" ? report.concentration : undefined,
+    // The `dossier` markdown view was retired (round 8), but its structural payload
+    // (graph counts + bounded node/edge sample) stays "available on request" here:
+    // every `--format json` response carries the bounded graph regardless of view.
+    graph: boundedGraph(report.graph, args.maxItems),
     baseline: report.baseline,
   };
 }
@@ -7337,10 +7352,18 @@ function readReportDirectorySummary(directory) {
     }
     return fs.readFileSync(file, "utf8");
   };
-  const dossier = read("dossier.md");
+  // `dossier.md` and `transformation-ledger.md` were retired (round 8) but may
+  // still exist in older baseline directories. Read them optionally — present is a
+  // bonus (richer fallback), absent is not "missing" — so a current-tool baseline
+  // doesn't spuriously report them as gaps.
+  const readOptional = (name) => {
+    const file = path.join(directory, name);
+    return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  };
+  const dossier = readOptional("dossier.md");
   const findings = read("findings.md");
   const defensive = read("defensive-ledger.md");
-  const transform = read("transformation-ledger.md");
+  const transform = readOptional("transformation-ledger.md");
   const workPackets = read("work-packets.md");
   return {
     worstScore:
@@ -8024,6 +8047,10 @@ function fanOutRootsFor(sink) {
     (info) =>
       info.kind !== "literal" &&
       info.kind !== "parameter" &&
+      // BUG-1: an "operation" root is a synthetic placeholder for a no-input
+      // operation (e.g. an empty `{}` object-pack). It is not a shared source and
+      // must never collapse into a global fan-out entry keyed on its bare label.
+      info.kind !== "operation" &&
       !NON_FAN_OUT_GLOBALS.has(info.label),
   );
 }
@@ -8252,18 +8279,25 @@ function familyRows(sinks) {
       paths: 0,
       sinks: 0,
       maxDepth: 0,
+      example: null,
     };
     family.paths += 1;
     family.sinks += 1;
+    // MD-7: keep the deepest member as the family's representative example so the
+    // shape is concrete, not just a count.
+    if (!family.example || sink.metrics.maximumPathDepth >= family.maxDepth) {
+      family.example = sink;
+    }
     family.maxDepth = Math.max(family.maxDepth, sink.metrics.maximumPathDepth);
     families.set(signature, family);
   }
-  return Array.from(families.entries()).map(([signature, family]) => [
+  return Array.from(families.entries()).map(([signature, family]) => ({
     signature,
-    String(family.paths),
-    String(family.sinks),
-    String(family.maxDepth),
-  ]);
+    paths: family.paths,
+    sinks: family.sinks,
+    maxDepth: family.maxDepth,
+    example: family.example,
+  }));
 }
 
 function signatureFor(sink) {
@@ -8334,6 +8368,12 @@ function viewIntro(view, report) {
 // Per-view "what am I looking at" sentence(s): what the rows are and what the
 // non-obvious column/field names mean.
 const VIEW_BLURBS = {
+  overview:
+    "The orientation document: read this first. It guides you to every other " +
+    "report (what each is for) and carries the workspace aggregates — hotspot " +
+    "concentration by file, the repair buckets (peripheral quick wins, central " +
+    "leverage, investigate), and an unknown-edge diagnostic section — so you have " +
+    "one place to make sense of the dump before opening a focused report.",
   findings:
     "Each finding is one render **sink** (a value rendered into the DOM). " +
     "_Sink_ is the rendered expression, _Source_ the actionable inputs it derives " +
@@ -8351,10 +8391,6 @@ const VIEW_BLURBS = {
     "(fan-in), _reachable sinks_ how many render sites the same sources feed, and " +
     "the representative path lists every transformation hop from source to JSX " +
     "with its operation kind.",
-  dossier:
-    "A one-screen summary of the whole render graph — node/edge/source/sink counts " +
-    "and the single highest-burden _pivot_ source. _Sink reach_ is how many render " +
-    "sites that source feeds; _burden score_ is its plumbing-weight (0–1).",
   "fan-out":
     "Ranks source values by how many render sinks consume them. _Sinks_ is that " +
     "consumer count, _Files_ how many files reference the source, _Example sink_ a " +
@@ -8367,22 +8403,10 @@ const VIEW_BLURBS = {
     "Ranks render sinks by how many independent inputs they merge. _Root sources_ " +
     "is the fan-in count, _Predicates_ the number of conditional branches on the " +
     "path, and _Max distance_ the longest transformation path feeding the sink.",
-  "path-gallery":
-    "Shows the representative (longest) data-flow path for the heaviest sinks. Each " +
-    "`->` step is one transformation hop annotated with its operation kind " +
-    "(property-read, fallback, call, object-pack, solid-accessor, …).",
-  "path-census":
-    "The aggregate shape of the render graph: counts of sources, sinks, and path " +
-    "families, plus the distribution of _path depth_ (number of transformation " +
-    "hops from a source value to the JSX that renders it).",
   "path-families":
     "Groups render paths by structural _signature_ (a depth band plus the sequence " +
     "of operation kinds) so recurring shapes surface. _Paths_/_Sinks_ count the " +
     "family's members and _Max depth_ is the deepest path in it.",
-  "transformation-ledger":
-    "Walks the single heaviest render path step by step. Each row is one " +
-    "transformation hop with its _Operation_ kind; the summary tallies semantic vs. " +
-    "representation-only wrapper steps vs. defensive steps along the path.",
   "defensive-ledger":
     "Lists defensive operations (optional chains, nullish fallbacks) on render " +
     "paths. _Verdict_ is whether the guard can ever fire given the TypeScript " +
@@ -8398,22 +8422,12 @@ const VIEW_BLURBS = {
     "Same-feature components receiving prop bundles from a context-aware parent — " +
     "candidates for moving shared state behind a Provider/Context instead of " +
     "threading props. Lists the parent's context hooks and the props it forwards.",
-  "repair-map":
-    "A triage board grouping sinks into _peripheral quick wins_, _central leverage_ " +
-    "(sources feeding many sinks), and _investigate_ (paths with unknowns). The " +
-    "leading bold number is the burden score (higher = more plumbing). Includes the " +
-    "same ranked findings as the Findings view (trivial plain usages excluded), just " +
-    "re-bucketed by suggested action — it does not detect anything new.",
   "boundary-report":
     "First-party functions reached while tracing render paths, scored as data-flow " +
     "boundaries. _In-src_ = distinct values reaching the return; _Callers_ = call " +
     "sites across analyzed files; _Internal d/churn_ = depth/representation churn " +
     "inside the body. _Verdict_ flags clean pipes, thin pass-throughs (inline), " +
     "leaky boundaries, confluence/junctions, and hidden-mess internals.",
-  "unknown-edges":
-    "Unresolved graph edges that static tracing could not follow, grouped by " +
-    "file, line, operation kind, and unresolved label. _Affected sinks_ lists " +
-    "representative rendered values whose path crosses the unknown edge.",
   "component-refs":
     "Where each component is used. The JSX tag is resolved to its declaration by " +
     "symbol (not by name), so a renamed import or a same-named local is counted " +
@@ -8430,13 +8444,6 @@ const VIEW_BLURBS = {
     "(or lengthens) if the helper were folded in, plus a verdict. INLINE removes a " +
     "needless hop; KEEP/FORMALIZE means the helper consolidates real work. Proposes, " +
     "never rewrites.",
-  hotspots:
-    "The breadth map: one row per file (or per feature with --by feature) that has " +
-    "at least one **ranked finding** (a render sink above the significance threshold; " +
-    "trivial plain usages are excluded), so the spread of work is visible at a glance. _Hotspots_ " +
-    "is the finding count, _Worst_ the heaviest burden, _Dominant shape_/_Ownership_ " +
-    "the most common path shape and ownership hint, and _First cut_ the suggested " +
-    "starting action. The Concentration footer quantifies how clustered the work is.",
 };
 
 // Render a GitHub-flavored Markdown table with prettier-style column alignment:

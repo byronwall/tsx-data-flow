@@ -1248,6 +1248,104 @@ export function fanOutGraphSvg(row, relPath) {
 </div>`;
 }
 
+// VIZ-1: a stable anchor for a boundary helper, so the boundary viewer can key the
+// selected helper in the URL (refresh-safe), the same way fan-out does.
+export function boundaryAnchor(helper) {
+  return (
+    "boundary-" +
+    `${helper.name}-${helper.file}-${helper.line}`
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase()
+  );
+}
+
+// VIZ-1: the reusable TWO-SIDED network diagram. For one boundary helper it draws the
+// inbound source lineages on the LEFT, the helper itself (the boundary) in the MIDDLE
+// — linking to its definition — and the call sites it re-spreads to on the RIGHT, with
+// one edge per node. This is the template the fan-in / junctions / prop-relay views
+// will adopt (each is the same sources → boundary → consumers shape). Mirrors
+// `fanOutGraphSvg`'s node styling so the two pictures read consistently.
+export function boundaryGraphSvg(helper) {
+  const sources = helper.inRoots ?? [];
+  const callers = helper.callers ?? [];
+  const nh = 24;
+  const gap = 10;
+  const colW = 196;
+  const midW = 188;
+  const midGap = 56;
+  const midX = colW + midGap;
+  const rightX = midX + midW + midGap;
+  const W = rightX + colW;
+  const rows = Math.max(sources.length, callers.length, 1);
+  const H = Math.max(120, 28 + rows * (nh + gap));
+  const midCy = H / 2;
+  // Center each column's block of nodes vertically against the middle node.
+  const cyOf = (i, count) => {
+    const blockH = Math.max(0, count * (nh + gap) - gap);
+    return (H - blockH) / 2 + i * (nh + gap) + nh / 2;
+  };
+
+  const sourceHsl = "262 60% 52%";
+  const callerHsl = "150 55% 40%";
+  const edges = [];
+  const nodes = [];
+
+  sources.forEach((label, i) => {
+    const cy = cyOf(i, sources.length);
+    nodes.push(
+      `<g class="fg-node"><rect class="fg-hit" x="0" y="${cy - nh / 2}" width="${colW}" height="${nh}" rx="6" fill="hsl(${sourceHsl} / 0.08)" stroke="hsl(${sourceHsl} / 0.5)"/><text x="12" y="${
+        cy + 4
+      }" font-size="11" fill="currentColor">${escapeHtml(truncMid(label, 28))}</text></g>`,
+    );
+    edges.push(
+      `<path d="M${colW} ${cy} C ${colW + 30} ${cy}, ${midX - 30} ${midCy}, ${midX} ${midCy}" fill="none" stroke="hsl(${sourceHsl} / 0.5)" stroke-width="1.4"/>`,
+    );
+  });
+  if (sources.length === 0) {
+    nodes.push(
+      `<text x="0" y="${midCy + 4}" font-size="11" fill="hsl(${sourceHsl})">(no traced inputs)</text>`,
+    );
+  }
+
+  callers.forEach((caller, i) => {
+    const cy = cyOf(i, callers.length);
+    const where = escapeHtml(
+      truncMid(`${caller.file.split("/").pop()}:${caller.line}`, 28),
+    );
+    nodes.push(
+      `<a class="xfile" href="/file?path=${encodeURIComponent(caller.file)}#L${caller.line}"><g class="fg-node"><rect class="fg-hit" x="${rightX}" y="${
+        cy - nh / 2
+      }" width="${colW}" height="${nh}" rx="6" fill="hsl(${callerHsl} / 0.08)" stroke="hsl(${callerHsl} / 0.5)"/><text x="${
+        rightX + 12
+      }" y="${cy + 4}" font-size="11" fill="currentColor">${where}</text></g></a>`,
+    );
+    edges.push(
+      `<path d="M${midX + midW} ${midCy} C ${midX + midW + 30} ${midCy}, ${rightX - 30} ${cy}, ${rightX} ${cy}" fill="none" stroke="hsl(${callerHsl} / 0.5)" stroke-width="1.4"/>`,
+    );
+  });
+  if (callers.length === 0) {
+    nodes.push(
+      `<text x="${rightX}" y="${midCy + 4}" font-size="11" fill="hsl(${callerHsl})">(no resolved callers)</text>`,
+    );
+  }
+
+  const midLabel = escapeHtml(truncMid(`${helper.name}()`, 22));
+  const midNode = `<g class="fg-src"><rect x="${midX}" y="${midCy - 18}" width="${midW}" height="36" rx="8" fill="hsl(205 70% 50% / 0.16)" stroke="hsl(205 70% 50%)" stroke-width="2"/>
+    <text x="${midX + 12}" y="${midCy - 2}" font-size="11.5" font-weight="600" fill="currentColor">${midLabel}</text>
+    <text x="${midX + 12}" y="${midCy + 13}" font-size="10" fill="var(--muted)">${escapeHtml(helper.verdict ?? "")}</text></g>`;
+  const mid = `<a class="xfile" href="/file?path=${encodeURIComponent(helper.file)}#L${helper.line}" aria-label="Jump to ${midLabel}">${midNode}</a>`;
+
+  return `<div class="fanout-graph">
+  <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Boundary diagram for ${escapeHtml(helper.name)}">
+    ${edges.join("")}
+    ${nodes.join("")}
+    ${mid}
+  </svg>
+  <div class="fg-legend"><span class="fg-key"><span class="fg-swatch" style="background:hsl(${sourceHsl})"></span>inbound sources (${sources.length})</span><span class="fg-key"><span class="fg-swatch" style="background:hsl(205 70% 50%)"></span>boundary</span><span class="fg-key"><span class="fg-swatch" style="background:hsl(${callerHsl})"></span>call sites (${callers.length})</span></div>
+</div>`;
+}
+
 // HOME-2: the per-file fan-out panel collapses to a single headline + an up-link to
 // the full node/edge graph, which now lives on the overview (HOME-1). The in-file
 // SVG was removed: a fan-out is a cross-file story, so its picture belongs on the

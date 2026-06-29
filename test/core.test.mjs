@@ -181,15 +181,12 @@ describe("render path data-flow analyzer", () => {
       view: "work-packets",
       format: "markdown",
     });
-    const ledger = renderReport(report, {
-      ...project.args,
-      view: "transformation-ledger",
-      format: "markdown",
-    });
-    const dossier = JSON.parse(
+    // The dossier markdown view was retired (round 8); its structural payload
+    // (summary + bounded graph) stays available on request via `--format json`.
+    const json = JSON.parse(
       renderReport(report, {
         ...project.args,
-        view: "dossier",
+        view: "findings",
         format: "json",
       }),
     );
@@ -198,9 +195,8 @@ describe("render path data-flow analyzer", () => {
     expect(packets).toContain("WORK ITEM DF-001");
     expect(packets).toContain("Feature Clusters");
     expect(packets).toContain("Candidate edits");
-    expect(ledger).toContain("representation-only wrapper steps");
-    expect(dossier.summary.sinks).toBeGreaterThan(0);
-    expect(dossier.graph.nodes.length).toBeGreaterThan(0);
+    expect(json.summary.sinks).toBeGreaterThan(0);
+    expect(json.graph.nodes.length).toBeGreaterThan(0);
   });
 
   it("fences code-like blocks and one-lines multi-line expressions in prose renderers", async () => {
@@ -223,9 +219,8 @@ describe("render path data-flow analyzer", () => {
     });
     const report = await analyzeProject(project.args);
 
-    // Code/path blocks are fenced; the transformation ledger renders steps as a
-    // table with code-tick cells instead, so it carries no fences.
-    for (const view of ["findings", "work-packets", "path-gallery"]) {
+    // Code/path blocks are fenced in the prose renderers.
+    for (const view of ["findings", "work-packets"]) {
       const output = renderReport(report, {
         ...project.args,
         view,
@@ -239,12 +234,7 @@ describe("render path data-flow analyzer", () => {
 
     // No rendered path step carries a raw newline mid-expression: the
     // object-literal arg must be collapsed onto a single line in every view.
-    for (const view of [
-      "findings",
-      "work-packets",
-      "path-gallery",
-      "transformation-ledger",
-    ]) {
+    for (const view of ["findings", "work-packets"]) {
       const output = renderReport(report, {
         ...project.args,
         view,
@@ -306,8 +296,70 @@ describe("render path data-flow analyzer", () => {
     expect(output).toContain("A › props.entity");
     expect(output).toContain("single-file (candidate split)");
     expect(output).not.toContain("Operations");
-    expect(output).toMatch(/src\/fan\/A\.tsx:\d+/);
+    // MD-1: the full path is printed once on the per-file group header; each sink
+    // row carries only the bare `:line` (no repeated path) + depth.
+    expect(output).toContain("**src/fan/A.tsx**");
+    expect(output).toMatch(/`:\d+`/);
     expect(output).toMatch(/· depth \d+/);
+  });
+
+  it("does not treat inert object literals as sinks or fan-out sources (BUG-1)", async () => {
+    const project = await createFixtureProject({
+      "src/Style.tsx": `
+        export function Style(props: { color: string }) {
+          return <div style={{}}>
+            <span style={{ color: "red", margin: 0 }}>literal</span>
+            <span style={{ color: props.color }}>dynamic</span>
+          </div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const json = JSON.parse(
+      renderReport(report, { ...project.args, view: "findings", format: "json" }),
+    );
+    const rootLabels = json.sinks.flatMap((sink) => sink.roots ?? []);
+    // The empty `{}` and the literal-only style object are inert — never ranked.
+    expect(rootLabels).not.toContain("{}");
+    expect(rootLabels.some((label) => /^\{/.test(label))).toBe(false);
+    // The dynamic style (`{ color: props.color }`) is a real sink and is kept.
+    expect(rootLabels.some((label) => label.includes("props.color"))).toBe(true);
+
+    // And no inert object collapses into a global fan-out source.
+    const fanout = renderReport(report, {
+      ...project.args,
+      view: "fan-out",
+      format: "markdown",
+    });
+    expect(fanout).not.toMatch(/##\s*(\{\}|\(\))\s/);
+  });
+
+  it("counts callers for an exported helper used across files (BUG-2 keyed match)", async () => {
+    const project = await createFixtureProject({
+      "src/format.ts": `
+        export function formatLabel(name: string) {
+          return name.trim();
+        }
+      `,
+      "src/Card.tsx": `
+        import { formatLabel } from "./format";
+        export function Card(props: { name: string }) {
+          return <div>{formatLabel(props.name)}</div>;
+        }
+      `,
+    });
+    const report = await analyzeProject(project.args);
+    const json = JSON.parse(
+      renderReport(report, {
+        ...project.args,
+        view: "inline-preview",
+        format: "json",
+      }),
+    );
+    const helper = (json.helpers ?? []).find((h) => h.name === "formatLabel");
+    // Caller matching is keyed by file:line:name, so a used helper is never "0".
+    expect(helper).toBeTruthy();
+    expect(helper.callerCount).toBeGreaterThanOrEqual(1);
   });
 
   it("renders only actionable sources in findings (no literals, globals, or bare params)", async () => {
@@ -332,7 +384,7 @@ describe("render path data-flow analyzer", () => {
     expect(sourceBlock.trim()).not.toMatch(/(^|,\s*)(0|""|props)(,|$)/);
   });
 
-  it("labels transformation-ledger steps with real operation kinds", async () => {
+  it("labels representative-path steps with real operation kinds", async () => {
     const project = await createFixtureProject({
       "src/Ledger.tsx": `
         type User = { displayName?: string };
@@ -344,22 +396,19 @@ describe("render path data-flow analyzer", () => {
       `,
     });
     const report = await analyzeProject(project.args);
+    // The representative path (shown in findings) annotates each step with its real
+    // operation kind in `[brackets]`, not a constant "data-flow".
     const output = renderReport(report, {
       ...project.args,
-      view: "transformation-ledger",
+      view: "findings",
       format: "markdown",
     });
 
-    // The third column carries real operation kinds, not a constant "data-flow".
     const kinds = output
       .split("\n")
-      .filter(
-        (line) =>
-          line.startsWith("| ") &&
-          !line.includes("---") &&
-          !line.includes("Operation"),
-      )
-      .map((line) => line.split("|").at(-2).trim());
+      .map((line) => /->.*\[([a-z-]+)\]\s*$/.exec(line)?.[1])
+      .filter(Boolean);
+    expect(kinds.length).toBeGreaterThan(0);
     expect(kinds).not.toContain("data-flow");
     expect(
       kinds.some((kind) =>
@@ -541,10 +590,12 @@ describe("render path data-flow analyzer", () => {
       ]),
     );
 
+    // MD-5: unknown edges are folded into the consolidated `overview` report (JSON
+    // payload + a diagnostic markdown section), not a standalone view.
     const json = JSON.parse(
       renderReport(report, {
         ...project.args,
-        view: "unknown-edges",
+        view: "overview",
         format: "json",
       }),
     );
@@ -554,10 +605,10 @@ describe("render path data-flow analyzer", () => {
 
     const markdown = renderReport(report, {
       ...project.args,
-      view: "unknown-edges",
+      view: "overview",
       format: "markdown",
     });
-    expect(markdown).toContain("# Unknown Edges");
+    expect(markdown).toContain("## Unknown edges (diagnostic)");
     expect(markdown).toContain("externalTitle");
     expect(markdown).toContain("mysteryValue");
     expect(markdown).toContain("Affected sinks");
@@ -866,6 +917,10 @@ describe("render path data-flow analyzer", () => {
     expect(output).toContain("FeaturePanel");
     expect(output).toContain("useFeatureModel");
     expect(output).toContain("detail, selection, onSelect");
+    // MD-6: the report shows *why* it's a relay (the evidence), not just a summary row.
+    expect(output).toContain("Why these are relays");
+    expect(output).toContain("forwards");
+    expect(output).toContain("to see the hand-off");
   });
 
   it("indexes component usages by symbol for a where-used view (XREF-1)", async () => {
@@ -1006,6 +1061,12 @@ describe("render path data-flow analyzer", () => {
     expect(signatures.some((sig) => sig.startsWith("shallow"))).toBe(true);
     expect(signatures.some((sig) => /^(medium|deep)/.test(sig))).toBe(true);
     expect(signatures).not.toContain("jsx-sink");
+
+    // MD-7: beyond the aggregate table, the report shows a representative example
+    // (the deepest member's path) per family so the recurring shape is concrete.
+    expect(output).toContain("## Representative examples");
+    expect(output).toContain("Deepest member:");
+    expect(output).toMatch(/->.*\[[a-z-]+\]/);
   });
 
   it("grounds centrality in real reach so a many-sink source outranks an isolated one", async () => {
@@ -1411,7 +1472,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
 
     const hotspots = renderReport(report, {
       ...project.args,
-      view: "hotspots",
+      view: "overview",
       maxItems: 20,
       format: "markdown",
     });
@@ -1470,7 +1531,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
     const hotspots = renderReport(report, {
       ...project.args,
-      view: "hotspots",
+      view: "overview",
       maxItems: 20,
       format: "markdown",
     });
@@ -1993,6 +2054,9 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
     expect(inline).toContain("KEEP & FORMALIZE");
     expect(inline).toContain("INLINE");
+    // INLINE-1: each helper lists its consumers (call sites) so the inline decision
+    // is answerable — you can see where a fold would land.
+    expect(inline).toContain("Consumers");
   });
 
   it("proposes a clean helper signature for a deep render path (Approach 4)", async () => {
@@ -2222,7 +2286,7 @@ describe("general CLI defaults and project discovery", () => {
       "prop-relay",
       "context-relay",
       "fan-out",
-      "dossier",
+      "junctions",
     ]) {
       expect(text).toContain(view);
     }
@@ -2408,7 +2472,7 @@ describe("work-packet variety & coverage", () => {
     expect(parseArgs(["--diversity", "0.6"]).diversity).toBeCloseTo(0.6);
     expect(parseArgs(["--per-file", "3"]).perFile).toBe(3);
     expect(parseArgs(["--units"]).units).toBe(true);
-    expect(parseArgs(["--view", "coverage"]).view).toBe("hotspots");
+    expect(parseArgs(["--view", "coverage"]).view).toBe("overview");
     expect(parseArgs(["--by", "feature"]).by).toBe("feature");
 
     expect(() => parseArgs(["--sort", "nope"])).toThrow(
@@ -2420,26 +2484,31 @@ describe("work-packet variety & coverage", () => {
     expect(() => parseArgs(["--by", "module"])).toThrow("--by must be file");
   });
 
-  it("hotspots is a first-class view with one row per file and a concentration footer", async () => {
+  it("overview report carries the hotspots section (one row per file) and a concentration footer", async () => {
     const project = await spreadProject();
     const report = await analyzeProject(project.args);
     const output = renderReport(report, {
       ...project.args,
-      view: "hotspots",
+      view: "overview",
       maxItems: 20,
       format: "markdown",
     });
-    expect(output).toContain("# Hotspots  (by file)");
+    // MD-5: hotspots + concentration are sections of the consolidated overview report.
+    expect(output).toContain("## Hotspots");
     expect(output).toContain("chart-bar.tsx");
     expect(output).toContain("badge.tsx");
-    expect(output).toContain("## Concentration");
-    // hotspots ships in REPORT_VIEWS, so --view all emits it.
-    expect(REPORT_VIEWS).toContain("hotspots");
+    // Concentration footer (the "Coverage" line summarizing how clustered burden is).
+    expect(output).toContain("concentrated");
+    // The consolidated report ships in REPORT_VIEWS; the old aggregators were retired.
+    expect(REPORT_VIEWS).toContain("overview");
+    expect(REPORT_VIEWS).not.toContain("hotspots");
+    expect(REPORT_VIEWS).not.toContain("repair-map");
+    expect(REPORT_VIEWS).not.toContain("unknown-edges");
 
     const json = JSON.parse(
       renderReport(report, {
         ...project.args,
-        view: "hotspots",
+        view: "overview",
         maxItems: 20,
         format: "json",
       }),
@@ -2449,17 +2518,17 @@ describe("work-packet variety & coverage", () => {
     expect(json.concentration).toHaveProperty("fileCount");
   });
 
-  it("by feature rolls up to feature areas", async () => {
+  it("overview report rolls hotspots up to feature areas with --by feature", async () => {
     const project = await spreadProject();
     const report = await analyzeProject(project.args);
     const output = renderReport(report, {
       ...project.args,
-      view: "hotspots",
+      view: "overview",
       by: "feature",
       maxItems: 20,
       format: "markdown",
     });
-    expect(output).toContain("# Hotspots  (by feature)");
+    expect(output).toContain("## Hotspots");
     expect(output).toContain("| Feature |");
   });
 
@@ -2644,7 +2713,7 @@ describe("--file path filtering", () => {
 
     const spread = renderReport(report, {
       ...project.args,
-      view: "hotspots",
+      view: "overview",
       format: "markdown",
     });
     expect(spread).toContain("Focus on one file or region:");
@@ -2652,7 +2721,7 @@ describe("--file path filtering", () => {
 
     const focused = renderReport(report, {
       ...project.args,
-      view: "hotspots",
+      view: "overview",
       format: "markdown",
       file: ["src/widgets/Card.tsx"],
     });
@@ -2664,7 +2733,7 @@ describe("--file path filtering", () => {
     });
     const focusedText = renderReport(focusedReport, {
       ...project.args,
-      view: "hotspots",
+      view: "overview",
       format: "markdown",
       file: ["src/widgets/Card.tsx"],
     });
@@ -2927,7 +2996,7 @@ async function createTwoAppProject() {
       "--format",
       "json",
       "--view",
-      "unknown-edges",
+      "overview",
     ]),
   };
 }

@@ -817,25 +817,29 @@ describe("fan-out viewer + report tab strip (round 7)", () => {
     `,
   };
 
-  it("renders the selectable fan-out viewer (not a stack of graphs) on the overview", async () => {
+  it("renders the selectable fan-out viewer (not a stack of graphs) on the Fan-out tab", async () => {
     const project = await createFixtureProject(FANOUT_FIXTURE);
     const { handler } = createServer(project.args);
-    const home = await call(handler, "/");
+    // SHELL-4: the viewer lives on the Fan-out report tab, not inline on the overview.
+    const view = await call(handler, "/report?view=fan-out");
     // ARCH-1: the page-level report tab strip is present.
-    expect(home.body).toContain('class="report-tabs"');
+    expect(view.body).toContain('class="report-tabs"');
     // FANOUT-LIST-1: the selector + explanatory copy + a sort control.
-    expect(home.body).toContain("fo-explain");
-    expect(home.body).toContain('class="fo-tab');
-    expect(home.body).toContain('class="fo-sort-btn');
+    expect(view.body).toContain("fo-explain");
+    expect(view.body).toContain('class="fo-tab');
+    expect(view.body).toContain('class="fo-sort-btn');
     // Exactly ONE graph renders at a time, even with multiple detected sources.
-    expect((home.body.match(/class="fanout-graph"/g) ?? []).length).toBe(1);
+    expect((view.body.match(/class="fanout-graph"/g) ?? []).length).toBe(1);
   });
 
   it("selects a specific source and sort via URL params (refresh-safe)", async () => {
     const project = await createFixtureProject(FANOUT_FIXTURE);
     const { handler } = createServer(project.args);
     const anchor = fanOutAnchor("Comp › props.mode");
-    const picked = await call(handler, "/?fanout=" + anchor + "&fosort=depth");
+    const picked = await call(
+      handler,
+      "/report?view=fan-out&fanout=" + anchor + "&fosort=depth",
+    );
     // The chosen source's graph is the one rendered.
     expect(picked.body).toContain(`id="${anchor}"`);
     expect(picked.body).toContain("Comp › props.mode");
@@ -857,9 +861,9 @@ describe("fan-out viewer + report tab strip (round 7)", () => {
   it("tags single-file fan-outs as candidate splits vs cross-file usage", async () => {
     const project = await createFixtureProject(FANOUT_FIXTURE);
     const { handler } = createServer(project.args);
-    const home = await call(handler, "/");
+    const view = await call(handler, "/report?view=fan-out");
     // props.isOpen / props.mode are component-scoped → single-file (FANOUT-COPY-1).
-    expect(home.body).toContain("single-file · candidate split");
+    expect(view.body).toContain("single-file · candidate split");
   });
 });
 
@@ -954,25 +958,34 @@ describe("createServer", () => {
       `,
     });
     const { handler } = createServer(project.args);
+    // SHELL-3: the file page is tabbed — the repeated-forks report renders when its
+    // tab is selected via ?view=, not stacked as a <details> on the code-map page.
     const file = await call(
       handler,
-      "/file?path=" + encodeURIComponent("src/Chart.tsx"),
+      "/file?path=" + encodeURIComponent("src/Chart.tsx") + "&view=repeated-forks",
     );
     expect(file.status).toBe(200);
-    expect(file.body).toContain('id="view-repeated-forks"');
+    expect(file.body).toContain('class="report-tab active"');
     expect(file.body).toContain("Repeated forks");
     expect(file.body).toContain("props.type");
   });
 
-  it("no longer renders the sticky layer strip (LAYERS-2 removed it)", async () => {
+  it("file page shows the code map by default and swaps to a single report when a view is selected (SHELL-3)", async () => {
     const project = await createFixtureProject(FIXTURE);
     const { handler } = createServer(project.args);
-    const file = await call(handler, "/file?path=" + encodeURIComponent("src/Card.tsx"));
-    expect(file.status).toBe(200);
-    // The strip was removed; the sidebar "On this page" nav still provides jumps.
-    expect(file.body).not.toContain('class="layer-strip"');
-    expect(file.body).toContain("On this page");
-    expect(file.body).toContain('href="#view-junctions"');
+    const base = "/file?path=" + encodeURIComponent("src/Card.tsx");
+
+    // Default: the code map renders (its burden heat legend is the tell).
+    const map = await call(handler, base);
+    expect(map.status).toBe(200);
+    expect(map.body).toContain("low burden");
+
+    // Selecting a view swaps the pane to that one report — the code map is replaced,
+    // not stacked beneath every report as it used to be.
+    const junctions = await call(handler, base + "&view=junctions");
+    expect(junctions.status).toBe(200);
+    expect(junctions.body).toContain("Junctions");
+    expect(junctions.body).not.toContain("low burden");
   });
 
   it("names each burden metric consistently across views (LABEL-1)", async () => {
@@ -998,22 +1011,21 @@ describe("createServer", () => {
     const { handler } = createServer(project.args);
 
     const home = await call(handler, "/");
-    expect(home.body).toContain('name="q"');
-    expect(home.body).toContain('name="filter"');
-    expect(home.body).toContain('name="sort"');
     expect(home.body).toContain("src/Card.tsx");
     expect(home.body).toContain("src/Other.tsx");
 
+    // Search filters the file rows to matches only.
     const searched = await call(handler, "/?q=Other&sort=file");
     expect(searched.status).toBe(200);
     expect(searched.body).toContain("src/Other.tsx");
     expect(searched.body).not.toContain("src/Card.tsx");
+    // Sort controls navigate and preserve the active query (q) in the URL.
     expect(searched.body).toContain("/?q=Other&amp;sort=findings");
-    expect(searched.body).toContain('option value="file" selected');
 
+    // The `unknown` filter keeps only files with unknown edges (empty fixture here).
     const unknownOnly = await call(handler, "/?filter=unknown");
     expect(unknownOnly.status).toBe(200);
-    expect(unknownOnly.body).toContain('option value="unknown" selected');
+    expect(unknownOnly.body).not.toContain("src/Other.tsx");
   });
 
   it("paginates long overview file lists", async () => {
@@ -1207,8 +1219,8 @@ describe("createServer", () => {
     );
     expect(file.body).toContain('class="crumbs"');
     expect(file.body).toContain('<a href="/">← Overview</a>');
-    // The sidebar title is a home link here too (consistent with the file page).
-    expect(file.body).toContain('<h1><a href="/">tsx-dataflow</a></h1>');
+    // SHELL-1: the persistent top-bar brand is a home link on every page.
+    expect(file.body).toContain('<a class="brand" href="/">tsx-dataflow</a>');
 
     // ARCH-1: report pages now carry the page-level tab strip; its "Overview" tab
     // is the back-link, and the active view's tab is marked.
@@ -1246,9 +1258,10 @@ describe("createServer", () => {
     const { handler } = createServer(project.args);
 
     const home = await call(handler, "/");
+    // SHELL-1: the overview tab strip links every report view; each report page
+    // exposes its own `/api/report.<view>.md` Markdown button (checked below).
     for (const view of REPORT_VIEWS) {
       expect(home.body).toContain(`/report?view=${view}`);
-      expect(home.body).toContain(`/api/report.${view}.md`);
     }
 
     const htmlReport = await call(handler, "/report?view=work-packets");

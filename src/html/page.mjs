@@ -30,18 +30,18 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .layout { display: flex; align-items: flex-start; }
-nav.side {
-  position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow: auto;
-  width: 260px; min-width: 260px; padding: 18px 16px; border-right: 1px solid var(--border);
-  background: var(--panel); font-size: 13px;
+/* SHELL-1/2: persistent sticky top bar (brand + repo/path) with the tab strip stuck
+   directly beneath it — the on-page replacement for the retired left sidebar. */
+.topbar {
+  position: sticky; top: 0; z-index: 20; background: var(--bg);
+  border-bottom: 1px solid var(--border); padding: 10px 34px 0;
 }
-nav.side h1 { font-size: 15px; margin: 0 0 4px; }
-nav.side .sub { color: var(--muted); margin-bottom: 14px; word-break: break-all; }
-nav.side ul { list-style: none; margin: 0; padding: 0; }
-nav.side li { margin: 2px 0; }
-nav.side .side-files {
-  max-height: min(44vh, 420px); overflow: auto; padding-right: 4px; margin-bottom: 14px;
-  border-bottom: 1px solid var(--border);
+.topbar-bar { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+.brand { font-size: 15px; font-weight: 700; color: var(--fg); }
+.brand:hover { color: var(--accent); text-decoration: none; }
+.topbar-context {
+  color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 main { flex: 1; min-width: 0; padding: 26px 34px; max-width: 1100px; }
 /* The code-map page is layout-driven (not prose), so let it use the viewport:
@@ -95,6 +95,32 @@ input:focus, select:focus, textarea:focus {
   outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px hsl(var(--accent-h, 212) 90% 60% / 0.2);
 }
 input[type="search"] { min-width: 220px; }
+/* SHELL-5: reusable custom popover (replaces native select elements). The panel is
+   absolutely positioned against the trigger's relative wrapper, so positioning is
+   consistent everywhere. */
+.popover { position: relative; display: inline-block; }
+.popover-trigger {
+  display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px;
+  padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--fg); cursor: pointer;
+}
+.popover-trigger:hover { border-color: var(--accent); }
+.popover-label { color: var(--muted); }
+.popover-value { font-weight: 600; }
+.popover-caret { color: var(--muted); font-size: 10px; }
+.popover-panel {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 100%;
+  max-height: min(60vh, 360px); overflow: auto; padding: 4px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12); white-space: nowrap;
+}
+.popover:not(.open) .popover-panel { display: none; }
+.popover-opt {
+  display: block; padding: 5px 10px; border-radius: 6px; font-size: 13px;
+  color: var(--fg); text-decoration: none;
+}
+.popover-opt:hover { background: var(--panel); text-decoration: none; }
+.popover-opt.active { background: var(--accent); color: #fff; font-weight: 600; }
 .pager { display: flex; align-items: center; gap: 10px; margin: 12px 0 24px; }
 .btn.disabled { opacity: 0.45; pointer-events: none; }
 /* Breadcrumb / back link above a page title. */
@@ -235,11 +261,13 @@ th.sortable .caret { color: var(--accent); flex: 0 0 auto; font-size: 0.85em; }
 .fanout-entry { margin: 14px 0; scroll-margin-top: 16px; }
 .fanout-entry h3 { margin: 0 0 4px; font-size: 14px; }
 .fanout-entry .meta { font-weight: 400; }
-/* ARCH-1: page-level report tab strip (the on-page replacement for the sidebar). */
-.report-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 14px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+/* ARCH-1/SHELL-2: page-level tab strip, stuck in the top bar. One line on a wide
+   viewport (it scrolls off to the side); wraps on a narrow viewport. */
+.report-tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 4px; padding-bottom: 8px; scrollbar-width: thin; }
 .report-tab { font-size: 12.5px; padding: 4px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; white-space: nowrap; }
 .report-tab:hover { background: var(--panel); color: var(--fg); }
 .report-tab.active { background: var(--accent); color: #fff; font-weight: 600; }
+@media (max-width: 720px) { .report-tabs { flex-wrap: wrap; overflow-x: visible; } }
 /* FANOUT-LIST-1: the fan-out source selector (tab strip + dropdown) + sort + tags. */
 .fo-explain { margin: 4px 0 10px; max-width: 72ch; }
 .fo-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
@@ -491,13 +519,37 @@ function legacyCopy(text) {
   document.body.removeChild(ta);
 }
 
-// FANOUT-LIST-1: a <select> that navigates on change — the chosen fan-out source
-// lives in the URL (its option value is the target href), so a refresh restores it.
-document.addEventListener('change', function (e) {
-  var sel = e.target;
-  if (sel && sel.matches && sel.matches('select[data-nav-select]') && sel.value) {
-    window.location.href = sel.value;
+// SHELL-5: reusable custom popover (trigger + floating panel) — the on-page
+// replacement for native select elements. Click the trigger to toggle; options are links
+// so selecting one navigates (state in the URL, refresh-safe). Closes on outside
+// click and Escape. Positioning is CSS-only (absolute panel anchored to the
+// trigger's relative wrapper) so every popover behaves identically.
+function closeAllPopovers(except) {
+  document.querySelectorAll('[data-popover].open').forEach(function (p) {
+    if (p === except) return;
+    p.classList.remove('open');
+    var t = p.querySelector('[data-popover-trigger]');
+    if (t) t.setAttribute('aria-expanded', 'false');
+  });
+}
+document.addEventListener('click', function (e) {
+  var trigger = e.target.closest
+    ? e.target.closest('[data-popover-trigger]')
+    : null;
+  if (trigger) {
+    var pop = trigger.closest('[data-popover]');
+    var willOpen = !pop.classList.contains('open');
+    closeAllPopovers(pop);
+    pop.classList.toggle('open', willOpen);
+    trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    e.stopPropagation();
+    return;
   }
+  if (!(e.target.closest && e.target.closest('[data-popover]')))
+    closeAllPopovers(null);
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closeAllPopovers(null);
 });
 
 // ---- finding selection + path overlay (shared by clicks and initial load) ----
@@ -864,7 +916,12 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 `;
 
-export function page({ title, body, nav, wide = false }) {
+// SHELL-1/2: the left sidebar is retired. A persistent, sticky top bar carries the
+// brand ("tsx-dataflow", a home link) + the repo/path context, and — stuck directly
+// beneath it — the tab strip (workspace report tabs on the overview/report pages, the
+// code-map + file-scoped report tabs on the file page). `context` is the repo root or
+// the current file path; `tabs` is the pre-rendered tab strip for this page.
+export function page({ title, body, tabs = "", context = "", wide = false }) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -874,8 +931,14 @@ export function page({ title, body, nav, wide = false }) {
 <style>${STYLE}</style>
 </head>
 <body>
+<header class="topbar">
+  <div class="topbar-bar">
+    <a class="brand" href="/">tsx-dataflow</a>
+    ${context ? `<span class="topbar-context" title="${escapeHtml(context)}">${escapeHtml(context)}</span>` : ""}
+  </div>
+  ${tabs}
+</header>
 <div class="layout">
-${nav ? `<nav class="side">${nav}</nav>` : ""}
 <main${wide ? ' class="wide"' : ""}>${body}</main>
 </div>
 <script>${SCRIPT}</script>
