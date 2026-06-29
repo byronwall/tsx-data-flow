@@ -1,49 +1,14 @@
 import path from "node:path";
+import { fanOutIdentity, fanOutRootsFor } from "../analysis/fan-out.mjs";
+import {
+  classifyPathShape,
+  primaryAdviceShape,
+} from "../analysis/sink-shape.mjs";
 
 // Upper bound on enumerated reached-sinks stored per source, to keep the
 // reachedVia structure from going O(n^2) on a very high fan-out source. The
 // true count is kept separately so the UI can show "+N more".
 const REACHED_VIA_CAP = 50;
-
-// Attributes that size the SVG/HTML shell itself. Split out from geometry so a
-// plain width={...} is not lumped with bar-coordinate math when grouping sinks.
-const SVG_SHELL_ATTRIBUTES = new Set(["width", "height", "viewBox", "viewbox"]);
-// Per-element coordinate/shape attributes — the bar-geometry family.
-const GEOMETRY_FAMILY_ATTRIBUTES = new Set([
-  "transform",
-  "x",
-  "y",
-  "cx",
-  "cy",
-  "d",
-  "points",
-  "r",
-  "dx",
-  "dy",
-  "x1",
-  "y1",
-  "x2",
-  "y2",
-  "rx",
-  "ry",
-]);
-const LOCAL_SCALAR_GEOMETRY_ATTRIBUTES = new Set([
-  ...GEOMETRY_FAMILY_ATTRIBUTES,
-  "stroke-dasharray",
-  "strokeDasharray",
-  "stroke-dashoffset",
-  "strokeDashoffset",
-]);
-const STYLE_ATTRIBUTES = new Set(["class", "className", "style"]);
-const CONTROL_FLOW_ATTRIBUTES = new Set(["when", "each", "fallback"]);
-const IDENTITY_ATTRIBUTES = new Set([
-  "id",
-  "href",
-  "xlink:href",
-  "for",
-  "name",
-  "headers",
-]);
 
 // Concise "suggested first cut" per shape — the headline action for a hotspot.
 const SHAPE_FIRST_CUT = {
@@ -57,38 +22,6 @@ const SHAPE_FIRST_CUT = {
   "solid-prop-default-boundary": "promote prop defaults to mergeProps",
   "cross-component-relay": "move state behind context",
 };
-
-// Global identifiers and language keywords that the local file context cannot
-// resolve and that surface as `unknown-source` roots, but are never an ownable
-// domain "source" a developer could centralize. Excluded from fan-out ranking.
-const NON_FAN_OUT_GLOBALS = new Set([
-  "undefined",
-  "null",
-  "NaN",
-  "Infinity",
-  "Math",
-  "JSON",
-  "Object",
-  "Array",
-  "Number",
-  "String",
-  "Boolean",
-  "Date",
-  "console",
-  "window",
-  "document",
-  "globalThis",
-]);
-
-// FANOUT-1: a `prop-read` root (`props.isOpen`) is local to the component that
-// declares those props — two different components reading `props.isOpen` are
-// different values. Keying fan-out by the bare expression text merged unrelated
-// props across the whole repo (badly so for common names like `isOpen`) and
-// inflated the consumer count. So scope prop-derived roots by their owning
-// component; module-level/hook/import/context roots stay globally keyed because
-// those genuinely are one shared source feeding many files. The display label is
-// qualified with the component so the grouping basis is visible, not implied.
-const PROP_SCOPED_FANOUT_KINDS = new Set(["prop-read"]);
 
 export function firstCutFor(sink) {
   if (!sink) return "—";
@@ -299,28 +232,6 @@ function primaryShapeOf(sink) {
   return primaryAdviceShape(sink) ?? "uncategorized";
 }
 
-function primaryAdviceShape(sink, shapes = classifyPathShape(sink)) {
-  if (sinkFamilyOf(sink) === "svg-shell" && shapes.includes("svg-shell")) {
-    return "svg-shell";
-  }
-  if (sink.category === "style" && shapes.includes("presentation-pack")) {
-    return "presentation-pack";
-  }
-  if (
-    sink.category === "render-control" &&
-    shapes.includes("control-flow-gate")
-  ) {
-    return "control-flow-gate";
-  }
-  if (
-    shapes.includes("solid-prop-default-boundary") &&
-    (shapes[0] === "domain-normalization" || shapes.length === 1)
-  ) {
-    return "solid-prop-default-boundary";
-  }
-  return shapes[0] ?? null;
-}
-
 function featureKeyFor(file) {
   const parts = file.split("/");
   const sourceIndex = parts.findIndex((part) => part === "src");
@@ -330,145 +241,6 @@ function featureKeyFor(file) {
     Math.max(offset + 1, parts.length - 1),
   );
   return directoryParts.slice(0, 3).join("/") || path.dirname(file);
-}
-
-// The JSX attribute name a sink renders into (`transform` from `transform={...}`),
-// or null for bare rendered values / text nodes.
-function sinkAttributeName(sink) {
-  const match = /^([A-Za-z0-9_-]+)=\{/.exec(sink.label ?? "");
-  return match ? match[1] : null;
-}
-
-// tags, derived purely from the sink's own trace (no repo scanning). Tags are
-// non-exclusive; the array is returned in a fixed priority order so callers can
-// treat element 0 as the primary shape.
-function classifyPathShape(sink) {
-  const attribute = sinkAttributeName(sink);
-  const steps = sink.representativeSteps ?? [];
-  const kinds = new Set(steps.map((step) => step.kind));
-  const labelText = steps.map((step) => step.label).join(" ");
-  const metrics = sink.metrics;
-  const rootInfos = sink.rootInfos ?? [];
-  const tags = [];
-
-  if (attribute && SVG_SHELL_ATTRIBUTES.has(attribute)) {
-    tags.push("svg-shell");
-  }
-
-  if (isLocalScalarGeometry(sink)) {
-    tags.push("local-scalar-geometry");
-  }
-
-  const hasArithmetic = /[-+*/%]/.test(labelText) || kinds.has("template");
-  if (
-    (attribute && GEOMETRY_FAMILY_ATTRIBUTES.has(attribute)) ||
-    (kinds.has("template") &&
-      hasArithmetic &&
-      metrics.controlDependencyCount > 0)
-  ) {
-    tags.push("geometry-chain");
-  }
-
-  if (
-    (sink.category === "render-control" && attribute === "each") ||
-    /\.(map|filter|sort|flatMap|reduce|slice)\(/.test(labelText)
-  ) {
-    tags.push("collection-render-model");
-  }
-
-  if (
-    (attribute && (attribute === "when" || attribute === "fallback")) ||
-    (metrics.controlDependencyCount > 0 &&
-      metrics.defensiveOperationCount > 0 &&
-      sink.category === "render-control")
-  ) {
-    tags.push("control-flow-gate");
-  }
-
-  if (
-    sink.category === "style" ||
-    (kinds.has("object-pack") && attribute && STYLE_ATTRIBUTES.has(attribute))
-  ) {
-    tags.push("presentation-pack");
-  }
-
-  if (
-    metrics.defensiveOperationCount > 0 ||
-    (metrics.controlDependencyCount > 0 &&
-      rootInfos.some((info) => info.kind === "prop-read"))
-  ) {
-    tags.push("domain-normalization");
-  }
-
-  if (hasSolidPropDefaultBoundary(sink)) {
-    tags.push("solid-prop-default-boundary");
-  }
-
-  if (
-    metrics.mergeWidth > 1 &&
-    metrics.helperHops === 0 &&
-    rootInfos.length > 0 &&
-    rootInfos.every(
-      (info) => info.kind === "prop-read" || info.kind === "parameter",
-    )
-  ) {
-    tags.push("cross-component-relay");
-  }
-
-  return tags;
-}
-
-function isLocalScalarGeometry(sink) {
-  const attribute = sinkAttributeName(sink);
-  if (!attribute || !LOCAL_SCALAR_GEOMETRY_ATTRIBUTES.has(attribute)) {
-    return false;
-  }
-  if (
-    ![
-      "cx",
-      "cy",
-      "r",
-      "stroke-dasharray",
-      "strokeDasharray",
-      "stroke-dashoffset",
-      "strokeDashoffset",
-    ].includes(attribute)
-  ) {
-    return false;
-  }
-  if (sinkFamilyOf(sink) === "svg-shell") return false;
-  if (sink.packVerdicts?.includes("cohesive-render-model")) return false;
-  if (
-    classifyPathText(sink).match(
-      /\b(?:map|filter|flatMap|reduce|For|each|index\s*\(|value\s*=>)\b/,
-    )
-  ) {
-    return false;
-  }
-  const metrics = sink.metrics ?? {};
-  if ((metrics.packRisk ?? 0) > 0) return false;
-  const text = classifyPathText(sink);
-  const hasScalarMath =
-    /[-+*/%]/.test(text) ||
-    /\b(?:Math\.|PI|circumference|radius|center|dash|size|strokeWidth|stroke-width)\b/i.test(
-      text,
-    );
-  if (!hasScalarMath) return false;
-  return true;
-}
-
-function classifyPathText(sink) {
-  return [
-    sink.label,
-    sink.expression,
-    ...(sink.representativeSteps ?? []).map((step) => step.label),
-  ].join(" ");
-}
-
-function hasSolidPropDefaultBoundary(sink) {
-  return (sink.defenses ?? []).some((defense) =>
-    /solid prop default/i.test(defense.origin ?? ""),
-  );
 }
 
 function hasContextHookRoot(sink) {
@@ -520,37 +292,6 @@ function reachedSinkDescriptor(sink) {
     // distance from this particular root (that enhancement is deferred).
     depth: sink.metrics?.maximumPathDepth ?? 0,
   };
-}
-
-// Fan-out ranks the sources a value flows from. Literals/primitives (`0`,
-// `false`, `""`, `[]`) and bare parameter objects (`props`) are not actionable
-// shared roots on their own; this returns only named/module/domain roots.
-function fanOutRootsFor(sink) {
-  const infos =
-    sink.rootInfos ??
-    sink.roots.map((root) => ({ label: root, kind: "source" }));
-  return infos.filter(
-    (info) =>
-      info.kind !== "literal" &&
-      info.kind !== "parameter" &&
-      // BUG-1: an "operation" root is a synthetic placeholder for a no-input
-      // operation (e.g. an empty `{}` object-pack). It is not a shared source and
-      // must never collapse into a global fan-out entry keyed on its bare label.
-      info.kind !== "operation" &&
-      !NON_FAN_OUT_GLOBALS.has(info.label),
-  );
-}
-
-function fanOutIdentity(sink, info) {
-  if (PROP_SCOPED_FANOUT_KINDS.has(info.kind)) {
-    const component = sink.renderContext?.component ?? null;
-    const scope = component ?? sink.file ?? "";
-    return {
-      key: `${scope}::${info.label}`,
-      label: component ? `${component} › ${info.label}` : info.label,
-    };
-  }
-  return { key: info.label, label: info.label };
 }
 
 function countBy(values) {
