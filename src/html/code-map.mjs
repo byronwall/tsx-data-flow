@@ -2,7 +2,7 @@
 // render sinks that land in it overlaid in the gutter, plus a commentary panel
 // describing each finding. This is the one HTML view the Markdown reports cannot
 // express — it ties the analyzer's findings back to the literal source lines.
-import { escapeHtml } from "./page.mjs";
+import { escapeHtml } from "./escape.mjs";
 import { snippetBlockHtml } from "./source-peek.mjs";
 import { findingTitle } from "../core.mjs";
 
@@ -42,7 +42,11 @@ const STEP_KIND_LABEL = {
 
 function stepLocationText(step, { basename = false } = {}) {
   if (!step.line) return "";
-  const file = step.file ? (basename ? step.file.split("/").pop() : step.file) : "";
+  const file = step.file
+    ? basename
+      ? step.file.split("/").pop()
+      : step.file
+    : "";
   return file ? `${file}:${step.line}` : `:${step.line}`;
 }
 
@@ -67,7 +71,8 @@ function stepLocationHtml(step, resolveSource, relPath) {
   )}#L${step.line}" title="Open ${escapeHtml(step.file)}">${base}:${step.line} ↗</a>`;
   let snippet = "";
   try {
-    const src = typeof resolveSource === "function" ? resolveSource(step.file) : null;
+    const src =
+      typeof resolveSource === "function" ? resolveSource(step.file) : null;
     if (src) snippet = snippetBlockHtml(src, step.line, { context: 2 });
   } catch {
     snippet = "";
@@ -344,9 +349,9 @@ function debugInfo(sink, relPath, source, meta) {
   out.push("");
   out.push(
     `roots: ${
-      (sink.rootInfos ?? [])
-        .map((r) => `${r.label} [${r.kind}]`)
-        .join(", ") || (sink.roots ?? []).join(", ") || "—"
+      (sink.rootInfos ?? []).map((r) => `${r.label} [${r.kind}]`).join(", ") ||
+      (sink.roots ?? []).join(", ") ||
+      "—"
     }`,
   );
   out.push("");
@@ -368,7 +373,9 @@ function debugInfo(sink, relPath, source, meta) {
   if (reps.length) {
     out.push("");
     out.push(`representation-only hops — ${reps.length}:`);
-    reps.forEach((s) => out.push(`  - ${s.kind} ${s.label} @ ${s.file}:${s.line}`));
+    reps.forEach((s) =>
+      out.push(`  - ${s.kind} ${s.label} @ ${s.file}:${s.line}`),
+    );
   }
   const defs = sink.defenses ?? [];
   if (defs.length) {
@@ -617,7 +624,9 @@ function spanPart(sink, lineNo) {
 function rangeOnLine(sink, lineNo, lineLength) {
   const span = sink.span;
   if (!span) {
-    return sink.line === lineNo ? { a: 0, b: lineLength, part: "single" } : null;
+    return sink.line === lineNo
+      ? { a: 0, b: lineLength, part: "single" }
+      : null;
   }
   if (lineNo < span.startLine || lineNo > span.endLine) return null;
   const a = lineNo === span.startLine ? span.startColumn - 1 : 0;
@@ -764,7 +773,10 @@ function renderCommentLine(text, state) {
 function touchedLines(sink, maxLine) {
   const span = sink.span;
   const start = Math.max(1, span?.startLine ?? sink.line ?? 1);
-  const end = Math.min(maxLine, Math.max(start, span?.endLine ?? sink.line ?? start));
+  const end = Math.min(
+    maxLine,
+    Math.max(start, span?.endLine ?? sink.line ?? start),
+  );
   const lines = [];
   for (let lineNo = start; lineNo <= end; lineNo += 1) lines.push(lineNo);
   return lines;
@@ -824,7 +836,9 @@ function entryRowHtml(entry, score = 0) {
 <span class="fr-expr" title="${escapeHtml(entry.primary)}"><span class="type-tag tt-${entry.type}">${escapeHtml(
     meta.label,
   )}</span> ${escapeHtml(entry.primary)}${
-    entry.secondary ? ` <span class="meta">${escapeHtml(entry.secondary)}</span>` : ""
+    entry.secondary
+      ? ` <span class="meta">${escapeHtml(entry.secondary)}</span>`
+      : ""
   }</span>
 <span class="fr-burden">${escapeHtml(entry.metric ?? "")}</span>
 </button></li>`;
@@ -838,11 +852,12 @@ function forkPanel(fork) {
   const siteLines = (fork.sites ?? []).map((s) => s.line).filter(Boolean);
   const branchLines = [];
   for (const range of fork.branchRanges ?? []) {
-    for (let n = range.startLine; n <= range.endLine; n += 1) branchLines.push(n);
+    for (let n = range.startLine; n <= range.endLine; n += 1)
+      branchLines.push(n);
   }
-  const pathLines = [...new Set([fork.line, ...siteLines, ...branchLines])].filter(
-    Boolean,
-  );
+  const pathLines = [
+    ...new Set([fork.line, ...siteLines, ...branchLines]),
+  ].filter(Boolean);
   // FORK-1: number the fork sites (1,2,3…) the way path steps are numbered, so
   // the user can refer to "split 1–4" and find them on the source.
   const sites = (fork.sites ?? [])
@@ -889,7 +904,9 @@ function forkPanel(fork) {
   <div class="def-jump"><strong>Discriminant</strong> <code>${escapeHtml(
     fork.discriminant ?? "",
   )}</code> over ${(fork.branchValues ?? []).length} branch value(s)${
-    fork.namedValues?.length ? `: ${escapeHtml(fork.namedValues.join(", "))}` : ""
+    fork.namedValues?.length
+      ? `: ${escapeHtml(fork.namedValues.join(", "))}`
+      : ""
   }</div>
   ${sites ? `<strong>Fork sites — ${fork.siteCount ?? (fork.sites ?? []).length}</strong><ul class="why site-list">${sites}</ul>` : ""}
   ${exclusive ? `<strong>Branch-exclusive computations — ${(fork.branchExclusive ?? []).length}</strong><ul class="why branch-exclusive">${exclusive}</ul>` : ""}
@@ -907,14 +924,33 @@ function forkPanel(fork) {
 // the helper is already a row, so this is a detail facet, not a new entry).
 function helperInlineHint(helper) {
   if ((helper.inSources ?? 0) >= 3 && (helper.callerCount ?? 0) >= 2)
-    return { verdict: "Keep & formalize", why: "multiple callers + real internal work — make it a typed boundary." };
+    return {
+      verdict: "Keep & formalize",
+      why: "multiple callers + real internal work — make it a typed boundary.",
+    };
   if (helper.passThrough && (helper.internalDepth ?? 0) <= 1)
-    return { verdict: "Inline", why: "pure forwarding hop — the indirection adds nothing." };
-  if ((helper.callerCount ?? 0) <= 2 && (helper.internalDepth ?? 0) <= 2 && !helper.typeLeak)
-    return { verdict: "Inline", why: "shallow body, few callers — indirection without consolidation." };
+    return {
+      verdict: "Inline",
+      why: "pure forwarding hop — the indirection adds nothing.",
+    };
+  if (
+    (helper.callerCount ?? 0) <= 2 &&
+    (helper.internalDepth ?? 0) <= 2 &&
+    !helper.typeLeak
+  )
+    return {
+      verdict: "Inline",
+      why: "shallow body, few callers — indirection without consolidation.",
+    };
   if (helper.typeLeak)
-    return { verdict: "Keep (fix boundary)", why: "the helper should exist but its type leaks — tighten it." };
-  return { verdict: "Keep", why: "genuine transformation — inlining would relocate the mess, not remove it." };
+    return {
+      verdict: "Keep (fix boundary)",
+      why: "the helper should exist but its type leaks — tighten it.",
+    };
+  return {
+    verdict: "Keep",
+    why: "genuine transformation — inlining would relocate the mess, not remove it.",
+  };
 }
 
 // DRILL-1: a "count → reveal" popover. The count is the trigger; clicking it
@@ -970,7 +1006,9 @@ function junctionPanel(helper, id, type) {
   const distGloss =
     `<div class="meta peek-gloss"><strong>Distributaries</strong> — the call sites ` +
     `the result re-spreads to.</div>`;
-  const tribPop = tribItems.length ? `${tribGloss}${cappedList(tribItems)}` : "";
+  const tribPop = tribItems.length
+    ? `${tribGloss}${cappedList(tribItems)}`
+    : "";
   const distPop = callerItems.length
     ? `${distGloss}${cappedList(callerItems)}`
     : "";
@@ -1002,11 +1040,12 @@ function affectedSinkList(sinks, relPath, omitted = 0) {
   if (!(sinks ?? []).length) return "";
   const items = sinks
     .map((s) => {
-      const where = s.file === relPath
-        ? `<a class="xref" data-finding="${escapeHtml(s.id)}">:${s.line}</a>`
-        : `<a class="xfile" href="/file?path=${encodeURIComponent(
-            s.file,
-          )}#L${s.line}">${escapeHtml(s.file.split("/").pop())}:${s.line} ↗</a>`;
+      const where =
+        s.file === relPath
+          ? `<a class="xref" data-finding="${escapeHtml(s.id)}">:${s.line}</a>`
+          : `<a class="xfile" href="/file?path=${encodeURIComponent(
+              s.file,
+            )}#L${s.line}">${escapeHtml(s.file.split("/").pop())}:${s.line} ↗</a>`;
       return `<li>${where}${
         s.label ? ` <code>${escapeHtml(s.label)}</code>` : ""
       }</li>`;
@@ -1189,7 +1228,9 @@ export function fanOutGraphSvg(row, relPath) {
       list.forEach((s, j) => {
         const cy = bandTop + headH + j * rowH + rowH / 2;
         const inFile = relPath != null && s.file === relPath;
-        const where = escapeHtml(truncMid(`:${s.line} ${s.label ?? ""}`.trim(), 30));
+        const where = escapeHtml(
+          truncMid(`:${s.line} ${s.label ?? ""}`.trim(), 30),
+        );
         const depth = `<tspan fill="hsl(${hsl})" font-weight="600"> · d${s.depth ?? 0}</tspan>`;
         const open = inFile
           ? `<a class="xref" data-finding="${escapeHtml(s.id ?? "")}">`
@@ -1386,7 +1427,9 @@ function fileStatsHtml(sinks) {
     .filter((n) => n > 0)
     .sort((a, b) => a - b);
   const pct = (p) =>
-    depths.length ? depths[Math.min(depths.length - 1, Math.floor(p * depths.length))] : 0;
+    depths.length
+      ? depths[Math.min(depths.length - 1, Math.floor(p * depths.length))]
+      : 0;
   const depthBit = depths.length
     ? ` · path depth max ${depths[depths.length - 1]} <span class="meta">(p90 ${pct(
         0.9,
@@ -1562,7 +1605,9 @@ export function renderCodeMap({
         type: sev.type,
         line: helper.line,
         primary: helper.name ?? "(helper)",
-        secondary: helper.verdict ?? `${helper.inSources ?? 0}→${helper.callerCount ?? 0}`,
+        secondary:
+          helper.verdict ??
+          `${helper.inSources ?? 0}→${helper.callerCount ?? 0}`,
         metric: "",
         hue: sev.hue,
       },

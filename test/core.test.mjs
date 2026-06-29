@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { createAnalyzerFixtureProject as createFixtureProject } from "./helpers/fixture-project.mjs";
 import {
   BANNED_SUGGESTION_IDENTIFIERS,
   REPORT_VIEWS,
@@ -142,7 +143,8 @@ describe("render path data-flow analyzer", () => {
 
     const report = await analyzeProject(project.args);
     const mainSink = report.sinks.find(
-      (sink) => sink.label?.includes("data-a") || sink.expression === "pos()?.a",
+      (sink) =>
+        sink.label?.includes("data-a") || sink.expression === "pos()?.a",
     );
 
     expect(mainSink).toBeTruthy();
@@ -316,14 +318,20 @@ describe("render path data-flow analyzer", () => {
     });
     const report = await analyzeProject(project.args);
     const json = JSON.parse(
-      renderReport(report, { ...project.args, view: "findings", format: "json" }),
+      renderReport(report, {
+        ...project.args,
+        view: "findings",
+        format: "json",
+      }),
     );
     const rootLabels = json.sinks.flatMap((sink) => sink.roots ?? []);
     // The empty `{}` and the literal-only style object are inert — never ranked.
     expect(rootLabels).not.toContain("{}");
     expect(rootLabels.some((label) => /^\{/.test(label))).toBe(false);
     // The dynamic style (`{ color: props.color }`) is a real sink and is kept.
-    expect(rootLabels.some((label) => label.includes("props.color"))).toBe(true);
+    expect(rootLabels.some((label) => label.includes("props.color"))).toBe(
+      true,
+    );
 
     // And no inert object collapses into a global fan-out source.
     const fanout = renderReport(report, {
@@ -665,7 +673,9 @@ describe("render path data-flow analyzer", () => {
       `,
     });
     const report = await analyzeProject(project.args);
-    const scopeUnknown = report.unknownEdges.find((row) => row.label === "SCOPE");
+    const scopeUnknown = report.unknownEdges.find(
+      (row) => row.label === "SCOPE",
+    );
     expect(scopeUnknown).toBeUndefined();
   });
 
@@ -938,7 +948,9 @@ describe("render path data-flow analyzer", () => {
       `,
     });
     const report = await analyzeProject(project.args);
-    const button = (report.componentRefs ?? []).find((r) => r.name === "Button");
+    const button = (report.componentRefs ?? []).find(
+      (r) => r.name === "Button",
+    );
     expect(button).toBeTruthy();
     expect(button.file).toBe("src/Button.tsx");
     // Both <Button/> sites resolve to the one definition (by symbol, not name).
@@ -2772,9 +2784,7 @@ describe("--file path filtering", () => {
     expect(fork).toBeTruthy();
     expect(fork.discriminant).toBe("props.type");
     expect(fork.siteCount).toBeGreaterThanOrEqual(3);
-    expect(fork.branchValues).toEqual(
-      expect.arrayContaining(["bar", "line"]),
-    );
+    expect(fork.branchValues).toEqual(expect.arrayContaining(["bar", "line"]));
     expect(fork.confidence).toBe("high");
     // barData is eager but read only under the "bar" branch; lineData under line.
     const exclusiveNames = fork.branchExclusive.map((decl) => decl.name);
@@ -2885,48 +2895,6 @@ describe("--file path filtering", () => {
     expect(forks.indexOf(shape)).toBeLessThan(forks.indexOf(single));
   });
 });
-
-async function createFixtureProject(files) {
-  const root = await mkdtemp(resolve(tmpdir(), "render-path-dataflow-"));
-  await mkdir(resolve(root, "src"), { recursive: true });
-  await writeFile(
-    resolve(root, "tsconfig.json"),
-    JSON.stringify({
-      compilerOptions: {
-        target: "ESNext",
-        module: "ESNext",
-        moduleResolution: "bundler",
-        jsx: "preserve",
-        strict: true,
-        noEmit: true,
-        skipLibCheck: true,
-      },
-      include: ["src"],
-    }),
-  );
-  for (const [relativePath, content] of Object.entries(files)) {
-    const target = resolve(root, relativePath);
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, content);
-  }
-  return {
-    root,
-    args: parseArgs([
-      "--root",
-      root,
-      "--source",
-      "src",
-      "--tsconfig",
-      "tsconfig.json",
-      "--typescript-from",
-      appRoot,
-      "--format",
-      "json",
-      "--view",
-      "work-packets",
-    ]),
-  };
-}
 
 // A monorepo with two apps, each with its OWN tsconfig that maps the same `~/*`
 // alias to its own `src`. No root tsconfig, so discovery finds both app configs

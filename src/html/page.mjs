@@ -1,7 +1,6 @@
 // Self-contained HTML shell: all CSS/JS is inlined so a page works offline and
-// makes no external requests. `page()` wraps body markup; `escapeHtml` is shared
-// with the markdown converter.
-import { escapeHtml } from "./markdown-to-html.mjs";
+// makes no external requests. `page()` wraps body markup.
+import { escapeHtml } from "./escape.mjs";
 
 const STYLE = `
 :root {

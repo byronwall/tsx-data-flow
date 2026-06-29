@@ -1,0 +1,88 @@
+import { describe, expect, it } from "vitest";
+import {
+  BANNED_SUGGESTION_IDENTIFIERS,
+  REPORT_VIEWS,
+  analyzeProgram,
+  analyzeProject,
+  classifyPathShape,
+  createAnalyzer,
+  entryTypeCountsByFile,
+  fanOutEntriesForFile,
+  fanOutEntriesGlobal,
+  findDefaultSource,
+  findDefaultTsconfig,
+  findingTitle,
+  firstCutFor,
+  helpText,
+  hotspotGroups,
+  loadTypescript,
+  modalValue,
+  parseArgs,
+  renderAllReports,
+  renderMarkdownView,
+  renderReport,
+  sinkFamilyOf,
+  writeAllReports,
+  writeReport,
+} from "../../src/core.mjs";
+
+const facadeExports = {
+  BANNED_SUGGESTION_IDENTIFIERS,
+  REPORT_VIEWS,
+  analyzeProgram,
+  analyzeProject,
+  classifyPathShape,
+  createAnalyzer,
+  entryTypeCountsByFile,
+  fanOutEntriesForFile,
+  fanOutEntriesGlobal,
+  findDefaultSource,
+  findDefaultTsconfig,
+  findingTitle,
+  firstCutFor,
+  helpText,
+  hotspotGroups,
+  loadTypescript,
+  modalValue,
+  parseArgs,
+  renderAllReports,
+  renderMarkdownView,
+  renderReport,
+  sinkFamilyOf,
+  writeAllReports,
+  writeReport,
+};
+
+describe("core facade exports", () => {
+  it("keeps every current public export importable", () => {
+    expect(Object.keys(facadeExports).sort()).toEqual([
+      "BANNED_SUGGESTION_IDENTIFIERS",
+      "REPORT_VIEWS",
+      "analyzeProgram",
+      "analyzeProject",
+      "classifyPathShape",
+      "createAnalyzer",
+      "entryTypeCountsByFile",
+      "fanOutEntriesForFile",
+      "fanOutEntriesGlobal",
+      "findDefaultSource",
+      "findDefaultTsconfig",
+      "findingTitle",
+      "firstCutFor",
+      "helpText",
+      "hotspotGroups",
+      "loadTypescript",
+      "modalValue",
+      "parseArgs",
+      "renderAllReports",
+      "renderMarkdownView",
+      "renderReport",
+      "sinkFamilyOf",
+      "writeAllReports",
+      "writeReport",
+    ]);
+    for (const [name, value] of Object.entries(facadeExports)) {
+      expect(value, name).toBeDefined();
+    }
+  });
+});

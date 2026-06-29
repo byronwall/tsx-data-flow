@@ -28,7 +28,8 @@ const OVERVIEW_TYPE_COLUMNS = [
   { key: "unknown", col: "unknown", label: "Unknown" },
 ];
 import { markdownToHtml } from "./html/markdown-to-html.mjs";
-import { page, escapeHtml } from "./html/page.mjs";
+import { escapeHtml } from "./html/escape.mjs";
+import { page } from "./html/page.mjs";
 import {
   renderCodeMap,
   fanOutGraphSvg,
@@ -196,7 +197,8 @@ export function createServer(args) {
       const markdownMatch = route.match(/^\/api\/report\.([A-Za-z0-9-]+)\.md$/);
       if (markdownMatch) {
         const view = markdownMatch[1];
-        if (!isReportView(view)) return send(res, 404, "not found", "text/plain");
+        if (!isReportView(view))
+          return send(res, 404, "not found", "text/plain");
         return send(
           res,
           200,
@@ -267,7 +269,12 @@ export function createServer(args) {
 
 // --- Page renderers --------------------------------------------------------
 
-const OVERVIEW_FILTERS = new Set(["all", "findings", "unknown", "participating"]);
+const OVERVIEW_FILTERS = new Set([
+  "all",
+  "findings",
+  "unknown",
+  "participating",
+]);
 const OVERVIEW_SORTS = new Set(["burden", "findings", "depth", "file"]);
 const OVERVIEW_PAGE_SIZE = 25;
 
@@ -292,7 +299,10 @@ function overviewState(url) {
   const q = (url.searchParams.get("q") ?? "").trim();
   const filter = url.searchParams.get("filter") ?? "all";
   const sort = url.searchParams.get("sort") ?? "burden";
-  const page = Math.max(1, Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
+  const page = Math.max(
+    1,
+    Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1,
+  );
   return {
     q,
     filter: OVERVIEW_FILTERS.has(filter) ? filter : "all",
@@ -356,7 +366,8 @@ function overviewRows(report, state) {
     // behaved like "all". Honor it: only files that actually have a finding.
     if (state.filter === "findings" && !(group.count > 0)) return false;
     if (state.filter === "unknown" && !fileHasUnknownEdges(group)) return false;
-    if (state.filter === "participating" && !participating.has(group.key)) return false;
+    if (state.filter === "participating" && !participating.has(group.key))
+      return false;
     if (q && !searchableGroupText(group).includes(q)) return false;
     return true;
   });
@@ -364,16 +375,28 @@ function overviewRows(report, state) {
   sorted.sort((left, right) => {
     if (state.sort === "file") return left.key.localeCompare(right.key);
     if (state.sort === "findings") {
-      return right.count - left.count || right.worst - left.worst || left.key.localeCompare(right.key);
+      return (
+        right.count - left.count ||
+        right.worst - left.worst ||
+        left.key.localeCompare(right.key)
+      );
     }
     if (state.sort === "depth") {
       const leftDepth = left.worstSink?.metrics?.maximumPathDepth ?? 0;
       const rightDepth = right.worstSink?.metrics?.maximumPathDepth ?? 0;
-      return rightDepth - leftDepth || right.worst - left.worst || left.key.localeCompare(right.key);
+      return (
+        rightDepth - leftDepth ||
+        right.worst - left.worst ||
+        left.key.localeCompare(right.key)
+      );
     }
     // The "Worst" column shows each file's single highest burden (g.worst), so
     // sort by that — not by summed burden, which made the column look unsorted.
-    return right.worst - left.worst || right.sumBurden - left.sumBurden || left.key.localeCompare(right.key);
+    return (
+      right.worst - left.worst ||
+      right.sumBurden - left.sumBurden ||
+      left.key.localeCompare(right.key)
+    );
   });
   return sorted;
 }
@@ -490,7 +513,9 @@ function fanOutViewer(fanOuts, { selected, sortKey, hrefFor }) {
         id: "fanout-src",
         label: "More",
         ariaLabel: "Other fan-out sources",
-        triggerValue: rest.includes(active) ? undefined : `+${rest.length} more…`,
+        triggerValue: rest.includes(active)
+          ? undefined
+          : `+${rest.length} more…`,
         options: rest.map((f) => ({
           label: `${f.root} · ${f.sinkCount} sinks · depth ${f.maxDepth}`,
           href: hrefFor({ fanout: fanOutAnchor(f.root) }),
@@ -556,7 +581,9 @@ function boundaryViewer(helpers, { selected, hrefFor }) {
         id: "boundary-src",
         label: "More",
         ariaLabel: "Other boundaries",
-        triggerValue: rest.includes(active) ? undefined : `+${rest.length} more…`,
+        triggerValue: rest.includes(active)
+          ? undefined
+          : `+${rest.length} more…`,
         options: rest.map((h) => ({
           label: `${h.name} · ${h.callerCount} caller(s) · ${h.verdict}`,
           href: hrefFor({ boundary: boundaryAnchor(h) }),
@@ -643,7 +670,9 @@ ${typeCells(g.key)}
     const active = state.sort === sort;
     // CARET-1: the caret is a flex sibling pushed to the right, never wrapping to
     // a new line or growing the header height. The label sits in its own span.
-    const caret = active ? '<span class="caret" aria-hidden="true">▼</span>' : "";
+    const caret = active
+      ? '<span class="caret" aria-hidden="true">▼</span>'
+      : "";
     return `<th class="sortable${active ? " active" : ""}"${
       active ? ' aria-sort="descending"' : ""
     }><a href="${escapeHtml(
@@ -714,11 +743,15 @@ ${typeCells(g.key)}
     !showAll && totalPages > 1
       ? `<nav class="pager" aria-label="File result pages">
   <a class="btn${currentPage === 1 ? " disabled" : ""}" href="${escapeHtml(
-    currentPage === 1 ? overviewHref(pageState) : overviewHref(pageState, { page: currentPage - 1 }),
+    currentPage === 1
+      ? overviewHref(pageState)
+      : overviewHref(pageState, { page: currentPage - 1 }),
   )}">Previous</a>
   <span class="meta">Page ${currentPage} of ${totalPages}</span>
   <a class="btn${currentPage === totalPages ? " disabled" : ""}" href="${escapeHtml(
-    currentPage === totalPages ? overviewHref(pageState) : overviewHref(pageState, { page: currentPage + 1 }),
+    currentPage === totalPages
+      ? overviewHref(pageState)
+      : overviewHref(pageState, { page: currentPage + 1 }),
   )}">Next</a>
   ${showAllToggle}
 </nav>`
