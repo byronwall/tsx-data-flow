@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import { REPORT_VIEWS, defaultMaxItemsFor } from "./cli/args.mjs";
 import {
@@ -9,18 +8,62 @@ import {
   locationOf,
   spanOf,
 } from "./analysis/graph.mjs";
-import { shouldAnalyzeFile } from "./project/files.mjs";
+import { findingTitle } from "./analysis/finding-title.mjs";
+import { buildHelperReport as buildHelperReportImpl } from "./analysis/helper-report.mjs";
+import { familyRows } from "./analysis/ranking.mjs";
+import {
+  buildReport as buildReportImpl,
+  makeFileMatcher,
+} from "./analysis/report-builder.mjs";
+import { reachedSinkDescriptor } from "./analysis/sink-descriptor.mjs";
+import {
+  code,
+  fenced,
+  formatMarkdownTable,
+  metricTable,
+  tableReport,
+  viewIntro,
+  VIEW_BLURBS,
+} from "./reports/markdown-format.mjs";
+import {
+  articleFor,
+  camelCase,
+  camelWords,
+  collapse,
+  focusSnippet,
+  formatExpression,
+  paramNameFor,
+  pascalCase,
+  stepVerb,
+  wordsFromIdentifier,
+} from "./reports/format-helpers.mjs";
+import { selectViewPayload } from "./reports/json.mjs";
+import { regenFooter } from "./reports/regen-footer.mjs";
+import { renderCompareReport } from "./reports/compare.mjs";
+import {
+  reportSummaryForCompare as reportSummaryForCompareImpl,
+  stopRecommendationFor as stopRecommendationForImpl,
+} from "./reports/compare-summary.mjs";
+import {
+  entryTypeCountsByFile,
+  fanOutEntriesForFile,
+  fanOutEntriesGlobal,
+  firstCutFor,
+  hotspotGroups,
+  modalValue,
+} from "./reports/overview-selectors.mjs";
 import { buildProgram } from "./project/typescript.mjs";
-import { writeAllReports, writeReport } from "./reports/output.mjs";
 
 export { REPORT_VIEWS, parseArgs } from "./cli/args.mjs";
 export { helpText } from "./cli/help.mjs";
 export {
-  findDefaultSource,
-  findDefaultTsconfig,
-} from "./project/discovery.mjs";
-export { collectSourceFiles, loadTypescript } from "./project/typescript.mjs";
-export { writeAllReports, writeReport } from "./reports/output.mjs";
+  entryTypeCountsByFile,
+  fanOutEntriesForFile,
+  fanOutEntriesGlobal,
+  firstCutFor,
+  hotspotGroups,
+  modalValue,
+} from "./reports/overview-selectors.mjs";
 
 // Representation-only hops: steps that repackage a value without changing it
 // (aliases, object packs/spreads). Tracked so the report can list exactly which
@@ -404,7 +447,7 @@ function classifyUnresolvedCall(ts, checker, expression, crossFile) {
 // Analyzer jargon and tidy-but-vague names that must never be suggested as code
 // identifiers. Reports may use these words in prose; generated code names must
 // describe the rendered thing instead (Taste #1/#4).
-export const BANNED_SUGGESTION_IDENTIFIERS = [
+const BANNED_SUGGESTION_IDENTIFIERS = [
   "pivot",
   "sinkData",
   "fanInResult",
@@ -452,10 +495,21 @@ export function analyzeProgram(ts, program, args = {}) {
 
 export function renderReport(report, args) {
   if (args.compare) {
-    return `${renderCompareReport(report, args)}\n${regenFooter(args, "compare", report)}`;
+    return `${renderCompareReport(report, args, {
+      reportSummaryForCompare,
+      stopRecommendationFor,
+    })}\n${regenFooter(args, "compare", report)}`;
   }
   if (args.format === "json") {
-    return `${JSON.stringify(selectViewPayload(report, args), null, 2)}\n`;
+    return `${JSON.stringify(
+      selectViewPayload(report, args, {
+        hotspotGroups,
+        modalValue,
+        firstCutFor,
+      }),
+      null,
+      2,
+    )}\n`;
   }
   return `${renderMarkdownView(report, args)}\n${regenFooter(args, args.view, report)}`;
 }
@@ -515,109 +569,6 @@ export function renderAllReports(report, args) {
   });
 }
 
-// A copy-pasteable command that regenerates exactly this report — including the
-// `--out` that lands it back in the same place on disk, so re-running overwrites
-// the file rather than printing to stdout. Reports are often read detached from
-// the shell that produced them, so each carries its own provenance command. Only
-// non-default flags are emitted to keep it short.
-//
-// Two output shapes:
-//   - single view written to a file: `--view <view> --out <file>`
-//   - `--view all` written to a directory (regenAll): `--view all --out <dir>`,
-//     which rebuilds every file in that directory (this one included).
-function regenCommand(args, view) {
-  const regenAll = Boolean(args.regenAll);
-  const parts = [
-    "tsx-dataflow",
-    "--root",
-    shellQuote(commandPath(args.root)),
-    "--view",
-    view === "compare" ? args.view : regenAll ? "all" : view,
-  ];
-  // Always echo --max-items so it is obvious the cap is tunable. (In all-mode
-  // this is the current view's cap; passing it back applies it to every view.)
-  if (Number.isFinite(args.maxItems))
-    parts.push("--max-items", String(args.maxItems));
-  if (args.scope) parts.push("--scope", shellQuote(args.scope));
-  for (const pattern of args.file ?? [])
-    parts.push("--file", shellQuote(pattern));
-  // Echo selection lenses so a regenerated command reproduces the same spread.
-  if (args.sort && args.sort !== "burden") parts.push("--sort", args.sort);
-  if (args.diversity != null) parts.push("--diversity", String(args.diversity));
-  if (args.perFile != null) parts.push("--per-file", String(args.perFile));
-  if (args.perFeature != null)
-    parts.push("--per-feature", String(args.perFeature));
-  if (args.units) parts.push("--units");
-  if (view === "overview" && args.by && args.by !== "file")
-    parts.push("--by", args.by);
-  if (args.format && args.format !== "markdown")
-    parts.push("--format", args.format);
-  if (args.compare)
-    parts.push("--compare", shellQuote(commandPath(args.compare)));
-  if (args.includeTests) parts.push("--include-tests");
-  // args.out is the file (single view) or the directory (--view all); both are
-  // resolved absolute, so render them relative to cwd for a clean command.
-  if (args.out) parts.push("--out", shellQuote(commandPath(args.out)));
-  return parts.join(" ");
-}
-
-function commandPath(targetPath) {
-  const relative = path.relative(process.cwd(), targetPath);
-  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative))
-    return relative;
-  if (relative === "") return ".";
-  return targetPath;
-}
-
-function regenFooter(args, view, report) {
-  const lines = [
-    "---",
-    "",
-    "_Regenerate this report:_",
-    "",
-    "```sh",
-    regenCommand(args, view),
-    "```",
-    "",
-  ];
-  // Aggregate reports mix findings from many files. When more than one file is
-  // still represented, point the reader at --file so they can re-run focused on
-  // a single file or region rather than re-reading the whole spread.
-  if (spansMultipleFiles(report)) {
-    lines.push(
-      "_Focus on one file or region:_ append `--file <path|glob>` (repeatable) — " +
-        "e.g. `--file Button.tsx`, `--file src/components/Button.tsx`, or " +
-        "`--file 'src/dashboard/**'`. Combine with `--scope` to target a symbol within it.",
-      "",
-    );
-  }
-  return lines.join("\n");
-}
-
-// How many distinct files the report's findings touch, used to decide whether a
-// per-file focus hint is worth showing. Counts ranked sinks first (what most
-// views list) and falls back to context-relay findings for relay-only reports.
-function spansMultipleFiles(report) {
-  if (!report) return false;
-  const files = new Set();
-  for (const sink of report.rankings?.all ?? []) files.add(sink.file);
-  if (files.size === 0) {
-    for (const finding of report.contextRelay ?? []) {
-      files.add(finding.parentFile);
-      files.add(finding.childFile);
-    }
-  }
-  return files.size > 1;
-}
-
-function shellQuote(value) {
-  const text = String(value);
-  // Single-quote anything that isn't a safe bare token, escaping embedded quotes.
-  return /^[A-Za-z0-9_./@:-]+$/.test(text)
-    ? text
-    : `'${text.replaceAll("'", "'\\''")}'`;
-}
-
 function buildReport(
   ts,
   program,
@@ -625,183 +576,16 @@ function buildReport(
   typescriptModulePath = null,
   routing = null,
 ) {
-  const checker = program.getTypeChecker();
-  const graph = createGraph(args.root);
-  const sourceFiles = program
-    .getSourceFiles()
-    .filter((sourceFile) => !sourceFile.isDeclarationFile)
-    .filter((sourceFile) => shouldAnalyzeFile(sourceFile.fileName, args));
-  const sinks = [];
-
-  // Shared cross-file state: a static catalog of first-party functions, a
-  // per-file context cache, and the set of functions actually reached while
-  // tracing render paths. Built before tracing so descent can consult it.
-  const crossFile = {
-    args,
-    contextCache: new Map(),
-    catalog: new Map(),
-    reached: new Set(),
-    // Hard safety cap on total cross-file descents per report, so a pathological
-    // call graph can't run the graph out of memory regardless of depth.
-    budget: 20000,
-  };
-
-  const forks = [];
-  // Trace each file exactly once. When a file is owned by an aliased config (see
-  // buildProgramRouting), use that config's program/checker so its path-alias
-  // imports resolve; otherwise use the primary program. Nodes and the checker
-  // that resolves them must come from the same program, so owned files are traced
-  // from their owner program's SourceFile objects.
-  const traced = new Set();
-  const traceFile = (sourceFile, useChecker) => {
-    if (sourceFile.isDeclarationFile) return;
-    if (!shouldAnalyzeFile(sourceFile.fileName, args)) return;
-    if (traced.has(sourceFile.fileName)) return;
-    traced.add(sourceFile.fileName);
-    const analysis = analyzeSourceFile(
-      ts,
-      useChecker,
-      graph,
-      sourceFile,
-      args,
-      crossFile,
-    );
-    sinks.push(...analysis.sinks);
-    forks.push(...analysis.forks);
-  };
-  if (routing) {
-    for (const ownerProgram of routing.programs) {
-      for (const sourceFile of ownerProgram.getSourceFiles()) {
-        const owned = routing.byFile.get(sourceFile.fileName);
-        if (owned && owned.program === ownerProgram) {
-          traceFile(sourceFile, owned.checker);
-        }
-      }
-    }
-  }
-  for (const sourceFile of sourceFiles) {
-    traceFile(sourceFile, checker);
-  }
-
-  const fileMatch = makeFileMatcher(args.file);
-  const scopedSinks = applyScope(sinks, args.scope);
-  const filteredSinks = fileMatch
-    ? scopedSinks.filter((sink) => fileMatch(sink.file))
-    : scopedSinks;
-  groundReachability(filteredSinks);
-  const scopedRelay = applyContextRelayScope(
-    analyzeContextRelay(ts, sourceFiles, args.root),
-    args.scope,
-  );
-  const contextRelay = fileMatch
-    ? scopedRelay.filter(
-        (finding) =>
-          fileMatch(finding.parentFile) || fileMatch(finding.childFile),
-      )
-    : scopedRelay;
-  const packGroups = computePackGroups(filteredSinks);
-  applyPackEvidence(filteredSinks, packGroups);
-  const rankings = rankSinks(
-    filteredSinks.filter(
-      (sink) => sink.category !== "event-handler" && !isConstantSink(sink),
-    ),
-  );
-  // Shared-cause work units (Approach 3) and the concentration profile
-  // (Approach 5) are pure roll-ups over the burden ranking; compute once so
-  // every view projects from the same data.
-  const workUnits = computeWorkUnits(rankings.all);
-  const concentration = computeConcentration(rankings.all);
-  const allHelpers = buildHelperReport(
-    ts,
-    checker,
-    crossFile,
-    args,
-    sourceFiles,
-  );
-  const helpers = fileMatch
-    ? allHelpers.filter((helper) => fileMatch(helper.file))
-    : allHelpers;
-  const unknownEdges = buildUnknownEdgeRows(graph, filteredSinks);
-  const allComponentRefs = buildComponentRefs(
-    ts,
-    checker,
-    sourceFiles,
-    args.root,
-  );
-  const componentRefs = fileMatch
-    ? allComponentRefs.filter(
-        (ref) => fileMatch(ref.file) || ref.uses.some((u) => fileMatch(u.file)),
-      )
-    : allComponentRefs;
-  const repeatedForks = relateForks(
-    fileMatch ? forks.filter((fork) => fileMatch(fork.file)) : forks,
-    filteredSinks,
-  ).sort((l, r) => r.severity - l.severity);
-  const baseline = args.baseline
-    ? compareBaseline(rankings, args.baseline)
-    : null;
-
-  return {
-    analysisVersion: 1,
-    generatedAt: new Date().toISOString(),
-    meta: {
-      root: args.root,
-      source: args.source,
-      tsconfig: args.tsconfig ?? null,
-      tsconfigs: args.tsconfigs ?? (args.tsconfig ? [args.tsconfig] : []),
-      tsconfigWarnings: args.tsconfigWarnings ?? [],
-      typescript: typescriptModulePath,
-      scope: args.scope,
-      file: args.file.length ? args.file : null,
-    },
-    graph: {
-      nodes: graph.nodes,
-      edges: graph.edges,
-      unknownEdges: countDistinctUnknownEdges(graph),
-    },
-    sinks: filteredSinks,
-    contextRelay,
-    rankings,
-    packGroups,
-    workUnits,
-    concentration,
-    helpers,
-    unknownEdges,
-    componentRefs,
-    repeatedForks,
-    baseline,
-    summary: summarize(filteredSinks, graph),
-  };
-}
-
-// Attach the per-sink findings rendered under each fork's discriminated
-// branches. Sinks whose line falls inside a branch body are "branch-gated" — the
-// ones a split would actually move; the rest are component context. This avoids
-// the misleading "splitting on X touches all N sinks in the component" claim.
-function relateForks(forks, sinks) {
-  return forks.map((fork) => {
-    const inComponent = sinks
-      .filter(
-        (sink) =>
-          sink.file === fork.file &&
-          sink.renderContext?.component === fork.component,
-      )
-      .sort((l, r) => (r.scores?.burden ?? 0) - (l.scores?.burden ?? 0));
-    const ranges = fork.branchRanges ?? [];
-    const inBranch = (sink) =>
-      ranges.some(
-        (range) => sink.line >= range.startLine && sink.line <= range.endLine,
-      );
-    const toRef = (sink) => ({
-      id: sink.id,
-      line: sink.line,
-      label: sink.label,
-    });
-    return {
-      ...fork,
-      relatedSinks: inComponent.map(toRef),
-      branchGatedSinks: inComponent.filter(inBranch).map(toRef),
-    };
+  return buildReportImpl(ts, program, args, typescriptModulePath, routing, {
+    analyzeSourceFile,
+    analyzeContextRelay,
+    buildHelperReport,
+    computeConcentration,
+    computePackGroups,
+    computeWorkUnits,
+    groundReachability,
+    applyPackEvidence,
+    unique,
   });
 }
 
@@ -1635,83 +1419,6 @@ function makeCatalogRecord(ts, found, symbol, args) {
   };
 }
 
-// Compute a reached function's return type and internal body metrics on demand
-// (a throwaway graph, no descent), so only render-relevant functions pay for it.
-function enrichCatalogRecord(ts, checker, record, args, crossFile) {
-  const { fnNode, returnExpr, sourceFile } = record;
-  // Use the checker that resolved this record: with per-config programs its nodes
-  // may belong to a different program than the primary checker passed in.
-  const recordChecker = record.checker ?? checker;
-  let returnType = "unknown";
-  try {
-    const signature = recordChecker.getSignatureFromDeclaration(fnNode);
-    if (signature) {
-      returnType = safeTypeText(
-        recordChecker.typeToString(
-          recordChecker.getReturnTypeOfSignature(signature),
-        ),
-      );
-    }
-  } catch {
-    // Some synthetic declarations have no resolvable signature; leave "unknown".
-  }
-
-  let internal = {
-    maximumPathDepth: 0,
-    representationChurn: 0,
-    defensiveOperationCount: 0,
-    impossibleDefenseCount: 0,
-  };
-  let inSources = 0;
-  let inRoots = [];
-  if (returnExpr) {
-    const throwawayGraph = createGraph(args.root);
-    const bodyTrace = traceExpression(
-      ts,
-      recordChecker,
-      throwawayGraph,
-      returnExpr,
-      {
-        ...getFileContextCached(ts, sourceFile, crossFile),
-        sourceFile,
-        root: args.root,
-        stack: new Set(),
-        crossFile: null,
-        crossDepth: 0,
-        visitedFns: new Set(),
-        paramBindings: null,
-      },
-    );
-    internal = metricsFor(bodyTrace);
-    inSources = bodyTrace.roots.length;
-    // DRILL-1: retain the FULL set of named inbound lineages (deduped) rather
-    // than a hard slice of 8 — the UI reveals them in a popover and caps there,
-    // so the count and the revealed list can no longer disagree.
-    inRoots = [
-      ...new Set(
-        fanOutRootsFor({
-          rootInfos: bodyTrace.rootInfos,
-          roots: bodyTrace.roots,
-        }).map((info) => info.label),
-      ),
-    ];
-  }
-  const paramNames = new Set(record.params.map((parameter) => parameter.name));
-  return {
-    returnType,
-    inRoots,
-    inSources,
-    passThrough: returnExpr ? isPassThrough(ts, returnExpr, paramNames) : false,
-    typeLeak:
-      isTypeLeak(returnType) ||
-      record.params.some((parameter) => isTypeLeak(parameter.type)),
-    internalDepth: internal.maximumPathDepth,
-    internalChurn: internal.representationChurn,
-    internalDefenses: internal.defensiveOperationCount,
-    internalImpossible: internal.impossibleDefenseCount,
-  };
-}
-
 // Lazily resolve a callee identifier to a catalog record for a first-party
 // function, creating and caching the (cheap) record the first time. Follows
 // import aliases so `import { groupBarSeries }` lands on the definition. Returns
@@ -1748,244 +1455,15 @@ function resolveCatalogFn(ts, checker, calleeIdent, crossFile, args) {
   return record;
 }
 
-// A pass-through body forwards or renames a parameter with no transformation
-// (no call, operator, or object construction) — a prime inline candidate.
-function isPassThrough(ts, expression, paramNames) {
-  let current = expression;
-  while (
-    ts.isParenthesizedExpression(current) ||
-    ts.isAsExpression(current) ||
-    ts.isNonNullExpression(current)
-  ) {
-    current = current.expression;
-  }
-  if (ts.isIdentifier(current)) return paramNames.has(current.text);
-  if (ts.isPropertyAccessExpression(current)) {
-    let receiver = current;
-    while (ts.isPropertyAccessExpression(receiver))
-      receiver = receiver.expression;
-    return ts.isIdentifier(receiver) && paramNames.has(receiver.text);
-  }
-  return false;
-}
-
-// A boundary "leaks" when its type doesn't actually contain anything: `any`,
-// `unknown`, or an over-wide union that downstream code must re-narrow.
-function isTypeLeak(typeText) {
-  if (!typeText) return false;
-  if (/\b(any|unknown)\b/.test(typeText)) return true;
-  return typeText.split("|").length > 4;
-}
-
-// Count call sites for the reached functions, mutating each record's
-// callerCount/callers in place. Resolution is symbol-precise (so two different
-// `format` functions are not conflated) but only attempted at sites whose callee
-// *name* matches a reached function — and capped by a budget so a ubiquitous
-// short name (`h`, `_`) can't trigger tens of thousands of checker resolutions.
-// XREF-1 (first slice): a symbol-accurate component reference index. For every
-// JSX element whose tag is a component (capitalized identifier), resolve the tag
-// to its declaration via the checker — NOT by name (the exact mistake FANOUT-1
-// fixed) — and record the use site against that component's definition. The tool
-// has the full call graph; this exposes "where is this component used" as a
-// first-class verb. Components only for now; member tags (`Foo.Bar`) and plain
-// symbols are a later expansion. The eventual home is a code-map "where used"
-// overlay; this index backs the References view today.
-function buildComponentRefs(ts, checker, sourceFiles, root) {
-  const byDef = new Map();
-  let budget = 8000;
-  const resolveDecl = (symbol) => {
-    let s = symbol;
-    try {
-      if (s && s.flags & ts.SymbolFlags.Alias) s = checker.getAliasedSymbol(s);
-    } catch {
-      /* not an alias */
-    }
-    return { symbol: s, decl: s?.declarations?.[0] ?? null };
-  };
-  for (const sourceFile of sourceFiles) {
-    const fileRel = relativePath(root, sourceFile.fileName);
-    const visit = (node) => {
-      if (budget <= 0) return;
-      const tag =
-        ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)
-          ? node.tagName
-          : null;
-      if (tag && ts.isIdentifier(tag) && /^[A-Z]/.test(tag.text)) {
-        budget -= 1;
-        const { symbol, decl } = resolveDecl(checker.getSymbolAtLocation(tag));
-        if (symbol && decl) {
-          const declFile = decl.getSourceFile();
-          const defFile = relativePath(root, declFile.fileName);
-          const defLine = locationOf(declFile, decl).line;
-          const key = `${defFile}:${defLine}:${tag.text}`;
-          let rec = byDef.get(key);
-          if (!rec) {
-            rec = {
-              name: tag.text,
-              file: defFile,
-              line: defLine,
-              useCount: 0,
-              uses: [],
-            };
-            byDef.set(key, rec);
-          }
-          rec.useCount += 1;
-          if (rec.uses.length < 25) {
-            rec.uses.push({
-              file: fileRel,
-              line: locationOf(sourceFile, node).line,
-            });
-          }
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
-  }
-  return [...byDef.values()]
-    .filter((rec) => rec.useCount > 0)
-    .sort((a, b) => b.useCount - a.useCount || a.name.localeCompare(b.name));
-}
-
-function countCallers(ts, checker, sourceFiles, reached, crossFile, args) {
-  // BUG-2: match call sites to helpers by a program-independent identity
-  // (defFile:defLine:name), not the raw TypeScript Symbol object. With path-alias
-  // tsconfigs a helper's catalog symbol is minted by its *owner* program while
-  // call sites here resolve through the *primary* checker; Symbol objects are not
-  // shared across programs, so the old `bySymbol` comparison always missed for
-  // aliased helpers — an exported, clearly-used function showed "0 caller(s)".
-  const keyOf = (record) => `${record.file}:${record.line}:${record.name}`;
-  const byKey = new Map(reached.map((record) => [keyOf(record), record]));
-  const names = new Set(reached.map((record) => record.name));
-  let budget = 6000;
-  for (const sourceFile of sourceFiles) {
-    const fileRel = relativePath(args.root, sourceFile.fileName);
-    const visit = (node) => {
-      if (budget > 0 && ts.isCallExpression(node)) {
-        const ident = ts.isIdentifier(node.expression)
-          ? node.expression
-          : ts.isPropertyAccessExpression(node.expression)
-            ? node.expression.name
-            : null;
-        if (ident && names.has(ident.text)) {
-          budget -= 1;
-          const resolved = resolveCatalogFn(
-            ts,
-            checker,
-            ident,
-            crossFile,
-            args,
-          );
-          const record = resolved ? byKey.get(keyOf(resolved)) : null;
-          if (record) {
-            record.callerCount += 1;
-            if (record.callers.length < 8) {
-              record.callers.push({
-                file: fileRel,
-                line: locationOf(sourceFile, node).line,
-              });
-            }
-          }
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
-  }
-}
-
-// Build the serializable list of functions reached on render paths, each scored
-// as a boundary and tagged with a verdict. Backs the boundary-report, junctions,
-// and inline-preview views. TS nodes/symbols are dropped so the result is JSON.
 function buildHelperReport(ts, checker, crossFile, args, sourceFiles) {
-  const reached = [];
-  for (const record of crossFile.catalog.values()) {
-    if (record && crossFile.reached.has(record.symbol)) reached.push(record);
-  }
-  if (reached.length === 0) return [];
-
-  // Symbol-precise caller counts at name-matching sites only (budgeted).
-  countCallers(ts, checker, sourceFiles, reached, crossFile, args);
-
-  const records = [];
-  for (const record of reached) {
-    // Enrich only now (return type + body metrics), for reached functions only.
-    const enriched = {
-      ...record,
-      ...enrichCatalogRecord(ts, checker, record, args, crossFile),
-    };
-    records.push({
-      name: enriched.name,
-      file: enriched.file,
-      line: enriched.line,
-      params: enriched.params,
-      arity: enriched.arity,
-      returnType: enriched.returnType,
-      inRoots: enriched.inRoots,
-      inSources: enriched.inSources,
-      callerCount: enriched.callerCount,
-      callers: enriched.callers,
-      passThrough: enriched.passThrough,
-      typeLeak: enriched.typeLeak,
-      internalDepth: enriched.internalDepth,
-      internalChurn: enriched.internalChurn,
-      internalDefenses: enriched.internalDefenses,
-      internalImpossible: enriched.internalImpossible,
-      verdict: classifyBoundary(enriched),
-      debt: boundaryDebt(enriched),
-    });
-  }
-  return records.sort((left, right) => right.debt - left.debt);
-}
-
-// A function's primary verdict as a data-flow boundary (see the boundary-report
-// view). Ordered so the most actionable label wins when several apply.
-function classifyBoundary(record) {
-  const isJunction = record.inSources >= 3 && record.callerCount >= 2;
-  const messyInternals =
-    record.internalDepth >= 6 ||
-    record.internalChurn >= 4 ||
-    record.internalDefenses >= 3 ||
-    record.internalImpossible > 0;
-  if (record.passThrough && record.internalDepth <= 1) {
-    return "thin pass-through (inline)";
-  }
-  if (isLocalScalarMathBoundary(record)) return "local scalar math";
-  if (isJunction) return "confluence / junction";
-  if (record.typeLeak) return "leaky boundary";
-  if (messyInternals) return "messy internals";
-  return "clean pipe";
-}
-
-function isLocalScalarMathBoundary(record) {
-  if (record.typeLeak) return false;
-  if (record.internalImpossible > 0 || record.internalDefenses > 0)
-    return false;
-  if (record.callerCount > 2) return false;
-  if (record.internalDepth > 5 || record.internalChurn > 2) return false;
-  if (!/^(?:number|string|boolean|bigint)$/.test(record.returnType ?? "")) {
-    return false;
-  }
-  return /^(?:get|compute)?(?:center|radius|circumference|dash|progress|track|size|width|height|x|y|cx|cy|r|axis|tick|title|label)/i.test(
-    record.name ?? "",
-  );
-}
-
-// A single "boundary debt" number used only to rank the report — higher means a
-// more tangled / leaky / load-bearing function worth attention first.
-function boundaryDebt(record) {
-  const isJunction = record.inSources >= 3 && record.callerCount >= 2;
-  const scalarPenalty = isLocalScalarMathBoundary(record) ? -3 : 0;
-  return (
-    record.inSources +
-    record.internalChurn +
-    record.internalDefenses * 2 +
-    record.internalImpossible * 3 +
-    record.internalDepth * 0.5 +
-    (record.typeLeak ? 4 : 0) +
-    (isJunction ? record.callerCount * 2 : 0) +
-    scalarPenalty
-  );
+  return buildHelperReportImpl(ts, checker, crossFile, args, sourceFiles, {
+    fanOutRootsFor,
+    getFileContextCached,
+    metricsFor,
+    resolveCatalogFn,
+    safeTypeText,
+    traceExpression,
+  });
 }
 
 // BUG-1: an inline object literal with no dynamic sub-expression — an empty `{}`,
@@ -3228,125 +2706,6 @@ function metricsFor(
   };
 }
 
-// Compact, render-friendly descriptor of a sink reached through a shared source.
-function reachedSinkDescriptor(sink) {
-  const ctx = sink.renderContext ?? {};
-  const where = [ctx.tag, ctx.attribute].filter(Boolean).join(" / ");
-  return {
-    id: sink.id,
-    file: sink.file,
-    line: sink.line,
-    label: where || sink.label || sink.expression || sink.id,
-    // FANOUT-DEPTH-1: the sink's own longest source→sink path length, so the
-    // fan-out graph can show how *derived* each reached sink is right next to it.
-    // Cheap (already computed); this is the sink's overall depth, not a measured
-    // distance from this particular root (that enhancement is deferred).
-    depth: sink.metrics?.maximumPathDepth ?? 0,
-  };
-}
-
-function buildUnknownEdgeRows(graph, sinks) {
-  const nodes = new Map((graph.nodes ?? []).map((node) => [node.id, node]));
-  // The trace graph re-traces each sink independently, minting fresh nodes/edges
-  // per sink path (see addOperationTrace). So one physical unknown edge (a call,
-  // an unknown identifier) is recorded once per render path that crosses it. Key
-  // each row by its source position + kind + label and dedupe: emit one row per
-  // distinct unknown edge, counting `occurrences` as the path multiplicity (a
-  // cheap reach proxy) so a fan-out sink doesn't flood the report with copies.
-  const byKey = new Map();
-  const rows = [];
-  const record = (key, build) => {
-    const existing = byKey.get(key);
-    if (existing) {
-      existing.occurrences += 1;
-      return;
-    }
-    const row = { ...build(), occurrences: 1 };
-    byKey.set(key, row);
-    rows.push(row);
-  };
-  for (const edge of graph.edges ?? []) {
-    if (!edge.unknown) continue;
-    const target = nodes.get(edge.to);
-    const source = nodes.get(edge.from);
-    const file = target?.file ?? source?.file ?? "";
-    const line = target?.location?.line ?? source?.location?.line ?? null;
-    const label = target?.label ?? source?.label ?? edge.kind;
-    record(`${file}:${line ?? ""}:${edge.kind}:${label}`, () => ({
-      id: edge.id,
-      file,
-      line,
-      kind: edge.kind,
-      label,
-      source: source
-        ? { id: source.id, kind: source.kind, label: source.label }
-        : null,
-      target: target
-        ? { id: target.id, kind: target.kind, label: target.label }
-        : null,
-      affectedSinks: affectedSinksForUnknownEdge(sinks, {
-        file,
-        line,
-        kind: edge.kind,
-        label,
-      }),
-    }));
-  }
-  for (const node of graph.nodes ?? []) {
-    if (node.kind !== "unknown-source") continue;
-    const file = node.file ?? "";
-    const line = node.location?.line ?? null;
-    const label = node.label;
-    const kind = "unknown-source";
-    record(`${file}:${line ?? ""}:${kind}:${label}`, () => ({
-      id: node.id,
-      file,
-      line,
-      kind,
-      label,
-      source: null,
-      target: { id: node.id, kind: node.kind, label: node.label },
-      affectedSinks: affectedSinksForUnknownEdge(sinks, {
-        file,
-        line,
-        kind,
-        label,
-      }),
-    }));
-  }
-  return rows.sort(
-    (left, right) =>
-      left.file.localeCompare(right.file) ||
-      Number(left.line ?? 0) - Number(right.line ?? 0) ||
-      left.kind.localeCompare(right.kind) ||
-      left.label.localeCompare(right.label),
-  );
-}
-
-function affectedSinksForUnknownEdge(sinks, edge) {
-  return sinks
-    .filter((sink) => {
-      const roots =
-        sink.rootInfos ??
-        sink.roots.map((root) => ({ label: root, kind: "source" }));
-      if (
-        roots.some(
-          (root) => root.label === edge.label && root.kind === edge.kind,
-        )
-      ) {
-        return true;
-      }
-      return (sink.representativeSteps ?? []).some((step) => {
-        if (edge.file && step.file !== edge.file) return false;
-        if (edge.line != null && step.line !== edge.line) return false;
-        if (edge.kind && step.kind !== edge.kind) return false;
-        return !edge.label || step.label === edge.label;
-      });
-    })
-    .slice(0, REACHED_VIA_CAP)
-    .map(reachedSinkDescriptor);
-}
-
 function isCertaintyBoundaryDefense(defense) {
   return /parser-boundary|compatibility|optional|solid prop default|api-choice/i.test(
     defense.origin ?? "",
@@ -3696,81 +3055,6 @@ function getNullishStatus(ts, checker, expression) {
 // the UI can demote them out of the findings list, which otherwise fills with
 // "the simplest usage possible" noise. Reach/fan-out is deliberately NOT a
 // signal here: a plain prop read that feeds many sinks is still just a usage.
-const USAGE_BURDEN_CEILING = 0.08;
-function classifyTier(sink, burden) {
-  const m = sink.metrics ?? {};
-  const hasSignal =
-    (m.actionableDefensiveOperationCount ?? 0) > 0 ||
-    (m.impossibleDefenseCount ?? 0) > 0 ||
-    (m.representationChurn ?? 0) > 0 ||
-    (m.controlDependencyCount ?? 0) > 0 ||
-    (m.helperHops ?? 0) > 0 ||
-    (m.packRisk ?? 0) > 0 ||
-    (m.suspiciousPackCount ?? 0) > 0 ||
-    (m.unknownEdgeCount ?? 0) > 0 ||
-    (m.repeatedNormalization ?? 0) > 0;
-  return burden < USAGE_BURDEN_CEILING && !hasSignal ? "usage" : "finding";
-}
-
-function rankSinks(sinks) {
-  const enriched = sinks.map((sink) => {
-    const background = backgroundClassificationFor(sink);
-    const rawBurden = burdenScore(sink.metrics);
-    const burden = background ? rawBurden * background.penalty : rawBurden;
-    const centrality = centralityScore(sink.metrics);
-    const changeRisk = changeRiskScore(sink.metrics);
-    const confidence = sink.confidence / 100;
-    return {
-      ...sink,
-      signature: signatureFor(sink),
-      background,
-      tier: classifyTier(sink, burden),
-      scores: {
-        burden,
-        rawBurden,
-        // Per-term decomposition of rawBurden so the report can explain the
-        // score. `backgroundPenalty` is the post-decomposition multiplier
-        // applied to reach the final `burden` (1 when no background discount).
-        burdenBreakdown: {
-          ...burdenBreakdown(sink.metrics),
-          backgroundPenalty: background ? background.penalty : 1,
-        },
-        centrality,
-        changeRisk,
-        quickWin:
-          (confidence * burden * Math.pow(1 - centrality, 0.7)) /
-          (0.25 + changeRisk),
-        centralLeverage:
-          (confidence * burden * centrality * Math.max(0.1, centrality)) /
-          (0.25 + changeRisk),
-        investigationPriority:
-          burden * centrality * Math.min(1, sink.metrics.unknownEdgeCount / 3),
-      },
-    };
-  });
-  return {
-    all: enriched.sort(
-      (left, right) => right.scores.burden - left.scores.burden,
-    ),
-    quickWins: enriched
-      .filter((sink) => sink.queue === "peripheral-quick-win")
-      .sort((left, right) => right.scores.quickWin - left.scores.quickWin),
-    centralLeverage: enriched
-      .filter((sink) => sink.queue === "central-leverage")
-      .sort(
-        (left, right) =>
-          right.scores.centralLeverage - left.scores.centralLeverage,
-      ),
-    investigations: enriched
-      .filter((sink) => sink.queue === "investigation")
-      .sort(
-        (left, right) =>
-          right.scores.investigationPriority -
-          left.scores.investigationPriority,
-      ),
-  };
-}
-
 // --- Selection layer: depth vs. breadth -----------------------------------
 // `rankings.all` is a pure descending-burden sort, which clusters: a few heavy
 // files monopolize the top. These helpers re-select over that ranking to add
@@ -5102,24 +4386,6 @@ function renderOverviewReport(report, args) {
   return `${lines.join("\n")}\n`;
 }
 
-// Concise "suggested first cut" per shape — the headline action for a hotspot.
-const SHAPE_FIRST_CUT = {
-  "svg-shell": "keep shell sizing inline",
-  "local-scalar-geometry": "name repeated local scalars",
-  "geometry-chain": "extract render item geometry",
-  "collection-render-model": "extract rendered items",
-  "control-flow-gate": "name the predicate",
-  "presentation-pack": "split the class/style object",
-  "domain-normalization": "normalize at the boundary",
-  "solid-prop-default-boundary": "promote prop defaults to mergeProps",
-  "cross-component-relay": "move state behind context",
-};
-
-export function firstCutFor(sink) {
-  if (!sink) return "—";
-  return SHAPE_FIRST_CUT[primaryShapeOf(sink)] ?? "local boundary cleanup";
-}
-
 function appendStopRecommendation(lines, report) {
   const stop = stopRecommendationFor(report);
   lines.push("## Stop Recommendation");
@@ -5132,51 +4398,6 @@ function appendStopRecommendation(lines, report) {
     );
   }
   lines.push("");
-}
-
-// The most common value in a list (for dominant shape/ownership columns).
-export function modalValue(values) {
-  const counts = countBy(values);
-  const entries = Object.entries(counts).sort(
-    (left, right) => right[1] - left[1],
-  );
-  return entries[0]?.[0] ?? "—";
-}
-
-// Approach 4 — aggregate the burden ranking into one row per file (or feature
-// area). The breadth map: every place with a finding appears once.
-export function hotspotGroups(report, by) {
-  const groups = new Map();
-  for (const sink of report.rankings.all) {
-    const key = by === "feature" ? featureKeyFor(sink.file) : sink.file;
-    let group = groups.get(key);
-    if (!group) {
-      group = {
-        key,
-        count: 0,
-        worst: 0,
-        sumBurden: 0,
-        maxReach: 0,
-        shapes: [],
-        ownership: [],
-        worstSink: null,
-      };
-      groups.set(key, group);
-    }
-    group.count += 1;
-    group.sumBurden += sink.scores.burden;
-    if (sink.scores.burden > group.worst) {
-      group.worst = sink.scores.burden;
-      group.worstSink = sink;
-    }
-    group.maxReach = Math.max(group.maxReach, sink.metrics.reachableSinks);
-    group.shapes.push(primaryShapeOf(sink));
-    group.ownership.push(ownershipHintFor(sink));
-  }
-  return Array.from(groups.values()).sort(
-    (left, right) =>
-      right.sumBurden - left.sumBurden || right.worst - left.worst,
-  );
 }
 
 // Approach 2 — classify every function reached on a render path as a data-flow
@@ -5560,7 +4781,7 @@ function sinkAttributeName(sink) {
 // tags, derived purely from the sink's own trace (no repo scanning). Tags are
 // non-exclusive; the array is returned in a fixed priority order so callers can
 // treat element 0 as the primary shape.
-export function classifyPathShape(sink) {
+function classifyPathShape(sink) {
   const attribute = sinkAttributeName(sink);
   const steps = sink.representativeSteps ?? [];
   const kinds = new Set(steps.map((step) => step.kind));
@@ -5914,7 +5135,7 @@ function hasContextHookRoot(sink) {
 // SVG/HTML *shell*; coordinate attributes are *geometry*; when/each/fallback are
 // *control-flow*; class/style are *style*; id/href-like fields are *identity*;
 // bare values are *text*.
-export function sinkFamilyOf(sink) {
+function sinkFamilyOf(sink) {
   const attribute = sinkAttributeName(sink);
   if (attribute && SVG_SHELL_ATTRIBUTES.has(attribute)) return "svg-shell";
   if (attribute && GEOMETRY_FAMILY_ATTRIBUTES.has(attribute)) return "geometry";
@@ -6388,76 +5609,6 @@ function pluralRenderedThing(text) {
   return `${value}s`;
 }
 
-function articleFor(text) {
-  return /^[aeiou]/i.test(String(text)) ? "an" : "a";
-}
-
-function wordsFromIdentifier(value) {
-  return camelWords(value).map((word) => word.toLowerCase());
-}
-
-function camelWords(value) {
-  return String(value)
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .split(/[^A-Za-z0-9]+/)
-    .filter(Boolean);
-}
-
-function camelCase(value) {
-  const words = camelWords(value);
-  if (words.length === 0) return "value";
-  return [
-    words[0].toLowerCase(),
-    ...words
-      .slice(1)
-      .map((word) => word[0].toUpperCase() + word.slice(1).toLowerCase()),
-  ].join("");
-}
-
-function pascalCase(value) {
-  return camelWords(value)
-    .map((word) => word[0].toUpperCase() + word.slice(1).toLowerCase())
-    .join("");
-}
-
-// Turn a source label into a plausible parameter name: the last identifier of a
-// property chain (`props.profile` → `profile`), else a safe fallback.
-function paramNameFor(label) {
-  const segments = String(label)
-    .split(/[^A-Za-z0-9_$]+/)
-    .filter(Boolean);
-  const last = segments[segments.length - 1];
-  return last && /^[A-Za-z_$]/.test(last) ? last : "input";
-}
-
-// A plain-English verb for each operation kind, so the path reads as a sequence
-// of actions ("read", "default", "compute", "helper", "format") instead of bare
-// analyzer kinds. The exact kind vocabulary still lives in the
-// transformation-ledger view for anyone who wants it.
-const STEP_KIND_VERBS = {
-  source: "source",
-  "unknown-source": "source?",
-  "property-read": "read",
-  "optional-read": "read?",
-  iteration: "iterate",
-  fallback: "default",
-  conditional: "compute",
-  call: "helper",
-  "object-pack": "pack",
-  "object-spread": "spread",
-  alias: "alias",
-  template: "format",
-  "solid-accessor": "memo",
-  "jsx-sink": "render",
-  literal: "literal",
-  cycle: "cycle",
-  unknown: "external",
-};
-
-function stepVerb(kind) {
-  return STEP_KIND_VERBS[kind] ?? (kind || "step");
-}
-
 // Render the representative path as a derivation chain: each numbered row is
 // built from the row above it, the last row is the value JSX renders. A leading
 // `F#:line` column backlinks each hop to its source location (so it is clear
@@ -6621,496 +5772,23 @@ function sum(items, project) {
   return items.reduce((total, item) => total + project(item), 0);
 }
 
-function selectViewPayload(report, args) {
-  return {
-    analysisVersion: report.analysisVersion,
-    generatedAt: report.generatedAt,
-    summary: report.summary,
-    view: args.view,
-    sinks: report.rankings.all.slice(0, args.maxItems),
-    contextRelay:
-      args.view === "context-relay"
-        ? report.contextRelay.slice(0, args.maxItems)
-        : undefined,
-    helpers: ["boundary-report", "junctions", "inline-preview"].includes(
-      args.view,
-    )
-      ? (report.helpers ?? []).slice(0, args.maxItems)
-      : undefined,
-    unknownEdges:
-      args.view === "overview"
-        ? (report.unknownEdges ?? []).slice(0, args.maxItems)
-        : undefined,
-    packGroups: ["work-packets", "findings"].includes(args.view)
-      ? (report.packGroups ?? []).slice(0, args.maxItems)
-      : undefined,
-    hotspots:
-      args.view === "overview"
-        ? hotspotGroups(report, args.by === "feature" ? "feature" : "file")
-            .slice(0, args.maxItems)
-            .map((group) => ({
-              key: group.key,
-              count: group.count,
-              worst: Number(group.worst.toFixed(3)),
-              sumBurden: Number(group.sumBurden.toFixed(3)),
-              maxReach: group.maxReach,
-              dominantShape: modalValue(group.shapes),
-              ownership: modalValue(group.ownership),
-              firstCut: firstCutFor(group.worstSink),
-            }))
-        : undefined,
-    concentration: args.view === "overview" ? report.concentration : undefined,
-    // The `dossier` markdown view was retired (round 8), but its structural payload
-    // (graph counts + bounded node/edge sample) stays "available on request" here:
-    // every `--format json` response carries the bounded graph regardless of view.
-    graph: boundedGraph(report.graph, args.maxItems),
-    baseline: report.baseline,
-  };
-}
-
-function boundedGraph(graph, maxItems) {
-  return {
-    nodes: graph.nodes.slice(0, maxItems),
-    edges: graph.edges.slice(0, maxItems),
-    omittedNodes: Math.max(0, graph.nodes.length - maxItems),
-    omittedEdges: Math.max(0, graph.edges.length - maxItems),
-    unknownEdges: graph.unknownEdges,
-  };
-}
-
-function compareBaseline(rankings, baselinePath) {
-  const baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
-  const currentWorst = rankings.all[0]?.scores.burden ?? 0;
-  const baselineWorst = baseline.sinks?.[0]?.scores?.burden ?? 0;
-  return {
-    currentWorst,
-    baselineWorst,
-    regressed: currentWorst > baselineWorst,
-    ...diffBaselineSinks(rankings.all, baseline.sinks ?? []),
-  };
-}
-
-function renderCompareReport(report, args) {
-  const baseline = readReportDirectorySummary(args.compare);
-  const current = reportSummaryForCompare(report);
-  const lines = [
-    "# tsx-dataflow Compare",
-    "",
-    `Baseline: ${commandPath(args.compare)}`,
-    "After: current run",
-    "",
-    "## Summary",
-    "",
-    ...formatMarkdownTable(
-      ["Computed signal", "Baseline", "After", "Delta"],
-      [
-        [
-          "Worst burden score",
-          formatWorstMetric(baseline),
-          formatWorstMetric(current),
-          compareNumberLabel(baseline.worstScore, current.worstScore, true),
-        ],
-        [
-          "Finding count (hotspots)",
-          formatOptionalNumber(baseline.hotspots),
-          String(current.hotspots),
-          formatDeltaLabel(baseline.hotspots, current.hotspots, true),
-        ],
-        [
-          "Defensive operation entries",
-          formatOptionalNumber(baseline.defensiveEntries),
-          String(current.defensiveEntries),
-          formatDeltaLabel(
-            baseline.defensiveEntries,
-            current.defensiveEntries,
-            true,
-          ),
-        ],
-        [
-          "Representation-only wrapper steps",
-          formatOptionalNumber(baseline.wrappers),
-          String(current.wrappers),
-          formatDeltaLabel(baseline.wrappers, current.wrappers, true),
-        ],
-      ],
-    ),
-    "",
-    "_These are analyzer-computed signals, not product accounts or runtime telemetry. Wrapper steps are the summed `representationChurn` metric: aliases, object packs, spreads, and other representation-only repacks on render paths._",
-    "",
-    "## How to read the deltas",
-    "",
-    ...formatMarkdownTable(
-      ["Signal", "What it measures", "How to weigh it"],
-      [
-        [
-          "Worst burden score",
-          "The single heaviest render path, normalized 0–1 from depth, helper hops, wrapper steps, defenses, impossible defenses, control flow, and repeated normalization.",
-          "Use as the headline local pain signal. It can stay flat when the same worst path remains even if broad cleanup improves elsewhere.",
-        ],
-        [
-          "Finding count (hotspots)",
-          "How many ranked render sinks remain after filtering.",
-          "Use as breadth. Large drops mean less overall surface area; large counts can still be acceptable when remaining rows are low-risk background paths.",
-        ],
-        [
-          "Defensive operation entries",
-          "Unique optional reads and fallback operations on render paths.",
-          "Prioritize impossible or unknown defenses first because they often point to stale guards or unclear contracts.",
-        ],
-        [
-          "Representation-only wrapper steps",
-          "Alias/object-pack/spread hops that change shape without adding product behavior.",
-          "Treat a spike as a reviewability warning, not automatic failure. It matters most when worst burden, relay/overpacked findings, or defensive entries do not improve with it.",
-        ],
-      ],
-    ),
-    "",
-  ];
-
-  const removed = removedFindingFamilies(baseline, current);
-  if (removed.length > 0) {
-    lines.push("## Removed finding families", "");
-    for (const item of removed) lines.push(`- ${item}`);
-    lines.push("");
-  }
-
-  const remaining = remainingFindingFamilies(current);
-  if (remaining.length > 0) {
-    lines.push("## Remaining finding families", "");
-    for (const item of remaining) lines.push(`- ${item}`);
-    lines.push("");
-  }
-
-  const stop = stopRecommendationFor(report);
-  lines.push("## Verdict", "");
-  lines.push(
-    stop.recommend
-      ? `Verdict: improvement; stop local cleanup. ${stop.reason}`
-      : `Verdict: continue cleanup. ${stop.reason}`,
-  );
-  lines.push("");
-  if (baseline.missing.length > 0) {
-    lines.push(
-      `Note: baseline was missing ${baseline.missing.join(", ")}; omitted metrics are shown as n/a.`,
-      "",
-    );
-  }
-  return `${lines.join("\n")}\n`;
-}
-
 function reportSummaryForCompare(report) {
-  const top = report.rankings.all[0];
-  return {
-    worstScore: top?.scores.burden ?? 0,
-    worstSeverity: top ? severityFor(top) : "LOW",
-    hotspots: report.rankings.all.length,
-    defensiveEntries: uniqueDefenseEntries(report.sinks).length,
-    wrappers: sum(
-      report.rankings.all,
-      (sink) => sink.metrics.representationChurn,
-    ),
-    families: findingFamiliesFor(report),
-    backgroundLabels: unique(
-      report.rankings.all.map((sink) => sink.background?.label).filter(Boolean),
-    ),
-  };
-}
-
-function readReportDirectorySummary(directory) {
-  const missing = [];
-  const read = (name) => {
-    const file = path.join(directory, name);
-    if (!fs.existsSync(file)) {
-      missing.push(name);
-      return "";
-    }
-    return fs.readFileSync(file, "utf8");
-  };
-  // `dossier.md` and `transformation-ledger.md` were retired (round 8) but may
-  // still exist in older baseline directories. Read them optionally — present is a
-  // bonus (richer fallback), absent is not "missing" — so a current-tool baseline
-  // doesn't spuriously report them as gaps.
-  const readOptional = (name) => {
-    const file = path.join(directory, name);
-    return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-  };
-  const dossier = readOptional("dossier.md");
-  const findings = read("findings.md");
-  const defensive = read("defensive-ledger.md");
-  const transform = readOptional("transformation-ledger.md");
-  const workPackets = read("work-packets.md");
-  return {
-    worstScore:
-      parsePrimaryPivotScore(dossier) ?? parseWorstFindingScore(findings),
-    worstSeverity: parseWorstSeverity(findings),
-    hotspots:
-      parseDossierSinkCount(dossier) ??
-      countMarkdownHeadings(findings, /^## RPF-/),
-    defensiveEntries: countMarkdownTableRows(defensive),
-    wrappers: parseTransformationWrappers(transform),
-    families: parseFindingFamilies(workPackets, defensive),
-    missing,
-  };
-}
-
-function parsePrimaryPivotScore(text) {
-  const match = /\|\s*`[^`]*`\s*\|\s*\d+\s*\|\s*([0-9.]+)\s*\|/.exec(text);
-  return match ? Number(match[1]) : null;
-}
-
-function parseWorstFindingScore(text) {
-  const match = /burden score\s*\|\s*([0-9.]+)/i.exec(text);
-  return match ? Number(match[1]) : null;
-}
-
-function parseWorstSeverity(text) {
-  const match = /^## RPF-[^·]+·\s*([A-Z]+)/m.exec(text);
-  return match?.[1] ?? "n/a";
-}
-
-function parseDossierSinkCount(text) {
-  const match = /\|\s*\d+\s*\|\s*\d+\s*\|\s*\d+\s*\|\s*(\d+)\s*\|/.exec(text);
-  return match ? Number(match[1]) : null;
-}
-
-function countMarkdownHeadings(text, pattern) {
-  return text.split("\n").filter((line) => pattern.test(line)).length;
-}
-
-function countMarkdownTableRows(text) {
-  return text
-    .split("\n")
-    .filter(
-      (line) =>
-        /^\|/.test(line) &&
-        !/^\|\s*-/.test(line) &&
-        !/^\|\s*Location\s*\|/.test(line) &&
-        !/^\|\s*#\s*\|/.test(line),
-    ).length;
-}
-
-function parseTransformationWrappers(text) {
-  const match = /representation-only(?: wrapper)? steps\s*\|\s*(\d+)/i.exec(
-    text,
-  );
-  return match ? Number(match[1]) : null;
-}
-
-function parseFindingFamilies(text, defensiveText = "") {
-  const families = [];
-  if (
-    /\|[^\n|]+\|[^\n|]+\|[^\n|]+\|[^\n|]+\|\s*impossible\s*\|/i.test(
-      defensiveText,
-    )
-  )
-    families.push("type-impossible fallback");
-  if (
-    /Provider\/Context audit|Check whether this feature already has or needs a Provider\/Context boundary/i.test(
-      text,
-    )
-  )
-    families.push("provider/context advice");
-  if (/Grouped Recommendations|Extract bar|BarRect|BarTick/i.test(text))
-    families.push("render-item extraction");
-  if (/already readable|Background Findings/i.test(text))
-    families.push("background scalar helpers");
-  if (/healthy shared boundary|computeChartLayout/i.test(text))
-    families.push("healthy shared boundary");
-  if (/mirror singleton risk|mirror object/i.test(text))
-    families.push("mirror singleton risk");
-  return unique(families);
-}
-
-function findingFamiliesFor(report) {
-  const families = [];
-  if (
-    report.rankings.all.some((sink) => sink.metrics.impossibleDefenseCount > 0)
-  )
-    families.push("type-impossible fallback");
-  if (report.rankings.all.some((sink) => isProviderContextCandidate(sink)))
-    families.push("provider/context advice");
-  if (groupedRenderRecommendations(report.rankings.all).length > 0)
-    families.push("render-item extraction");
-  if (
-    report.rankings.all.some(
-      (sink) => sink.background?.label === "already readable",
-    )
-  )
-    families.push("background scalar helpers");
-  if (
-    report.rankings.all.some(
-      (sink) => sink.background?.label === "healthy shared boundary",
-    )
-  )
-    families.push("healthy shared boundary");
-  if (
-    report.rankings.all.some(
-      (sink) =>
-        mirrorSingletonRiskFor(sink) ||
-        sink.packVerdicts?.includes("mirror-object"),
-    )
-  )
-    families.push("mirror singleton risk");
-  return unique(families);
-}
-
-function uniqueDefenseEntries(sinks) {
-  return unique(
-    sinks.flatMap((sink) =>
-      (sink.defenses ?? []).map(
-        (defense) =>
-          `${defense.file}:${defense.line}:${defense.expression}:${defense.verdict}`,
-      ),
-    ),
-  );
-}
-
-function uniqueActionableDefenseEntries(sinks) {
-  return unique(
-    sinks.flatMap((sink) =>
-      (sink.defenses ?? [])
-        .filter((defense) => !isCertaintyBoundaryDefense(defense))
-        .map(
-          (defense) =>
-            `${defense.file}:${defense.line}:${defense.expression}:${defense.verdict}`,
-        ),
-    ),
-  );
-}
-
-function removedFindingFamilies(baseline, current) {
-  return (baseline.families ?? []).filter(
-    (family) => !(current.families ?? []).includes(family),
-  );
-}
-
-function remainingFindingFamilies(current) {
-  return current.families ?? [];
-}
-
-function formatWorstMetric(summary) {
-  if (!Number.isFinite(summary.worstScore)) return "n/a";
-  return `${summary.worstScore.toFixed(2)} ${summary.worstSeverity ?? ""}`.trim();
-}
-
-function formatOptionalNumber(value) {
-  return Number.isFinite(value) ? String(value) : "n/a";
-}
-
-function compareNumberLabel(before, after, lowerIsBetter) {
-  if (!Number.isFinite(before) || !Number.isFinite(after)) return "n/a";
-  const improved = lowerIsBetter ? after < before : after > before;
-  const regressed = lowerIsBetter ? after > before : after < before;
-  if (Math.abs(after - before) < 0.001) return "same";
-  return improved ? "improved" : regressed ? "regressed" : "changed";
-}
-
-function formatDeltaLabel(before, after, lowerIsBetter) {
-  if (!Number.isFinite(before) || !Number.isFinite(after)) return "n/a";
-  const delta = after - before;
-  const label = compareNumberLabel(before, after, lowerIsBetter);
-  return `${delta > 0 ? "+" : ""}${delta} ${label}`;
+  return reportSummaryForCompareImpl(report, compareSummaryDependencies());
 }
 
 function stopRecommendationFor(report) {
-  const topActionable = report.rankings.all.find((sink) => !sink.background);
-  const defensiveEntries = uniqueDefenseEntries(report.sinks).length;
-  const actionableDefensiveEntries = uniqueActionableDefenseEntries(
-    report.sinks,
-  ).length;
-  const highRiskPacks = report.packGroups.filter((group) =>
-    ["overpacked-bag", "relay-bag", "mirror-object"].includes(group.verdict),
-  );
-  const backgroundCount = report.rankings.all.filter(
-    (sink) => sink.background,
-  ).length;
-  const topScore = topActionable?.scores.burden ?? 0;
-  const lowTop = topScore < 0.35;
-  const mostlyBackground =
-    backgroundCount >= Math.max(1, report.rankings.all.length * 0.2);
-
-  if (
-    actionableDefensiveEntries === 0 &&
-    highRiskPacks.length === 0 &&
-    lowTop &&
-    mostlyBackground
-  ) {
-    return {
-      recommend: true,
-      reason:
-        defensiveEntries === 0
-          ? "No defensive operation entries remain; highest actionable score is low; remaining paths are mostly scalar helpers or cohesive shared-boundary reads."
-          : "No actionable defensive operation entries remain; remaining fallbacks are certainty/API-choice boundaries; highest actionable score is low.",
-    };
-  }
-  if (actionableDefensiveEntries > 0) {
-    return {
-      recommend: false,
-      reason: `${actionableDefensiveEntries} actionable defensive operation entr${actionableDefensiveEntries === 1 ? "y remains" : "ies remain"}.`,
-    };
-  }
-  if (highRiskPacks.length > 0) {
-    return {
-      recommend: false,
-      reason: `${highRiskPacks.length} high-risk pack verdict${highRiskPacks.length === 1 ? " remains" : "s remain"}.`,
-    };
-  }
-  return {
-    recommend: false,
-    reason: topActionable
-      ? `Highest actionable score is ${topScore.toFixed(2)}; review ${findingTitle(topActionable)} before stopping.`
-      : "No actionable findings remain.",
-  };
+  return stopRecommendationForImpl(report, compareSummaryDependencies());
 }
 
-// Phase 10 — a per-sink diff against a prior JSON report. Sinks are keyed by
-// file + structural signature so small line shifts don't read as churn; burden
-// is the lower-is-better quality number. Categories: removed (gone), regressed
-// (got heavier), improved (got lighter), and the current new top finding.
-function diffBaselineSinks(currentSinks, baselineSinks) {
-  const keyOf = (sink) =>
-    `${sink.file ?? "?"}::${sink.signature ?? sink.label ?? "?"}`;
-  const burdenOf = (sink) => sink.scores?.burden ?? 0;
-
-  const currentByKey = new Map(currentSinks.map((sink) => [keyOf(sink), sink]));
-  const baselineByKey = new Map(
-    baselineSinks.map((sink) => [keyOf(sink), sink]),
-  );
-
-  const removed = [];
-  const improved = [];
-  const regressed = [];
-  for (const [key, baseSink] of baselineByKey) {
-    const current = currentByKey.get(key);
-    if (!current) {
-      removed.push({
-        label: baseSink.label ?? baseSink.file ?? key,
-        depth: baseSink.metrics?.maximumPathDepth ?? null,
-      });
-      continue;
-    }
-    const before = burdenOf(baseSink);
-    const after = burdenOf(current);
-    const entry = {
-      label: current.label ?? current.file,
-      file: current.file,
-      line: current.line,
-      before: Number(before.toFixed(2)),
-      after: Number(after.toFixed(2)),
-    };
-    if (after < before - 0.001) improved.push(entry);
-    else if (after > before + 0.001) regressed.push(entry);
-  }
-
-  const top = currentSinks[0];
-  const newTop =
-    top && !baselineByKey.has(keyOf(top))
-      ? { label: top.label, file: top.file, line: top.line }
-      : null;
-
-  // `regressedSinks` (a list), not `regressed` (the boolean summary flag), so
-  // the spread in compareBaseline does not clobber the existing flag.
-  return { removed, improved, regressedSinks: regressed, newTop };
+function compareSummaryDependencies() {
+  return {
+    findingTitle,
+    groupedRenderRecommendations,
+    isCertaintyBoundaryDefense,
+    isProviderContextCandidate,
+    mirrorSingletonRiskFor,
+    severityFor,
+  };
 }
 
 function classifyAttribute(name) {
@@ -7144,234 +5822,6 @@ function getCallName(ts, node) {
   return "";
 }
 
-function applyScope(sinks, scope) {
-  if (!scope) return sinks;
-  return sinks.filter(
-    (sink) =>
-      sink.file.includes(scope) ||
-      sink.label.includes(scope) ||
-      sink.roots.some((root) => root.includes(scope)),
-  );
-}
-
-// Translate one `--file` pattern into a RegExp matched against a relative file
-// path. Unlike `--scope` (a fuzzy substring over file/label/symbol), this is
-// path-only and glob-aware so an agent can pin a report to exactly one file,
-// directory, or glob region:
-//   src/components/Button.tsx   exact file
-//   Button.tsx                  any path ending in /Button.tsx
-//   src/components              a directory (everything under it)
-//   src/components/**           same, explicit glob
-//   src/**/*.tsx                all .tsx anywhere under src
-// Globs: `*` matches within a path segment, `**` across segments, `?` one char.
-function fileFilterToRegExp(pattern) {
-  let p = pattern.trim().replace(/^\.\//, "").replace(/^\/+/, "");
-  const hasGlob = /[*?]/.test(p);
-  // A bare directory-ish pattern (no glob, no extension on the final segment)
-  // is treated as a prefix so `--file src/components` digs into the whole dir.
-  const lastSegment = p.split("/").pop() ?? "";
-  if (!hasGlob && !lastSegment.includes(".")) {
-    p = p.replace(/\/+$/, "") + "/**";
-  } else if (p.endsWith("/")) {
-    p += "**";
-  }
-
-  let body = "";
-  for (let index = 0; index < p.length; index += 1) {
-    const char = p[index];
-    if (char === "*") {
-      if (p[index + 1] === "*") {
-        body += ".*";
-        index += 1;
-        if (p[index + 1] === "/") index += 1; // let `a/**/b` match `a/b`
-      } else {
-        body += "[^/]*";
-      }
-    } else if (char === "?") {
-      body += "[^/]";
-    } else {
-      body += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-    }
-  }
-  // Anchor to the path end and to a segment boundary at the front, so a bare
-  // `Button.tsx` matches `src/ui/Button.tsx` but not `MyButton.tsx`.
-  return new RegExp(`(^|/)${body}$`);
-}
-
-// Build a predicate over relative file paths from zero or more `--file`
-// patterns (OR within the set). Returns null when no patterns were given.
-function makeFileMatcher(patterns) {
-  if (!patterns || patterns.length === 0) return null;
-  const regexps = patterns.map(fileFilterToRegExp);
-  return (file) => regexps.some((regexp) => regexp.test(file));
-}
-
-function summarize(sinks, graph) {
-  return {
-    sources: unique(sinks.flatMap((sink) => sink.roots)).length,
-    sinks: sinks.length,
-    nodes: graph.nodes.length,
-    edges: graph.edges.length,
-    unknownEdges: countDistinctUnknownEdges(graph),
-    pathFamilies: familyRows(sinks).length,
-  };
-}
-
-// ARCH-2 (B): fan-out entries scoped to a single file, for the code-map unified
-// list. A fan-out row is a source that feeds many render sinks; its natural unit
-// is cross-file (how widely the value spreads), so we compute over ALL sinks to
-// keep the true reach count, then keep only roots that touch `relPath` and anchor
-// each to one of its in-file sinks. `total` is the cross-file sink count;
-// `sinks` is the (capped) list of in-file sinks for jump links.
-export function fanOutEntriesForFile(allSinks, relPath) {
-  const map = new Map();
-  for (const sink of allSinks ?? []) {
-    for (const info of fanOutRootsFor(sink)) {
-      const { key, label } = fanOutIdentity(sink, info);
-      let entry = map.get(key);
-      if (!entry) {
-        entry = {
-          root: label,
-          kind: info.kind,
-          // FANOUT-DEF-1: definition location of the source (when resolvable), so
-          // the graph's source node links to where it is declared, not a usage.
-          def: info.def ?? null,
-          total: 0,
-          files: new Set(),
-          inFile: [],
-          // GRAPH-1: a capped cross-file sample so the fan-out graph can show the
-          // spread colored by file, not just the in-file sinks.
-          graphSinks: [],
-          example: null,
-          maxDepth: 0,
-        };
-        map.set(key, entry);
-      }
-      entry.total += 1;
-      entry.files.add(sink.file);
-      // GRAPH (round 6): no cap — the graph draws every reached sink, grouped by
-      // file. (Was previously capped at 40 with a "+N more" node.)
-      entry.graphSinks.push(reachedSinkDescriptor(sink));
-      entry.maxDepth = Math.max(
-        entry.maxDepth,
-        sink.metrics?.maximumPathDepth ?? 0,
-      );
-      if (sink.file === relPath) {
-        if (entry.inFile.length < REACHED_VIA_CAP)
-          entry.inFile.push(reachedSinkDescriptor(sink));
-        if (
-          !entry.example ||
-          (sink.metrics?.maximumPathDepth ?? 0) >
-            (entry.example.metrics?.maximumPathDepth ?? 0)
-        ) {
-          entry.example = sink;
-        }
-      }
-    }
-  }
-  return Array.from(map.values())
-    .filter((entry) => entry.inFile.length > 0 && entry.total >= 2)
-    .map((entry) => ({
-      root: entry.root,
-      kind: entry.kind,
-      def: entry.def,
-      sinkCount: entry.total,
-      fileCount: entry.files.size,
-      line: entry.example?.line ?? entry.inFile[0]?.line ?? null,
-      maxDepth: entry.maxDepth,
-      sinks: entry.inFile,
-      graphSinks: entry.graphSinks,
-    }))
-    .sort((left, right) => right.sinkCount - left.sinkCount);
-}
-
-// HOME-1: the cross-file fan-out entries for the OVERVIEW page — same grouping as
-// `fanOutEntriesForFile` but with no per-file filter, so every shared source that
-// reaches ≥2 sinks is returned with its full (uncapped) cross-file sink set for the
-// graph. The overview is the "here are the detected fan-outs" starting point that
-// motivates drilling into a file (each sink node links to its file page).
-export function fanOutEntriesGlobal(allSinks) {
-  const map = new Map();
-  for (const sink of allSinks ?? []) {
-    for (const info of fanOutRootsFor(sink)) {
-      const { key, label } = fanOutIdentity(sink, info);
-      let entry = map.get(key);
-      if (!entry) {
-        entry = {
-          root: label,
-          kind: info.kind,
-          def: info.def ?? null,
-          total: 0,
-          files: new Set(),
-          graphSinks: [],
-          maxDepth: 0,
-        };
-        map.set(key, entry);
-      }
-      entry.total += 1;
-      entry.files.add(sink.file);
-      entry.graphSinks.push(reachedSinkDescriptor(sink));
-      entry.maxDepth = Math.max(
-        entry.maxDepth,
-        sink.metrics?.maximumPathDepth ?? 0,
-      );
-    }
-  }
-  return Array.from(map.values())
-    .filter((entry) => entry.total >= 2)
-    .map((entry) => ({
-      root: entry.root,
-      kind: entry.kind,
-      def: entry.def,
-      sinkCount: entry.total,
-      fileCount: entry.files.size,
-      line: null,
-      maxDepth: entry.maxDepth,
-      sinks: entry.graphSinks,
-      graphSinks: entry.graphSinks,
-    }))
-    .sort((left, right) => right.sinkCount - left.sinkCount);
-}
-
-// OVERVIEW-1: per-file counts of every non-finding entry type, so the overview
-// table can show breadth across types (not just the finding count) in optional
-// columns. Findings/path-depth already come from hotspotGroups; this adds
-// boundaries (reached helpers), relays (context-aware parents), unknown edges,
-// and fan-out roots. One pass over sinks for fan-out; the rest are direct.
-export function entryTypeCountsByFile(report) {
-  const counts = new Map();
-  const bump = (file, key) => {
-    if (!file) return;
-    let c = counts.get(file);
-    if (!c) {
-      c = { boundaries: 0, relays: 0, unknown: 0, fanOut: 0 };
-      counts.set(file, c);
-    }
-    c[key] += 1;
-  };
-  for (const helper of report.helpers ?? []) bump(helper.file, "boundaries");
-  for (const relay of report.contextRelay ?? [])
-    bump(relay.parentFile, "relays");
-  for (const edge of report.unknownEdges ?? []) bump(edge.file, "unknown");
-  // Fan-out: a file "has" a fan-out root when that root reaches ≥2 sinks total
-  // and at least one of them lives in the file (mirrors fanOutEntriesForFile).
-  const totals = new Map();
-  const filesByRoot = new Map();
-  for (const sink of report.rankings?.all ?? report.sinks ?? []) {
-    for (const info of fanOutRootsFor(sink)) {
-      const { key } = fanOutIdentity(sink, info);
-      totals.set(key, (totals.get(key) ?? 0) + 1);
-      if (!filesByRoot.has(key)) filesByRoot.set(key, new Set());
-      filesByRoot.get(key).add(sink.file);
-    }
-  }
-  for (const [key, files] of filesByRoot) {
-    if ((totals.get(key) ?? 0) < 2) continue;
-    for (const file of files) bump(file, "fanOut");
-  }
-  return counts;
-}
-
 // Global identifiers and language keywords that the local file context cannot
 // resolve and that surface as `unknown-source` roots, but are never an ownable
 // domain "source" a developer could centralize. Excluded from fan-out ranking.
@@ -7399,26 +5849,6 @@ const NON_FAN_OUT_GLOBALS = new Set([
 // "sources" — a developer cannot own or centralize them — so they are excluded,
 // as are unresolved language globals (`undefined`, `Math`). Property reads off
 // a parameter (`props.meta`) and named locals are kept.
-// A sink whose value is a pure constant (e.g. `stroke-dashoffset={0}`,
-// `width={32}`): every contributing root is a literal and there is no
-// transformation, guard, or control-flow burden. There is nothing to refactor,
-// so it should never surface as a ranked finding.
-function isConstantSink(sink) {
-  const infos =
-    sink.rootInfos ??
-    sink.roots.map((root) => ({ label: root, kind: "source" }));
-  if (infos.length === 0) return false;
-  if (!infos.every((info) => info.kind === "literal")) return false;
-  const m = sink.metrics ?? {};
-  return (
-    (m.maximumPathDepth ?? 0) <= 1 &&
-    (sink.defenses?.length ?? 0) === 0 &&
-    (m.representationChurn ?? 0) === 0 &&
-    (m.controlDependencyCount ?? 0) === 0 &&
-    (m.unknownEdgeCount ?? 0) === 0
-  );
-}
-
 function fanOutRootsFor(sink) {
   const infos =
     sink.rootInfos ??
@@ -7640,315 +6070,6 @@ function isSharedContextPropName(name) {
   return sharedContextPropPattern.test(name);
 }
 
-function applyContextRelayScope(findings, scope) {
-  if (!scope) return findings;
-  return findings.filter(
-    (finding) =>
-      finding.parentFile.includes(scope) ||
-      finding.childFile.includes(scope) ||
-      finding.childComponent.includes(scope) ||
-      finding.props.some((prop) => prop.includes(scope)),
-  );
-}
-
-function familyRows(sinks) {
-  const families = new Map();
-  for (const sink of sinks) {
-    const signature = signatureFor(sink);
-    const family = families.get(signature) ?? {
-      paths: 0,
-      sinks: 0,
-      maxDepth: 0,
-      example: null,
-    };
-    family.paths += 1;
-    family.sinks += 1;
-    // MD-7: keep the deepest member as the family's representative example so the
-    // shape is concrete, not just a count.
-    if (!family.example || sink.metrics.maximumPathDepth >= family.maxDepth) {
-      family.example = sink;
-    }
-    family.maxDepth = Math.max(family.maxDepth, sink.metrics.maximumPathDepth);
-    families.set(signature, family);
-  }
-  return Array.from(families.entries()).map(([signature, family]) => ({
-    signature,
-    paths: family.paths,
-    sinks: family.sinks,
-    maxDepth: family.maxDepth,
-    example: family.example,
-  }));
-}
-
-function signatureFor(sink) {
-  const parts = [];
-  if (sink.metrics.representationChurn > 0) parts.push("object-pack");
-  if (sink.metrics.helperHops > 0) parts.push("call");
-  if (sink.metrics.controlDependencyCount > 0) parts.push("conditional");
-  if (sink.metrics.impossibleDefenseCount > 0) parts.push("impossible-defense");
-  else if (sink.metrics.defensiveOperationCount > 0) parts.push("fallback");
-  parts.push("jsx-sink");
-  if (sink.metrics.unknownEdgeCount > 0) parts.push("(unknown)");
-  // Prefix a depth band so the otherwise-dominant bare `jsx-sink` bucket splits
-  // into recognizable shapes (a trivial direct read vs. a deep relayed path) and
-  // no single signature swamps the report.
-  return `${depthBand(sink.metrics.maximumPathDepth)} ${parts.join(" -> ")}`;
-}
-
-// Coarse depth bands. Boundaries chosen against the modeler corpus (median
-// depth 2, p90 6): a direct read lands in `trivial`, plain property reads in
-// `shallow`, helper/relay chains in `medium`, and architectural relays in `deep`.
-function depthBand(depth) {
-  if (depth <= 1) return "trivial";
-  if (depth <= 3) return "shallow";
-  if (depth <= 7) return "medium";
-  return "deep";
-}
-
-function tableReport(title, headers, rows, intro = []) {
-  const lines = [
-    `# ${title}`,
-    "",
-    ...intro,
-    ...formatMarkdownTable(headers, rows),
-  ];
-  return `${lines.join("\n")}\n`;
-}
-
-// A short at-a-glance header for every report: where it came from and what the
-// view shows / what its terms mean. Reports are often read without the analyzer
-// source at hand, so this has to stand alone. Rendered as a blockquote note.
-function viewIntro(view, report) {
-  const root = report?.meta?.root ?? null;
-  const displayRoot = root ? commandPath(root) : null;
-  const generated = report?.generatedAt
-    ? report.generatedAt.slice(0, 10)
-    : null;
-  const provenance =
-    `Generated by **tsx-dataflow**, a static render-path data-flow analyzer for ` +
-    `TypeScript/TSX (Solid/SolidStart-aware)` +
-    (displayRoot ? `, from \`${displayRoot}\`` : "") +
-    (generated ? ` on ${generated}` : "") +
-    `.`;
-  const method =
-    `It parses the source and builds a graph from each value (props, signals, ` +
-    `hooks, locals) through every transformation to the JSX **sink** that renders ` +
-    `it, then ranks the heaviest render paths.`;
-  const blurb = VIEW_BLURBS[view] ?? "";
-  const lines = [`> ${provenance} ${method}`];
-  lines.push(
-    ">",
-    "> Terminology: _source_/_sink_ name code positions in the static graph; counts, scores, reach, depth, and wrapper steps are analyzer-computed signals, not product accounts or runtime telemetry. A _wrapper step_ is a representation-only hop such as an alias, object pack, or spread; it can signal reviewability burden, but it should be weighed with burden score, defensive operation entries, reach, and pack/relay verdicts before choosing work.",
-  );
-  if (blurb) lines.push(">", `> ${blurb}`);
-  lines.push("");
-  return lines;
-}
-
-// Per-view "what am I looking at" sentence(s): what the rows are and what the
-// non-obvious column/field names mean.
-const VIEW_BLURBS = {
-  overview:
-    "The orientation document: read this first. It guides you to every other " +
-    "report (what each is for) and carries the workspace aggregates — hotspot " +
-    "concentration by file, the repair buckets (peripheral quick wins, central " +
-    "leverage, investigate), and an unknown-edge diagnostic section — so you have " +
-    "one place to make sense of the dump before opening a focused report.",
-  findings:
-    "Each finding is one render **sink** (a value rendered into the DOM). " +
-    "_Sink_ is the rendered expression, _Source_ the actionable inputs it derives " +
-    "from, _path depth_ the number of transformation hops between them, and " +
-    "_severity/burden_ reflects how much data-flow plumbing sits on the path.",
-  "repeated-forks":
-    "Each entry is one component that tests the **same discriminant** in two or " +
-    "more sibling branch sites (ternary, `if`, `&&`, Solid `<Match>`/`<Show>`) — " +
-    "the signal that it wants to split into discriminated sub-components. _Fork " +
-    "sites_ are where the condition repeats; _branch-exclusive values_ are " +
-    "component-scope derivations computed eagerly but read under only one branch.",
-  "work-packets":
-    "Each work item is a scoped cleanup candidate for one render sink. _pivot_ is " +
-    "the primary source value, _source inputs_ the distinct inputs merged into it " +
-    "(fan-in), _reachable sinks_ how many render sites the same sources feed, and " +
-    "the representative path lists every transformation hop from source to JSX " +
-    "with its operation kind.",
-  "fan-out":
-    "Ranks source values by how many render sinks consume them. _Sinks_ is that " +
-    "consumer count, _Files_ how many files reference the source, _Example sink_ a " +
-    "representative file:line to open first, and _Max depth_ the longest " +
-    "transformation path from that source to JSX. Prop reads are scoped to their " +
-    "owning component (shown as `Component › props.x`) so a common prop name is not " +
-    "merged across unrelated components; hooks, imports, and context values stay " +
-    "keyed globally since they really are one shared source.",
-  "fan-in":
-    "Ranks render sinks by how many independent inputs they merge. _Root sources_ " +
-    "is the fan-in count, _Predicates_ the number of conditional branches on the " +
-    "path, and _Max distance_ the longest transformation path feeding the sink.",
-  "path-families":
-    "Groups render paths by structural _signature_ (a depth band plus the sequence " +
-    "of operation kinds) so recurring shapes surface. _Paths_/_Sinks_ count the " +
-    "family's members and _Max depth_ is the deepest path in it.",
-  "defensive-ledger":
-    "Lists defensive operations (optional chains, nullish fallbacks) on render " +
-    "paths. _Verdict_ is whether the guard can ever fire given the TypeScript " +
-    "types: _impossible_ means the guarded value is never nullish, so the defense " +
-    "is dead code; _possible_ means it can; _unknown_ means the type is too loose " +
-    "to tell. _Action_ separates stale guards from fallbacks that establish certainty.",
-  "prop-relay":
-    "Render sinks that mostly relay data across component boundaries. _Component " +
-    "boundaries_ counts prop hand-offs, _Wrapper steps_ counts representation-only repacks, and " +
-    "_Classification_ marks whether the relay transforms the data or just passes it " +
-    "through.",
-  "context-relay":
-    "Same-feature components receiving prop bundles from a context-aware parent — " +
-    "candidates for moving shared state behind a Provider/Context instead of " +
-    "threading props. Lists the parent's context hooks and the props it forwards.",
-  "boundary-report":
-    "First-party functions reached while tracing render paths, scored as data-flow " +
-    "boundaries. _In-src_ = distinct values reaching the return; _Callers_ = call " +
-    "sites across analyzed files; _Internal d/churn_ = depth/representation churn " +
-    "inside the body. _Verdict_ flags clean pipes, thin pass-throughs (inline), " +
-    "leaky boundaries, confluence/junctions, and hidden-mess internals.",
-  "component-refs":
-    "Where each component is used. The JSX tag is resolved to its declaration by " +
-    "symbol (not by name), so a renamed import or a same-named local is counted " +
-    "correctly. _Uses_ is the total render count; _Used by_ lists representative " +
-    "call sites. (First slice: capitalized component tags; member tags like " +
-    "`Foo.Bar` and non-component symbols come later.)",
-  junctions:
-    "Functions where independent source lineages fork in (_tributaries_) and the " +
-    "result re-spreads to multiple call sites (_distributaries_) — the load-bearing " +
-    "knots. Ranked by in-sources × callers. These are the highest-leverage targets " +
-    "for either formalizing a typed boundary or splitting by consumer.",
-  "inline-preview":
-    "An inline-vs-keep call for each helper on a render path: how the path shortens " +
-    "(or lengthens) if the helper were folded in, plus a verdict. INLINE removes a " +
-    "needless hop; KEEP/FORMALIZE means the helper consolidates real work. Proposes, " +
-    "never rewrites.",
-};
-
-// Render a GitHub-flavored Markdown table with prettier-style column alignment:
-// every column is padded to the widest (visible) cell, and the separator row's
-// dashes fill the same width. Cells are sanitized via formatTableCell (newlines
-// collapsed, pipes escaped); padding is computed on the *visible* width so an
-// escaped pipe (`\|`, two source chars, one rendered char) still aligns.
-function formatMarkdownTable(headers, rows) {
-  const grid = [headers, ...rows].map((row) =>
-    headers.map((_, column) => formatTableCell(row[column] ?? "")),
-  );
-  const widths = headers.map((_, column) =>
-    Math.max(3, ...grid.map((row) => cellWidth(row[column]))),
-  );
-  const renderRow = (row) =>
-    `| ${row.map((cell, column) => padCell(cell, widths[column])).join(" | ")} |`;
-  const separator = `| ${widths.map((width) => "-".repeat(width)).join(" | ")} |`;
-  return [renderRow(grid[0]), separator, ...grid.slice(1).map(renderRow)];
-}
-
-function formatTableCell(value) {
-  return String(value).replaceAll("\n", " ").replaceAll("|", "\\|");
-}
-
-// A small two-column metric/value table. Numeric and label metrics read better
-// as an aligned table than as a fenced block; fences are reserved for code.
-function metricTable(pairs) {
-  return formatMarkdownTable(
-    ["Metric", "Value"],
-    pairs.map(([label, value]) => [label, String(value)]),
-  );
-}
-
-// Visible width of an already-escaped cell. GFM unescapes `\|` to `|` before
-// rendering, so each escaped pipe occupies one rendered column, not two.
-function cellWidth(escaped) {
-  return escaped.length - (escaped.match(/\\\|/g)?.length ?? 0);
-}
-
-function padCell(escaped, width) {
-  return escaped + " ".repeat(Math.max(0, width - cellWidth(escaped)));
-}
-
-// Wrap a code-ish cell value as a Markdown code span so it renders monospaced.
-// Safe inside a table cell: GFM strips the table pipe-escaping before inline
-// code parsing, so backticks and escaped pipes coexist. Expressions often embed
-// backticks (template literals), so the delimiter is a backtick run one longer
-// than any internal run, with a pad space when the text starts/ends with a
-// backtick (GFM strips one space each side). Empty values are left untouched.
-function code(value) {
-  const text = String(value).trim();
-  if (!text) return "";
-  const longestRun = Math.max(
-    0,
-    ...(text.match(/`+/g) ?? []).map((run) => run.length),
-  );
-  const fence = "`".repeat(longestRun + 1);
-  const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
-  return `${fence}${pad}${text}${pad}${fence}`;
-}
-
-// A fenced code block for the indented (prose) renderers. In GitHub-flavored
-// Markdown a 2-space indent does NOT create a code block, so aligned metric
-// columns and multi-line expressions collapse into re-wrapped prose. Fencing the
-// monospace payload preserves alignment. `content` is one entry per line
-// (already one-lined). Backticks are stripped from the payload: everything in
-// the block is already monospace, so a template literal's source backticks
-// (`` `link-${id}` ``) read as stray markdown ticks rather than signal — and a
-// stray "```" line would otherwise close the fence early.
-function fenced(content) {
-  return [
-    "```",
-    ...content.map((line) => String(line).replaceAll("`", "")),
-    "```",
-  ];
-}
-
-// Collapse an expression/path-step/label to a single line and truncate on a
-// token-ish boundary with a trailing ellipsis. The prose-renderer analogue of
-// formatTableCell: no rendered expression should carry a raw newline or be cut
-// mid-identifier without a `…` marker.
-function formatExpression(value, max = 100) {
-  const collapsed = String(value).replace(/\s+/g, " ").trim();
-  if (collapsed.length <= max) return collapsed;
-  const window = collapsed.slice(0, max);
-  // Back off to the last non-identifier boundary so we don't slice mid-token,
-  // but only if that keeps a reasonable amount of the text.
-  const boundary = window.match(/^.*[^\p{L}\p{N}_$]/u);
-  const cut =
-    boundary && boundary[0].length >= max * 0.6 ? boundary[0].length : max;
-  return `${collapsed.slice(0, cut).trimEnd()}…`;
-}
-
-// Collapse all whitespace to single spaces without truncating — used to compare
-// a child sub-expression against its parent's text by substring.
-function collapse(value) {
-  return String(value).replace(/\s+/g, " ").trim();
-}
-
-// Render `full` as a snippet centered on `via` (the sub-expression that flowed
-// in from the previous step), marking `via` with « » and trimming surrounding
-// context with ellipses to fit `max`. Falls back to a plain truncation when
-// `via` is absent, unlocatable, or spans essentially the whole expression.
-function focusSnippet(full, via, max) {
-  if (!via) return formatExpression(full, max);
-  const idx = full.indexOf(via);
-  if (idx < 0 || (idx === 0 && via.length >= full.length)) {
-    return formatExpression(full, max);
-  }
-  const before = full.slice(0, idx);
-  const after = full.slice(idx + via.length);
-  let viaShown = via;
-  if (viaShown.length > max - 4) viaShown = `${viaShown.slice(0, max - 5)}…`;
-  const budget = Math.max(8, max - viaShown.length - 2); // 2 for the guillemets
-  const leftBudget = Math.ceil(budget / 2);
-  const rightBudget = budget - leftBudget;
-  const left =
-    before.length > leftBudget
-      ? `…${before.slice(before.length - leftBudget)}`
-      : before;
-  const right =
-    after.length > rightBudget ? `${after.slice(0, rightBudget)}…` : after;
-  return `${left}«${viaShown}»${right}`;
-}
-
 function appendBaseline(lines, report) {
   if (!report.baseline) return;
   const baseline = report.baseline;
@@ -8039,127 +6160,6 @@ function queueFor(metrics, defenses, reachThreshold = 3) {
   return "peripheral-quick-win";
 }
 
-// The weighted metrics that make up the burden score, kept in one place so the
-// score and its human-readable breakdown can never drift apart. Each term reads
-// a raw metric, log-normalizes it, and contributes `weight * normalized`.
-const BURDEN_TERMS = [
-  {
-    key: "maximumPathDepth",
-    label: "path depth",
-    weight: 0.15,
-    read: (m) => m.maximumPathDepth,
-  },
-  {
-    key: "helperHops",
-    label: "helper hops",
-    weight: 0.13,
-    read: (m) => m.helperHops,
-  },
-  {
-    key: "representationChurn",
-    label: "representation churn",
-    weight: 0.16,
-    read: (m) => m.representationChurn,
-  },
-  {
-    key: "defensiveOperations",
-    label: "defensive operations",
-    weight: 0.15,
-    read: (m) =>
-      m.actionableDefensiveOperationCount ?? m.defensiveOperationCount,
-  },
-  {
-    key: "impossibleDefenseCount",
-    label: "impossible defenses",
-    weight: 0.15,
-    read: (m) => m.impossibleDefenseCount,
-  },
-  {
-    key: "controlDependencyCount",
-    label: "control dependencies",
-    weight: 0.1,
-    read: (m) => m.controlDependencyCount,
-  },
-  {
-    key: "repeatedNormalization",
-    label: "repeated normalization",
-    weight: 0.08,
-    read: (m) => m.repeatedNormalization,
-  },
-  {
-    key: "packRisk",
-    label: "pack risk",
-    weight: 0.08,
-    read: (m) => m.packRisk,
-  },
-];
-
-function burdenScore(metrics) {
-  return clamp01(burdenRawSum(metrics));
-}
-
-function burdenRawSum(metrics) {
-  return BURDEN_TERMS.reduce(
-    (sum, term) => sum + term.weight * normalized(term.read(metrics) ?? 0),
-    0,
-  );
-}
-
-// Per-term decomposition of the burden score, sorted by contribution (largest
-// first). `total` is the clamped score actually used for ranking; `rawSum` is
-// the pre-clamp sum, so a UI can flag when clamping discarded surplus burden.
-function burdenBreakdown(metrics) {
-  const terms = BURDEN_TERMS.map((term) => {
-    const raw = term.read(metrics) ?? 0;
-    const norm = normalized(raw);
-    return {
-      key: term.key,
-      label: term.label,
-      weight: term.weight,
-      raw,
-      normalized: norm,
-      contribution: term.weight * norm,
-    };
-  }).sort((a, b) => b.contribution - a.contribution);
-  const rawSum = terms.reduce((sum, term) => sum + term.contribution, 0);
-  return { terms, rawSum, total: clamp01(rawSum) };
-}
-
-function centralityScore(metrics) {
-  // Grounded in true downstream reach (reachableSinks) rather than a constant
-  // base value: a source feeding many sinks now outranks an equally-deep but
-  // isolated one. Depth, helper hops, fan-in, and slice size remain secondary.
-  return clamp01(
-    0.4 * normalized(metrics.reachableSinks) +
-      0.2 * normalized(metrics.maximumPathDepth) +
-      0.15 * normalized(metrics.helperHops) +
-      0.15 * normalized(metrics.mergeWidth) +
-      0.1 * normalized(metrics.sliceSize),
-  );
-}
-
-function changeRiskScore(metrics) {
-  // Editing a widely-reaching source touches more render sinks, so reach is the
-  // dominant change-risk signal alongside unknown edges and control flow.
-  return clamp01(
-    0.25 * normalized(metrics.reachableSinks) +
-      0.25 * normalized(metrics.unknownEdgeCount) +
-      0.15 * normalized(metrics.controlDependencyCount) +
-      0.1 * normalized(metrics.helperHops) +
-      0.25 * normalized(metrics.sliceSize),
-  );
-}
-
-export function findingTitle(sink) {
-  if (sink.metrics.impossibleDefenseCount > 0) {
-    return "type-impossible defensive render path";
-  }
-  if (sink.metrics.representationChurn > 1)
-    return "representation-heavy render path";
-  if (sink.metrics.helperHops > 1) return "helper-heavy render path";
-  return "render-path data-flow hotspot";
-}
-
 function findingSentence(sink) {
   if (sink.metrics.impossibleDefenseCount > 0) {
     return "A nullish fallback or optional access is unreachable under the checked TypeScript program.";
@@ -8171,94 +6171,6 @@ function severityFor(sink) {
   if (sink.metrics.impossibleDefenseCount > 0) return "HIGH";
   if (sink.scores.burden > 0.55) return "MEDIUM";
   return "LOW";
-}
-
-function backgroundClassificationFor(sink) {
-  const healthyBoundary = healthySharedBoundaryFor(sink);
-  if (healthyBoundary) {
-    return {
-      label: "healthy shared boundary",
-      reason: `${healthyBoundary} returns cohesive layout data; sink reads an expected field`,
-      penalty: 0.25,
-    };
-  }
-  if (isLowValueScalarHelper(sink)) {
-    return {
-      label: "already readable",
-      reason:
-        "local scalar helper; simple reads/arithmetic; no defenses or object packing",
-      penalty: 0.35,
-    };
-  }
-  return null;
-}
-
-function healthySharedBoundaryFor(sink) {
-  const metrics = sink.metrics ?? {};
-  if ((metrics.impossibleDefenseCount ?? 0) > 0) return null;
-  if ((metrics.defensiveOperationCount ?? 0) > 0) return null;
-  if ((metrics.unknownEdgeCount ?? 0) > 0) return null;
-  const steps = sink.representativeSteps ?? [];
-  const helper = steps.find(
-    (step) =>
-      step.kind === "call" &&
-      /^(?:compute|build|create|derive)[A-Z].*(?:Layout|Geometry|Bounds|Scale|Chart)/.test(
-        step.label,
-      ),
-  );
-  if (!helper) return null;
-  const finalRead = [...steps]
-    .reverse()
-    .find((step) => step.kind === "property-read");
-  const field = finalRead?.label ?? "";
-  if (
-    !/^(?:inner|outer|width|height|left|right|top|bottom|x|y|scale|padding|domain|range)/i.test(
-      field,
-    )
-  ) {
-    return null;
-  }
-  const text = `${helper.label} ${helper.detail ?? ""}`;
-  return /Layout|Geometry|Bounds|Scale|Chart/.test(text) ? helper.label : null;
-}
-
-function isLowValueScalarHelper(sink) {
-  const metrics = sink.metrics ?? {};
-  if ((metrics.maximumPathDepth ?? 0) > 7) return false;
-  if ((metrics.impossibleDefenseCount ?? 0) > 0) return false;
-  if ((metrics.defensiveOperationCount ?? 0) > 0) return false;
-  if ((metrics.representationChurn ?? 0) > 0) return false;
-  if ((metrics.packRisk ?? 0) > 0) return false;
-  if ((metrics.unknownEdgeCount ?? 0) > 0) return false;
-  if ((metrics.mergeWidth ?? 0) > 3) return false;
-  const steps = sink.representativeSteps ?? [];
-  if (steps.some((step) => !SCALAR_HELPER_STEP_KINDS.has(step.kind)))
-    return false;
-  const text = steps.map((step) => step.label).join(" ");
-  if (!/[-+*/%<>!]|\b(?:Math|max|min|round|floor|ceil)\b/.test(text))
-    return false;
-  const finalStep = finalLocalStepFor(sink);
-  if (!finalStep || !["call", "alias"].includes(finalStep.kind)) return false;
-  const finalName = String(finalStep.label ?? "").replace(/\(\)$/g, "");
-  return /^(?:has|show|is|axis|tick|title|label|inner|outer|start|end|x|y|width|height|left|right|top|bottom)/i.test(
-    finalName,
-  );
-}
-
-const SCALAR_HELPER_STEP_KINDS = new Set([
-  "source",
-  "property-read",
-  "conditional",
-  "call",
-  "alias",
-  "solid-accessor",
-]);
-
-function finalLocalStepFor(sink) {
-  const steps = sink.representativeSteps ?? [];
-  return [...steps]
-    .reverse()
-    .find((step) => ["call", "alias", "property-read"].includes(step.kind));
 }
 
 function percentile(values, target) {

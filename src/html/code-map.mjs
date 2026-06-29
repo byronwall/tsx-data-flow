@@ -4,7 +4,7 @@
 // express — it ties the analyzer's findings back to the literal source lines.
 import { escapeHtml } from "./escape.mjs";
 import { snippetBlockHtml } from "./source-peek.mjs";
-import { findingTitle } from "../core.mjs";
+import { findingTitle } from "../analysis/finding-title.mjs";
 
 const QUEUE_LABEL = {
   "peripheral-quick-win": "quick win",

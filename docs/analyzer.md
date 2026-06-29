@@ -3,10 +3,10 @@
 This document explains the render-path data-flow analyzer (`tsx-dataflow`) implemented in:
 
 - `bin/tsx-dataflow.mjs` — CLI entrypoint.
-- `src/core.mjs` — all analysis behavior.
+- `src/core.mjs` — compatibility facade plus the remaining monolithic analysis/report behavior during the refactor.
 - `test/core.test.mjs` — Vitest coverage over fixture projects.
 
-The analyzer is an advisory static-analysis tool for Solid/SolidStart UI code. It builds a typed graph from source expressions to JSX render sinks, then projects that graph into work packets, ledgers, path views, and JSON dossiers. Its purpose is to find render code where values are repeatedly wrapped, defaulted, converted, relayed, or defensively checked after the TypeScript program already proves those checks unnecessary.
+The analyzer is an advisory static-analysis tool for Solid/SolidStart UI code. It builds a typed graph from source expressions to JSX render sinks, then projects that graph into work packets, ledgers, path views, and JSON payloads. Its purpose is to find render code where values are repeatedly wrapped, defaulted, converted, relayed, or defensively checked after the TypeScript program already proves those checks unnecessary.
 
 ## Command Surface
 
@@ -27,20 +27,22 @@ pnpm test
 
 Supported views:
 
-| View                    | Purpose                                                                                               |
-| ----------------------- | ----------------------------------------------------------------------------------------------------- |
-| `work-packets`          | Ranked implementation items with scope, reason, representative path, candidate edits, and risk queue. |
-| `findings`              | Compact finding report with severity, source, sink, metrics, and explanation.                         |
-| `dossier`               | Markdown summary or bounded JSON graph payload for downstream inspection.                             |
-| `fan-out`               | Sources that reach many sinks.                                                                        |
-| `fan-in`                | Sinks with many upstream roots or predicates.                                                         |
-| `path-gallery`          | Representative source-to-sink paths.                                                                  |
-| `path-census`           | Aggregate source/sink/path-depth counts.                                                              |
-| `path-families`         | Grouped signatures such as `object-pack -> call -> fallback -> jsx-sink`.                             |
-| `transformation-ledger` | Step-by-step path transformations and wrapper-step counts for the top finding.                        |
-| `defensive-ledger`      | Defensive operations and their nullish type verdict.                                                  |
-| `prop-relay`            | Relay-like paths with component-boundary counts and representation-only wrapper-step counts.          |
-| `repair-map`            | Ranked quick-win, central-leverage, and investigation queues.                                         |
+| View               | Purpose                                                                                               |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| `overview`         | Orientation report with the report guide, breadth map, repair buckets, diagnostics, and stop call.    |
+| `work-packets`     | Ranked implementation items with scope, reason, representative path, candidate edits, and risk queue. |
+| `findings`         | Compact finding report with severity, source, sink, metrics, and explanation.                         |
+| `repeated-forks`   | Components that test the same discriminant across multiple sibling branch sites.                      |
+| `fan-out`          | Sources that reach many sinks.                                                                        |
+| `fan-in`           | Sinks with many upstream roots or predicates.                                                         |
+| `path-families`    | Grouped signatures such as `object-pack -> call -> fallback -> jsx-sink`.                             |
+| `defensive-ledger` | Defensive operations and their nullish type verdict.                                                  |
+| `prop-relay`       | Relay-like paths with component-boundary counts and representation-only wrapper-step counts.          |
+| `context-relay`    | Same-feature children receiving shared-looking props from context-aware parents.                      |
+| `boundary-report`  | First-party functions on render paths, scored as data-flow boundaries.                                |
+| `junctions`        | Confluence functions where independent lineages fork in and re-spread.                                |
+| `inline-preview`   | Inline-vs-keep decision per helper, with a verdict.                                                   |
+| `component-refs`   | Where each component is used.                                                                         |
 
 Common options:
 
@@ -149,7 +151,7 @@ Every edge has:
 - `unknown`
 - `location`
 
-The graph is intentionally append-only during a run. It does not deduplicate equivalent syntax nodes. That makes the generated path and location evidence straightforward, at the cost of larger dossiers.
+The graph is intentionally append-only during a run. It does not deduplicate equivalent syntax nodes. That makes the generated path and location evidence straightforward, at the cost of larger JSON payloads.
 
 Important node/edge kinds:
 
@@ -425,10 +427,10 @@ Markdown renderers produce human-readable reports. JSON output returns `selectVi
 - `summary`
 - selected `view`
 - ranked sink records up to `--max-items`
-- bounded graph only for `dossier`
+- bounded graph sample on every JSON payload
 - optional baseline result
 
-For JSON dossiers, `boundedGraph` returns only the first `--max-items` nodes and edges plus `omittedNodes` and `omittedEdges`. This prevents accidental massive output while preserving the report's shape.
+For JSON payloads, `boundedGraph` returns only the first `--max-items` nodes and edges plus `omittedNodes` and `omittedEdges`. This prevents accidental massive output while preserving the report's shape.
 
 ### Markdown Formatting
 
@@ -453,14 +455,14 @@ Baseline comparison is intentionally simple:
 
 This supports a lightweight guardrail for cleanup campaigns. It does not compare individual findings by stable identity yet.
 
-`--compare <dir>` is the markdown-first cleanup-loop comparison. It reads a prior `--view all` directory, analyzes the current target, and reports computed signals: worst burden score, finding count (hotspots), defensive operation entries, representation-only wrapper steps, remaining finding families, and the current stop recommendation. Missing optional report files degrade to `n/a` with a note rather than failing the run.
+`--compare <dir>` is the markdown-first cleanup-loop comparison. It reads a prior `--view all` directory, analyzes the current target, and reports computed signals: worst burden score, finding count, defensive operation entries, representation-only wrapper steps, remaining finding families, and the current stop recommendation. Missing optional report files degrade to `n/a` with a note rather than failing the run.
 
 The compare rows are analyzer-computed signals, not product accounts or runtime telemetry. The wrapper-step value is the summed `representationChurn` metric across ranked sinks. It counts aliases, object packs, spreads, and other representation-only repacks seen on render paths. It can rise when a cleanup moves logic into more intermediate objects even if the worst burden score is unchanged or improved.
 
 Read compare deltas as a set, not as one absolute winner:
 
 - `Worst burden score` is the headline local pain signal for the single heaviest render path. It is normalized to `0..1` and can move slowly when the same worst path remains.
-- `Finding count (hotspots)` is breadth: how many render sinks still have enough data-flow plumbing to rank.
+- `Finding count` is breadth: how many render sinks still have enough data-flow plumbing to rank.
 - `Defensive operation entries` are unique optional reads and fallback operations. Impossible or unknown defenses usually deserve more attention than wrapper movement because they point to stale guards or unclear contracts.
 - `Representation-only wrapper steps` are reviewability pressure: aliases, object packs, spreads, and similar shape-only hops. A spike is suspicious when worst burden, defensive entries, relay/overpacked findings, or remaining families do not improve with it. It is less concerning when a cleanup removes high-severity defenses or broad fan-out and the remaining wrappers are cohesive render models or normalization boundaries.
 
@@ -476,7 +478,7 @@ Several work-packet decisions are intentionally evidence-gated:
 - Extraction shape checks distinguish cohesive repeated items from mirror singleton risks before recommending object extraction.
 - Defensive-ledger rows include an action column so valid optional/parser fallbacks can read as certainty boundaries while type-impossible defenses still point toward removal after a contract check.
 - Low-value scalar helpers and healthy shared layout boundaries are burden-penalized and rendered as `Background Findings` instead of actionable work packets.
-- `Stop Recommendation` appears in `work-packets`, `repair-map`, and compare output when no defensive entries remain, the highest actionable score is low, high-risk pack verdicts are absent, and remaining findings are mostly background scalar/shared-boundary paths.
+- `Stop Recommendation` appears in `overview`, `work-packets`, and compare output when no defensive entries remain, the highest actionable score is low, high-risk pack verdicts are absent, and remaining findings are mostly background scalar/shared-boundary paths.
 
 ## Test Coverage
 
@@ -486,7 +488,7 @@ Several work-packet decisions are intentionally evidence-gated:
 - JSX sink category collection, with event handlers excluded from ranking
 - graph construction for local helpers and unknown imported helpers
 - `createMemo` and `createResource` modeling
-- renderers for findings, work packets, ledgers, and JSON dossier payloads
+- renderers for findings, work packets, ledgers, and JSON payloads
 - baseline regression comparison
 
 Run:
@@ -508,7 +510,7 @@ The analyzer is useful but intentionally not a complete data-flow engine.
 - It treats many method calls as unknown, even when they are common pure transforms.
 - It reports candidate evidence; every high-ranked work item should be spot-checked before editing.
 
-These limits are deliberate for the first version. The tool favors fast, explainable, low-dependency analysis that can point a developer to render-path hotspots.
+These limits are deliberate for the first version. The tool favors fast, explainable, low-dependency analysis that can point a developer to render-path cleanup candidates.
 
 ## Extension Points
 

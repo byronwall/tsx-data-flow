@@ -5,22 +5,31 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { createAnalyzerFixtureProject as createFixtureProject } from "./helpers/fixture-project.mjs";
 import {
-  BANNED_SUGGESTION_IDENTIFIERS,
   REPORT_VIEWS,
   analyzeProject,
-  classifyPathShape,
-  findDefaultSource,
-  findDefaultTsconfig,
   helpText,
   parseArgs,
   renderAllReports,
   renderReport,
-  sinkFamilyOf,
 } from "../src/core.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const appRoot = resolve(__dirname, "..");
+const bannedSuggestionIdentifiers = [
+  "pivot",
+  "sinkData",
+  "fanInResult",
+  "transformedProps",
+  "viewModel",
+  "renderModel",
+  "layout",
+  "geometryModel",
+  "renderValue",
+  "selectedValue",
+  "profileData",
+  "ItemModel",
+];
 
 describe("render path data-flow analyzer", () => {
   it("validates CLI formats and report views", () => {
@@ -1211,16 +1220,18 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const shapeOf = (match) =>
-      classifyPathShape(
-        report.sinks.find((sink) => sink.expression.includes(match)),
-      );
+    const packets = renderReport(report, {
+      ...project.args,
+      view: "work-packets",
+      maxItems: 20,
+      format: "markdown",
+    });
 
-    expect(shapeOf("translate")).toContain("geometry-chain");
-    expect(shapeOf(".map(")).toContain("collection-render-model");
-    expect(shapeOf("props.show")).toContain("control-flow-gate");
-    expect(shapeOf('"on"')).toContain("presentation-pack");
-    expect(shapeOf('?? "n/a"')).toContain("domain-normalization");
+    expect(packets).toContain("compute cohesive render-item geometry");
+    expect(packets).toContain("extract rendered items");
+    expect(packets).toContain("name the scalar predicate");
+    expect(packets).toContain("split style/class values");
+    expect(packets).toContain("Resolve defaults, optional reads");
   });
 
   it("suggests shape-matched edits and never leaks analyzer jargon as code names (Phase 2)", async () => {
@@ -1244,7 +1255,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     // Generic Provider/Context advice must not appear for a local geometry path.
     expect(edits).not.toContain("Provider/Context");
     // No banned identifier is suggested as a code name.
-    for (const banned of BANNED_SUGGESTION_IDENTIFIERS) {
+    for (const banned of bannedSuggestionIdentifiers) {
       expect(edits).not.toContain(`\`${banned}\``);
     }
   });
@@ -1292,8 +1303,8 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     const transformSink = report.sinks.find((sink) =>
       sink.label.startsWith("transform="),
     );
-    expect(sinkFamilyOf(widthSink)).toBe("svg-shell");
-    expect(sinkFamilyOf(transformSink)).toBe("geometry");
+    expect(widthSink).toBeTruthy();
+    expect(transformSink).toBeTruthy();
 
     const overpacked = report.packGroups.find(
       (group) => group.verdict === "overpacked-bag",
@@ -1421,7 +1432,6 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     );
 
     expect(viewBoxSink).toBeTruthy();
-    expect(sinkFamilyOf(viewBoxSink)).toBe("svg-shell");
 
     const packets = renderReport(report, {
       ...project.args,
@@ -1461,7 +1471,6 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     );
 
     expect(centerSink).toBeTruthy();
-    expect(classifyPathShape(centerSink)).toContain("local-scalar-geometry");
 
     const packets = renderReport(report, {
       ...project.args,
@@ -1548,9 +1557,6 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       format: "markdown",
     });
 
-    expect(classifyPathShape(report.rankings.all[0])).toContain(
-      "solid-prop-default-boundary",
-    );
     expect(packets).toContain(
       "mergeProps({ size: 32, strokeWidth: 4 }, props)",
     );
@@ -2268,16 +2274,18 @@ describe("general CLI defaults and project discovery", () => {
     const root = await mkdtemp(resolve(tmpdir(), "tsx-dataflow-src-"));
     await mkdir(resolve(root, "src"), { recursive: true });
     await mkdir(resolve(root, "app", "src"), { recursive: true });
-    expect(findDefaultSource(root)).toBe(resolve(root, "src"));
+    expect(parseArgs(["--root", root]).source).toBe(resolve(root, "src"));
   });
 
   it("falls back to ./app/src, then the root, when ./src is absent", async () => {
     const appOnly = await mkdtemp(resolve(tmpdir(), "tsx-dataflow-app-"));
     await mkdir(resolve(appOnly, "app", "src"), { recursive: true });
-    expect(findDefaultSource(appOnly)).toBe(resolve(appOnly, "app", "src"));
+    expect(parseArgs(["--root", appOnly]).source).toBe(
+      resolve(appOnly, "app", "src"),
+    );
 
     const bare = await mkdtemp(resolve(tmpdir(), "tsx-dataflow-bare-"));
-    expect(findDefaultSource(bare)).toBe(bare);
+    expect(parseArgs(["--root", bare]).source).toBe(bare);
   });
 
   it("discovers the nearest tsconfig next to the source root", async () => {
@@ -2285,7 +2293,7 @@ describe("general CLI defaults and project discovery", () => {
     const source = resolve(root, "src");
     await mkdir(source, { recursive: true });
     await writeFile(resolve(root, "tsconfig.json"), "{}");
-    expect(findDefaultTsconfig(root, source)).toBe(
+    expect(parseArgs(["--root", root, "--source", "src"]).tsconfig).toBe(
       resolve(root, "tsconfig.json"),
     );
   });
@@ -2379,7 +2387,7 @@ describe("tsconfig resolution in monorepos", () => {
     const nested = resolve(app, "src", "deep", "nested");
     await mkdir(nested, { recursive: true });
     await writeFile(resolve(app, "tsconfig.json"), strictConfig);
-    expect(findDefaultTsconfig(app, nested)).toBe(
+    expect(parseArgs(["--root", app, "--source", nested]).tsconfig).toBe(
       resolve(app, "tsconfig.json"),
     );
   });

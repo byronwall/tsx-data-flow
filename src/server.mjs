@@ -9,24 +9,16 @@ import {
   createAnalyzer,
   renderReport,
   renderMarkdownView,
-  hotspotGroups,
-  modalValue,
-  firstCutFor,
-  fanOutEntriesForFile,
-  fanOutEntriesGlobal,
-  entryTypeCountsByFile,
   REPORT_VIEWS,
 } from "./core.mjs";
-
-// OVERVIEW-1: the optional per-type count columns the user can show/hide. `key`
-// matches the entryTypeCountsByFile field; `col` is the CSS/toggle id. Findings
-// is always-on (it is the primary signal) so it is not in this list.
-const OVERVIEW_TYPE_COLUMNS = [
-  { key: "boundaries", col: "boundaries", label: "Boundaries" },
-  { key: "fanOut", col: "fanout", label: "Fan-out" },
-  { key: "relays", col: "relays", label: "Relays" },
-  { key: "unknown", col: "unknown", label: "Unknown" },
-];
+import {
+  entryTypeCountsByFile,
+  fanOutEntriesForFile,
+  fanOutEntriesGlobal,
+  firstCutFor,
+  hotspotGroups,
+  modalValue,
+} from "./reports/overview-selectors.mjs";
 import { markdownToHtml } from "./html/markdown-to-html.mjs";
 import { escapeHtml } from "./html/escape.mjs";
 import { page } from "./html/page.mjs";
@@ -38,36 +30,17 @@ import {
   boundaryAnchor,
 } from "./html/code-map.mjs";
 import { peekReferences } from "./html/source-peek.mjs";
-
-// Short human labels for the per-file view sections.
-const VIEW_LABELS = {
-  // "Overview report" (not just "Overview") so it never collides with the homepage
-  // "Overview" tab (the burden table); this is the agent-facing markdown summary.
-  overview: "Overview report",
-  findings: "Findings",
-  "repeated-forks": "Repeated forks",
-  "work-packets": "Work packets",
-  "fan-out": "Fan-out",
-  "fan-in": "Fan-in",
-  "path-families": "Path families",
-  "defensive-ledger": "Defensive ledger",
-  "prop-relay": "Prop relay",
-  "context-relay": "Context relay",
-  "boundary-report": "Boundary report",
-  junctions: "Junctions",
-  "inline-preview": "Inline preview",
-  "component-refs": "References",
-};
-
-const viewLabel = (view) => VIEW_LABELS[view] ?? view;
-
-// Report lists are presented alphabetically by label (the curated REPORT_VIEWS
-// order is kept for the CLI `--view all` emission only). The `overview` report is a
-// workspace-level summary (concentration, repair buckets, …), so it is not a
-// per-file tab — it would be meaningless scoped to one file.
-const FILE_VIEWS = REPORT_VIEWS.filter((view) => view !== "overview").sort(
-  (a, b) => viewLabel(a).localeCompare(viewLabel(b)),
-);
+import { FILE_VIEWS, VIEW_LABELS, viewLabel } from "./server/view-config.mjs";
+import {
+  OVERVIEW_PAGE_SIZE,
+  OVERVIEW_TYPE_COLUMNS,
+  SORT_HEADING,
+} from "./server/overview-config.mjs";
+import {
+  overviewHref,
+  overviewState,
+  paramHref,
+} from "./server/url-helpers.mjs";
 
 function send(res, status, body, type = "text/html; charset=utf-8") {
   res.writeHead(status, { "Content-Type": type });
@@ -269,15 +242,6 @@ export function createServer(args) {
 
 // --- Page renderers --------------------------------------------------------
 
-const OVERVIEW_FILTERS = new Set([
-  "all",
-  "findings",
-  "unknown",
-  "participating",
-]);
-const OVERVIEW_SORTS = new Set(["burden", "findings", "depth", "file"]);
-const OVERVIEW_PAGE_SIZE = 25;
-
 function isReportView(view) {
   return REPORT_VIEWS.includes(view);
 }
@@ -294,43 +258,6 @@ function reportArgs(args, view) {
     maxItems: args.maxItems ?? 20,
   };
 }
-
-function overviewState(url) {
-  const q = (url.searchParams.get("q") ?? "").trim();
-  const filter = url.searchParams.get("filter") ?? "all";
-  const sort = url.searchParams.get("sort") ?? "burden";
-  const page = Math.max(
-    1,
-    Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1,
-  );
-  return {
-    q,
-    filter: OVERVIEW_FILTERS.has(filter) ? filter : "all",
-    sort: OVERVIEW_SORTS.has(sort) ? sort : "burden",
-    page,
-    all: url.searchParams.get("all") === "1",
-  };
-}
-
-function overviewHref(state, changes = {}) {
-  const next = { ...state, ...changes };
-  const params = new URLSearchParams();
-  if (next.q) params.set("q", next.q);
-  if (next.filter && next.filter !== "all") params.set("filter", next.filter);
-  if (next.sort && next.sort !== "burden") params.set("sort", next.sort);
-  if (next.all) params.set("all", "1");
-  else if (next.page && next.page !== 1) params.set("page", String(next.page));
-  const query = params.toString();
-  return query ? `/?${query}` : "/";
-}
-
-// Heading reflects the active sort so it never lies (it was hard-coded "by burden").
-const SORT_HEADING = {
-  burden: "Files by burden",
-  findings: "Files by finding count",
-  depth: "Files by path depth",
-  file: "Files by path",
-};
 
 function graphParticipationFiles(report) {
   const files = new Set();
@@ -399,18 +326,6 @@ function overviewRows(report, state) {
     );
   });
   return sorted;
-}
-
-// Build an href from the current URL, overriding/deleting the given query params
-// and keeping everything else — so a control can change one bit of state (the
-// selected fan-out, the sort) without dropping the rest (INTENT §5: state in URL).
-function paramHref(url, overrides) {
-  const next = new URL(url.href);
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value == null) next.searchParams.delete(key);
-    else next.searchParams.set(key, String(value));
-  }
-  return `${next.pathname}${next.search}`;
 }
 
 // SHELL-5: a reusable custom popover — the on-page replacement for native <select>s
