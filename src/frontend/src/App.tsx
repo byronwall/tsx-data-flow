@@ -10,14 +10,13 @@ import {
 import type { JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { STYLE } from "../../html/styles.mjs";
-import { markdownToHtml } from "../../html/markdown-to-html.mjs";
 import {
-  burdenHue,
-  dominantSink,
-  renderCodeLine,
-  renderCommentLine,
-  touchedLines,
-} from "../../html/code-map-source-lines.mjs";
+  fanOutAnchor,
+  fanOutGraphSvg,
+  renderCodeMap,
+} from "../../html/code-map.mjs";
+import { markdownToHtml } from "../../html/markdown-to-html.mjs";
+import { fanOutIdentity, fanOutRootsFor } from "../../analysis/fan-out.mjs";
 import "./style.css";
 
 type ReportView = (typeof REPORT_VIEWS)[number];
@@ -32,6 +31,12 @@ interface SpanLocation {
   endLine: number;
   startColumn: number;
   endColumn: number;
+}
+
+interface RootInfo {
+  label: string;
+  kind?: string;
+  def?: { file: string; line: number } | null;
 }
 
 interface Sink {
@@ -54,6 +59,29 @@ interface Sink {
   representativeSteps?: Array<{ file?: string; line?: number }>;
   expression?: string;
   target?: string;
+  label?: string;
+  rootInfos?: RootInfo[];
+  renderContext?: { tag?: string; attribute?: string; component?: string };
+}
+
+interface FanOutEntry {
+  root: string;
+  kind?: string;
+  def?: { file: string; line: number } | null;
+  sinkCount: number;
+  fileCount: number;
+  line: number | null;
+  maxDepth: number;
+  sinks: ReachedSink[];
+  graphSinks: ReachedSink[];
+}
+
+interface ReachedSink {
+  id: string;
+  file?: string;
+  line?: number;
+  label?: string;
+  depth: number;
 }
 
 interface Report {
@@ -71,9 +99,11 @@ interface Report {
     hot4Plus: number;
   };
   sinks?: Sink[];
-  helpers?: Array<{ file?: string }>;
-  contextRelay?: Array<{ parentFile?: string }>;
-  unknownEdges?: Array<{ file?: string }>;
+  helpers?: Array<Record<string, unknown> & { file?: string }>;
+  repeatedForks?: Array<Record<string, unknown> & { file?: string }>;
+  contextRelay?: Array<Record<string, unknown> & { parentFile?: string }>;
+  unknownEdges?: Array<Record<string, unknown> & { file?: string }>;
+  packGroups?: Array<Record<string, unknown>>;
   graph?: {
     nodes?: Array<{ file?: string }>;
     edges?: Array<{ location?: { file?: string } }>;
@@ -648,6 +678,10 @@ function ReportPage(props: { location: URL }) {
     () => props.location.search,
     () => fetchJson<Report>("/api/report.json"),
   );
+  const fanOutHtml = createMemo(() => {
+    if (view() !== "fan-out") return "";
+    return renderFanOutViewer(meta(), props.location);
+  });
   return (
     <Shell
       context={meta()?.meta?.root ?? ""}
@@ -663,7 +697,14 @@ function ReportPage(props: { location: URL }) {
         when={!report.loading}
         fallback={<p class="meta">Loading report...</p>}
       >
-        <div class="body" innerHTML={markdownToHtml(report() ?? "")} />
+        <Show
+          when={view() === "fan-out" && fanOutHtml()}
+          fallback={
+            <div class="body" innerHTML={markdownToHtml(report() ?? "")} />
+          }
+        >
+          <div class="body" innerHTML={fanOutHtml()} />
+        </Show>
       </Show>
     </Shell>
   );
@@ -683,11 +724,12 @@ function FilePage(props: { location: URL }) {
     () => relPath(),
     async (path) => {
       if (!path) return null;
-      const [report, source] = await Promise.all([
+      const [report, fullReport, source] = await Promise.all([
         fetchJson<Report>(`/api/report.json?path=${encodeURIComponent(path)}`),
+        fetchJson<Report>("/api/report.json"),
         fetchText(`/api/source?path=${encodeURIComponent(path)}`),
       ]);
-      return { report, source };
+      return { report, fullReport, source };
     },
   );
   const [markdown] = createResource(
@@ -741,6 +783,7 @@ function FilePage(props: { location: URL }) {
                 relPath={relPath()}
                 source={fileData()?.source ?? ""}
                 report={fileData()?.report}
+                fullReport={fileData()?.fullReport}
               />
             }
           >
@@ -762,159 +805,246 @@ function CodeMap(props: {
   relPath: string;
   source: string;
   report?: Report | null;
+  fullReport?: Report | null;
 }) {
-  const selected = createMemo(() =>
+  const [selected, setSelected] = createSignal(
     new URLSearchParams(window.location.search).get("finding"),
   );
-  const sinks = createMemo(() =>
-    (props.report?.sinks ?? []).filter((sink) => sink.file === props.relPath),
-  );
-  const lines = createMemo(() => props.source.split("\n"));
-  const byLine = createMemo(() => {
-    const map = new Map<number, Sink[]>();
-    for (const sink of sinks()) {
-      for (const lineNo of touchedLines(sink, lines().length)) {
-        if (!map.has(lineNo)) map.set(lineNo, []);
-        map.get(lineNo)?.push(sink);
-      }
-    }
-    return map;
+  const html = createMemo(() => {
+    const report = props.report;
+    const fullReport = props.fullReport ?? report;
+    const sinks = (report?.sinks ?? []).filter(
+      (sink) => sink.file === props.relPath,
+    );
+    return renderCodeMap({
+      relPath: props.relPath,
+      source: props.source,
+      sinks,
+      meta: report?.meta,
+      resolveSource: null,
+      selectedFinding: selected(),
+      forks: (report?.repeatedForks ?? []).filter(
+        (fork) => fork.file === props.relPath,
+      ),
+      helpers: (report?.helpers ?? []).filter(
+        (helper) => helper.file === props.relPath,
+      ),
+      unknownEdges: (report?.unknownEdges ?? []).filter(
+        (edge) => edge.file === props.relPath,
+      ),
+      relays: (report?.contextRelay ?? []).filter(
+        (relay) => relay.parentFile === props.relPath,
+      ),
+      fanOut: fanOutEntriesForFile(fullReport?.sinks ?? [], props.relPath),
+    });
   });
-  const pathLines = createMemo(() => {
-    const set = new Set<number>();
-    for (const sink of sinks()) {
-      for (const step of sink.representativeSteps ?? []) {
-        if (step.file === props.relPath && step.line) set.add(step.line);
-      }
-    }
-    return set;
-  });
-  const selectFinding = (id: string) => {
+
+  const selectFinding = (id: string | null) => {
     const url = new URL(window.location.href);
-    url.searchParams.set("finding", id);
+    if (id) url.searchParams.set("finding", id);
+    else url.searchParams.delete("finding");
     window.history.replaceState({}, "", url);
-    document
-      .querySelectorAll(".finding.active")
-      .forEach((node) => node.classList.remove("active"));
-    document
-      .querySelector(`.finding[data-finding="${CSS.escape(id)}"]`)
-      ?.classList.add("active");
+    setSelected(id);
   };
 
-  return (
-    <>
-      <h2 id="codemap">Code map</h2>
-      <p class="meta">
-        Lines with a colored dot render a ranked finding. Color signals{" "}
-        <strong>burden</strong>: the hotter the line, the heavier the render
-        path.
-      </p>
-      <div class="heat-legend">
-        <span>low burden</span>
-        <span class="bar"></span>
-        <span>high burden</span>
-      </div>
-      <div class="codemap">
-        <div class="source-wrap">
-          <table class="source">
-            <tbody>
-              <CodeRows
-                lines={lines()}
-                byLine={byLine()}
-                pathLines={pathLines()}
-                onSelect={selectFinding}
-              />
-            </tbody>
-          </table>
-        </div>
-        <aside class="panel">
-          <h3>Findings</h3>
-          <Show
-            when={sinks().length}
-            fallback={<p class="meta">No findings in this file.</p>}
-          >
-            <ol class="finding-list-simple">
-              <For each={sinks()}>
-                {(sink) => (
-                  <FindingItem sink={sink} active={selected() === sink.id} />
-                )}
-              </For>
-            </ol>
-          </Show>
-        </aside>
-      </div>
-    </>
+  const onCodeMapClick: JSX.EventHandler<HTMLDivElement, MouseEvent> = (
+    event,
+  ) => {
+    if (!(event.target instanceof Element)) return;
+    const back = event.target.closest(".panel-back");
+    if (back) {
+      selectFinding(null);
+      return;
+    }
+    const row = event.target.closest("[data-finding]");
+    if (row instanceof HTMLElement && row.dataset.finding) {
+      selectFinding(row.dataset.finding);
+      return;
+    }
+    const line = event.target.closest("[data-line]");
+    if (line instanceof HTMLElement) {
+      document
+        .querySelector(`[data-line="${CSS.escape(line.dataset.line ?? "")}"]`)
+        ?.scrollIntoView({ block: "center" });
+    }
+  };
+
+  return <div onClick={onCodeMapClick} innerHTML={html()} />;
+}
+
+function renderFanOutViewer(report: Report | undefined, location: URL): string {
+  const entries = sortFanOutEntries(
+    fanOutEntriesGlobal(report?.sinks ?? []),
+    location.searchParams.get("fosort") ?? "spread",
+  );
+  if (!entries.length) {
+    return '<p class="meta">No shared source fans out to >=2 render sinks.</p>';
+  }
+  const selected = location.searchParams.get("fanout");
+  const active =
+    entries.find((entry) => fanOutAnchor(entry.root) === selected) ??
+    entries[0];
+  const hrefFor = (changes: Record<string, string>) => {
+    const params = new URLSearchParams(location.searchParams);
+    params.set("view", "fan-out");
+    for (const [key, value] of Object.entries(changes)) params.set(key, value);
+    return `/report?${params.toString()}`;
+  };
+  const tabs = entries
+    .slice(0, 8)
+    .map((entry) => {
+      const on = entry === active;
+      return `<a class="fo-tab${on ? " active" : ""}"${
+        on ? ' aria-current="true"' : ""
+      } href="${escapeAttr(hrefFor({ fanout: fanOutAnchor(entry.root) }))}">${escapeHtml(
+        entry.root,
+      )} <span class="fo-tab-val">${entry.sinkCount}</span></a>`;
+    })
+    .join("");
+  const sortKey = location.searchParams.get("fosort") ?? "spread";
+  const sortLinks = [
+    ["spread", "spread"],
+    ["depth", "depth"],
+    ["files", "files"],
+    ["name", "name"],
+  ]
+    .map(
+      ([key, label]) =>
+        `<a class="fo-sort-btn${key === sortKey ? " active" : ""}" href="${escapeAttr(
+          hrefFor({ fosort: key, fanout: fanOutAnchor(active.root) }),
+        )}">${label}</a>`,
+    )
+    .join("");
+  const tag =
+    active.fileCount === 1
+      ? '<span class="fo-tag fo-tag-single">single-file · candidate split</span>'
+      : `<span class="fo-tag fo-tag-cross">${active.fileCount} files · cross-file usage</span>`;
+  const defLine = active.def
+    ? ` · defined at <a class="xfile" href="/file?path=${encodeURIComponent(
+        active.def.file,
+      )}#L${active.def.line}">${escapeHtml(active.def.file)}:${active.def.line}</a>`
+    : "";
+  return `<p class="meta fo-explain">A <strong>fan-out</strong> is a single source whose value is consumed by many render sinks; changing it touches every one. Pick a source to see where it spreads.</p>
+<div class="fo-controls"><div class="fo-tabs">${tabs}</div><span class="fo-sort"><span class="meta">Sort sources:</span> ${sortLinks}</span></div>
+<section class="fanout-entry" id="${fanOutAnchor(active.root)}">
+  <h3>${escapeHtml(active.root)} ${tag} <span class="meta">· ${active.sinkCount} sinks · max depth ${active.maxDepth}${defLine}</span></h3>
+  ${fanOutGraphSvg(active, null)}
+</section>`;
+}
+
+function sortFanOutEntries(
+  entries: FanOutEntry[],
+  sortKey: string,
+): FanOutEntry[] {
+  return [...entries].sort((left, right) => {
+    if (sortKey === "name") return left.root.localeCompare(right.root);
+    if (sortKey === "depth") return right.maxDepth - left.maxDepth;
+    if (sortKey === "files") return right.fileCount - left.fileCount;
+    return right.sinkCount - left.sinkCount || right.maxDepth - left.maxDepth;
+  });
+}
+
+function fanOutEntriesGlobal(sinks: Sink[]): FanOutEntry[] {
+  return fanOutEntries(sinks, null);
+}
+
+function fanOutEntriesForFile(sinks: Sink[], relPath: string): FanOutEntry[] {
+  return fanOutEntries(sinks, relPath).filter(
+    (entry) => entry.sinks.length > 0,
   );
 }
 
-function CodeRows(props: {
-  lines: string[];
-  byLine: Map<number, Sink[]>;
-  pathLines: Set<number>;
-  onSelect(id: string): void;
-}) {
-  const commentState = { inBlock: false };
-  return (
-    <For each={props.lines}>
-      {(text, index) => {
-        const lineNo = index() + 1;
-        const lineSinks = props.byLine.get(lineNo) ?? [];
-        const onPath = props.pathLines.has(lineNo);
-        const worst = lineSinks.length ? dominantSink(lineSinks) : null;
-        const burden = worst?.scores?.burden ?? 0;
-        const code = lineSinks.length
-          ? renderCodeLine(text, lineNo, lineSinks)
-          : renderCommentLine(text, commentState);
-        return (
-          <tr
-            classList={{
-              "has-sink": !!lineSinks.length,
-              heat: !!lineSinks.length,
-              "on-path": onPath,
-            }}
-            style={lineSinks.length ? { "--bt": burdenHue(burden) } : {}}
-            data-line={lineNo}
-            onClick={() => lineSinks[0] && props.onSelect(lineSinks[0].id)}
-          >
-            <td class="ln">{lineNo}</td>
-            <td class="gutter">
-              <Show when={lineSinks.length}>
-                <span
-                  class="dot heat span-dot"
-                  title={`${lineSinks.length} finding${lineSinks.length === 1 ? "" : "s"} on this line`}
-                />
-              </Show>
-            </td>
-            <td class="code" innerHTML={code} />
-          </tr>
-        );
-      }}
-    </For>
-  );
+function fanOutEntries(sinks: Sink[], relPath: string | null): FanOutEntry[] {
+  const entries = new Map<
+    string,
+    {
+      root: string;
+      kind?: string;
+      def?: { file: string; line: number } | null;
+      total: number;
+      files: Set<string>;
+      inFile: ReachedSink[];
+      graphSinks: ReachedSink[];
+      maxDepth: number;
+      example: Sink | null;
+    }
+  >();
+  for (const sink of sinks) {
+    for (const info of fanOutRootsFor(sink)) {
+      const { key, label } = fanOutIdentity(sink, info);
+      let entry = entries.get(key);
+      if (!entry) {
+        entry = {
+          root: label,
+          kind: info.kind,
+          def: info.def ?? null,
+          total: 0,
+          files: new Set(),
+          inFile: [],
+          graphSinks: [],
+          maxDepth: 0,
+          example: null,
+        };
+        entries.set(key, entry);
+      }
+      entry.total += 1;
+      if (sink.file) entry.files.add(sink.file);
+      const reached = reachedSinkDescriptor(sink);
+      entry.graphSinks.push(reached);
+      entry.maxDepth = Math.max(
+        entry.maxDepth,
+        sink.metrics?.maximumPathDepth ?? 0,
+      );
+      if (relPath == null || sink.file === relPath) {
+        entry.inFile.push(reached);
+        if (
+          !entry.example ||
+          (sink.metrics?.maximumPathDepth ?? 0) >
+            (entry.example.metrics?.maximumPathDepth ?? 0)
+        ) {
+          entry.example = sink;
+        }
+      }
+    }
+  }
+  return [...entries.values()]
+    .filter((entry) => entry.total >= 2)
+    .map((entry) => ({
+      root: entry.root,
+      kind: entry.kind,
+      def: entry.def,
+      sinkCount: entry.total,
+      fileCount: entry.files.size,
+      line: entry.example?.line ?? entry.inFile[0]?.line ?? null,
+      maxDepth: entry.maxDepth,
+      sinks: entry.inFile,
+      graphSinks: entry.graphSinks,
+    }))
+    .sort((left, right) => right.sinkCount - left.sinkCount);
 }
 
-function FindingItem(props: { sink: Sink; active: boolean }) {
-  const sink = () => props.sink;
-  const headline = () => sink().advice?.headline;
-  return (
-    <li
-      class="finding"
-      classList={{ active: props.active }}
-      data-finding={sink().id}
-    >
-      <a href={`#${sink().id}`} onClick={(event) => event.preventDefault()}>
-        <strong>{sink().id}</strong>
-      </a>
-      <span class="meta">
-        {" "}
-        line {sink().line} · burden {(sink().scores?.burden ?? 0).toFixed(2)}
-      </span>
-      <p>
-        <code>{sink().expression ?? sink().target ?? "rendered value"}</code>
-      </p>
-      <Show when={headline()}>{(value) => <p>{value()}</p>}</Show>
-    </li>
-  );
+function reachedSinkDescriptor(sink: Sink): ReachedSink {
+  const ctx = sink.renderContext ?? {};
+  const label = [ctx.tag, ctx.attribute].filter(Boolean).join(" / ");
+  return {
+    id: sink.id,
+    file: sink.file,
+    line: sink.line,
+    label: label || sink.label || sink.expression || sink.id,
+    depth: sink.metrics?.maximumPathDepth ?? 0,
+  };
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function escapeAttr(value: unknown): string {
+  return escapeHtml(value).replaceAll("'", "&#39;");
 }
 
 function overviewState(params: URLSearchParams): OverviewState {
