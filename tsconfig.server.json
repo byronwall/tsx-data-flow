@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "allowJs": true,
+    "allowImportingTsExtensions": true,
+    "checkJs": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/server.ts",
+    "src/server-cli.ts",
+    "src/core.mjs",
+    "src/cli/server-flags.mjs",
+    "src/html/escape.mjs",
+    "src/html/page.mjs"
+  ]
+}

@@ -31677,6 +31677,165 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
       "debt": 3
     }
   ],
+  "repeatedForks": [
+    {
+      "id": "FORK-37-5",
+      "kind": "repeated-fork",
+      "file": "src/Chart.tsx",
+      "line": 37,
+      "column": 5,
+      "component": "Chart",
+      "componentLine": 31,
+      "discriminant": "props.type",
+      "branchValues": [
+        "bar",
+        "line"
+      ],
+      "namedValues": [
+        "bar",
+        "line"
+      ],
+      "branchRanges": [
+        {
+          "startLine": 37,
+          "endLine": 37
+        },
+        {
+          "startLine": 38,
+          "endLine": 38
+        },
+        {
+          "startLine": 45,
+          "endLine": 47
+        },
+        {
+          "startLine": 48,
+          "endLine": 50
+        }
+      ],
+      "sites": [
+        {
+          "kind": "ternary",
+          "line": 37,
+          "column": 5,
+          "value": "bar",
+          "snippet": "props.type === \\"bar\\""
+        },
+        {
+          "kind": "ternary",
+          "line": 38,
+          "column": 19,
+          "value": "bar",
+          "snippet": "props.type === \\"bar\\""
+        },
+        {
+          "kind": "switch-match",
+          "line": 45,
+          "column": 22,
+          "value": "bar",
+          "snippet": "props.type === \\"bar\\""
+        },
+        {
+          "kind": "switch-match",
+          "line": 48,
+          "column": 22,
+          "value": "line",
+          "snippet": "props.type === \\"line\\""
+        }
+      ],
+      "siteCount": 4,
+      "branchExclusive": [
+        {
+          "name": "barData",
+          "line": 32,
+          "branch": "bar"
+        },
+        {
+          "name": "barSeries",
+          "line": 33,
+          "branch": "bar"
+        },
+        {
+          "name": "lineSeries",
+          "line": 34,
+          "branch": "line"
+        }
+      ],
+      "confidence": "high",
+      "severity": 25,
+      "relatedSinks": [
+        {
+          "id": "RPF-041-13",
+          "line": 41,
+          "label": "data-accent={...}"
+        },
+        {
+          "id": "RPF-042-19",
+          "line": 42,
+          "label": "JSX caption"
+        },
+        {
+          "id": "RPF-043-10",
+          "line": 43,
+          "label": "JSX activeSeries().length"
+        },
+        {
+          "id": "RPF-045-16",
+          "line": 45,
+          "label": "when={...}"
+        },
+        {
+          "id": "RPF-046-21",
+          "line": 46,
+          "label": "categories={...}"
+        },
+        {
+          "id": "RPF-046-72",
+          "line": 46,
+          "label": "values={...}"
+        },
+        {
+          "id": "RPF-048-16",
+          "line": 48,
+          "label": "when={...}"
+        },
+        {
+          "id": "RPF-049-22",
+          "line": 49,
+          "label": "series={...}"
+        }
+      ],
+      "branchGatedSinks": [
+        {
+          "id": "RPF-045-16",
+          "line": 45,
+          "label": "when={...}"
+        },
+        {
+          "id": "RPF-046-21",
+          "line": 46,
+          "label": "categories={...}"
+        },
+        {
+          "id": "RPF-046-72",
+          "line": 46,
+          "label": "values={...}"
+        },
+        {
+          "id": "RPF-048-16",
+          "line": 48,
+          "label": "when={...}"
+        },
+        {
+          "id": "RPF-049-22",
+          "line": 49,
+          "label": "series={...}"
+        }
+      ]
+    }
+  ],
+  "unknownEdges": [],
+  "contextRelay": [],
   "packGroups": [
     {
       "key": "src/DashboardShell.tsx:43:16",

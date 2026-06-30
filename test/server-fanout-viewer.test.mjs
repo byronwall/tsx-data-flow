@@ -17,6 +17,12 @@ import {
   resolve,
 } from "./helpers/server-test-context.mjs";
 
+function expectSpaShell(response) {
+  expect(response.status).toBe(200);
+  expect(response.body).toContain('<div id="root"></div>');
+  expect(response.body).toMatch(/src="\/assets\/index-[^"]+\.js"/);
+}
+
 describe("fan-out viewer + report tab strip (round 7)", () => {
   const FANOUT_FIXTURE = {
     "src/Two.tsx": `
@@ -31,19 +37,15 @@ describe("fan-out viewer + report tab strip (round 7)", () => {
     `,
   };
 
-  it("renders the selectable fan-out viewer (not a stack of graphs) on the Fan-out tab", async () => {
+  it("serves the SPA shell on the Fan-out tab and fan-out data via APIs", async () => {
     const project = await createFixtureProject(FANOUT_FIXTURE);
     const { handler } = createServer(project.args);
-    // SHELL-4: the viewer lives on the Fan-out report tab, not inline on the overview.
     const view = await call(handler, "/report?view=fan-out");
-    // ARCH-1: the page-level report tab strip is present.
-    expect(view.body).toContain('class="report-tabs"');
-    // FANOUT-LIST-1: the selector + explanatory copy + a sort control.
-    expect(view.body).toContain("fo-explain");
-    expect(view.body).toContain('class="fo-tab');
-    expect(view.body).toContain('class="fo-sort-btn');
-    // Exactly ONE graph renders at a time, even with multiple detected sources.
-    expect((view.body.match(/class="fanout-graph"/g) ?? []).length).toBe(1);
+    expectSpaShell(view);
+
+    const data = JSON.parse((await call(handler, "/api/report.json")).body);
+    const fanOuts = fanOutEntriesGlobal(data.sinks);
+    expect(fanOuts.length).toBeGreaterThan(0);
   });
 
   it("selects a specific source and sort via URL params (refresh-safe)", async () => {
@@ -54,29 +56,31 @@ describe("fan-out viewer + report tab strip (round 7)", () => {
       handler,
       "/report?view=fan-out&fanout=" + anchor + "&fosort=depth",
     );
-    // The chosen source's graph is the one rendered.
-    expect(picked.body).toContain(`id="${anchor}"`);
-    expect(picked.body).toContain("Comp › props.mode");
-    // The active sort is reflected (FANOUT-SORT-1).
-    expect(picked.body).toContain('class="fo-sort-btn active"');
+    expectSpaShell(picked);
+
+    const data = JSON.parse((await call(handler, "/api/report.json")).body);
+    const fanOuts = fanOutEntriesGlobal(data.sinks);
+    expect(fanOuts.some((entry) => fanOutAnchor(entry.root) === anchor)).toBe(
+      true,
+    );
   });
 
-  it("fan-out report shows the network view with the raw markdown beneath it", async () => {
+  it("serves the fan-out markdown for the Solid report view", async () => {
     const project = await createFixtureProject(FANOUT_FIXTURE);
     const { handler } = createServer(project.args);
     const report = await call(handler, "/report?view=fan-out");
-    expect(report.body).toContain('class="report-tab active"');
-    expect(report.body).toContain('class="fo-tabs"');
-    // REPORT-RECONCILE-1: the agent-facing markdown is rendered below the view.
-    expect(report.body).toContain('class="body md-mirror"');
-    expect(report.body).toContain("Markdown report");
+    expectSpaShell(report);
+
+    const markdown = await call(handler, "/api/report.fan-out.md");
+    expect(markdown.status).toBe(200);
+    expect(markdown.body).toContain("Fan-Out");
   });
 
   it("tags single-file fan-outs as candidate splits vs cross-file usage", async () => {
     const project = await createFixtureProject(FANOUT_FIXTURE);
     const { handler } = createServer(project.args);
-    const view = await call(handler, "/report?view=fan-out");
+    const view = await call(handler, "/api/report.fan-out.md");
     // props.isOpen / props.mode are component-scoped → single-file (FANOUT-COPY-1).
-    expect(view.body).toContain("single-file · candidate split");
+    expect(view.body).toContain("single-file (candidate split)");
   });
 });

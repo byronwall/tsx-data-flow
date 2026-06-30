@@ -1,0 +1,20 @@
+.open-on-hover:not(:hover):not(:focus-within) .popover-panel {
+  display: none;
+}
+
+.finding-list-simple {
+  padding-left: 18px;
+}
+
+.finding-list-simple .finding {
+  margin: 0 0 12px;
+}
+
+.finding-list-simple .finding.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.source tr.has-sink {
+  cursor: pointer;
+}

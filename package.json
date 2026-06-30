@@ -18,6 +18,15 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "dev": "concurrently -k -n server,client -c blue,green \"pnpm dev:server\" \"pnpm dev:frontend\"",
+    "dev:server": "tsx watch src/server-cli.ts --root examples/bad-ish-solid --port 4318",
+    "dev:frontend": "vite --config vite.frontend.config.mjs",
+    "typecheck:server": "tsc -p tsconfig.server.json",
+    "typecheck:frontend": "tsc -p src/frontend/tsconfig.json",
+    "typecheck": "pnpm run typecheck:server && pnpm run typecheck:frontend",
+    "build:frontend": "pnpm run typecheck:frontend && vite build --config vite.frontend.config.mjs",
+    "build:server": "pnpm run typecheck:server",
+    "build": "pnpm run build:server && pnpm run build:frontend",
     "analyze": "node bin/tsx-dataflow.mjs",
     "serve": "node bin/tsx-dataflow-serve.mjs",
     "examples:regenerate": "node examples/regenerate.mjs"
@@ -38,9 +47,15 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "solid-js": "^1.8.22",
+    "tsx": "^4.20.3",
     "typescript": "^5.4.0"
   },
   "devDependencies": {
+    "@types/node": "^20.19.0",
+    "concurrently": "^9.2.0",
+    "vite": "^5.4.19",
+    "vite-plugin-solid": "^2.10.2",
     "vitest": "^2.0.0"
   }
 }

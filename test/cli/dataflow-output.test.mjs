@@ -80,7 +80,9 @@ describe("tsx-dataflow CLI output", () => {
 });
 
 async function createProject(label) {
-  const root = await mkdtemp(resolve(repoRoot, "tmp", `cli-output-${label}-`));
+  const tmpRoot = resolve(repoRoot, "tmp");
+  await mkdir(tmpRoot, { recursive: true });
+  const root = await mkdtemp(resolve(tmpRoot, `cli-output-${label}-`));
   await mkdir(resolve(root, "src"), { recursive: true });
   await writeFile(
     resolve(root, "tsconfig.json"),

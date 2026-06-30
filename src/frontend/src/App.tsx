@@ -1,0 +1,1142 @@
+import {
+  For,
+  Show,
+  createMemo,
+  createResource,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
+import type { JSX } from "solid-js";
+import { render } from "solid-js/web";
+import { STYLE } from "../../html/styles.mjs";
+import { markdownToHtml } from "../../html/markdown-to-html.mjs";
+import {
+  burdenHue,
+  dominantSink,
+  renderCodeLine,
+  renderCommentLine,
+  touchedLines,
+} from "../../html/code-map-source-lines.mjs";
+import "./style.css";
+
+type ReportView = (typeof REPORT_VIEWS)[number];
+type FileView = Exclude<ReportView, "overview">;
+type OverviewFilter = "all" | "findings" | "unknown" | "participating";
+type OverviewSort = "burden" | "findings" | "depth" | "file";
+type Navigate = (href: string, replace?: boolean) => void;
+type SelectOption<T extends string = string> = readonly [T, string];
+
+interface SpanLocation {
+  startLine: number;
+  endLine: number;
+  startColumn: number;
+  endColumn: number;
+}
+
+interface Sink {
+  id: string;
+  file?: string;
+  line?: number;
+  span?: SpanLocation;
+  scores?: { burden?: number };
+  metrics?: { maximumPathDepth?: number };
+  advice?: {
+    primaryShape?: string;
+    shape?: string;
+    firstCut?: string;
+    headline?: string;
+  };
+  roots?: string[];
+  sources?: Array<{ kind?: string }>;
+  family?: string;
+  kind?: string;
+  representativeSteps?: Array<{ file?: string; line?: number }>;
+  expression?: string;
+  target?: string;
+}
+
+interface Report {
+  meta?: { root?: string };
+  summary?: {
+    sinks?: number;
+    sources?: number;
+    pathFamilies?: number;
+    unknownEdges?: number;
+    nodes?: number;
+  };
+  concentration?: {
+    fileCount: number;
+    top5: number;
+    hot4Plus: number;
+  };
+  sinks?: Sink[];
+  helpers?: Array<{ file?: string }>;
+  contextRelay?: Array<{ parentFile?: string }>;
+  unknownEdges?: Array<{ file?: string }>;
+  graph?: {
+    nodes?: Array<{ file?: string }>;
+    edges?: Array<{ location?: { file?: string } }>;
+  };
+}
+
+interface OverviewState {
+  q: string;
+  filter: OverviewFilter;
+  sort: OverviewSort;
+  page: number;
+  all: boolean;
+}
+
+interface OverviewRow {
+  key: string;
+  count: number;
+  worst: number;
+  depth: number;
+  worstSink: Sink | null;
+  shape: string;
+  ownership: string;
+  firstCut: string;
+}
+
+interface OverviewGroup {
+  key: string;
+  count: number;
+  worst: number;
+  depth: number;
+  shapes: string[];
+  ownership: string[];
+  worstSink: Sink | null;
+}
+
+type EntryCountKey = "boundaries" | "relays" | "unknown" | "fanOut";
+type EntryCounts = Record<EntryCountKey, number>;
+
+const style = document.createElement("style");
+style.textContent = STYLE;
+document.head.appendChild(style);
+
+const REPORT_VIEWS = [
+  "overview",
+  "findings",
+  "repeated-forks",
+  "work-packets",
+  "fan-out",
+  "fan-in",
+  "path-families",
+  "defensive-ledger",
+  "prop-relay",
+  "context-relay",
+  "boundary-report",
+  "junctions",
+  "inline-preview",
+  "component-refs",
+] as const;
+
+const VIEW_LABELS: Record<ReportView, string> = {
+  overview: "Overview report",
+  findings: "Findings",
+  "repeated-forks": "Repeated forks",
+  "work-packets": "Work packets",
+  "fan-out": "Fan-out",
+  "fan-in": "Fan-in",
+  "path-families": "Path families",
+  "defensive-ledger": "Defensive ledger",
+  "prop-relay": "Prop relay",
+  "context-relay": "Context relay",
+  "boundary-report": "Boundary report",
+  junctions: "Junctions",
+  "inline-preview": "Inline preview",
+  "component-refs": "References",
+};
+
+const FILE_VIEWS: FileView[] = REPORT_VIEWS.filter(
+  (view): view is FileView => view !== "overview",
+).sort((a, b) => labelFor(a).localeCompare(labelFor(b)));
+
+const TYPE_COLUMNS = [
+  { key: "boundaries", col: "boundaries", label: "Boundaries" },
+  { key: "fanOut", col: "fanout", label: "Fan-out" },
+  { key: "relays", col: "relays", label: "Relays" },
+  { key: "unknown", col: "unknown", label: "Unknown" },
+] as const satisfies ReadonlyArray<{
+  key: EntryCountKey;
+  col: string;
+  label: string;
+}>;
+const PAGE_SIZE = 25;
+const SORT_HEADING: Record<OverviewSort, string> = {
+  burden: "Files by burden",
+  findings: "Files by finding count",
+  depth: "Files by path depth",
+  file: "Files by path",
+};
+
+const FILTER_OPTIONS = [
+  ["all", "All files"],
+  ["findings", "Files with findings"],
+  ["unknown", "Files with unknown edges"],
+  ["participating", "Graph-participating files"],
+] as const satisfies readonly SelectOption<OverviewFilter>[];
+
+const SORT_OPTIONS = [
+  ["burden", "Burden"],
+  ["findings", "Finding count"],
+  ["depth", "Path depth"],
+  ["file", "File path"],
+] as const satisfies readonly SelectOption<OverviewSort>[];
+
+function labelFor(view: string | null | undefined): string {
+  if (!view) return "";
+  return Object.hasOwn(VIEW_LABELS, view)
+    ? VIEW_LABELS[view as ReportView]
+    : view;
+}
+
+function App() {
+  const [location, setLocation] = createSignal(currentLocation());
+
+  const navigate: Navigate = (href, replace = false) => {
+    const next = new URL(href, window.location.origin);
+    if (replace) window.history.replaceState({}, "", next);
+    else window.history.pushState({}, "", next);
+    setLocation(currentLocation());
+  };
+
+  onMount(() => {
+    const onPop = () => setLocation(currentLocation());
+    window.addEventListener("popstate", onPop);
+    onCleanup(() => window.removeEventListener("popstate", onPop));
+  });
+
+  const onDocumentClick: JSX.EventHandler<HTMLDivElement, MouseEvent> = (
+    event,
+  ) => {
+    if (!(event.target instanceof Element)) return;
+    const anchor = event.target.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+    const href = anchor.getAttribute("href");
+    if (
+      !href ||
+      href.startsWith("#") ||
+      href.startsWith("/api/") ||
+      href.startsWith("http") ||
+      href.startsWith("mailto:")
+    )
+      return;
+    if (anchor.hasAttribute("download") || anchor.target) return;
+    event.preventDefault();
+    navigate(href);
+  };
+
+  return (
+    <div onClick={onDocumentClick}>
+      <Router location={location()} navigate={navigate} />
+    </div>
+  );
+}
+
+function Router(props: { location: URL; navigate: Navigate }) {
+  const path = () => props.location.pathname;
+  return (
+    <Show
+      when={path() === "/file"}
+      fallback={
+        <Show
+          when={path() === "/report"}
+          fallback={
+            <OverviewPage location={props.location} navigate={props.navigate} />
+          }
+        >
+          <ReportPage location={props.location} />
+        </Show>
+      }
+    >
+      <FilePage location={props.location} />
+    </Show>
+  );
+}
+
+function Shell(props: {
+  context?: string;
+  tabs?: JSX.Element;
+  wide?: boolean;
+  children: JSX.Element;
+}) {
+  return (
+    <>
+      <header class="topbar">
+        <div class="topbar-bar">
+          <a class="brand" href="/">
+            tsx-dataflow
+          </a>
+          <Show when={props.context}>
+            <span class="topbar-context" title={props.context}>
+              {props.context}
+            </span>
+          </Show>
+        </div>
+        {props.tabs}
+      </header>
+      <div class="layout">
+        <main classList={{ wide: props.wide }}>{props.children}</main>
+      </div>
+    </>
+  );
+}
+
+function ReportTabs(props: { active: ReportView | null }) {
+  const active = () => props.active;
+  return (
+    <nav class="report-tabs" aria-label="Workspace reports">
+      <a class="report-tab" classList={{ active: !active() }} href="/">
+        Overview
+      </a>
+      <For each={REPORT_VIEWS}>
+        {(view) => (
+          <a
+            class="report-tab"
+            classList={{ active: active() === view }}
+            href={`/report?view=${encodeURIComponent(view)}`}
+            aria-current={active() === view ? "page" : undefined}
+          >
+            {labelFor(view)}
+          </a>
+        )}
+      </For>
+    </nav>
+  );
+}
+
+function FileTabs(props: { path: string; active: FileView | null }) {
+  const base = () => `/file?path=${encodeURIComponent(props.path)}`;
+  const active = () => props.active;
+  return (
+    <nav class="report-tabs" aria-label="File sections">
+      <a class="report-tab" classList={{ active: !active() }} href={base()}>
+        Code map
+      </a>
+      <For each={FILE_VIEWS}>
+        {(view) => (
+          <a
+            class="report-tab"
+            classList={{ active: active() === view }}
+            href={`${base()}&view=${encodeURIComponent(view)}`}
+            aria-current={active() === view ? "page" : undefined}
+          >
+            {labelFor(view)}
+          </a>
+        )}
+      </For>
+    </nav>
+  );
+}
+
+function OverviewPage(props: { location: URL; navigate: Navigate }) {
+  const [report] = createResource(
+    () => props.location.search,
+    () => fetchJson<Report>("/api/report.json"),
+  );
+  const state = createMemo(() => overviewState(props.location.searchParams));
+  const rows = createMemo(() => overviewRows(report(), state()));
+  const pageRows = createMemo(() => {
+    if (state().all) return rows();
+    return rows().slice(
+      (state().page - 1) * PAGE_SIZE,
+      state().page * PAGE_SIZE,
+    );
+  });
+  const concentration = createMemo(() => report()?.concentration);
+  const typeCounts = createMemo(() => entryTypeCountsByFile(report()));
+  const totalPages = createMemo(() =>
+    Math.max(1, Math.ceil(rows().length / PAGE_SIZE)),
+  );
+  const rangeStart = createMemo(() =>
+    rows().length ? (state().all ? 1 : (state().page - 1) * PAGE_SIZE + 1) : 0,
+  );
+  const rangeEnd = createMemo(() =>
+    state().all
+      ? rows().length
+      : Math.min(rows().length, state().page * PAGE_SIZE),
+  );
+
+  let searchInput!: HTMLInputElement;
+  const submitSearch: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (
+    event,
+  ) => {
+    event.preventDefault();
+    props.navigate(
+      overviewHref(state(), { q: searchInput.value.trim(), page: 1 }),
+    );
+  };
+
+  return (
+    <Shell
+      context={report()?.meta?.root ?? ""}
+      tabs={<ReportTabs active={null} />}
+    >
+      <Show
+        when={!report.loading}
+        fallback={<p class="meta">Loading analysis...</p>}
+      >
+        <div class="toolbar">
+          <h1 style="margin:0">Render-path overview</h1>
+          <form action="/refresh" method="post">
+            <button type="submit">↻ Re-analyze</button>
+          </form>
+        </div>
+        <SummaryCards summary={report()?.summary} />
+        <div class="toolbar">
+          <form onSubmit={submitSearch}>
+            <input
+              ref={searchInput}
+              name="q"
+              type="search"
+              value={state().q}
+              placeholder="Search files and reports"
+            />
+            <button type="submit">Search</button>
+          </form>
+          <SelectLink
+            label="Show"
+            value={state().filter}
+            options={FILTER_OPTIONS}
+            hrefFor={(value) =>
+              overviewHref(state(), { filter: value, page: 1 })
+            }
+          />
+          <SelectLink
+            label="Sort"
+            value={state().sort}
+            options={SORT_OPTIONS}
+            hrefFor={(value) => overviewHref(state(), { sort: value, page: 1 })}
+          />
+          <a class="btn" href="/">
+            Reset
+          </a>
+        </div>
+        <h2>{SORT_HEADING[state().sort] ?? "Files"}</h2>
+        <Show when={(concentration()?.fileCount ?? 0) > 0}>
+          <p class="meta">
+            Top {Math.min(5, concentration()?.fileCount ?? 0)} file(s) hold{" "}
+            {Math.round((concentration()?.top5 ?? 0) * 100)}% of ranked burden ·{" "}
+            {concentration()?.fileCount ?? 0} file(s) with ≥1 finding,{" "}
+            {concentration()?.hot4Plus ?? 0} with ≥4.
+          </p>
+        </Show>
+        <p class="meta">
+          {rows().length
+            ? `Showing ${rangeStart()}-${rangeEnd()} of ${rows().length} file${rows().length === 1 ? "" : "s"}`
+            : "No matching files"}
+        </p>
+        <ColumnToggle />
+        <table class="overview-table" id="overview-table">
+          <thead>
+            <tr>
+              <SortHeader state={state()} sort="file" label="File" />
+              <SortHeader state={state()} sort="findings" label="Findings" />
+              <SortHeader state={state()} sort="burden" label="Worst" />
+              <SortHeader state={state()} sort="depth" label="Path depth" />
+              <For each={TYPE_COLUMNS}>
+                {(col) => <th class={`col-${col.col} num`}>{col.label}</th>}
+              </For>
+              <th>Dominant shape</th>
+              <th>Ownership</th>
+              <th>First cut</th>
+            </tr>
+          </thead>
+          <tbody>
+            <Show
+              when={pageRows().length}
+              fallback={
+                <tr>
+                  <td colspan={7 + TYPE_COLUMNS.length} class="meta">
+                    No matching files.
+                  </td>
+                </tr>
+              }
+            >
+              <For each={pageRows()}>
+                {(row) => {
+                  const counts =
+                    typeCounts().get(row.key) ?? emptyEntryCounts();
+                  return (
+                    <tr>
+                      <td>
+                        <a href={`/file?path=${encodeURIComponent(row.key)}`}>
+                          {row.key}
+                        </a>
+                      </td>
+                      <td>{row.count}</td>
+                      <td>{row.worst.toFixed(2)}</td>
+                      <td>{row.depth}</td>
+                      <For each={TYPE_COLUMNS}>
+                        {(col) => (
+                          <td class={`col-${col.col} num`}>
+                            {counts[col.key] || <span class="meta">·</span>}
+                          </td>
+                        )}
+                      </For>
+                      <td>{row.shape}</td>
+                      <td>{row.ownership}</td>
+                      <td>{row.firstCut}</td>
+                    </tr>
+                  );
+                }}
+              </For>
+            </Show>
+          </tbody>
+        </table>
+        <Show when={!state().all && totalPages() > 1}>
+          <nav class="pager" aria-label="File result pages">
+            <a
+              class="btn"
+              classList={{ disabled: state().page <= 1 }}
+              href={overviewHref(state(), { page: state().page - 1 })}
+            >
+              Previous
+            </a>
+            <span class="meta">
+              Page {state().page} of {totalPages()}
+            </span>
+            <a
+              class="btn"
+              classList={{ disabled: state().page >= totalPages() }}
+              href={overviewHref(state(), { page: state().page + 1 })}
+            >
+              Next
+            </a>
+            <a class="btn" href={overviewHref(state(), { all: true })}>
+              Show all {rows().length}
+            </a>
+          </nav>
+        </Show>
+        <Show when={state().all && rows().length > PAGE_SIZE}>
+          <nav class="pager" aria-label="File result pages">
+            <a
+              class="btn"
+              href={overviewHref(state(), { all: false, page: 1 })}
+            >
+              Paginate
+            </a>
+          </nav>
+        </Show>
+      </Show>
+    </Shell>
+  );
+}
+
+function SummaryCards(props: { summary?: Report["summary"] }) {
+  const items = () => [
+    ["Sinks", props.summary?.sinks],
+    ["Sources", props.summary?.sources],
+    ["Path families", props.summary?.pathFamilies],
+    ["Unknown edges", props.summary?.unknownEdges],
+    ["Graph nodes", props.summary?.nodes],
+  ];
+  return (
+    <div class="cards">
+      <For each={items()}>
+        {([label, value]) => (
+          <div class="card">
+            <div class="n">{value ?? 0}</div>
+            <div class="l">{label}</div>
+          </div>
+        )}
+      </For>
+    </div>
+  );
+}
+
+function SelectLink<T extends string>(props: {
+  label: string;
+  value: T;
+  options: readonly SelectOption<T>[];
+  hrefFor(value: T): string;
+}) {
+  const current = () =>
+    props.options.find(([value]) => value === props.value)?.[1] ?? props.value;
+  return (
+    <div class="popover open-on-hover">
+      <span class="popover-trigger">
+        <span class="popover-label">{props.label}</span>
+        <span class="popover-value">{current()}</span>
+        <span class="popover-caret">▼</span>
+      </span>
+      <div class="popover-panel">
+        <For each={props.options}>
+          {([value, label]) => (
+            <a
+              class="popover-opt"
+              classList={{ active: value === props.value }}
+              href={props.hrefFor(value)}
+            >
+              {label}
+            </a>
+          )}
+        </For>
+      </div>
+    </div>
+  );
+}
+
+function SortHeader(props: {
+  state: OverviewState;
+  sort: OverviewSort;
+  label: string;
+}) {
+  const active = () => props.state.sort === props.sort;
+  return (
+    <th
+      class="sortable"
+      classList={{ active: active() }}
+      aria-sort={active() ? "descending" : undefined}
+    >
+      <a href={overviewHref(props.state, { sort: props.sort, page: 1 })}>
+        <span class="th-label">{props.label}</span>
+        <Show when={active()}>
+          <span class="caret" aria-hidden="true">
+            ▼
+          </span>
+        </Show>
+      </a>
+    </th>
+  );
+}
+
+function ColumnToggle() {
+  const toggle: JSX.EventHandler<HTMLInputElement, InputEvent> = (event) => {
+    const table = document.getElementById("overview-table");
+    if (!table) return;
+    const col = event.currentTarget.dataset.col;
+    table.classList.toggle(`hide-${col}`, !event.currentTarget.checked);
+  };
+  return (
+    <fieldset
+      class="col-toggle"
+      id="col-toggle"
+      aria-label="Show or hide columns"
+    >
+      <span class="meta">Columns:</span>
+      <For each={TYPE_COLUMNS}>
+        {(col) => (
+          <label>
+            <input
+              type="checkbox"
+              data-col={col.col}
+              checked
+              onInput={toggle}
+            />{" "}
+            {col.label}
+          </label>
+        )}
+      </For>
+    </fieldset>
+  );
+}
+
+function ReportPage(props: { location: URL }) {
+  const view = createMemo<ReportView>(() => {
+    const nextView = props.location.searchParams.get("view");
+    return isReportView(nextView) ? nextView : "overview";
+  });
+  const [report] = createResource(
+    () => view(),
+    (nextView) => fetchText(`/api/report.${encodeURIComponent(nextView)}.md`),
+  );
+  const [meta] = createResource(
+    () => props.location.search,
+    () => fetchJson<Report>("/api/report.json"),
+  );
+  return (
+    <Shell
+      context={meta()?.meta?.root ?? ""}
+      tabs={<ReportTabs active={view()} />}
+    >
+      <div class="toolbar">
+        <h1 style="margin:0">{labelFor(view())}</h1>
+        <a class="btn" href={`/api/report.${encodeURIComponent(view())}.md`}>
+          Markdown
+        </a>
+      </div>
+      <Show
+        when={!report.loading}
+        fallback={<p class="meta">Loading report...</p>}
+      >
+        <div class="body" innerHTML={markdownToHtml(report() ?? "")} />
+      </Show>
+    </Shell>
+  );
+}
+
+function FilePage(props: { location: URL }) {
+  const relPath = createMemo(
+    () => props.location.searchParams.get("path") ?? "",
+  );
+  const activeView = createMemo<FileView | null>(() => {
+    const view = props.location.searchParams.get("view");
+    return view && FILE_VIEWS.includes(view as FileView)
+      ? (view as FileView)
+      : null;
+  });
+  const [fileData] = createResource(
+    () => relPath(),
+    async (path) => {
+      if (!path) return null;
+      const [report, source] = await Promise.all([
+        fetchJson<Report>(`/api/report.json?path=${encodeURIComponent(path)}`),
+        fetchText(`/api/source?path=${encodeURIComponent(path)}`),
+      ]);
+      return { report, source };
+    },
+  );
+  const [markdown] = createResource(
+    () => [relPath(), activeView()].join("\0"),
+    async () => {
+      const view = activeView();
+      if (!relPath() || !view) return "";
+      return fetchText(
+        `/api/report.${encodeURIComponent(view)}.md?path=${encodeURIComponent(relPath())}`,
+      );
+    },
+  );
+
+  return (
+    <Shell
+      context={relPath()}
+      tabs={<FileTabs path={relPath()} active={activeView()} />}
+      wide
+    >
+      <Show when={relPath()} fallback={<p class="meta">Missing ?path.</p>}>
+        <nav class="crumbs">
+          <a href="/">← Overview</a>
+          <span>/</span>
+          <span>{relPath()}</span>
+        </nav>
+        <div class="toolbar">
+          <h1 style="margin:0">{relPath()}</h1>
+          <a
+            class="btn"
+            href={`/api/report.json?path=${encodeURIComponent(relPath())}`}
+          >
+            JSON
+          </a>
+          <form action="/refresh" method="post">
+            <input
+              type="hidden"
+              name="from"
+              value={`/file?path=${encodeURIComponent(relPath())}`}
+            />
+            <button type="submit">↻ Re-analyze</button>
+          </form>
+        </div>
+        <Show
+          when={!fileData.loading}
+          fallback={<p class="meta">Loading file...</p>}
+        >
+          <Show
+            when={activeView()}
+            fallback={
+              <CodeMap
+                relPath={relPath()}
+                source={fileData()?.source ?? ""}
+                report={fileData()?.report}
+              />
+            }
+          >
+            <h2>{labelFor(activeView())}</h2>
+            <Show
+              when={!markdown.loading}
+              fallback={<p class="meta">Loading report...</p>}
+            >
+              <div class="body" innerHTML={markdownToHtml(markdown() ?? "")} />
+            </Show>
+          </Show>
+        </Show>
+      </Show>
+    </Shell>
+  );
+}
+
+function CodeMap(props: {
+  relPath: string;
+  source: string;
+  report?: Report | null;
+}) {
+  const selected = createMemo(() =>
+    new URLSearchParams(window.location.search).get("finding"),
+  );
+  const sinks = createMemo(() =>
+    (props.report?.sinks ?? []).filter((sink) => sink.file === props.relPath),
+  );
+  const lines = createMemo(() => props.source.split("\n"));
+  const byLine = createMemo(() => {
+    const map = new Map<number, Sink[]>();
+    for (const sink of sinks()) {
+      for (const lineNo of touchedLines(sink, lines().length)) {
+        if (!map.has(lineNo)) map.set(lineNo, []);
+        map.get(lineNo)?.push(sink);
+      }
+    }
+    return map;
+  });
+  const pathLines = createMemo(() => {
+    const set = new Set<number>();
+    for (const sink of sinks()) {
+      for (const step of sink.representativeSteps ?? []) {
+        if (step.file === props.relPath && step.line) set.add(step.line);
+      }
+    }
+    return set;
+  });
+  const selectFinding = (id: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("finding", id);
+    window.history.replaceState({}, "", url);
+    document
+      .querySelectorAll(".finding.active")
+      .forEach((node) => node.classList.remove("active"));
+    document
+      .querySelector(`.finding[data-finding="${CSS.escape(id)}"]`)
+      ?.classList.add("active");
+  };
+
+  return (
+    <>
+      <h2 id="codemap">Code map</h2>
+      <p class="meta">
+        Lines with a colored dot render a ranked finding. Color signals{" "}
+        <strong>burden</strong>: the hotter the line, the heavier the render
+        path.
+      </p>
+      <div class="heat-legend">
+        <span>low burden</span>
+        <span class="bar"></span>
+        <span>high burden</span>
+      </div>
+      <div class="codemap">
+        <div class="source-wrap">
+          <table class="source">
+            <tbody>
+              <CodeRows
+                lines={lines()}
+                byLine={byLine()}
+                pathLines={pathLines()}
+                onSelect={selectFinding}
+              />
+            </tbody>
+          </table>
+        </div>
+        <aside class="panel">
+          <h3>Findings</h3>
+          <Show
+            when={sinks().length}
+            fallback={<p class="meta">No findings in this file.</p>}
+          >
+            <ol class="finding-list-simple">
+              <For each={sinks()}>
+                {(sink) => (
+                  <FindingItem sink={sink} active={selected() === sink.id} />
+                )}
+              </For>
+            </ol>
+          </Show>
+        </aside>
+      </div>
+    </>
+  );
+}
+
+function CodeRows(props: {
+  lines: string[];
+  byLine: Map<number, Sink[]>;
+  pathLines: Set<number>;
+  onSelect(id: string): void;
+}) {
+  const commentState = { inBlock: false };
+  return (
+    <For each={props.lines}>
+      {(text, index) => {
+        const lineNo = index() + 1;
+        const lineSinks = props.byLine.get(lineNo) ?? [];
+        const onPath = props.pathLines.has(lineNo);
+        const worst = lineSinks.length ? dominantSink(lineSinks) : null;
+        const burden = worst?.scores?.burden ?? 0;
+        const code = lineSinks.length
+          ? renderCodeLine(text, lineNo, lineSinks)
+          : renderCommentLine(text, commentState);
+        return (
+          <tr
+            classList={{
+              "has-sink": !!lineSinks.length,
+              heat: !!lineSinks.length,
+              "on-path": onPath,
+            }}
+            style={lineSinks.length ? { "--bt": burdenHue(burden) } : {}}
+            data-line={lineNo}
+            onClick={() => lineSinks[0] && props.onSelect(lineSinks[0].id)}
+          >
+            <td class="ln">{lineNo}</td>
+            <td class="gutter">
+              <Show when={lineSinks.length}>
+                <span
+                  class="dot heat span-dot"
+                  title={`${lineSinks.length} finding${lineSinks.length === 1 ? "" : "s"} on this line`}
+                />
+              </Show>
+            </td>
+            <td class="code" innerHTML={code} />
+          </tr>
+        );
+      }}
+    </For>
+  );
+}
+
+function FindingItem(props: { sink: Sink; active: boolean }) {
+  const sink = () => props.sink;
+  const headline = () => sink().advice?.headline;
+  return (
+    <li
+      class="finding"
+      classList={{ active: props.active }}
+      data-finding={sink().id}
+    >
+      <a href={`#${sink().id}`} onClick={(event) => event.preventDefault()}>
+        <strong>{sink().id}</strong>
+      </a>
+      <span class="meta">
+        {" "}
+        line {sink().line} · burden {(sink().scores?.burden ?? 0).toFixed(2)}
+      </span>
+      <p>
+        <code>{sink().expression ?? sink().target ?? "rendered value"}</code>
+      </p>
+      <Show when={headline()}>{(value) => <p>{value()}</p>}</Show>
+    </li>
+  );
+}
+
+function overviewState(params: URLSearchParams): OverviewState {
+  const q = (params.get("q") ?? "").trim();
+  const filterParam = params.get("filter");
+  const sortParam = params.get("sort");
+  const filter = isOverviewFilter(filterParam) ? filterParam : "all";
+  const sort = isOverviewSort(sortParam) ? sortParam : "burden";
+  const page = Math.max(1, Number.parseInt(params.get("page") ?? "1", 10) || 1);
+  return { q, filter, sort, page, all: params.get("all") === "1" };
+}
+
+function overviewHref(
+  state: OverviewState,
+  changes: Partial<OverviewState> = {},
+) {
+  const next = { ...state, ...changes };
+  const params = new URLSearchParams();
+  if (next.q) params.set("q", next.q);
+  if (next.filter && next.filter !== "all") params.set("filter", next.filter);
+  if (next.sort && next.sort !== "burden") params.set("sort", next.sort);
+  if (next.all) params.set("all", "1");
+  else if (next.page && next.page !== 1) params.set("page", String(next.page));
+  const query = params.toString();
+  return query ? `/?${query}` : "/";
+}
+
+function overviewRows(
+  report: Report | undefined,
+  state: OverviewState,
+): OverviewRow[] {
+  if (!report) return [];
+  const participating = graphParticipationFiles(report);
+  const q = state.q.toLowerCase();
+  const typeCounts = entryTypeCountsByFile(report);
+  const groups = new Map<string, OverviewGroup>();
+  for (const sink of report.sinks ?? []) {
+    if (!sink.file) continue;
+    const group = groups.get(sink.file) ?? {
+      key: sink.file,
+      count: 0,
+      worst: 0,
+      depth: 0,
+      shapes: [],
+      ownership: [],
+      worstSink: null,
+    };
+    group.count += 1;
+    const burden = sink.scores?.burden ?? 0;
+    if (burden > group.worst) {
+      group.worst = burden;
+      group.worstSink = sink;
+    }
+    group.depth = Math.max(group.depth, sink.metrics?.maximumPathDepth ?? 0);
+    group.shapes.push(shapeOf(sink));
+    group.ownership.push(ownershipOf(sink));
+    groups.set(sink.file, group);
+  }
+  let rows = [...groups.values()].map((group) => ({
+    ...group,
+    shape: modalValue(group.shapes),
+    ownership: modalValue(group.ownership),
+    firstCut: firstCutFor(group.worstSink),
+  }));
+  rows = rows.filter((row) => {
+    const counts = typeCounts.get(row.key) ?? emptyEntryCounts();
+    if (state.filter === "findings" && row.count <= 0) return false;
+    if (state.filter === "unknown" && !counts.unknown) return false;
+    if (state.filter === "participating" && !participating.has(row.key))
+      return false;
+    if (
+      q &&
+      ![row.key, row.shape, row.ownership, row.firstCut]
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    )
+      return false;
+    return true;
+  });
+  rows.sort((left, right) => {
+    if (state.sort === "file") return left.key.localeCompare(right.key);
+    if (state.sort === "findings")
+      return (
+        right.count - left.count ||
+        right.worst - left.worst ||
+        left.key.localeCompare(right.key)
+      );
+    if (state.sort === "depth")
+      return (
+        right.depth - left.depth ||
+        right.worst - left.worst ||
+        left.key.localeCompare(right.key)
+      );
+    return right.worst - left.worst || left.key.localeCompare(right.key);
+  });
+  return rows;
+}
+
+function entryTypeCountsByFile(
+  report: Report | undefined,
+): Map<string, EntryCounts> {
+  const counts = new Map<string, EntryCounts>();
+  const bump = (file: string | undefined, key: EntryCountKey) => {
+    if (!file) return;
+    const next = counts.get(file) ?? {
+      boundaries: 0,
+      relays: 0,
+      unknown: 0,
+      fanOut: 0,
+    };
+    next[key] += 1;
+    counts.set(file, next);
+  };
+  for (const helper of report?.helpers ?? []) bump(helper.file, "boundaries");
+  for (const relay of report?.contextRelay ?? [])
+    bump(relay.parentFile, "relays");
+  for (const edge of report?.unknownEdges ?? []) bump(edge.file, "unknown");
+  const roots = new Map<string, { count: number; files: Set<string> }>();
+  for (const sink of report?.sinks ?? []) {
+    if (!sink.file) continue;
+    for (const root of sink.roots ?? []) {
+      const entry = roots.get(root) ?? { count: 0, files: new Set() };
+      entry.count += 1;
+      entry.files.add(sink.file);
+      roots.set(root, entry);
+    }
+  }
+  for (const entry of roots.values()) {
+    if (entry.count < 2) continue;
+    for (const file of entry.files) bump(file, "fanOut");
+  }
+  return counts;
+}
+
+function graphParticipationFiles(report: Report): Set<string> {
+  const files = new Set<string>();
+  for (const node of report?.graph?.nodes ?? [])
+    if (node.file) files.add(node.file);
+  for (const edge of report?.graph?.edges ?? [])
+    if (edge.location?.file) files.add(edge.location.file);
+  if (files.size === 0) {
+    for (const sink of report?.sinks ?? []) if (sink.file) files.add(sink.file);
+  }
+  return files;
+}
+
+function modalValue(values: string[]): string {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return (
+    [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ??
+    "—"
+  );
+}
+
+function emptyEntryCounts(): EntryCounts {
+  return { boundaries: 0, relays: 0, unknown: 0, fanOut: 0 };
+}
+
+function shapeOf(sink: Sink): string {
+  return (
+    sink.advice?.primaryShape ??
+    sink.advice?.shape ??
+    sink.family ??
+    sink.kind ??
+    "uncategorized"
+  );
+}
+
+function ownershipOf(sink: Sink): string {
+  if ((sink.roots ?? []).some((root) => /^use[A-Z]/.test(root)))
+    return "feature hook/context";
+  if ((sink.sources ?? []).some((source) => source.kind === "prop"))
+    return "props";
+  return "local";
+}
+
+function firstCutFor(sink: Sink | null): string {
+  return (
+    sink?.advice?.firstCut ?? sink?.advice?.headline ?? "local boundary cleanup"
+  );
+}
+
+function isOverviewFilter(value: string | null): value is OverviewFilter {
+  return (
+    value === "all" ||
+    value === "findings" ||
+    value === "unknown" ||
+    value === "participating"
+  );
+}
+
+function isOverviewSort(value: string | null): value is OverviewSort {
+  return (
+    value === "burden" ||
+    value === "findings" ||
+    value === "depth" ||
+    value === "file"
+  );
+}
+
+function isReportView(value: string | null): value is ReportView {
+  return REPORT_VIEWS.includes(value as ReportView);
+}
+
+function currentLocation(): URL {
+  return new URL(window.location.href);
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
+  return response.json() as Promise<T>;
+}
+
+async function fetchText(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
+  return response.text();
+}
+
+const root = document.getElementById("root");
+if (!root) throw new Error("Missing #root element");
+render(() => <App />, root);

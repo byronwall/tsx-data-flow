@@ -1,5 +1,6 @@
 node_modules/
 .tsx-dataflow/
+dist/
 tmp/
 *.log
 .DS_Store

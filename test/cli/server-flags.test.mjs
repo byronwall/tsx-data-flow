@@ -20,6 +20,15 @@ describe("extractServerFlags", () => {
     });
   });
 
+  it("ignores the pnpm script argument separator", () => {
+    expect(
+      extractServerFlags(["--", "--root", "examples/bad-ish-solid"]),
+    ).toEqual({
+      server: { port: 4317, host: "127.0.0.1", open: false },
+      rest: ["--root", "examples/bad-ish-solid"],
+    });
+  });
+
   it("passes help through to analyzer parsing", () => {
     expect(extractServerFlags(["--help"])).toEqual({
       server: { port: 4317, host: "127.0.0.1", open: false },

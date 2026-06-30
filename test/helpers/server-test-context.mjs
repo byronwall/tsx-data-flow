@@ -12,7 +12,7 @@ import {
 } from "../../src/core.mjs";
 import { fanOutAnchor, renderCodeMap } from "../../src/html/code-map.mjs";
 import { peekReferences } from "../../src/html/source-peek.mjs";
-import { createServer } from "../../src/server.mjs";
+import { createServer } from "../../src/server.ts";
 
 export const FIXTURE = {
   "src/Card.tsx": `

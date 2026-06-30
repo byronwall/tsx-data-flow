@@ -5,7 +5,7 @@ import {
   parseArgs,
   renderAllReports,
 } from "../../src/core.mjs";
-import { createServer } from "../../src/server.mjs";
+import { createServer } from "../../src/server.ts";
 import { call } from "./http.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

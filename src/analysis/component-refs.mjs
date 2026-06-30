@@ -26,6 +26,7 @@ export function buildComponentRefs(ts, checker, sourceFiles, root) {
         const { symbol, decl } = resolveDecl(checker.getSymbolAtLocation(tag));
         if (symbol && decl) {
           const declFile = decl.getSourceFile();
+          if (!isInsideRoot(root, declFile.fileName)) return;
           const defFile = relativePath(root, declFile.fileName);
           const defLine = locationOf(declFile, decl).line;
           const key = `${defFile}:${defLine}:${tag.text}`;
@@ -60,4 +61,9 @@ export function buildComponentRefs(ts, checker, sourceFiles, root) {
 
 function relativePath(root, file) {
   return path.relative(root, file).replaceAll(path.sep, "/");
+}
+
+function isInsideRoot(root, file) {
+  const rel = path.relative(root, file);
+  return rel && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
