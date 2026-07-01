@@ -244,6 +244,8 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     // INLINE-1: each helper lists its consumers (call sites) so the inline decision
     // is answerable — you can see where a fold would land.
     expect(inline).toContain("Consumers");
+    expect(inline).toContain("Helper body (capped at 10 lines)");
+    expect(inline).toContain("Call-site samples");
   });
 
   it("proposes a clean helper signature for a deep render path (Approach 4)", async () => {

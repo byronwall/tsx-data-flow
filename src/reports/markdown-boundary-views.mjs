@@ -234,9 +234,40 @@ export function renderInlinePreview(report, args) {
         lines.push(`- _+${helper.callerCount - callers.length} more_`);
       }
     }
+    if (decision.verdict === "INLINE") {
+      appendInlineEvidence(lines, helper, callers);
+    }
     lines.push("");
   }
   return `${lines.join("\n")}`;
+}
+
+function appendInlineEvidence(lines, helper, callers) {
+  if (helper.inlineBodySnippet?.lines?.length) {
+    lines.push("", "Helper body (capped at 10 lines):");
+    lines.push(...fenced(snippetLines(helper.inlineBodySnippet)));
+  }
+  const samples = callers
+    .filter((caller) => caller.snippet?.lines?.length)
+    .slice(0, 5);
+  if (!samples.length) return;
+  lines.push("", "Call-site samples (first 5, ±2 lines):");
+  for (const caller of samples) {
+    lines.push("", `\`${caller.file}:${caller.line}\``);
+    lines.push(...fenced(snippetLines(caller.snippet)));
+  }
+  if (helper.callerCount > samples.length) {
+    lines.push(
+      "",
+      `_+${helper.callerCount - samples.length} more call site(s) without snippets._`,
+    );
+  }
+}
+
+function snippetLines(snippet) {
+  const lines = [...(snippet.lines ?? [])];
+  if (snippet.truncated) lines.push("...");
+  return lines;
 }
 
 function inlineDecision(helper) {

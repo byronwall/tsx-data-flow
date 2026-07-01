@@ -1,6 +1,10 @@
 import path from "node:path";
 import { createGraph, locationOf } from "./graph.mjs";
 
+const CALLER_LOCATION_LIMIT = 8;
+const INLINE_SNIPPET_LIMIT = 5;
+const INLINE_HELPER_BODY_LINE_LIMIT = 10;
+
 export function buildHelperReport(
   ts,
   checker,
@@ -49,6 +53,7 @@ export function buildHelperReport(
       inSources: enriched.inSources,
       callerCount: enriched.callerCount,
       callers: enriched.callers,
+      inlineBodySnippet: enriched.inlineBodySnippet,
       passThrough: enriched.passThrough,
       typeLeak: enriched.typeLeak,
       internalDepth: enriched.internalDepth,
@@ -135,6 +140,7 @@ function enrichCatalogRecord(
     returnType,
     inRoots,
     inSources,
+    inlineBodySnippet: functionSnippet(sourceFile, fnNode),
     passThrough: returnExpr ? isPassThrough(ts, returnExpr, paramNames) : false,
     typeLeak:
       isTypeLeak(returnType) ||
@@ -180,10 +186,15 @@ function countCallers(
           const record = resolved ? byKey.get(keyOf(resolved)) : null;
           if (record) {
             record.callerCount += 1;
-            if (record.callers.length < 8) {
+            if (record.callers.length < CALLER_LOCATION_LIMIT) {
+              const line = locationOf(sourceFile, node).line;
               record.callers.push({
                 file: fileRel,
-                line: locationOf(sourceFile, node).line,
+                line,
+                snippet:
+                  record.callers.length < INLINE_SNIPPET_LIMIT
+                    ? lineWindowSnippet(sourceFile, line, 2)
+                    : null,
               });
             }
           }
@@ -268,4 +279,47 @@ function isTypeLeak(typeText) {
 
 function relativePath(root, file) {
   return path.relative(root, file).replaceAll(path.sep, "/");
+}
+
+function functionSnippet(sourceFile, node) {
+  const start =
+    sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line +
+    1;
+  const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
+  const cappedEnd = Math.min(end, start + INLINE_HELPER_BODY_LINE_LIMIT - 1);
+  return lineRangeSnippet(sourceFile, start, cappedEnd, null, end > cappedEnd);
+}
+
+function lineWindowSnippet(sourceFile, line, context) {
+  return lineRangeSnippet(
+    sourceFile,
+    line - context,
+    line + context,
+    line,
+    false,
+  );
+}
+
+function lineRangeSnippet(
+  sourceFile,
+  startLine,
+  endLine,
+  hitLine = null,
+  truncated = false,
+) {
+  const lines = String(sourceFile.text ?? "").split("\n");
+  const start = Math.max(1, startLine);
+  const end = Math.min(lines.length, endLine);
+  if (start > end) return null;
+  const width = String(end).length;
+  return {
+    startLine: start,
+    endLine: end,
+    hitLine,
+    truncated,
+    lines: lines.slice(start - 1, end).map((text, index) => {
+      const line = start + index;
+      return `${String(line).padStart(width, " ")}${line === hitLine ? " >" : "  "} ${text}`;
+    }),
+  };
 }

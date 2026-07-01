@@ -827,6 +827,27 @@ verdict: INLINE — shallow body, few callers — the helper adds indirection wi
 Consumers (call sites):
 - \`src/Chart.tsx:32\`
 
+Helper body (capped at 10 lines):
+\`\`\`
+12   function groupBarSeries(tasks: Task[]): Series {
+13     return tasks.map((task) => ({
+14       label: task.title,
+15       value: task.estimateHours ?? 0,
+16     }));
+17   }
+\`\`\`
+
+Call-site samples (first 5, ±2 lines):
+
+\`src/Chart.tsx:32\`
+\`\`\`
+30   // prop-drilled into children that are each the sole consumer.
+31   export function Chart(props: ChartProps) {
+32 >   const barData = () => groupBarSeries(props.tasks);
+33     const barSeries = () => barData().map((point) => point.value);
+34     const lineSeries = () => rollingLineSeries(props.tasks);
+\`\`\`
+
 ## rollingLineSeries  (src/Chart.tsx:19 · 1 caller(s) · clean pipe)
 
 \`\`\`
@@ -837,6 +858,28 @@ verdict: INLINE — shallow body, few callers — the helper adds indirection wi
 
 Consumers (call sites):
 - \`src/Chart.tsx:34\`
+
+Helper body (capped at 10 lines):
+\`\`\`
+19   function rollingLineSeries(tasks: Task[]): Series {
+20     let running = 0;
+21     return tasks.map((task) => {
+22       running += task.estimateHours ?? 0;
+23       return { label: task.title, value: running };
+24     });
+25   }
+\`\`\`
+
+Call-site samples (first 5, ±2 lines):
+
+\`src/Chart.tsx:34\`
+\`\`\`
+32     const barData = () => groupBarSeries(props.tasks);
+33     const barSeries = () => barData().map((point) => point.value);
+34 >   const lineSeries = () => rollingLineSeries(props.tasks);
+35   
+36     const activeSeries = () =>
+\`\`\`
 
 ## barSeries  (src/Chart.tsx:33 · 2 caller(s) · confluence / junction)
 
@@ -31448,9 +31491,40 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
       "callers": [
         {
           "file": "src/DashboardShell.tsx",
-          "line": 102
+          "line": 102,
+          "snippet": {
+            "startLine": 100,
+            "endLine": 104,
+            "hitLine": 102,
+            "truncated": false,
+            "lines": [
+              "100     onSelectTask: (taskId: string) => void;",
+              "101   }) {",
+              "102 >   const row = taskRowView(props.task, props.actor, props.preferences);",
+              "103   ",
+              "104     return ("
+            ]
+          }
         }
       ],
+      "inlineBodySnippet": {
+        "startLine": 21,
+        "endLine": 30,
+        "hitLine": null,
+        "truncated": true,
+        "lines": [
+          "21   export function taskRowView(task: Task, user: User, preferences: Preferences) {",
+          "22     const packed = {",
+          "23       task,",
+          "24       owner: user,",
+          "25       swatch: preferences.accentColor ?? \\"#3f7f6f\\",",
+          "26     };",
+          "27     return {",
+          "28       label: packed.task.title.trim(),",
+          "29       ownerLabel: packed.owner.name,",
+          "30       priorityLabel: packed.task.priority ?? \\"normal\\","
+        ]
+      },
       "passThrough": false,
       "typeLeak": false,
       "internalDepth": 10,
@@ -31483,9 +31557,40 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
       "callers": [
         {
           "file": "src/DashboardShell.tsx",
-          "line": 5
+          "line": 5,
+          "snippet": {
+            "startLine": 3,
+            "endLine": 7,
+            "hitLine": 5,
+            "truncated": false,
+            "lines": [
+              "3   ",
+              "4   export function DashboardShell(props: DashboardProps) {",
+              "5 >   const route = buildRouteModel(props);",
+              "6     const selectedTask = route.visibleTasks.find(",
+              "7       (task) => task.id === route.selectedTaskId,"
+            ]
+          }
         }
       ],
+      "inlineBodySnippet": {
+        "startLine": 6,
+        "endLine": 15,
+        "hitLine": null,
+        "truncated": true,
+        "lines": [
+          " 6   export function buildRouteModel(props: DashboardProps) {",
+          " 7     const selectedTaskId = props.selectedTaskId ?? props.tasks[0]?.id ?? \\"empty\\";",
+          " 8     return {",
+          " 9       actor: props.user,",
+          "10       visibleTasks: props.tasks,",
+          "11       preferences: props.preferences,",
+          "12       selectedTaskId,",
+          "13       toolbar: {",
+          "14         title: \`\${props.user.name}'s tasks\`,",
+          "15         theme: props.preferences.theme,"
+        ]
+      },
       "passThrough": false,
       "typeLeak": false,
       "internalDepth": 8,
@@ -31511,9 +31616,32 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
       "callers": [
         {
           "file": "src/Chart.tsx",
-          "line": 43
+          "line": 43,
+          "snippet": {
+            "startLine": 41,
+            "endLine": 45,
+            "hitLine": 43,
+            "truncated": false,
+            "lines": [
+              "41       <figure data-accent={props.accent}>",
+              "42         <figcaption>{caption}</figcaption>",
+              "43 >       <p>{activeSeries().length} points</p>",
+              "44         <Switch>",
+              "45           <Match when={props.type === \\"bar\\"}>"
+            ]
+          }
         }
       ],
+      "inlineBodySnippet": {
+        "startLine": 36,
+        "endLine": 37,
+        "hitLine": null,
+        "truncated": false,
+        "lines": [
+          "36     const activeSeries = () =>",
+          "37       props.type === \\"bar\\" ? barSeries() : lineSeries();"
+        ]
+      },
       "passThrough": false,
       "typeLeak": false,
       "internalDepth": 7,
@@ -31538,13 +31666,48 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
       "callers": [
         {
           "file": "src/Chart.tsx",
-          "line": 37
+          "line": 37,
+          "snippet": {
+            "startLine": 35,
+            "endLine": 39,
+            "hitLine": 37,
+            "truncated": false,
+            "lines": [
+              "35   ",
+              "36     const activeSeries = () =>",
+              "37 >     props.type === \\"bar\\" ? barSeries() : lineSeries();",
+              "38     const caption = props.type === \\"bar\\" ? \\"Estimate by task\\" : \\"Cumulative load\\";",
+              "39   "
+            ]
+          }
         },
         {
           "file": "src/Chart.tsx",
-          "line": 46
+          "line": 46,
+          "snippet": {
+            "startLine": 44,
+            "endLine": 48,
+            "hitLine": 46,
+            "truncated": false,
+            "lines": [
+              "44         <Switch>",
+              "45           <Match when={props.type === \\"bar\\"}>",
+              "46 >           <BarChart categories={barData().map((point) => point.label)} values={barSeries()} />",
+              "47           </Match>",
+              "48           <Match when={props.type === \\"line\\"}>"
+            ]
+          }
         }
       ],
+      "inlineBodySnippet": {
+        "startLine": 33,
+        "endLine": 33,
+        "hitLine": null,
+        "truncated": false,
+        "lines": [
+          "33     const barSeries = () => barData().map((point) => point.value);"
+        ]
+      },
       "passThrough": false,
       "typeLeak": false,
       "internalDepth": 5,
@@ -31569,13 +31732,48 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
       "callers": [
         {
           "file": "src/Chart.tsx",
-          "line": 33
+          "line": 33,
+          "snippet": {
+            "startLine": 31,
+            "endLine": 35,
+            "hitLine": 33,
+            "truncated": false,
+            "lines": [
+              "31   export function Chart(props: ChartProps) {",
+              "32     const barData = () => groupBarSeries(props.tasks);",
+              "33 >   const barSeries = () => barData().map((point) => point.value);",
+              "34     const lineSeries = () => rollingLineSeries(props.tasks);",
+              "35   "
+            ]
+          }
         },
         {
           "file": "src/Chart.tsx",
-          "line": 46
+          "line": 46,
+          "snippet": {
+            "startLine": 44,
+            "endLine": 48,
+            "hitLine": 46,
+            "truncated": false,
+            "lines": [
+              "44         <Switch>",
+              "45           <Match when={props.type === \\"bar\\"}>",
+              "46 >           <BarChart categories={barData().map((point) => point.label)} values={barSeries()} />",
+              "47           </Match>",
+              "48           <Match when={props.type === \\"line\\"}>"
+            ]
+          }
         }
       ],
+      "inlineBodySnippet": {
+        "startLine": 32,
+        "endLine": 32,
+        "hitLine": null,
+        "truncated": false,
+        "lines": [
+          "32     const barData = () => groupBarSeries(props.tasks);"
+        ]
+      },
       "passThrough": false,
       "typeLeak": false,
       "internalDepth": 3,
@@ -31600,13 +31798,48 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
       "callers": [
         {
           "file": "src/Chart.tsx",
-          "line": 37
+          "line": 37,
+          "snippet": {
+            "startLine": 35,
+            "endLine": 39,
+            "hitLine": 37,
+            "truncated": false,
+            "lines": [
+              "35   ",
+              "36     const activeSeries = () =>",
+              "37 >     props.type === \\"bar\\" ? barSeries() : lineSeries();",
+              "38     const caption = props.type === \\"bar\\" ? \\"Estimate by task\\" : \\"Cumulative load\\";",
+              "39   "
+            ]
+          }
         },
         {
           "file": "src/Chart.tsx",
-          "line": 49
+          "line": 49,
+          "snippet": {
+            "startLine": 47,
+            "endLine": 51,
+            "hitLine": 49,
+            "truncated": false,
+            "lines": [
+              "47           </Match>",
+              "48           <Match when={props.type === \\"line\\"}>",
+              "49 >           <LineChart series={lineSeries()} />",
+              "50           </Match>",
+              "51         </Switch>"
+            ]
+          }
         }
       ],
+      "inlineBodySnippet": {
+        "startLine": 34,
+        "endLine": 34,
+        "hitLine": null,
+        "truncated": false,
+        "lines": [
+          "34     const lineSeries = () => rollingLineSeries(props.tasks);"
+        ]
+      },
       "passThrough": false,
       "typeLeak": false,
       "internalDepth": 3,
@@ -31634,9 +31867,36 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
       "callers": [
         {
           "file": "src/Chart.tsx",
-          "line": 32
+          "line": 32,
+          "snippet": {
+            "startLine": 30,
+            "endLine": 34,
+            "hitLine": 32,
+            "truncated": false,
+            "lines": [
+              "30   // prop-drilled into children that are each the sole consumer.",
+              "31   export function Chart(props: ChartProps) {",
+              "32 >   const barData = () => groupBarSeries(props.tasks);",
+              "33     const barSeries = () => barData().map((point) => point.value);",
+              "34     const lineSeries = () => rollingLineSeries(props.tasks);"
+            ]
+          }
         }
       ],
+      "inlineBodySnippet": {
+        "startLine": 12,
+        "endLine": 17,
+        "hitLine": null,
+        "truncated": false,
+        "lines": [
+          "12   function groupBarSeries(tasks: Task[]): Series {",
+          "13     return tasks.map((task) => ({",
+          "14       label: task.title,",
+          "15       value: task.estimateHours ?? 0,",
+          "16     }));",
+          "17   }"
+        ]
+      },
       "passThrough": false,
       "typeLeak": false,
       "internalDepth": 2,
@@ -31664,9 +31924,37 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
       "callers": [
         {
           "file": "src/Chart.tsx",
-          "line": 34
+          "line": 34,
+          "snippet": {
+            "startLine": 32,
+            "endLine": 36,
+            "hitLine": 34,
+            "truncated": false,
+            "lines": [
+              "32     const barData = () => groupBarSeries(props.tasks);",
+              "33     const barSeries = () => barData().map((point) => point.value);",
+              "34 >   const lineSeries = () => rollingLineSeries(props.tasks);",
+              "35   ",
+              "36     const activeSeries = () =>"
+            ]
+          }
         }
       ],
+      "inlineBodySnippet": {
+        "startLine": 19,
+        "endLine": 25,
+        "hitLine": null,
+        "truncated": false,
+        "lines": [
+          "19   function rollingLineSeries(tasks: Task[]): Series {",
+          "20     let running = 0;",
+          "21     return tasks.map((task) => {",
+          "22       running += task.estimateHours ?? 0;",
+          "23       return { label: task.title, value: running };",
+          "24     });",
+          "25   }"
+        ]
+      },
       "passThrough": false,
       "typeLeak": false,
       "internalDepth": 2,

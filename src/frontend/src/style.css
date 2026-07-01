@@ -2,6 +2,30 @@
   display: none;
 }
 
+.topbar-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.topbar-back {
+  color: var(--accent);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.topbar-actions form {
+  margin: 0;
+}
+
 .finding-list-simple {
   padding-left: 18px;
 }

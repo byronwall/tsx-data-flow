@@ -47,7 +47,13 @@ interface Sink {
   line?: number;
   span?: SpanLocation;
   scores?: { burden?: number };
-  metrics?: { maximumPathDepth?: number };
+  metrics?: {
+    maximumPathDepth?: number;
+    mergeWidth?: number;
+    controlDependencyCount?: number;
+    representationChurn?: number;
+    helperHops?: number;
+  };
   advice?: {
     primaryShape?: string;
     shape?: string;
@@ -58,7 +64,12 @@ interface Sink {
   sources?: Array<{ kind?: string }>;
   family?: string;
   kind?: string;
-  representativeSteps?: Array<{ file?: string; line?: number }>;
+  representativeSteps?: Array<{
+    file?: string;
+    line?: number;
+    label?: string;
+    kind?: string;
+  }>;
   expression?: string;
   target?: string;
   label?: string;
@@ -154,6 +165,15 @@ interface OverviewGroup {
 
 type EntryCountKey = "boundaries" | "relays" | "unknown" | "fanOut";
 type EntryCounts = Record<EntryCountKey, number>;
+
+interface PickerItem {
+  key: string;
+  href: string;
+  label: string;
+  value: string;
+  optionLabel: string;
+  active: boolean;
+}
 
 const style = document.createElement("style");
 style.textContent = STYLE;
@@ -302,6 +322,8 @@ function Router(props: { location: URL; navigate: Navigate }) {
 
 function Shell(props: {
   context?: string;
+  beforeContext?: JSX.Element;
+  actions?: JSX.Element;
   tabs?: JSX.Element;
   wide?: boolean;
   children: JSX.Element;
@@ -310,13 +332,19 @@ function Shell(props: {
     <>
       <header class="topbar">
         <div class="topbar-bar">
-          <a class="brand" href="/">
-            tsx-dataflow
-          </a>
-          <Show when={props.context}>
-            <span class="topbar-context" title={props.context}>
-              {props.context}
-            </span>
+          <div class="topbar-identity">
+            <a class="brand" href="/">
+              tsx-dataflow
+            </a>
+            {props.beforeContext}
+            <Show when={props.context}>
+              <span class="topbar-context" title={props.context}>
+                {props.context}
+              </span>
+            </Show>
+          </div>
+          <Show when={props.actions}>
+            <div class="topbar-actions">{props.actions}</div>
           </Show>
         </div>
         {props.tabs}
@@ -699,7 +727,26 @@ function ReportPage(props: { location: URL }) {
     if (view() !== "boundary-report") return "";
     return renderBoundaryViewer(meta(), props.location);
   });
-  const networkHtml = createMemo(() => fanOutHtml() || boundaryHtml());
+  const fanInHtml = createMemo(() => {
+    if (view() !== "fan-in") return "";
+    return renderFanInViewer(meta(), props.location);
+  });
+  const junctionHtml = createMemo(() => {
+    if (view() !== "junctions") return "";
+    return renderJunctionViewer(meta(), props.location);
+  });
+  const propRelayHtml = createMemo(() => {
+    if (view() !== "prop-relay") return "";
+    return renderPropRelayViewer(meta(), props.location);
+  });
+  const networkHtml = createMemo(
+    () =>
+      fanOutHtml() ||
+      boundaryHtml() ||
+      fanInHtml() ||
+      junctionHtml() ||
+      propRelayHtml(),
+  );
   const markdownHtml = createMemo(() => markdownToHtml(report() ?? ""));
   return (
     <Shell
@@ -768,17 +815,13 @@ function FilePage(props: { location: URL }) {
   return (
     <Shell
       context={relPath()}
-      tabs={<FileTabs path={relPath()} active={activeView()} />}
-      wide
-    >
-      <Show when={relPath()} fallback={<p class="meta">Missing ?path.</p>}>
-        <nav class="crumbs">
-          <a href="/">← Overview</a>
-          <span>/</span>
-          <span>{relPath()}</span>
-        </nav>
-        <div class="toolbar">
-          <h1 style="margin:0">{relPath()}</h1>
+      beforeContext={
+        <a class="topbar-back" href="/">
+          ← Overview
+        </a>
+      }
+      actions={
+        <>
           <a
             class="btn"
             href={`/api/report.json?path=${encodeURIComponent(relPath())}`}
@@ -793,7 +836,12 @@ function FilePage(props: { location: URL }) {
             />
             <button type="submit">↻ Re-analyze</button>
           </form>
-        </div>
+        </>
+      }
+      tabs={<FileTabs path={relPath()} active={activeView()} />}
+      wide
+    >
+      <Show when={relPath()} fallback={<p class="meta">Missing ?path.</p>}>
         <Show
           when={!fileData.loading}
           fallback={<p class="meta">Loading file...</p>}
@@ -801,12 +849,15 @@ function FilePage(props: { location: URL }) {
           <Show
             when={activeView()}
             fallback={
-              <CodeMap
-                relPath={relPath()}
-                source={fileData()?.source ?? ""}
-                report={fileData()?.report}
-                fullReport={fileData()?.fullReport}
-              />
+              <>
+                <h2>Code map</h2>
+                <CodeMap
+                  relPath={relPath()}
+                  source={fileData()?.source ?? ""}
+                  report={fileData()?.report}
+                  fullReport={fileData()?.fullReport}
+                />
+              </>
             }
           >
             <h2>{labelFor(activeView())}</h2>
@@ -912,18 +963,18 @@ function renderFanOutViewer(report: Report | undefined, location: URL): string {
     for (const [key, value] of Object.entries(changes)) params.set(key, value);
     return `/report?${params.toString()}`;
   };
-  const tabs = entries
-    .slice(0, 8)
-    .map((entry) => {
-      const on = entry === active;
-      return `<a class="fo-tab${on ? " active" : ""}"${
-        on ? ' aria-current="true"' : ""
-      } href="${escapeAttr(hrefFor({ fanout: fanOutAnchor(entry.root) }))}">${escapeHtml(
-        entry.root,
-      )} <span class="fo-tab-val">${entry.sinkCount}</span></a>`;
-    })
-    .join("");
   const sortKey = location.searchParams.get("fosort") ?? "spread";
+  const tabs = renderPickerTabs(
+    entries.map((entry) => ({
+      key: fanOutAnchor(entry.root),
+      href: hrefFor({ fanout: fanOutAnchor(entry.root) }),
+      label: entry.root,
+      value: String(fanOutValue(entry, sortKey)),
+      optionLabel: `${entry.root} · ${entry.sinkCount} sinks · depth ${entry.maxDepth} · ${entry.fileCount} file(s)`,
+      active: entry === active,
+    })),
+    { id: "fanout-src", ariaLabel: "Other fan-out sources" },
+  );
   const sortLinks = [
     ["spread", "spread"],
     ["depth", "depth"],
@@ -971,17 +1022,17 @@ function renderBoundaryViewer(
     for (const [key, value] of Object.entries(changes)) params.set(key, value);
     return `/report?${params.toString()}`;
   };
-  const tabs = helpers
-    .slice(0, 8)
-    .map((helper) => {
-      const on = helper === active;
-      return `<a class="fo-tab${on ? " active" : ""}"${
-        on ? ' aria-current="true"' : ""
-      } href="${escapeAttr(hrefFor({ boundary: boundaryAnchor(helper) }))}">${escapeHtml(
-        helper.name,
-      )} <span class="fo-tab-val">${escapeHtml(helper.verdict ?? "")}</span></a>`;
-    })
-    .join("");
+  const tabs = renderPickerTabs(
+    helpers.map((helper) => ({
+      key: boundaryAnchor(helper),
+      href: hrefFor({ boundary: boundaryAnchor(helper) }),
+      label: helper.name,
+      value: helper.verdict ?? "",
+      optionLabel: `${helper.name} · ${helper.callerCount ?? 0} caller(s) · ${helper.verdict ?? "boundary"}`,
+      active: helper === active,
+    })),
+    { id: "boundary-src", ariaLabel: "Other boundaries" },
+  );
   const definedAt = `${active.file}:${active.line}`;
   return `<p class="meta fo-explain">A <strong>boundary</strong> is a first-party function on a render path. The diagram shows inbound source lineages on the left, the function in the middle, and the call sites it re-spreads to on the right.</p>
 <div class="fo-controls"><div class="fo-tabs">${tabs}</div></div>
@@ -995,6 +1046,350 @@ function renderBoundaryViewer(
   )}#L${active.line}">${escapeHtml(definedAt)}</a></span></h3>
   ${boundaryGraphSvg(active)}
 </section>`;
+}
+
+function renderFanInViewer(report: Report | undefined, location: URL): string {
+  const entries = fanInEntries(report?.sinks ?? []);
+  if (!entries.length) {
+    return '<p class="meta">No render sink has multiple traced root sources.</p>';
+  }
+  const selected = location.searchParams.get("fanin");
+  const active = entries.find((entry) => entry.key === selected) ?? entries[0];
+  const hrefFor = (key: string) => {
+    const params = new URLSearchParams(location.searchParams);
+    params.set("view", "fan-in");
+    params.set("fanin", key);
+    return `/report?${params.toString()}`;
+  };
+  const tabs = renderPickerTabs(
+    entries.map((entry) => ({
+      key: entry.key,
+      href: hrefFor(entry.key),
+      label: entry.label,
+      value: String(entry.rootCount),
+      optionLabel: `${entry.label} · ${entry.rootCount} roots · depth ${entry.depth}`,
+      active: entry === active,
+    })),
+    { id: "fanin-src", ariaLabel: "Other fan-in sinks" },
+  );
+  return `<p class="meta fo-explain">A <strong>fan-in</strong> is one render sink fed by many source lineages. Pick a sink to see the inputs converging into it.</p>
+<div class="fo-controls"><div class="fo-tabs">${tabs}</div></div>
+<section class="fanout-entry" id="${escapeAttr(active.key)}">
+  <h3>${escapeHtml(active.label)} <span class="fo-tag fo-tag-cross">${active.rootCount} roots</span> <span class="meta">· max depth ${active.depth} · predicates ${active.predicates}</span></h3>
+  ${relationshipGraphSvg({
+    ariaLabel: `Fan-in graph for ${active.label}`,
+    leftTitle: `root sources (${active.roots.length})`,
+    left: active.roots,
+    middleLabel: active.label,
+    middleSub: `depth ${active.depth}`,
+    middleHref: active.file
+      ? `/file?path=${encodeURIComponent(active.file)}#L${active.line}`
+      : null,
+    rightTitle: "render sink",
+    right: [
+      {
+        label: `${active.file}:${active.line}`,
+        file: active.file,
+        line: active.line,
+      },
+    ],
+  })}
+</section>`;
+}
+
+function renderJunctionViewer(
+  report: Report | undefined,
+  location: URL,
+): string {
+  const entries = (report?.helpers ?? [])
+    .filter(
+      (helper) =>
+        (helper.inSources ?? 0) >= 3 && (helper.callerCount ?? 0) >= 2,
+    )
+    .sort(
+      (left, right) =>
+        (right.inSources ?? 0) * Math.max(1, right.callerCount ?? 0) -
+        (left.inSources ?? 0) * Math.max(1, left.callerCount ?? 0),
+    );
+  if (!entries.length) {
+    return '<p class="meta">No junction helpers merge >=3 source lineages and re-spread to >=2 callers.</p>';
+  }
+  const selected = location.searchParams.get("junction");
+  const active =
+    entries.find((helper) => boundaryAnchor(helper) === selected) ?? entries[0];
+  const hrefFor = (key: string) => {
+    const params = new URLSearchParams(location.searchParams);
+    params.set("view", "junctions");
+    params.set("junction", key);
+    return `/report?${params.toString()}`;
+  };
+  const tabs = renderPickerTabs(
+    entries.map((helper) => ({
+      key: boundaryAnchor(helper),
+      href: hrefFor(boundaryAnchor(helper)),
+      label: helper.name,
+      value: `${helper.inSources ?? 0}×${helper.callerCount ?? 0}`,
+      optionLabel: `${helper.name} · ${helper.inSources ?? 0} in · ${helper.callerCount ?? 0} out`,
+      active: helper === active,
+    })),
+    { id: "junction-src", ariaLabel: "Other junctions" },
+  );
+  return `<p class="meta fo-explain">A <strong>junction</strong> is a helper where independent source lineages converge and then re-spread to multiple callers.</p>
+<div class="fo-controls"><div class="fo-tabs">${tabs}</div></div>
+<section class="fanout-entry" id="${boundaryAnchor(active)}">
+  <h3>${escapeHtml(active.name)}() <span class="fo-tag fo-tag-cross">junction</span> <span class="meta">· ${active.inSources ?? 0} in · ${active.callerCount ?? 0} out</span></h3>
+  ${boundaryGraphSvg(active)}
+</section>`;
+}
+
+function renderPropRelayViewer(
+  report: Report | undefined,
+  location: URL,
+): string {
+  const entries = propRelayEntries(report?.sinks ?? []);
+  if (!entries.length) {
+    return '<p class="meta">No sinks show prop-relay style wrapper steps.</p>';
+  }
+  const selected = location.searchParams.get("relay");
+  const active = entries.find((entry) => entry.key === selected) ?? entries[0];
+  const hrefFor = (key: string) => {
+    const params = new URLSearchParams(location.searchParams);
+    params.set("view", "prop-relay");
+    params.set("relay", key);
+    return `/report?${params.toString()}`;
+  };
+  const tabs = renderPickerTabs(
+    entries.map((entry) => ({
+      key: entry.key,
+      href: hrefFor(entry.key),
+      label: entry.label,
+      value: String(entry.wrapperSteps),
+      optionLabel: `${entry.label} · ${entry.wrapperSteps} wrapper steps · ${entry.boundaries} boundaries`,
+      active: entry === active,
+    })),
+    { id: "relay-src", ariaLabel: "Other prop relays" },
+  );
+  return `<p class="meta fo-explain">A <strong>prop relay</strong> is a value carried through component boundaries or wrapper steps before it renders.</p>
+<div class="fo-controls"><div class="fo-tabs">${tabs}</div></div>
+<section class="fanout-entry" id="${escapeAttr(active.key)}">
+  <h3>${escapeHtml(active.label)} <span class="fo-tag fo-tag-cross">${active.wrapperSteps} wrapper step(s)</span> <span class="meta">· ${active.boundaries} component boundary step(s)</span></h3>
+  ${relationshipGraphSvg({
+    ariaLabel: `Prop relay graph for ${active.label}`,
+    leftTitle: `source lineages (${active.roots.length})`,
+    left: active.roots,
+    middleLabel: `${active.wrapperSteps} wrapper step(s)`,
+    middleSub: `${active.boundaries} boundary step(s)`,
+    middleHref: null,
+    rightTitle: "render sink",
+    right: [
+      {
+        label: `${active.file}:${active.line}`,
+        file: active.file,
+        line: active.line,
+      },
+    ],
+  })}
+</section>`;
+}
+
+function renderPickerTabs(
+  items: PickerItem[],
+  options: { id: string; ariaLabel: string; limit?: number },
+): string {
+  const limit = options.limit ?? 8;
+  const shown = items.slice(0, limit);
+  const rest = items.slice(limit);
+  const tabs = shown.map((item) => renderPickerTab(item)).join("");
+  const dropdown = rest.length
+    ? renderOverflowPicker(rest, options.id, options.ariaLabel)
+    : "";
+  return `${tabs}${dropdown}`;
+}
+
+function renderPickerTab(item: PickerItem): string {
+  return `<a class="fo-tab${item.active ? " active" : ""}"${
+    item.active ? ' aria-current="true"' : ""
+  } href="${escapeAttr(item.href)}">${escapeHtml(item.label)} <span class="fo-tab-val">${escapeHtml(
+    item.value,
+  )}</span></a>`;
+}
+
+function renderOverflowPicker(
+  items: PickerItem[],
+  id: string,
+  ariaLabel: string,
+): string {
+  const active = items.find((item) => item.active);
+  const label = active?.label ?? `+${items.length} more`;
+  const options = items
+    .map(
+      (item) =>
+        `<a role="option" class="popover-opt${item.active ? " active" : ""}"${
+          item.active ? ' aria-selected="true"' : ""
+        } href="${escapeAttr(item.href)}">${escapeHtml(item.optionLabel)}</a>`,
+    )
+    .join("");
+  return `<div class="popover open-on-hover" data-popover-id="${escapeAttr(id)}">
+  <span class="fo-tab popover-trigger${active ? " active" : ""}" role="button" aria-haspopup="listbox" aria-expanded="false">
+    ${escapeHtml(label)} <span class="fo-tab-val">▾</span>
+  </span>
+  <div class="popover-panel" role="listbox" aria-label="${escapeAttr(ariaLabel)}">${options}</div>
+</div>`;
+}
+
+function fanOutValue(entry: FanOutEntry, sortKey: string): string {
+  if (sortKey === "depth") return String(entry.maxDepth);
+  if (sortKey === "files") return `${entry.fileCount}f`;
+  if (sortKey === "name") return `${entry.sinkCount}`;
+  return String(entry.sinkCount);
+}
+
+function fanInEntries(sinks: Sink[]) {
+  return sinks
+    .map((sink) => {
+      const roots = sourceLabelsForSink(sink);
+      return {
+        key: `fanin-${sink.id}`,
+        label: sinkLabel(sink),
+        file: sink.file ?? "",
+        line: sink.line ?? 0,
+        roots,
+        rootCount: sink.metrics?.mergeWidth ?? roots.length,
+        predicates: sink.metrics?.controlDependencyCount ?? 0,
+        depth: sink.metrics?.maximumPathDepth ?? 0,
+      };
+    })
+    .filter((entry) => entry.rootCount >= 2 || entry.roots.length >= 2)
+    .sort(
+      (left, right) =>
+        right.rootCount - left.rootCount || right.depth - left.depth,
+    );
+}
+
+function propRelayEntries(sinks: Sink[]) {
+  return sinks
+    .map((sink) => {
+      const roots = sourceLabelsForSink(sink);
+      const wrapperSteps = sink.metrics?.representationChurn ?? 0;
+      const boundaries = Math.max(0, (sink.metrics?.mergeWidth ?? 1) - 1);
+      const helperHops = sink.metrics?.helperHops ?? 0;
+      return {
+        key: `relay-${sink.id}`,
+        label: sinkLabel(sink),
+        file: sink.file ?? "",
+        line: sink.line ?? 0,
+        roots,
+        wrapperSteps,
+        boundaries,
+        helperHops,
+        depth: sink.metrics?.maximumPathDepth ?? 0,
+      };
+    })
+    .filter(
+      (entry) =>
+        entry.wrapperSteps > 0 || entry.boundaries > 0 || entry.helperHops > 0,
+    )
+    .sort(
+      (left, right) =>
+        right.boundaries - left.boundaries ||
+        right.wrapperSteps - left.wrapperSteps ||
+        right.depth - left.depth,
+    );
+}
+
+function sourceLabelsForSink(sink: Sink): string[] {
+  const labels = fanOutRootsFor(sink).map((info) => info.label);
+  if (!labels.length) labels.push(...(sink.roots ?? []));
+  return [...new Set(labels)].slice(0, 12);
+}
+
+function sinkLabel(sink: Sink): string {
+  const ctx = sink.renderContext ?? {};
+  const rendered = [ctx.component ?? ctx.tag, ctx.attribute]
+    .filter(Boolean)
+    .join(" / ");
+  const label =
+    rendered || sink.label || sink.expression || sink.target || sink.id;
+  return `${sink.file ? `:${sink.line} ` : ""}${label}`;
+}
+
+function relationshipGraphSvg(options: {
+  ariaLabel: string;
+  leftTitle: string;
+  left: string[];
+  middleLabel: string;
+  middleSub: string;
+  middleHref: string | null;
+  rightTitle: string;
+  right: Array<{ label: string; file?: string; line?: number }>;
+}): string {
+  const left = options.left.length ? options.left : ["(no traced inputs)"];
+  const right = options.right.length
+    ? options.right
+    : [{ label: "(no resolved sinks)" }];
+  const nodeH = 24;
+  const gap = 10;
+  const colW = 210;
+  const midW = 190;
+  const midGap = 56;
+  const midX = colW + midGap;
+  const rightX = midX + midW + midGap;
+  const width = rightX + colW;
+  const rows = Math.max(left.length, right.length, 1);
+  const height = Math.max(124, 48 + rows * (nodeH + gap));
+  const midCy = height / 2;
+  const cyOf = (index: number, count: number) => {
+    const blockH = Math.max(0, count * (nodeH + gap) - gap);
+    return (height - blockH) / 2 + index * (nodeH + gap) + nodeH / 2;
+  };
+  const sourceHsl = "262 60% 52%";
+  const sinkHsl = "150 55% 40%";
+  const edges: string[] = [];
+  const nodes: string[] = [];
+  nodes.push(
+    `<text x="0" y="16" font-size="11" font-weight="600" fill="var(--muted)">${escapeHtml(options.leftTitle)}</text>`,
+    `<text x="${rightX}" y="16" font-size="11" font-weight="600" fill="var(--muted)">${escapeHtml(options.rightTitle)}</text>`,
+  );
+  left.forEach((label, index) => {
+    const cy = cyOf(index, left.length);
+    nodes.push(
+      `<g class="fg-node"><rect class="fg-hit" x="0" y="${cy - nodeH / 2}" width="${colW}" height="${nodeH}" rx="6" fill="hsl(${sourceHsl} / 0.08)" stroke="hsl(${sourceHsl} / 0.5)"/><text x="12" y="${cy + 4}" font-size="11" fill="currentColor">${escapeHtml(truncText(label, 30))}</text></g>`,
+    );
+    edges.push(
+      `<path d="M${colW} ${cy} C ${colW + 30} ${cy}, ${midX - 30} ${midCy}, ${midX} ${midCy}" fill="none" stroke="hsl(${sourceHsl} / 0.5)" stroke-width="1.4"/>`,
+    );
+  });
+  right.forEach((item, index) => {
+    const cy = cyOf(index, right.length);
+    const content = `<g class="fg-node"><rect class="fg-hit" x="${rightX}" y="${cy - nodeH / 2}" width="${colW}" height="${nodeH}" rx="6" fill="hsl(${sinkHsl} / 0.08)" stroke="hsl(${sinkHsl} / 0.5)"/><text x="${rightX + 12}" y="${cy + 4}" font-size="11" fill="currentColor">${escapeHtml(truncText(item.label, 30))}</text></g>`;
+    nodes.push(
+      item.file && item.line
+        ? `<a class="xfile" href="/file?path=${encodeURIComponent(item.file)}#L${item.line}">${content}</a>`
+        : content,
+    );
+    edges.push(
+      `<path d="M${midX + midW} ${midCy} C ${midX + midW + 30} ${midCy}, ${rightX - 30} ${cy}, ${rightX} ${cy}" fill="none" stroke="hsl(${sinkHsl} / 0.5)" stroke-width="1.4"/>`,
+    );
+  });
+  const midNode = `<g class="fg-src"><rect x="${midX}" y="${midCy - 18}" width="${midW}" height="36" rx="8" fill="hsl(205 70% 50% / 0.16)" stroke="hsl(205 70% 50%)" stroke-width="2"/>
+    <text x="${midX + 12}" y="${midCy - 2}" font-size="11.5" font-weight="600" fill="currentColor">${escapeHtml(truncText(options.middleLabel, 24))}</text>
+    <text x="${midX + 12}" y="${midCy + 13}" font-size="10" fill="var(--muted)">${escapeHtml(options.middleSub)}</text></g>`;
+  const middle = options.middleHref
+    ? `<a class="xfile" href="${escapeAttr(options.middleHref)}">${midNode}</a>`
+    : midNode;
+  return `<div class="fanout-graph">
+  <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img" aria-label="${escapeAttr(options.ariaLabel)}">
+    ${edges.join("")}
+    ${nodes.join("")}
+    ${middle}
+  </svg>
+  <div class="fg-legend"><span class="fg-key"><span class="fg-swatch" style="background:hsl(${sourceHsl})"></span>${escapeHtml(options.leftTitle)}</span><span class="fg-key"><span class="fg-swatch" style="background:hsl(205 70% 50%)"></span>selected node</span><span class="fg-key"><span class="fg-swatch" style="background:hsl(${sinkHsl})"></span>${escapeHtml(options.rightTitle)}</span></div>
+</div>`;
+}
+
+function truncText(value: unknown, max: number): string {
+  const text = String(value ?? "");
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
 function sortFanOutEntries(
