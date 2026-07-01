@@ -23,6 +23,16 @@ function expectSpaShell(response) {
   expect(response.body).toMatch(/src="\/assets\/index-[^"]+\.js"/);
 }
 
+async function fetchSpaBundle(handler, route = "/report?view=fan-out") {
+  const shell = await call(handler, route);
+  expectSpaShell(shell);
+  const asset = shell.body.match(/src="([^"]+index-[^"]+\.js)"/)?.[1];
+  expect(asset).toBeTruthy();
+  const bundle = await call(handler, asset);
+  expect(bundle.status).toBe(200);
+  return bundle.body;
+}
+
 describe("fan-out viewer + report tab strip (round 7)", () => {
   const FANOUT_FIXTURE = {
     "src/Two.tsx": `
@@ -74,6 +84,17 @@ describe("fan-out viewer + report tab strip (round 7)", () => {
     const markdown = await call(handler, "/api/report.fan-out.md");
     expect(markdown.status).toBe(200);
     expect(markdown.body).toContain("Fan-Out");
+  });
+
+  it("bundles the report network viewers with an inline markdown mirror", async () => {
+    const project = await createFixtureProject(FANOUT_FIXTURE);
+    const { handler } = createServer(project.args);
+    const bundle = await fetchSpaBundle(handler);
+
+    expect(bundle).toContain("md-mirror");
+    expect(bundle).toContain("Markdown report");
+    expect(bundle).toContain("boundary-report");
+    expect(bundle).toContain("A <strong>boundary</strong>");
   });
 
   it("tags single-file fan-outs as candidate splits vs cross-file usage", async () => {

@@ -5170,7 +5170,7 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
         },
         "centrality": 0.7537124510169091,
         "changeRisk": 0.5882778583117225,
-        "quickWin": 0.161964880534034,
+        "quickWin": 0.16196488053403402,
         "centralLeverage": 0.24537059424471847,
         "investigationPriority": 0
       }
@@ -5815,7 +5815,7 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
         },
         "centrality": 0.7537124510169091,
         "changeRisk": 0.5882778583117225,
-        "quickWin": 0.161964880534034,
+        "quickWin": 0.16196488053403402,
         "centralLeverage": 0.24537059424471847,
         "investigationPriority": 0
       }
@@ -9928,7 +9928,7 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
         },
         "centrality": 0.7402122016786326,
         "changeRisk": 0.5,
-        "quickWin": 0.15501290934694253,
+        "quickWin": 0.1550129093469425,
         "centralLeverage": 0.21819621982366255,
         "investigationPriority": 0
       }
@@ -10614,7 +10614,7 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
         },
         "centrality": 0.7402122016786326,
         "changeRisk": 0.5,
-        "quickWin": 0.15501290934694253,
+        "quickWin": 0.1550129093469425,
         "centralLeverage": 0.21819621982366255,
         "investigationPriority": 0
       }
@@ -12784,7 +12784,7 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
         },
         "centrality": 0.7402122016786326,
         "changeRisk": 0.5,
-        "quickWin": 0.15501290934694253,
+        "quickWin": 0.1550129093469425,
         "centralLeverage": 0.21819621982366255,
         "investigationPriority": 0
       }
@@ -24266,7 +24266,7 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
         },
         "centrality": 0.7402122016786326,
         "changeRisk": 0.5,
-        "quickWin": 0.10659446249367226,
+        "quickWin": 0.10659446249367223,
         "centralLeverage": 0.1500423988443335,
         "investigationPriority": 0
       }
@@ -29437,7 +29437,7 @@ exports[`golden output baseline > matches the /api/report.json payload for the e
         },
         "centrality": 0.3284100650102845,
         "changeRisk": 0.23734196553150333,
-        "quickWin": 0.09333602978330745,
+        "quickWin": 0.09333602978330743,
         "centralLeverage": 0.013301766374037667,
         "investigationPriority": 0
       }

@@ -11,6 +11,8 @@ import type { JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { STYLE } from "../../html/styles.mjs";
 import {
+  boundaryAnchor,
+  boundaryGraphSvg,
   fanOutAnchor,
   fanOutGraphSvg,
   renderCodeMap,
@@ -84,6 +86,17 @@ interface ReachedSink {
   depth: number;
 }
 
+interface BoundaryHelper {
+  name: string;
+  file: string;
+  line: number;
+  inSources?: number;
+  callerCount?: number;
+  verdict?: string;
+  inRoots?: string[];
+  callers?: Array<{ file: string; line: number }>;
+}
+
 interface Report {
   meta?: { root?: string };
   summary?: {
@@ -99,7 +112,7 @@ interface Report {
     hot4Plus: number;
   };
   sinks?: Sink[];
-  helpers?: Array<Record<string, unknown> & { file?: string }>;
+  helpers?: BoundaryHelper[];
   repeatedForks?: Array<Record<string, unknown> & { file?: string }>;
   contextRelay?: Array<Record<string, unknown> & { parentFile?: string }>;
   unknownEdges?: Array<Record<string, unknown> & { file?: string }>;
@@ -682,6 +695,12 @@ function ReportPage(props: { location: URL }) {
     if (view() !== "fan-out") return "";
     return renderFanOutViewer(meta(), props.location);
   });
+  const boundaryHtml = createMemo(() => {
+    if (view() !== "boundary-report") return "";
+    return renderBoundaryViewer(meta(), props.location);
+  });
+  const networkHtml = createMemo(() => fanOutHtml() || boundaryHtml());
+  const markdownHtml = createMemo(() => markdownToHtml(report() ?? ""));
   return (
     <Shell
       context={meta()?.meta?.root ?? ""}
@@ -698,12 +717,15 @@ function ReportPage(props: { location: URL }) {
         fallback={<p class="meta">Loading report...</p>}
       >
         <Show
-          when={view() === "fan-out" && fanOutHtml()}
-          fallback={
-            <div class="body" innerHTML={markdownToHtml(report() ?? "")} />
-          }
+          when={networkHtml()}
+          fallback={<div class="body" innerHTML={markdownHtml()} />}
         >
-          <div class="body" innerHTML={fanOutHtml()} />
+          <div class="body">
+            <div innerHTML={networkHtml()} />
+            <section class="md-mirror" aria-label="Markdown report">
+              <div innerHTML={markdownHtml()} />
+            </section>
+          </div>
         </Show>
       </Show>
     </Shell>
@@ -929,6 +951,49 @@ function renderFanOutViewer(report: Report | undefined, location: URL): string {
 <section class="fanout-entry" id="${fanOutAnchor(active.root)}">
   <h3>${escapeHtml(active.root)} ${tag} <span class="meta">· ${active.sinkCount} sinks · max depth ${active.maxDepth}${defLine}</span></h3>
   ${fanOutGraphSvg(active, null)}
+</section>`;
+}
+
+function renderBoundaryViewer(
+  report: Report | undefined,
+  location: URL,
+): string {
+  const helpers = report?.helpers ?? [];
+  if (!helpers.length) {
+    return '<p class="meta">No first-party helper functions were reached on a render path. (Imported library calls stay opaque; try --max-helper-depth.)</p>';
+  }
+  const selected = location.searchParams.get("boundary");
+  const active =
+    helpers.find((helper) => boundaryAnchor(helper) === selected) ?? helpers[0];
+  const hrefFor = (changes: Record<string, string>) => {
+    const params = new URLSearchParams(location.searchParams);
+    params.set("view", "boundary-report");
+    for (const [key, value] of Object.entries(changes)) params.set(key, value);
+    return `/report?${params.toString()}`;
+  };
+  const tabs = helpers
+    .slice(0, 8)
+    .map((helper) => {
+      const on = helper === active;
+      return `<a class="fo-tab${on ? " active" : ""}"${
+        on ? ' aria-current="true"' : ""
+      } href="${escapeAttr(hrefFor({ boundary: boundaryAnchor(helper) }))}">${escapeHtml(
+        helper.name,
+      )} <span class="fo-tab-val">${escapeHtml(helper.verdict ?? "")}</span></a>`;
+    })
+    .join("");
+  const definedAt = `${active.file}:${active.line}`;
+  return `<p class="meta fo-explain">A <strong>boundary</strong> is a first-party function on a render path. The diagram shows inbound source lineages on the left, the function in the middle, and the call sites it re-spreads to on the right.</p>
+<div class="fo-controls"><div class="fo-tabs">${tabs}</div></div>
+<section class="fanout-entry" id="${boundaryAnchor(active)}">
+  <h3>${escapeHtml(active.name)}() <span class="fo-tag fo-tag-cross">${escapeHtml(
+    active.verdict ?? "boundary",
+  )}</span> <span class="meta">· ${active.inSources ?? 0} inbound source(s) · ${
+    active.callerCount ?? 0
+  } caller(s) · defined at <a class="xfile" href="/file?path=${encodeURIComponent(
+    active.file,
+  )}#L${active.line}">${escapeHtml(definedAt)}</a></span></h3>
+  ${boundaryGraphSvg(active)}
 </section>`;
 }
 
