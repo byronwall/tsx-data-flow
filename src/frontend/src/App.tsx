@@ -1,6 +1,7 @@
 import {
   For,
   Show,
+  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -328,9 +329,32 @@ function Shell(props: {
   wide?: boolean;
   children: JSX.Element;
 }) {
+  let headerRef: HTMLElement | undefined;
+
+  onMount(() => {
+    const updateTopbarHeight = () => {
+      const height = headerRef?.getBoundingClientRect().height ?? 0;
+      document.documentElement.style.setProperty(
+        "--topbar-height",
+        `${Math.ceil(height)}px`,
+      );
+    };
+    updateTopbarHeight();
+    window.addEventListener("resize", updateTopbarHeight);
+    const observer =
+      "ResizeObserver" in window
+        ? new ResizeObserver(updateTopbarHeight)
+        : null;
+    if (observer && headerRef) observer.observe(headerRef);
+    onCleanup(() => {
+      window.removeEventListener("resize", updateTopbarHeight);
+      observer?.disconnect();
+    });
+  });
+
   return (
     <>
-      <header class="topbar">
+      <header class="topbar" ref={headerRef}>
         <div class="topbar-bar">
           <div class="topbar-identity">
             <a class="brand" href="/">
@@ -850,8 +874,8 @@ function FilePage(props: { location: URL }) {
             when={activeView()}
             fallback={
               <>
-                <h2>Code map</h2>
                 <CodeMap
+                  location={props.location}
                   relPath={relPath()}
                   source={fileData()?.source ?? ""}
                   report={fileData()?.report}
@@ -875,13 +899,15 @@ function FilePage(props: { location: URL }) {
 }
 
 function CodeMap(props: {
+  location: URL;
   relPath: string;
   source: string;
   report?: Report | null;
   fullReport?: Report | null;
 }) {
+  let rootRef: HTMLDivElement | undefined;
   const [selected, setSelected] = createSignal(
-    new URLSearchParams(window.location.search).get("finding"),
+    props.location.searchParams.get("finding"),
   );
   const html = createMemo(() => {
     const report = props.report;
@@ -912,10 +938,69 @@ function CodeMap(props: {
     });
   });
 
+  const currentMap = () => rootRef?.querySelector(".codemap");
+
+  const rowForLine = (line: string) =>
+    currentMap()?.querySelector(`tr[data-line="${CSS.escape(line)}"]`);
+
+  const jumpToLine = (line: string | undefined | null) => {
+    if (!line) return;
+    const row = rowForLine(line);
+    row?.scrollIntoView({ block: "center" });
+    row?.classList.add("flash");
+    window.setTimeout(() => row?.classList.remove("flash"), 850);
+
+    const url = new URL(window.location.href);
+    url.hash = `L${line}`;
+    window.history.replaceState({}, "", url);
+  };
+
+  const scrollSelectedFinding = (id: string | null) => {
+    if (!id) return;
+    const map = currentMap();
+    if (!map) return;
+    const panel = map.querySelector(".panel");
+    const finding = panel?.querySelector(
+      `.finding[data-finding="${CSS.escape(id)}"]`,
+    );
+    finding?.scrollIntoView({ block: "nearest" });
+    const hit = Array.from(map.querySelectorAll<HTMLElement>(".hit")).find(
+      (node) => (node.dataset.findings ?? "").split(",").includes(id),
+    );
+    if (hit) {
+      map
+        .querySelectorAll(".hit.sel")
+        .forEach((node) => node.classList.remove("sel"));
+      hit.classList.add("sel");
+      hit.scrollIntoView({ block: "center" });
+      return;
+    }
+    if (finding instanceof HTMLElement) jumpToLine(finding.dataset.sinkLine);
+  };
+
+  createEffect(() => {
+    const nextFinding = props.location.searchParams.get("finding");
+    setSelected(nextFinding);
+    window.requestAnimationFrame(() => {
+      const hashLine = props.location.hash.match(/^#L(\d+)$/)?.[1];
+      if (nextFinding) scrollSelectedFinding(nextFinding);
+      else if (hashLine) jumpToLine(hashLine);
+    });
+  });
+
+  createEffect(() => {
+    const id = selected();
+    html();
+    window.requestAnimationFrame(() => {
+      if (id) scrollSelectedFinding(id);
+    });
+  });
+
   const selectFinding = (id: string | null) => {
     const url = new URL(window.location.href);
     if (id) url.searchParams.set("finding", id);
     else url.searchParams.delete("finding");
+    if (id) url.hash = "";
     window.history.replaceState({}, "", url);
     setSelected(id);
   };
@@ -926,23 +1011,39 @@ function CodeMap(props: {
     if (!(event.target instanceof Element)) return;
     const back = event.target.closest(".panel-back");
     if (back) {
+      event.preventDefault();
       selectFinding(null);
       return;
     }
-    const row = event.target.closest("[data-finding]");
+    const line = event.target.closest(".goto-line, .path-step-no");
+    if (line instanceof HTMLElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      jumpToLine(line.dataset.line);
+      return;
+    }
+    const hit = event.target.closest(".hit");
+    if (hit instanceof HTMLElement) {
+      const firstId = (hit.dataset.findings ?? "").split(",").find(Boolean);
+      if (firstId) selectFinding(firstId);
+      return;
+    }
+    const row = event.target.closest(".finding-row, .xref");
     if (row instanceof HTMLElement && row.dataset.finding) {
+      event.preventDefault();
       selectFinding(row.dataset.finding);
       return;
     }
-    const line = event.target.closest("[data-line]");
-    if (line instanceof HTMLElement) {
-      document
-        .querySelector(`[data-line="${CSS.escape(line.dataset.line ?? "")}"]`)
-        ?.scrollIntoView({ block: "center" });
+    const sinkRow = event.target.closest("tr.has-sink");
+    if (sinkRow instanceof HTMLElement) {
+      const firstId = Array.from(sinkRow.querySelectorAll<HTMLElement>(".hit"))
+        .flatMap((node) => (node.dataset.findings ?? "").split(","))
+        .find(Boolean);
+      if (firstId) selectFinding(firstId);
     }
   };
 
-  return <div onClick={onCodeMapClick} innerHTML={html()} />;
+  return <div ref={rootRef} onClick={onCodeMapClick} innerHTML={html()} />;
 }
 
 function renderFanOutViewer(report: Report | undefined, location: URL): string {

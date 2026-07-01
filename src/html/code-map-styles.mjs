@@ -66,7 +66,8 @@ export const CODE_MAP_STYLE = `
     hsl(35 var(--heat-s) var(--heat-bar-l)),
     hsl(0 var(--heat-s) var(--heat-bar-l))); }
 .codemap .panel {
-  position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto;
+  position: sticky; top: calc(var(--topbar-height, 96px) + 12px); align-self: start;
+  max-height: calc(100vh - var(--topbar-height, 96px) - 12px); overflow-y: auto;
   border-left: 1px solid var(--border); padding: 14px 16px; font-size: 13px;
 }
 .codemap .panel .empty { color: var(--muted); }
@@ -221,7 +222,9 @@ export const CODE_MAP_STYLE = `
   display: none; align-items: center; gap: 6px; margin: 2px 0 10px; padding: 4px 8px;
   font-size: 12px; cursor: pointer; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
 }
-.codemap .panel.show-detail .panel-back { display: inline-flex; }
+.codemap .panel.show-detail .panel-back {
+  display: inline-flex; position: sticky; top: 0; z-index: 4;
+}
 .codemap .panel .empty { color: var(--muted); }
 
 /* Path overlay: the selected finding lights up its own representative-path lines
