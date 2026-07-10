@@ -216,6 +216,18 @@ tsx-dataflow-serve --root . --port 4317 --open
 pnpm serve -- --root examples/bad-ish-solid --open
 ```
 
+When developing the browser UI or server, pass analyzer options through the
+combined dev command. The frontend runs with Vite HMR and the server restarts
+when its source changes:
+
+```bash
+pnpm dev -- --root /absolute/path/to/another/project
+```
+
+Open `http://127.0.0.1:4173`. Changes in the analyzed project still require the
+**↻ Re-analyze** action; dev watching applies to this package's frontend and
+server source.
+
 - **Overview** (`/`) — project summary plus searchable/sortable file rows (one
   row per file: finding count, worst burden, path depth, dominant shape,
   ownership, suggested first cut), each linking into its file. Query params are

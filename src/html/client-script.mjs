@@ -2,17 +2,23 @@
 export const SCRIPT = `
 function copyText(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    return navigator.clipboard.writeText(text).catch(function () { legacyCopy(text); });
+    return Promise.resolve().then(function () {
+      return navigator.clipboard.writeText(text);
+    }).catch(function () {
+      legacyCopy(text);
+    });
   }
-  legacyCopy(text);
-  return Promise.resolve();
+  return Promise.resolve().then(function () { legacyCopy(text); });
 }
 function legacyCopy(text) {
   var ta = document.createElement('textarea');
   ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
   document.body.appendChild(ta); ta.select();
-  try { document.execCommand('copy'); } catch (err) {}
-  document.body.removeChild(ta);
+  try {
+    if (!document.execCommand('copy')) throw new Error('Copy command was rejected');
+  } finally {
+    document.body.removeChild(ta);
+  }
 }
 
 // SHELL-5: reusable custom popover (trigger + floating panel) — the on-page
@@ -221,6 +227,11 @@ document.addEventListener('click', function (e) {
       copyBtn.textContent = 'Copied!';
       copyBtn.classList.add('ok');
       setTimeout(function () { copyBtn.textContent = prev; copyBtn.classList.remove('ok'); }, 1300);
+    }).catch(function (err) {
+      console.error('Failed to copy debug info', err);
+      var prev = copyBtn.textContent;
+      copyBtn.textContent = 'Copy failed';
+      setTimeout(function () { copyBtn.textContent = prev; }, 1300);
     });
     e.stopPropagation();
     return;

@@ -940,6 +940,30 @@ function CodeMap(props: {
 
   const currentMap = () => rootRef?.querySelector(".codemap");
 
+  const closePeeks = () => {
+    rootRef
+      ?.querySelectorAll(".peek.open")
+      .forEach((peek) => peek.classList.remove("open"));
+    document
+      .querySelectorAll("body > .peek-pop.portal")
+      .forEach((portal) => portal.remove());
+  };
+
+  const closePeekOnOutsideClick = (event: MouseEvent) => {
+    if (
+      event.target instanceof Element &&
+      !event.target.closest(".peek-label, .peek-pop")
+    ) {
+      closePeeks();
+    }
+  };
+
+  onMount(() => document.addEventListener("click", closePeekOnOutsideClick));
+  onCleanup(() => {
+    document.removeEventListener("click", closePeekOnOutsideClick);
+    closePeeks();
+  });
+
   const rowForLine = (line: string) =>
     currentMap()?.querySelector(`tr[data-line="${CSS.escape(line)}"]`);
 
@@ -992,6 +1016,11 @@ function CodeMap(props: {
     const id = selected();
     html();
     window.requestAnimationFrame(() => {
+      const sortMode = new URL(window.location.href).searchParams.get("lsort");
+      const findingList = currentMap()?.querySelector(".finding-list");
+      if (sortMode && findingList instanceof HTMLElement) {
+        sortFindingList(findingList, sortMode);
+      }
       if (id) scrollSelectedFinding(id);
     });
   });
@@ -1005,10 +1034,99 @@ function CodeMap(props: {
     setSelected(id);
   };
 
+  const copyDebugInfo = async (button: HTMLButtonElement) => {
+    const finding = button.closest(".finding");
+    const payload = finding?.querySelector(".debug-payload")?.textContent ?? "";
+    const previousLabel = button.textContent;
+    try {
+      await copyText(payload);
+      button.textContent = "Copied!";
+      button.classList.add("ok");
+    } catch (error) {
+      console.error("Failed to copy debug info", error);
+      button.textContent = "Copy failed";
+    }
+    window.setTimeout(() => {
+      button.textContent = previousLabel;
+      button.classList.remove("ok");
+    }, 1300);
+  };
+
   const onCodeMapClick: JSX.EventHandler<HTMLDivElement, MouseEvent> = (
     event,
   ) => {
     if (!(event.target instanceof Element)) return;
+    const copyButton = event.target.closest(".copy-debug");
+    if (copyButton instanceof HTMLButtonElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      void copyDebugInfo(copyButton);
+      return;
+    }
+    const peekLabel = event.target.closest(".peek-label");
+    if (peekLabel instanceof HTMLElement) {
+      const peek = peekLabel.closest(".peek");
+      const popover = peek?.querySelector(".peek-pop");
+      const wasOpen = peek?.classList.contains("open") ?? false;
+      closePeeks();
+      if (peek && popover instanceof HTMLElement && !wasOpen) {
+        peek.classList.add("open");
+        const portal = popover.cloneNode(true);
+        if (portal instanceof HTMLElement) {
+          portal.classList.add("portal", "open");
+          document.body.appendChild(portal);
+          positionPeek(peekLabel, portal);
+        }
+      }
+      event.stopPropagation();
+      return;
+    }
+    const filterButton = event.target.closest(".efilter");
+    if (filterButton instanceof HTMLButtonElement) {
+      const findingList = filterButton.closest(".finding-list");
+      if (findingList) {
+        findingList
+          .querySelectorAll(".efilter")
+          .forEach((button) => button.classList.remove("active"));
+        filterButton.classList.add("active");
+        const wanted = filterButton.dataset.filter;
+        findingList.querySelectorAll("ol > li").forEach((item) => {
+          const show =
+            wanted === "all" ||
+            (wanted === "defended"
+              ? item.getAttribute("data-has-defenses") === "1"
+              : item.getAttribute("data-type") === wanted);
+          item.toggleAttribute("data-hidden", !show);
+        });
+      }
+      return;
+    }
+    const sortButton = event.target.closest(".esort");
+    if (sortButton instanceof HTMLButtonElement) {
+      const findingList = sortButton.closest(".finding-list");
+      const mode = sortButton.dataset.sort;
+      if (findingList instanceof HTMLElement && mode) {
+        sortFindingList(findingList, mode);
+        const url = new URL(window.location.href);
+        if (mode === "score") url.searchParams.delete("lsort");
+        else url.searchParams.set("lsort", mode);
+        window.history.replaceState({}, "", url);
+      }
+      return;
+    }
+    const revealButton = event.target.closest(".reveal-code");
+    if (revealButton instanceof HTMLButtonElement) {
+      const inlineCode = revealButton
+        .closest(".xfile-peek")
+        ?.querySelector(".inline-code");
+      if (inlineCode instanceof HTMLElement) {
+        const show = inlineCode.hasAttribute("hidden");
+        inlineCode.toggleAttribute("hidden", !show);
+        revealButton.textContent = show ? "⌃ hide" : "⌄ code";
+      }
+      event.preventDefault();
+      return;
+    }
     const back = event.target.closest(".panel-back");
     if (back) {
       event.preventDefault();
@@ -1044,6 +1162,104 @@ function CodeMap(props: {
   };
 
   return <div ref={rootRef} onClick={onCodeMapClick} innerHTML={html()} />;
+}
+
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Clipboard access can be denied outside a secure context; use the
+      // browser's legacy copy path before reporting a failure.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("Copy command was rejected");
+    }
+  } finally {
+    textarea.remove();
+  }
+}
+
+function positionPeek(label: HTMLElement, popover: HTMLElement): void {
+  const rect = label.getBoundingClientRect();
+  const margin = 10;
+  const desiredWidth = Math.min(
+    640,
+    Math.max(360, window.innerWidth - margin * 2),
+  );
+  popover.style.width = `${desiredWidth}px`;
+  popover.style.maxWidth = `${desiredWidth}px`;
+  popover.style.left = "0px";
+  popover.style.top = "0px";
+  const popoverRect = popover.getBoundingClientRect();
+  const left = Math.min(
+    Math.max(margin, rect.left),
+    window.innerWidth - popoverRect.width - margin,
+  );
+  const below = rect.bottom + 8;
+  const above = rect.top - popoverRect.height - 8;
+  let top =
+    below + popoverRect.height + margin <= window.innerHeight
+      ? below
+      : Math.max(margin, above);
+  top = Math.min(
+    Math.max(margin, top),
+    Math.max(margin, window.innerHeight - popoverRect.height - margin),
+  );
+  popover.style.left = `${Math.round(left)}px`;
+  popover.style.top = `${Math.round(top)}px`;
+}
+
+function sortFindingList(findingList: HTMLElement, mode: string): void {
+  const list = findingList.querySelector("ol");
+  if (!list) return;
+  const numberFrom = (item: Element, attribute: string) =>
+    Number.parseFloat(item.getAttribute(attribute) ?? "") || 0;
+  const items = Array.from(list.children);
+  items.sort((left, right) => {
+    if (mode === "line") {
+      return (
+        numberFrom(left, "data-sort-line") -
+        numberFrom(right, "data-sort-line")
+      );
+    }
+    if (mode === "sources") {
+      return (
+        numberFrom(right, "data-sort-sources") -
+          numberFrom(left, "data-sort-sources") ||
+        numberFrom(right, "data-sort-score") -
+          numberFrom(left, "data-sort-score")
+      );
+    }
+    if (mode === "type") {
+      return (
+        numberFrom(left, "data-sort-order") -
+          numberFrom(right, "data-sort-order") ||
+        numberFrom(left, "data-sort-line") -
+          numberFrom(right, "data-sort-line")
+      );
+    }
+    return (
+      numberFrom(right, "data-sort-score") -
+        numberFrom(left, "data-sort-score") ||
+      numberFrom(left, "data-sort-line") -
+        numberFrom(right, "data-sort-line")
+    );
+  });
+  items.forEach((item) => list.appendChild(item));
+  findingList.querySelectorAll(".esort").forEach((button) => {
+    button.classList.toggle("active", button.getAttribute("data-sort") === mode);
+  });
 }
 
 function renderFanOutViewer(report: Report | undefined, location: URL): string {

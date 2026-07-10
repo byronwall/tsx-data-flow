@@ -18,8 +18,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "concurrently -k -n server,client -c blue,green \"pnpm dev:server\" \"pnpm dev:frontend\"",
-    "dev:server": "tsx watch src/server-cli.ts --root examples/bad-ish-solid --port 4318",
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "tsx watch src/server-cli.ts --port 4318",
     "dev:frontend": "vite --config vite.frontend.config.mjs",
     "typecheck:server": "tsc -p tsconfig.server.json",
     "typecheck:frontend": "tsc -p src/frontend/tsconfig.json",
