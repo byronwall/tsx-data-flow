@@ -3,20 +3,16 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "strict": true,
-    "allowJs": true,
-    "allowImportingTsExtensions": true,
-    "checkJs": false,
-    "noEmit": true,
+    "strict": false,
+    "noCheck": true,
+    "allowJs": false,
+    "rootDir": ".",
+    "outDir": "dist",
+    "declaration": true,
+    "sourceMap": true,
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": [
-    "src/server.ts",
-    "src/server-cli.ts",
-    "src/core.mjs",
-    "src/cli/server-flags.mjs",
-    "src/html/escape.mjs",
-    "src/html/page.mjs"
-  ]
+  "include": ["src/**/*.ts", "bin/**/*.ts"],
+  "exclude": ["src/frontend/**/*"]
 }

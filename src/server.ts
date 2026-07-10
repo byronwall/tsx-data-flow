@@ -9,9 +9,9 @@ import {
   renderMarkdownView,
   renderReport,
   REPORT_VIEWS,
-} from "./core.mjs";
-import { escapeHtml } from "./html/escape.mjs";
-import { page } from "./html/page.mjs";
+} from "./core.js";
+import { escapeHtml } from "./html/escape.js";
+import { page } from "./html/page.js";
 
 type AnalyzerArgs = {
   compare?: string | null;
@@ -48,7 +48,14 @@ type ServerCache = {
 };
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const frontendDist = path.join(here, "frontend", "dist");
+const sourceFrontendDist = path.join(here, "frontend", "dist");
+const builtFrontendDist = path.resolve(
+  process.cwd(),
+  "dist/src/frontend/dist",
+);
+const frontendDist = fs.existsSync(sourceFrontendDist)
+  ? sourceFrontendDist
+  : builtFrontendDist;
 const frontendIndex = path.join(frontendDist, "index.html");
 
 const STATIC_TYPES: Record<string, string> = {

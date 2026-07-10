@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { parseArgs } from "./core.mjs";
-import { extractServerFlags } from "./cli/server-flags.mjs";
-import { createServer } from "./server.ts";
+import { parseArgs } from "./core.js";
+import { extractServerFlags } from "./cli/server-flags.js";
+import { createServer } from "./server.js";
 
 const HELP = `tsx-dataflow-serve — browse render-path analysis in your browser
 

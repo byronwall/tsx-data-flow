@@ -2,15 +2,15 @@
 
 This document explains the render-path data-flow analyzer (`tsx-dataflow`) implemented in:
 
-- `bin/tsx-dataflow.mjs` — CLI entrypoint.
-- `src/core.mjs` — compatibility facade plus the remaining monolithic analysis/report behavior during the refactor.
-- `test/core.test.mjs` — Vitest coverage over fixture projects.
+- `bin/tsx-dataflow.ts` — CLI entrypoint.
+- `src/core.ts` — compatibility facade plus the remaining monolithic analysis/report behavior during the refactor.
+- `test/core.test.ts` — Vitest coverage over fixture projects.
 
 The analyzer is an advisory static-analysis tool for Solid/SolidStart UI code. It builds a typed graph from source expressions to JSX render sinks, then projects that graph into work packets, ledgers, path views, and JSON payloads. Its purpose is to find render code where values are repeatedly wrapped, defaulted, converted, relayed, or defensively checked after the TypeScript program already proves those checks unnecessary.
 
 ## Command Surface
 
-The CLI entrypoint is `bin/tsx-dataflow.mjs`, exposed as the `tsx-dataflow` binary. It delegates all behavior to `src/core.mjs`. Run it from the target project root; `--source` and `--tsconfig` are auto-discovered when omitted:
+The CLI entrypoint is `bin/tsx-dataflow.ts`, exposed as the `tsx-dataflow` binary. It delegates all behavior to `src/core.ts`. Run it from the target project root; `--source` and `--tsconfig` are auto-discovered when omitted:
 
 ```bash
 tsx-dataflow \
@@ -489,7 +489,7 @@ Several work-packet decisions are intentionally evidence-gated:
 
 ## Test Coverage
 
-`test/core.test.mjs` uses temporary TypeScript fixture projects and Vitest. Covered behaviors include:
+`test/core.test.ts` uses temporary TypeScript fixture projects and Vitest. Covered behaviors include:
 
 - CLI validation for formats and views
 - JSX sink category collection, with event handlers excluded from ranking

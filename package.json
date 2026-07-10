@@ -4,12 +4,11 @@
   "description": "Static render-path data-flow analyzer for TypeScript/TSX (Solid/SolidStart-aware) UI code. Builds a typed graph from source values to JSX render sinks and ranks high-leverage cleanup work.",
   "type": "module",
   "bin": {
-    "tsx-dataflow": "bin/tsx-dataflow.mjs",
-    "tsx-dataflow-serve": "bin/tsx-dataflow-serve.mjs"
+    "tsx-dataflow": "dist/bin/tsx-dataflow.js",
+    "tsx-dataflow-serve": "dist/bin/tsx-dataflow-serve.js"
   },
   "files": [
-    "bin",
-    "src",
+    "dist",
     "examples",
     "skills",
     "docs",
@@ -18,18 +17,19 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "node scripts/dev.mjs",
-    "dev:server": "tsx watch src/server-cli.ts --port 4318",
-    "dev:frontend": "vite --config vite.frontend.config.mjs",
+    "dev": "node --import tsx scripts/dev.ts",
+    "dev:server": "node --watch-path=src --import tsx src/server-cli.ts --port 4318",
+    "dev:frontend": "vite --config vite.frontend.config.ts",
     "typecheck:server": "tsc -p tsconfig.server.json",
     "typecheck:frontend": "tsc -p src/frontend/tsconfig.json",
     "typecheck": "pnpm run typecheck:server && pnpm run typecheck:frontend",
-    "build:frontend": "pnpm run typecheck:frontend && vite build --config vite.frontend.config.mjs",
-    "build:server": "pnpm run typecheck:server",
+    "build:frontend": "pnpm run typecheck:frontend && vite build --config vite.frontend.config.ts",
+    "build:server": "tsc -p tsconfig.server.json",
     "build": "pnpm run build:server && pnpm run build:frontend",
-    "analyze": "node bin/tsx-dataflow.mjs",
-    "serve": "node bin/tsx-dataflow-serve.mjs",
-    "examples:regenerate": "node examples/regenerate.mjs"
+    "analyze": "tsx bin/tsx-dataflow.ts",
+    "serve": "tsx bin/tsx-dataflow-serve.ts",
+    "examples:regenerate": "tsx examples/regenerate.ts",
+    "prepack": "pnpm run build"
   },
   "engines": {
     "node": ">=18"

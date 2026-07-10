@@ -10,16 +10,16 @@ import {
 } from "solid-js";
 import type { JSX } from "solid-js";
 import { render } from "solid-js/web";
-import { STYLE } from "../../html/styles.mjs";
+import { STYLE } from "../../html/styles.js";
 import {
   boundaryAnchor,
   boundaryGraphSvg,
   fanOutAnchor,
   fanOutGraphSvg,
   renderCodeMap,
-} from "../../html/code-map.mjs";
-import { markdownToHtml } from "../../html/markdown-to-html.mjs";
-import { fanOutIdentity, fanOutRootsFor } from "../../analysis/fan-out.mjs";
+} from "../../html/code-map.js";
+import { markdownToHtml } from "../../html/markdown-to-html.js";
+import { fanOutIdentity, fanOutRootsFor } from "../../analysis/fan-out.js";
 import {
   applyPathOverlay,
   clearPathOverlay,

@@ -67,7 +67,7 @@ pnpm examples:regenerate
 That command rewrites the representative reports in [`examples/bad-ish-solid/reports/`](examples/bad-ish-solid/reports/). A focused findings run looks like this:
 
 ```bash
-node bin/tsx-dataflow.mjs --root examples/bad-ish-solid --view findings --max-items 3
+pnpm tsx bin/tsx-dataflow.ts --root examples/bad-ish-solid --view findings --max-items 3
 ```
 
 Sample output:
@@ -278,9 +278,9 @@ pnpm test        # vitest run
 
 Source layout:
 
-- `bin/tsx-dataflow.mjs` — CLI entrypoint.
-- `src/core.mjs` — all analysis behavior.
-- `test/core.test.mjs` — fixture-based Vitest coverage.
+- `bin/tsx-dataflow.ts` — CLI entrypoint.
+- `src/core.ts` — analysis facade.
+- `test/**/*.test.ts` — fixture-based Vitest coverage.
 - `docs/analyzer.md` — design and internals reference.
 - `skills/` — installable agent skill.
 
