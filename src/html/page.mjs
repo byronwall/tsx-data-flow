@@ -1,8 +1,6 @@
-// Self-contained HTML shell: all CSS/JS is inlined so a page works offline and
-// makes no external requests. `page()` wraps body markup.
+// Static HTML fallback shell used for server errors and a missing SPA build.
 import { escapeHtml } from "./escape.mjs";
 import { STYLE } from "./styles.mjs";
-import { SCRIPT } from "./client-script.mjs";
 
 
 
@@ -33,7 +31,6 @@ export function page({ title, body, tabs = "", context = "", wide = false }) {
 <div class="layout">
 <main${wide ? ' class="wide"' : ""}>${body}</main>
 </div>
-<script>${SCRIPT}</script>
 </body>
 </html>`;
 }

@@ -1,7 +1,3 @@
-.open-on-hover:not(:hover):not(:focus-within) .popover-panel {
-  display: none;
-}
-
 .topbar-identity {
   display: flex;
   align-items: baseline;

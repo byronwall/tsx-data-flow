@@ -248,9 +248,10 @@ server source.
 
 Accepts the same analyzer options as `tsx-dataflow` (`--root`, `--source`,
 `--tsconfig`, `--scope`, `--max-items`, `--no-trace-helpers`, …) plus `--port`,
-`--host`, and `--open`. The server has no runtime dependencies beyond the
-analyzer itself; pages are self-contained HTML (inline CSS/JS, no external
-requests) and work offline.
+`--host`, and `--open`. The server exposes analyzer JSON, Markdown, and source
+APIs to a built Solid SPA. Production use requires the frontend assets produced
+by `pnpm build:frontend`; `pnpm dev` runs them through Vite with HMR while
+proxying analyzer requests to the server.
 
 ## Agent skill
 

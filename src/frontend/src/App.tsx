@@ -20,6 +20,16 @@ import {
 } from "../../html/code-map.mjs";
 import { markdownToHtml } from "../../html/markdown-to-html.mjs";
 import { fanOutIdentity, fanOutRootsFor } from "../../analysis/fan-out.mjs";
+import {
+  applyPathOverlay,
+  clearPathOverlay,
+} from "./code-map-interactions";
+import {
+  readHiddenColumns,
+  uniqueIds,
+  writeHiddenColumns,
+} from "./client-state";
+import { installPopoverController } from "./popover-controller";
 import "./style.css";
 
 type ReportView = (typeof REPORT_VIEWS)[number];
@@ -270,7 +280,11 @@ function App() {
   onMount(() => {
     const onPop = () => setLocation(currentLocation());
     window.addEventListener("popstate", onPop);
-    onCleanup(() => window.removeEventListener("popstate", onPop));
+    const removePopoverController = installPopoverController(document);
+    onCleanup(() => {
+      window.removeEventListener("popstate", onPop);
+      removePopoverController();
+    });
   });
 
   const onDocumentClick: JSX.EventHandler<HTMLDivElement, MouseEvent> = (
@@ -652,13 +666,19 @@ function SelectLink<T extends string>(props: {
   const current = () =>
     props.options.find(([value]) => value === props.value)?.[1] ?? props.value;
   return (
-    <div class="popover open-on-hover">
-      <span class="popover-trigger">
+    <div class="popover" data-popover>
+      <button
+        type="button"
+        class="popover-trigger"
+        data-popover-trigger
+        aria-haspopup="listbox"
+        aria-expanded="false"
+      >
         <span class="popover-label">{props.label}</span>
         <span class="popover-value">{current()}</span>
         <span class="popover-caret">▼</span>
-      </span>
-      <div class="popover-panel">
+      </button>
+      <div class="popover-panel" role="listbox">
         <For each={props.options}>
           {([value, label]) => (
             <a
@@ -700,11 +720,30 @@ function SortHeader(props: {
 }
 
 function ColumnToggle() {
-  const toggle: JSX.EventHandler<HTMLInputElement, InputEvent> = (event) => {
+  const columns = TYPE_COLUMNS.map((column) => column.col);
+  const [hidden, setHidden] = createSignal<ReadonlySet<string>>(new Set());
+
+  onMount(() => {
+    setHidden(readHiddenColumns(window.localStorage, columns));
+  });
+
+  createEffect(() => {
+    const hiddenColumns = hidden();
     const table = document.getElementById("overview-table");
     if (!table) return;
+    for (const column of columns) {
+      table.classList.toggle(`hide-${column}`, hiddenColumns.has(column));
+    }
+  });
+
+  const toggle: JSX.EventHandler<HTMLInputElement, InputEvent> = (event) => {
     const col = event.currentTarget.dataset.col;
-    table.classList.toggle(`hide-${col}`, !event.currentTarget.checked);
+    if (!col) return;
+    const next = new Set(hidden());
+    if (event.currentTarget.checked) next.delete(col);
+    else next.add(col);
+    setHidden(next);
+    writeHiddenColumns(window.localStorage, next);
   };
   return (
     <fieldset
@@ -719,7 +758,7 @@ function ColumnToggle() {
             <input
               type="checkbox"
               data-col={col.col}
-              checked
+              checked={!hidden().has(col.col)}
               onInput={toggle}
             />{" "}
             {col.label}
@@ -906,9 +945,11 @@ function CodeMap(props: {
   fullReport?: Report | null;
 }) {
   let rootRef: HTMLDivElement | undefined;
-  const [selected, setSelected] = createSignal(
-    props.location.searchParams.get("finding"),
+  const initialFinding = props.location.searchParams.get("finding");
+  const [selectedIds, setSelectedIds] = createSignal<string[]>(
+    initialFinding ? [initialFinding] : [],
   );
+  const selected = () => selectedIds()[0] ?? null;
   const html = createMemo(() => {
     const report = props.report;
     const fullReport = props.fullReport ?? report;
@@ -958,9 +999,17 @@ function CodeMap(props: {
     }
   };
 
-  onMount(() => document.addEventListener("click", closePeekOnOutsideClick));
+  const closePeekOnEscape = (event: KeyboardEvent) => {
+    if (event.key === "Escape") closePeeks();
+  };
+
+  onMount(() => {
+    document.addEventListener("click", closePeekOnOutsideClick);
+    document.addEventListener("keydown", closePeekOnEscape);
+  });
   onCleanup(() => {
     document.removeEventListener("click", closePeekOnOutsideClick);
+    document.removeEventListener("keydown", closePeekOnEscape);
     closePeeks();
   });
 
@@ -979,22 +1028,35 @@ function CodeMap(props: {
     window.history.replaceState({}, "", url);
   };
 
-  const scrollSelectedFinding = (id: string | null) => {
-    if (!id) return;
+  const reconcileSelectedFindings = (ids: string[]) => {
     const map = currentMap();
     if (!map) return;
     const panel = map.querySelector(".panel");
-    const finding = panel?.querySelector(
-      `.finding[data-finding="${CSS.escape(id)}"]`,
-    );
-    finding?.scrollIntoView({ block: "nearest" });
+    const findings = uniqueIds(ids)
+      .map((id) =>
+        panel?.querySelector<HTMLElement>(
+          `.finding[data-finding="${CSS.escape(id)}"]`,
+        ),
+      )
+      .filter((finding): finding is HTMLElement => Boolean(finding));
+    panel
+      ?.querySelectorAll(".finding.active")
+      .forEach((finding) => finding.classList.remove("active"));
+    findings.forEach((finding) => finding.classList.add("active"));
+    panel?.classList.toggle("show-detail", findings.length > 0);
+    map
+      .querySelectorAll(".hit.sel")
+      .forEach((node) => node.classList.remove("sel"));
+
+    const finding = findings[0] ?? null;
+    applyPathOverlay(map, finding);
+    if (!finding) return;
+    finding.scrollIntoView({ block: "nearest" });
+    const id = finding.dataset.finding ?? "";
     const hit = Array.from(map.querySelectorAll<HTMLElement>(".hit")).find(
       (node) => (node.dataset.findings ?? "").split(",").includes(id),
     );
     if (hit) {
-      map
-        .querySelectorAll(".hit.sel")
-        .forEach((node) => node.classList.remove("sel"));
       hit.classList.add("sel");
       hit.scrollIntoView({ block: "center" });
       return;
@@ -1004,16 +1066,16 @@ function CodeMap(props: {
 
   createEffect(() => {
     const nextFinding = props.location.searchParams.get("finding");
-    setSelected(nextFinding);
+    setSelectedIds(nextFinding ? [nextFinding] : []);
     window.requestAnimationFrame(() => {
       const hashLine = props.location.hash.match(/^#L(\d+)$/)?.[1];
-      if (nextFinding) scrollSelectedFinding(nextFinding);
+      if (nextFinding) reconcileSelectedFindings([nextFinding]);
       else if (hashLine) jumpToLine(hashLine);
     });
   });
 
   createEffect(() => {
-    const id = selected();
+    const ids = selectedIds();
     html();
     window.requestAnimationFrame(() => {
       const sortMode = new URL(window.location.href).searchParams.get("lsort");
@@ -1021,17 +1083,19 @@ function CodeMap(props: {
       if (sortMode && findingList instanceof HTMLElement) {
         sortFindingList(findingList, sortMode);
       }
-      if (id) scrollSelectedFinding(id);
+      reconcileSelectedFindings(ids);
     });
   });
 
-  const selectFinding = (id: string | null) => {
+  const selectFindings = (ids: Iterable<string>) => {
+    const nextIds = uniqueIds(ids);
+    const id = nextIds[0] ?? null;
     const url = new URL(window.location.href);
     if (id) url.searchParams.set("finding", id);
     else url.searchParams.delete("finding");
     if (id) url.hash = "";
     window.history.replaceState({}, "", url);
-    setSelected(id);
+    setSelectedIds(nextIds);
   };
 
   const copyDebugInfo = async (button: HTMLButtonElement) => {
@@ -1130,7 +1194,7 @@ function CodeMap(props: {
     const back = event.target.closest(".panel-back");
     if (back) {
       event.preventDefault();
-      selectFinding(null);
+      selectFindings([]);
       return;
     }
     const line = event.target.closest(".goto-line, .path-step-no");
@@ -1142,24 +1206,29 @@ function CodeMap(props: {
     }
     const hit = event.target.closest(".hit");
     if (hit instanceof HTMLElement) {
-      const firstId = (hit.dataset.findings ?? "").split(",").find(Boolean);
-      if (firstId) selectFinding(firstId);
+      const ids = (hit.dataset.findings ?? "").split(",").filter(Boolean);
+      if (ids.length) selectFindings(ids);
       return;
     }
     const row = event.target.closest(".finding-row, .xref");
     if (row instanceof HTMLElement && row.dataset.finding) {
       event.preventDefault();
-      selectFinding(row.dataset.finding);
+      selectFindings([row.dataset.finding]);
       return;
     }
     const sinkRow = event.target.closest("tr.has-sink");
     if (sinkRow instanceof HTMLElement) {
-      const firstId = Array.from(sinkRow.querySelectorAll<HTMLElement>(".hit"))
+      const ids = Array.from(sinkRow.querySelectorAll<HTMLElement>(".hit"))
         .flatMap((node) => (node.dataset.findings ?? "").split(","))
-        .find(Boolean);
-      if (firstId) selectFinding(firstId);
+        .filter(Boolean);
+      if (ids.length) selectFindings(ids);
     }
   };
+
+  onCleanup(() => {
+    const map = currentMap();
+    if (map) clearPathOverlay(map);
+  });
 
   return <div ref={rootRef} onClick={onCodeMapClick} innerHTML={html()} />;
 }
@@ -1546,10 +1615,10 @@ function renderOverflowPicker(
         } href="${escapeAttr(item.href)}">${escapeHtml(item.optionLabel)}</a>`,
     )
     .join("");
-  return `<div class="popover open-on-hover" data-popover-id="${escapeAttr(id)}">
-  <span class="fo-tab popover-trigger${active ? " active" : ""}" role="button" aria-haspopup="listbox" aria-expanded="false">
+  return `<div class="popover" data-popover data-popover-id="${escapeAttr(id)}">
+  <button type="button" class="fo-tab popover-trigger${active ? " active" : ""}" data-popover-trigger aria-haspopup="listbox" aria-expanded="false">
     ${escapeHtml(label)} <span class="fo-tab-val">▾</span>
-  </span>
+  </button>
   <div class="popover-panel" role="listbox" aria-label="${escapeAttr(ariaLabel)}">${options}</div>
 </div>`;
 }

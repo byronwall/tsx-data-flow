@@ -71,6 +71,13 @@ self-contained HTML UI. The overview at `/` is the project command center:
   `participating` filter is based on files already present in the report graph.
 - `sort=burden|findings|depth|file` reorders the hotspot rows without leaving
   the overview.
+- Optional overview columns retain their visibility preference in the browser.
+- Code Map selection is URL-restorable with `finding=<id>`. A shared source hit
+  opens every mapped finding while the primary finding owns the highlighted
+  path and URL identity.
+- Code Map inventory sorting uses `lsort=score|type|line|sources`. Source Peek
+  overlays render as viewport-clamped body portals so path tables cannot clip
+  them.
 - `/report?view=<name>` renders any concrete report view as HTML.
 - `/api/report.<name>.md` returns the raw Markdown projection for that view, and
   `/api/report.json?path=<rel>` returns the structured payload for scripts.

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { SCRIPT } from "../src/html/client-script.mjs";
 import {
   FIXTURE,
   REPORT_VIEWS,
@@ -198,8 +197,6 @@ describe("renderCodeMap", () => {
     expect(html).toContain(`abs path: ${project.root}/src/Card.tsx`);
     expect(html).toContain("representative path");
     expect(html).toContain("--- JSON ---");
-    expect(SCRIPT).toContain("Failed to copy debug info");
-    expect(SCRIPT).toContain("Copy command was rejected");
   });
 
   it("cross-references findings that share identical code", async () => {
