@@ -1,42 +1,44 @@
 import { For, Show, createSignal } from "solid-js";
-import type { FilePage, FindingDetail, InventoryEntry } from "../../../api/contracts";
-import { SemanticGraph } from "../reports/SemanticGraph";
+import type { FindingDetail, InventoryEntry } from "../../../api/contracts";
 
-export function EntryDetails(props: { entry: InventoryEntry; finding?: FindingDetail; file: FilePage["file"]; close: () => void; jump: (line: number) => void }) {
+export function EntryNavigation(props: { entry: InventoryEntry; finding?: FindingDetail; close: () => void; jump: (line: number) => void }) {
+  return <nav class="panel-nav" aria-label="Finding navigation">
+    <button class="panel-back" type="button" onClick={() => props.close()}>← List</button>
+    <Show when={props.finding} fallback={<strong class="panel-nav-label">{props.entry.label}</strong>}>{(finding) => <div class="panel-nav-detail">
+      <h3>{finding().id} <span class="badge">{finding().category}</span></h3>
+      <div class="finding-context"><button class="finding-location" type="button" title={finding().location.path} onClick={() => props.jump(finding().location.line)}><code>{fileName(finding().location.path)}:{finding().location.line}</code></button><span>{contextLabel(finding())}</span></div>
+    </div>}</Show>
+  </nav>;
+}
+
+export function EntryDetails(props: { entry: InventoryEntry; finding?: FindingDetail; jump: (line: number) => void }) {
   return (
     <section class="entry-details">
-      <button class="panel-back" type="button" onClick={() => props.close()}>← Back to list</button>
       <Show when={props.finding} fallback={<GenericDetails entry={props.entry} jump={props.jump} />}>
-        {(finding) => <FindingView finding={finding()} file={props.file} jump={props.jump} />}
+        {(finding) => <FindingView finding={finding()} jump={props.jump} />}
       </Show>
     </section>
   );
 }
 
-function FindingView(props: { finding: FindingDetail; file: FilePage["file"]; jump: (line: number) => void }) {
+function FindingView(props: { finding: FindingDetail; jump: (line: number) => void }) {
   const [copied, setCopied] = createSignal(false);
   const copy = async () => {
     await copyText(props.finding.debugText); setCopied(true);
     window.setTimeout(() => setCopied(false), 1300);
   };
   return <article class="finding-detail">
-    <header><h3>{props.finding.id} <span class="badge">{props.finding.category}</span></h3>
-      <button type="button" onClick={() => void copy()}>{copied() ? "Copied" : "Copy debug info"}</button></header>
-    <p class="finding-subtitle">{props.finding.confidenceRisk || props.finding.queue}</p>
-    <p class="meta">{props.finding.location.path}:<button class="link-button" onClick={() => props.jump(props.finding.location.line)}>{props.finding.location.line}</button> · {contextLabel(props.finding)}</p>
-    <pre class="expression"><code>{props.finding.expression}</code></pre>
-    <DetailSection title="Source"><SourceExcerpt finding={props.finding} file={props.file} jump={props.jump} /></DetailSection>
     <div class="burden-row"><dl><dt>burden</dt><dd>{props.finding.burden.toFixed(3)}</dd><dt>confidence</dt><dd>{props.finding.confidence}%</dd><dt>risk</dt><dd>{props.finding.confidenceRisk || props.finding.confidenceReason}</dd></dl>
       <Show when={props.finding.burdenBreakdown}>{(breakdown) => <div class="burden-breakdown"><p class="meta">burden breakdown — {breakdown().total.toFixed(3)} from {breakdown().terms.length} metrics</p><ul><For each={breakdown().terms.filter((term) => term.contribution > 0)}>{(term) => <li>{term.label} {term.contribution.toFixed(3)} · {Math.round(term.contribution / Math.max(breakdown().rawSum, 0.001) * 100)}%</li>}</For></ul></div>}</Show>
     </div>
-    <Show when={props.finding.advice.headline || props.finding.advice.firstCut}><div class="advice"><strong>{props.finding.advice.shape}</strong><p>{props.finding.advice.headline || props.finding.advice.firstCut}</p></div></Show>
-    <SemanticGraph graph={props.finding.graph} label={`Source-to-sink graph for ${props.finding.label}`} />
+    <Show when={props.finding.advice.headline || props.finding.advice.firstCut}><div class="advice"><div class="advice-heading"><span>Recommendation</span><Show when={props.finding.advice.shape !== "uncategorized"}><code>{props.finding.advice.shape}</code></Show></div><p>{props.finding.advice.headline || props.finding.advice.firstCut}</p></div></Show>
     <DetailSection title={`Path — ${props.finding.path.length} steps`}>
-      <ol class="path-list"><For each={props.finding.path}>{(step, index) => <li>
-        <span class="path-number">{index() + 1}</span><strong>{step.kind}</strong> {step.label}
-        <Show when={step.location}>{(location) => <> <a href={location().path === props.finding.location.path ? `#L${location().line}` : `/file?path=${encodeURIComponent(location().path)}#L${location().line}`}
-          onClick={(event) => { if (location().path === props.finding.location.path) { event.preventDefault(); props.jump(location().line); } }}>{location().path}:{location().line}</a></>}</Show>
-        <Show when={step.snippet}><pre><code>{step.snippet}</code></pre></Show>
+      <ol class="path-list"><For each={compactPath(props.finding.path)}>{(group) => <li>
+        <code class="path-code">{group.snippet || group.steps[0]?.label}</code>
+        <div class="path-explanation"><For each={group.steps}>{(step) => <span class="path-operation"><strong>{step.kind}</strong> <code>{step.label}</code><Show when={step.detail}>{(detail) => <> — {detail()}</>}</Show></span>}</For>
+          <Show when={group.location}>{(location) => <a class="path-location" title={location().path} href={location().path === props.finding.location.path ? `#L${location().line}` : `/file?path=${encodeURIComponent(location().path)}#L${location().line}`}
+            onClick={(event) => { if (location().path === props.finding.location.path) { event.preventDefault(); props.jump(location().line); } }}>{fileName(location().path)}:{location().line}</a>}</Show>
+        </div>
       </li>}</For></ol>
     </DetailSection>
     <Show when={props.finding.defenses.length}><DetailSection title={`Defenses — ${props.finding.defenses.length}`}><ul><For each={props.finding.defenses}>{(defense) => <li><code>{defense.expression}</code> → {defense.verdict} <span class="meta">{defense.origin} · :{defense.location.line}</span></li>}</For></ul></DetailSection></Show>
@@ -44,15 +46,29 @@ function FindingView(props: { finding: FindingDetail; file: FilePage["file"]; ju
     <Show when={props.finding.roots.length}><DetailSection title={`Sources — ${props.finding.roots.length}`}><ul><For each={props.finding.roots}>{(root) => <li><code>{root.label}</code> <span class="meta">{root.kind}</span></li>}</For></ul></DetailSection></Show>
     <Show when={props.finding.reach.length}><DetailSection title="Reach"><ul><For each={props.finding.reach}>{(group) => <li>{group.source} → {group.total} sinks</li>}</For></ul></DetailSection></Show>
     <Show when={props.finding.sameCode.length}><DetailSection title="Same code elsewhere"><ul><For each={props.finding.sameCode}>{(peer) => <li><a href={`/file?path=${encodeURIComponent(peer.path)}&finding=${encodeURIComponent(peer.id)}#L${peer.line}`}>{peer.path}:{peer.line} — {peer.label}</a></li>}</For></ul></DetailSection></Show>
+    <footer class="finding-actions"><span>Actions</span><button type="button" onClick={() => void copy()}>{copied() ? "Copied" : "Copy debug info"}</button></footer>
   </article>;
 }
 
-function SourceExcerpt(props: { finding: FindingDetail; file: FilePage["file"]; jump: (line: number) => void }) {
-  const lines = () => props.file.lines.slice(Math.max(0, props.finding.span.startLine - 4), Math.min(props.file.lines.length, props.finding.span.endLine + 3));
-  return <pre class="source-excerpt"><code><For each={lines()}>{(line) => <button type="button" classList={{ active: line.number >= props.finding.span.startLine && line.number <= props.finding.span.endLine }} onClick={() => props.jump(line.number)}><span>{line.number}</span>{line.text || " "}</button>}</For></code></pre>;
+function contextLabel(finding: FindingDetail) { return [finding.context.component, finding.context.tag, finding.context.attribute].filter(Boolean).join(" / ") || finding.type; }
+function fileName(path: string) { return path.split("/").at(-1) || path; }
+
+type TraceStep = FindingDetail["path"][number];
+type PathGroup = { snippet: string | null; location: TraceStep["location"]; steps: TraceStep[] };
+
+function compactPath(steps: FindingDetail["path"]): PathGroup[] {
+  return steps.reduce<PathGroup[]>((groups, step) => {
+    const previous = groups.at(-1);
+    if (previous && sameSourceLine(previous, step)) previous.steps.push(step);
+    else groups.push({ snippet: step.snippet, location: step.location, steps: [step] });
+    return groups;
+  }, []);
 }
 
-function contextLabel(finding: FindingDetail) { return [finding.context.component, finding.context.tag, finding.context.attribute].filter(Boolean).join(" / ") || finding.type; }
+function sameSourceLine(group: PathGroup, step: TraceStep) {
+  if (group.location && step.location) return group.location.path === step.location.path && group.location.line === step.location.line;
+  return Boolean(group.snippet && step.snippet && group.snippet === step.snippet);
+}
 
 function GenericDetails(props: { entry: InventoryEntry; jump: (line: number) => void }) {
   return <article><h3>{props.entry.label} <span class="badge">{props.entry.kind}</span></h3>

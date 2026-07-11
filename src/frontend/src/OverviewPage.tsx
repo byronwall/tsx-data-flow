@@ -10,7 +10,7 @@ export function OverviewPage(props: { location: URL; navigate: Navigate }) {
   const [response, { refetch }] = createResource(() => props.location.search, fetchWorkspace);
   const report = () => response()?.data; const [refreshing, setRefreshing] = createSignal(false); const [refreshError, setRefreshError] = createSignal("");
   const state = createMemo(() => overviewState(props.location.searchParams)); const rows = createMemo(() => overviewRows(report(), state()));
-  const pageRows = createMemo(() => state().all ? rows() : rows().slice((state().page - 1) * PAGE_SIZE, state().page * PAGE_SIZE));
+  const pageRows = createMemo(() => rows().slice((state().page - 1) * PAGE_SIZE, state().page * PAGE_SIZE));
   const refresh = async () => { setRefreshing(true); setRefreshError(""); try { await refreshWorkspace(); await refetch(); } catch (error) { setRefreshError(refreshFailureMessage(error)); } finally { setRefreshing(false); } };
   return <Shell context={response.error ? "" : report()?.workspace.displayRoot ?? ""} tabs={() => <ReportTabs active={null} />}><Show when={!response.error} fallback={<p class="error" role="alert">{response.error?.message ?? "Unable to load the workspace."}</p>}><Show when={!response.loading} fallback={<p class="meta">Loading analysis…</p>}>
     <div class="toolbar"><h1 style={{ margin: "0" }}>Render-path overview</h1><button type="button" disabled={refreshing()} onClick={() => void refresh()}>{refreshing() ? "Analyzing…" : "↻ Re-analyze"}</button></div>

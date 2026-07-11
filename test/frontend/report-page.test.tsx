@@ -19,4 +19,10 @@ describe("native reports", () => {
     const { container } = render(() => <NativeReport data={data} />);
     expect(container.querySelector("svg")?.outerHTML).toMatchSnapshot();
   });
+  it("omits incomplete graph relationships instead of drawing them from the origin", () => {
+    const graph = { nodes: [{ id: "source", label: "props.account", kind: "source" as const, location: null, metric: null }], edges: [{ id: "edge", from: "source", to: "missing", label: null }] };
+    const data: ReportData = { view: "fan-in", items: [{ id: "fanin-1", label: "Child / account", location: null, rootCount: 1, predicateCount: 0, maxDepth: 1, graph }] };
+    const { container } = render(() => <NativeReport data={data} />);
+    expect(container.querySelector("svg")).toBeNull();
+  });
 });

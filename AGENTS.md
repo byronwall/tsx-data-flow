@@ -2,6 +2,8 @@
 
 Read [docs/application-structure.md](docs/application-structure.md) before making structural changes. It describes the analyzer, report, server, HTML, and Solid frontend boundaries.
 
+Read [docs/design-preferences.md](docs/design-preferences.md) before changing frontend layout, tables, controls, typography, color, or information hierarchy.
+
 ## Keep modules focused
 
 - Give each file one primary reason to change. Do not combine route orchestration, resource loading, data shaping, browser interaction state, and large JSX/HTML renderers in one module.
@@ -17,6 +19,7 @@ Read [docs/application-structure.md](docs/application-structure.md) before makin
 - Keep SSR-sensitive shells structurally stable. Pass data or component callbacks across boundaries instead of conditionally reinserting pre-created JSX elements.
 - Put pure filtering, sorting, aggregation, and graph shaping outside JSX components.
 - Put delegated DOM interaction logic in a focused component or controller rather than the route composition root.
+- Use background color alone to distinguish filled badges, rows, cards, and callouts. Do not add a left border, inset-left shadow, or pseudo-element rail to an element that already has a background fill.
 
 ## Verification
 
@@ -28,4 +31,3 @@ pnpm typecheck
 pnpm test
 pnpm build
 ```
-

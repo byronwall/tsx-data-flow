@@ -43,11 +43,6 @@ export function FilePage(props: { location: URL; navigate: Navigate }) {
   return (
     <Shell
       context={relPath()}
-      beforeContext={() =>
-        <a class="topbar-back" href="/">
-          ← Overview
-        </a>
-      }
       actions={() =>
         <>
           <a

@@ -2,7 +2,7 @@ import { Show, createMemo, createSignal, onMount } from "solid-js";
 import type { FilePage } from "../../api/contracts";
 import { SourcePane } from "./code-map/SourcePane";
 import { Inventory } from "./code-map/Inventory";
-import { EntryDetails } from "./code-map/FindingDetails";
+import { EntryDetails, EntryNavigation } from "./code-map/FindingDetails";
 import type { Navigate } from "./router";
 
 export function CodeMap(props: { location: URL; data: FilePage; navigate: Navigate; requestedId?: string | null }) {
@@ -32,10 +32,13 @@ export function CodeMap(props: { location: URL; data: FilePage; navigate: Naviga
   });
   return <div class="codemap-native">
     <SourcePane file={props.data.file} selectedId={effectiveSelectedId()} pathLines={pathLines()} registerLine={(line, element) => lines.set(line, element)} select={select} />
-    <aside class="codemap-panel" ref={panelRef}>
-      <Show when={selectedEntry()} fallback={<Inventory entries={props.data.inventory} selectedId={effectiveSelectedId()} select={select} location={props.location} navigate={props.navigate} />}>
-        {(entry) => <EntryDetails entry={entry()} finding={props.data.findingsById[entry().id]} file={props.data.file} close={close} jump={jump} />}
-      </Show>
-    </aside>
+    <section class="codemap-panel-shell">
+      <Show when={selectedEntry()}>{(entry) => <EntryNavigation entry={entry()} finding={props.data.findingsById[entry().id]} close={close} jump={jump} />}</Show>
+      <aside class="codemap-panel" ref={panelRef}>
+        <Show when={selectedEntry()} fallback={<Inventory entries={props.data.inventory} selectedId={effectiveSelectedId()} select={select} location={props.location} navigate={props.navigate} />}>
+          {(entry) => <EntryDetails entry={entry()} finding={props.data.findingsById[entry().id]} jump={jump} />}
+        </Show>
+      </aside>
+    </section>
   </div>;
 }

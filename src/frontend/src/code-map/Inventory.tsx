@@ -15,23 +15,30 @@ export function Inventory(props: { entries: InventoryEntry[]; selectedId: string
       .slice().sort((left, right) => compare(left, right, activeSort));
   });
   const kinds = createMemo(() => [...new Set(props.entries.map((entry) => entry.kind))]);
+  const chooseFilter = (value: Filter) => { setFilter(value); updateUrl("etype", value, "all"); };
+  const chooseSort = (value: Sort) => { setSort(value); updateUrl("lsort", value, "score"); };
   return (
     <section class="inventory" aria-label="File inventory">
       <div class="inventory-toolbar">
-        <label>Show <select value={filter()} onChange={(event) => { const value = event.currentTarget.value as Filter; setFilter(value); updateUrl("etype", value, "all"); }}>
-          <option value="all">All entries</option><option value="defended">Defended</option>
-          <For each={kinds()}>{(kind) => <option value={kind}>{labelKind(kind)}</option>}</For>
-        </select></label>
-        <label>Sort <select value={sort()} onChange={(event) => { const value = event.currentTarget.value as Sort; setSort(value); updateUrl("lsort", value, "score"); }}>
-          <option value="score">Priority</option><option value="line">Line</option><option value="sources">Sources</option><option value="type">Type</option>
-        </select></label>
+        <div class="inventory-filter"><span class="inventory-toolbar-label">Show</span><div class="inventory-filter-options" role="group" aria-label="Show entries">
+          <button type="button" class="inventory-toggle" aria-pressed={filter() === "all"} onClick={() => chooseFilter("all")}>All entries</button>
+          <button type="button" class="inventory-toggle" aria-pressed={filter() === "defended"} onClick={() => chooseFilter("defended")}>Defended</button>
+          <For each={kinds()}>{(kind) => <button type="button" class="inventory-toggle" aria-pressed={filter() === kind} onClick={() => chooseFilter(kind)}>{labelKind(kind)}</button>}</For>
+        </div></div>
+        <div class="inventory-sort"><span class="inventory-toolbar-label">Sort</span><div class="inventory-sort-options" role="group" aria-label="Sort entries">
+          <button type="button" class="inventory-toggle" aria-pressed={sort() === "score"} onClick={() => chooseSort("score")}>Priority</button>
+          <button type="button" class="inventory-toggle" aria-pressed={sort() === "line"} onClick={() => chooseSort("line")}>Line</button>
+          <button type="button" class="inventory-toggle" aria-pressed={sort() === "sources"} onClick={() => chooseSort("sources")}>Sources</button>
+          <button type="button" class="inventory-toggle" aria-pressed={sort() === "type"} onClick={() => chooseSort("type")}>Type</button>
+        </div></div>
       </div>
+      <div class="inventory-header" aria-hidden="true"><span>Type</span><span>Line</span><span>Identifier</span><span>Metric</span></div>
       <ol class="inventory-list">
         <For each={visible()}>{(entry) => (
-          <li><button type="button" class="inventory-row" data-entry-id={entry.id} classList={{ active: entry.id === props.selectedId }} onClick={() => props.select(entry.id)}>
+          <li><button type="button" class="inventory-row" data-entry-id={entry.id} classList={{ active: entry.id === props.selectedId, "has-defenses": entry.flags.hasDefenses }} onClick={() => props.select(entry.id)}>
             <span class={`type-tag tt-${entry.kind}`}>{labelKind(entry.kind)}</span>
-            <span class="inventory-line">:{entry.line ?? "?"}</span>
-            <span class="inventory-label">{entry.label}<Show when={entry.secondaryLabel}> <small>{entry.secondaryLabel}</small></Show></span>
+            <span class="inventory-line">{entry.line ?? "?"}</span>
+            <span class="inventory-label"><code class="inventory-name">{entry.label}</code><Show when={entry.secondaryLabel}> <code class="inventory-secondary">{entry.secondaryLabel}</code></Show></span>
             <span class="inventory-metric">{metric(entry)}</span>
           </button></li>
         )}</For>

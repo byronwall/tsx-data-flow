@@ -6,7 +6,6 @@ import type { FileView } from "./view-config";
 
 export function Shell(props: {
   context?: string;
-  beforeContext?: () => JSX.Element;
   actions?: () => JSX.Element;
   tabs?: () => JSX.Element;
   wide?: boolean;
@@ -43,7 +42,6 @@ export function Shell(props: {
             <a class="brand" href="/">
               tsx-dataflow
             </a>
-            {props.beforeContext?.()}
             <Show when={props.context}>
               <span class="topbar-context" title={props.context}>
                 {props.context}

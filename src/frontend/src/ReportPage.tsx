@@ -5,6 +5,7 @@ import { fetchReport, refreshFailureMessage, refreshWorkspace } from "./api";
 import { ReportTabs, Shell } from "./Layout";
 import { isReportView, labelFor } from "./view-config";
 import { SemanticGraph } from "./reports/SemanticGraph";
+import { ReportTable } from "./reports/ReportTable";
 import type { Navigate } from "./router";
 
 export function ReportPage(props: { location: URL; navigate: Navigate }) {
@@ -28,9 +29,8 @@ export function NativeReport(props: { data: ReportData; location?: URL; navigate
     <Match when={props.data.view === "fan-out" || props.data.view === "fan-in" || props.data.view === "prop-relay" || props.data.view === "boundary-report"}>
       <GraphReport data={props.data as Extract<ReportData, { view: "fan-out" | "fan-in" | "prop-relay" | "boundary-report" }>} location={props.location} navigate={props.navigate} />
     </Match>
-    <Match when={props.data.view === "context-relay"}><ContextRelayReport data={props.data as Extract<ReportData, { view: "context-relay" }>} /></Match>
     <Match when={"disposition" in props.data}><p class="empty-state">{(props.data as Extract<ReportData, { disposition: "merged" }>).message}</p></Match>
-    <Match when={true}><ListReport data={props.data} /></Match>
+    <Match when={true}><ReportTable data={props.data as Extract<ReportData, { items: unknown[] }>} /></Match>
   </Switch></div>;
 }
 
@@ -42,10 +42,3 @@ function GraphReport(props: { data: Extract<ReportData, { view: "fan-out" | "fan
     <section class="report-card"><h2>{item().label}</h2><SemanticGraph graph={item().graph} label={`${props.data.view} graph for ${item().label}`} /></section>
   </>}</Show>;
 }
-function ContextRelayReport(props: { data: Extract<ReportData, { view: "context-relay" }> }) { return <div class="report-grid"><For each={props.data.items}>{(item) => <article class="report-card"><h3><a href={`/file?path=${encodeURIComponent(item.location?.path ?? "")}#L${item.location?.line ?? 1}`}>{item.label}</a></h3><p>{item.signal} · score {item.score}</p><p><strong>Context:</strong> {item.contextHooks.join(", ") || "—"}</p><p><strong>Relayed props:</strong> {item.props.join(", ")}</p><Show when={item.sharedProps.length}><p><strong>Context-like props:</strong> {item.sharedProps.join(", ")}</p></Show></article>}</For></div>; }
-function ListReport(props: { data: ReportData }) {
-  const items = () => "items" in props.data ? props.data.items : [];
-  return <Show when={items().length} fallback={<p class="meta">No qualifying entries.</p>}><div class="report-grid"><For each={items()}>{(item) => <article class="report-card"><h3>{"location" in item && item.location ? <a href={`/file?path=${encodeURIComponent(item.location.path)}#L${item.location.line}`}>{item.label}</a> : item.label}</h3><dl><For each={Object.entries(item).filter(([key]) => !["id", "label", "location", "graph"].includes(key))}>{([key, value]) => <><dt>{humanize(key)}</dt><dd>{format(value)}</dd></>}</For></dl></article>}</For></div></Show>;
-}
-function humanize(value: string) { return value.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase()); }
-function format(value: unknown): string { if (Array.isArray(value)) return value.map((entry) => typeof entry === "object" ? JSON.stringify(entry) : String(entry)).join(", ") || "—"; if (typeof value === "object") return JSON.stringify(value); return String(value); }

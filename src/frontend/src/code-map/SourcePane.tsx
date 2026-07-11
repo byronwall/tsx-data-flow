@@ -15,8 +15,6 @@ export function SourcePane(props: {
           <For each={props.file.lines}>{(line) => (
             <tr id={`L${line.number}`} data-line={line.number} ref={(element) => props.registerLine(line.number, element)}
               classList={{ "has-sink": line.annotations.length > 0, "on-path": props.pathLines.has(line.number), selected: line.annotations.some((a) => a.entityId === props.selectedId) }}>
-              <th class="ln"><a href={`#L${line.number}`}>{line.number}</a></th>
-              <td class="source-text"><code><SourceText text={line.text} annotations={line.annotations} selectedId={props.selectedId} select={props.select} /></code></td>
               <td class="source-hits">
                 <For each={line.annotations}>{(annotation) => (
                   <button type="button" class={`source-hit hit-${annotation.kind}`}
@@ -29,6 +27,8 @@ export function SourcePane(props: {
                 )}</For>
                 <Show when={line.annotations.length === 0}><span class="source-hit-empty" /></Show>
               </td>
+              <th class="ln"><a href={`#L${line.number}`}>{line.number}</a></th>
+              <td class="source-text"><code><SourceText text={line.text} annotations={line.annotations} selectedId={props.selectedId} select={props.select} /></code></td>
             </tr>
           )}</For>
         </tbody>
