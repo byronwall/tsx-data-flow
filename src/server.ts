@@ -1,29 +1,17 @@
 // Local server for tsx-dataflow. Builds the TypeScript program once, exposes the
 // analyzer data/markdown APIs, and serves the Solid single-page frontend.
 import fs from "node:fs";
-import type { AnalysisReport, AnalyzerArgs } from "./types";
+import type { AnalyzerArgs } from "./types";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  createAnalyzer,
-  renderReport,
-} from "./core";
+import { renderReport } from "./core";
 import { REPORT_VIEWS } from "./cli/args";
 import { renderMarkdownView } from "./reports/markdown-views";
-import { escapeHtml } from "./html/escape";
-import { page } from "./html/page";
-
-type Analyzer = {
-  report(overrides?: Partial<AnalyzerArgs>): AnalysisReport;
-};
-
-type ServerCache = {
-  analyzer: Analyzer | null;
-  full: AnalysisReport | null;
-  byFile: Map<string, AnalysisReport>;
-  source: Map<string, string>;
-};
+import { fileRequestSchema, refreshResponseSchema } from "./api/contracts";
+import { createAnalysisCache } from "./server/cache";
+import { serveWorkspace } from "./server/api-workspace";
+import { send, sendError, sendFile, sendJson } from "./server/responses";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sourceFrontendDist = path.join(here, "frontend", "dist");
@@ -36,47 +24,9 @@ const frontendDist = fs.existsSync(sourceFrontendDist)
   : builtFrontendDist;
 const frontendIndex = path.join(frontendDist, "index.html");
 
-const STATIC_TYPES: Record<string, string> = {
-  ".css": "text/css; charset=utf-8",
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".map": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-};
-
-function send(
-  res: ServerResponse,
-  status: number,
-  body: string | Buffer,
-  type: string = "text/html; charset=utf-8",
-) {
-  res.writeHead(status, { "Content-Type": type });
-  res.end(body);
-}
-
-function sendFile(res: ServerResponse, filePath: string) {
-  let body: Buffer;
-  try {
-    body = fs.readFileSync(filePath);
-  } catch {
-    return send(res, 404, "not found", "text/plain");
-  }
-  const type = STATIC_TYPES[path.extname(filePath)] ?? "application/octet-stream";
-  res.writeHead(200, { "Content-Type": type });
-  return res.end(body);
-}
-
 function sendSpa(res: ServerResponse) {
   if (fs.existsSync(frontendIndex)) return sendFile(res, frontendIndex);
-  return send(
-    res,
-    500,
-    page({
-      title: "Frontend not built",
-      body: '<h1>Frontend not built</h1><p class="meta">Run <code>pnpm build:frontend</code> before starting the server.</p>',
-    }),
-  );
+  return send(res, 500, "Frontend not built. Run pnpm build:frontend before starting the server.");
 }
 
 function sendStaticAsset(route: string, res: ServerResponse) {
@@ -91,52 +41,7 @@ function sendStaticAsset(route: string, res: ServerResponse) {
 // One server instance owns an analyzer + caches. Exported (not just started) so
 // tests can drive it on an ephemeral port without a child process.
 export function createServer(args: AnalyzerArgs) {
-  const cache: ServerCache = {
-    analyzer: null,
-    full: null,
-    byFile: new Map(),
-    source: new Map(),
-  };
-
-  const ensureBuilt = () => {
-    if (!cache.analyzer) {
-      cache.analyzer = createAnalyzer({ ...args, file: [], scope: null });
-      cache.full = cache.analyzer.report();
-    }
-    return cache.full;
-  };
-
-  const reportForFile = (relPath: string) => {
-    if (cache.byFile.has(relPath)) return cache.byFile.get(relPath);
-    if (!cache.analyzer) ensureBuilt();
-    const report = cache.analyzer?.report({ file: [relPath], scope: null });
-    if (!report) throw new Error("Analyzer was not initialized");
-    cache.byFile.set(relPath, report);
-    return report;
-  };
-
-  const sourceFor = (relPath: string) => {
-    if (cache.source.has(relPath)) return cache.source.get(relPath) ?? "";
-    if (!cache.full) ensureBuilt();
-    const root = cache.full?.meta.root;
-    if (!root) throw new Error("Analyzer report was not initialized");
-    let text = "";
-    try {
-      text = fs.readFileSync(path.join(root, relPath), "utf8");
-    } catch {
-      text = "";
-    }
-    cache.source.set(relPath, text);
-    return text;
-  };
-
-  const refresh = () => {
-    cache.analyzer = null;
-    cache.full = null;
-    cache.byFile.clear();
-    cache.source.clear();
-    ensureBuilt();
-  };
+  const cache = createAnalysisCache(args);
 
   const handler = (req: IncomingMessage, res: ServerResponse) => {
     let url: URL;
@@ -150,15 +55,28 @@ export function createServer(args: AnalyzerArgs) {
     try {
       if (route.startsWith("/assets/")) return sendStaticAsset(route, res);
 
-      if (route === "/healthz") return send(res, 200, "ok", "text/plain");
+      if (route === "/healthz") return send(res, 200, "ok");
+
+      if (route === "/api/workspace" && req.method === "GET") {
+        return serveWorkspace(cache, res);
+      }
+
+      if (route === "/api/refresh" && req.method === "POST") {
+        const report = cache.refresh();
+        return sendJson(res, 200, refreshResponseSchema.parse({
+          apiVersion: 1, analysisVersion: report.analysisVersion,
+          generation: cache.generation(), generatedAt: report.generatedAt,
+          data: { refreshed: true },
+        }));
+      }
 
       if (route === "/refresh" || url.searchParams.get("refresh") === "1") {
-        refresh();
+        cache.refresh();
         res.writeHead(302, { Location: url.searchParams.get("from") || "/" });
         return res.end();
       }
 
-      ensureBuilt();
+      const fullReport = cache.ensureBuilt();
 
       const markdownMatch = route.match(/^\/api\/report\.([A-Za-z0-9-]+)\.md$/);
       if (markdownMatch) {
@@ -167,8 +85,7 @@ export function createServer(args: AnalyzerArgs) {
           return send(res, 404, "not found", "text/plain");
         }
         const relPath = url.searchParams.get("path");
-        const report = relPath ? reportForFile(relPath) : cache.full;
-        if (!report) throw new Error("Analyzer report was not initialized");
+        const report = relPath ? cache.reportForFile(relPath) : fullReport;
         const markdown = relPath
           ? renderMarkdownView(
               report,
@@ -179,15 +96,16 @@ export function createServer(args: AnalyzerArgs) {
       }
 
       if (route === "/api/source") {
-        const relPath = url.searchParams.get("path");
-        if (!relPath) return send(res, 400, "missing ?path", "text/plain");
-        return send(res, 200, sourceFor(relPath), "text/plain; charset=utf-8");
+        const parsed = fileRequestSchema.safeParse({ path: url.searchParams.get("path") });
+        if (!parsed.success) return sendError(res, 400, "invalid_path", "A workspace-relative path is required", parsed.error.issues);
+        const source = cache.sourceFor(parsed.data.path);
+        if (source === null) return sendError(res, 404, "file_not_found", `File not found: ${parsed.data.path}`);
+        return send(res, 200, source, "text/plain; charset=utf-8");
       }
 
       if (route === "/api/report.json") {
         const relPath = url.searchParams.get("path");
-        const report = relPath ? reportForFile(relPath) : cache.full;
-        if (!report) throw new Error("Analyzer report was not initialized");
+        const report = relPath ? cache.reportForFile(relPath) : fullReport;
         const payload = {
           meta: report.meta,
           summary: report.summary,
@@ -213,20 +131,15 @@ export function createServer(args: AnalyzerArgs) {
 
       return sendSpa(res);
     } catch (error) {
-      const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
-      return send(
-        res,
-        500,
-        page({
-          title: "Error",
-          body: `<h1>Server error</h1><pre>${escapeHtml(message)}</pre>`,
-        }),
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      return route.startsWith("/api/")
+        ? sendError(res, 500, "internal_error", message)
+        : send(res, 500, `Server error: ${message}`);
     }
   };
 
   const server = http.createServer(handler);
-  return { server, handler, refresh, ensureBuilt };
+  return { server, handler, refresh: cache.refresh, ensureBuilt: cache.ensureBuilt };
 }
 
 function isReportView(view: string) {

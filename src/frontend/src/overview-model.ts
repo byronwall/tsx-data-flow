@@ -1,6 +1,4 @@
-import type { AnalysisReport, RootInfo, Sink } from "../../types";
-
-type Report = AnalysisReport;
+import type { Workspace, WorkspaceFileRow } from "../../api/contracts";
 export type OverviewFilter = "all" | "findings" | "unknown" | "participating";
 export type OverviewSort = "burden" | "findings" | "depth" | "file";
 export interface OverviewState {
@@ -15,19 +13,10 @@ export interface OverviewRow {
   count: number;
   worst: number;
   depth: number;
-  worstSink: Sink | null;
+  worstSink: WorkspaceFileRow["worstFinding"];
   shape: string;
   ownership: string;
   firstCut: string;
-}
-interface OverviewGroup {
-  key: string;
-  count: number;
-  worst: number;
-  depth: number;
-  shapes: string[];
-  ownership: string[];
-  worstSink: Sink | null;
 }
 export type EntryCountKey = "boundaries" | "relays" | "unknown" | "fanOut";
 export type EntryCounts = Record<EntryCountKey, number>;
@@ -58,47 +47,23 @@ export function overviewHref(
 }
 
 export function overviewRows(
-  report: Report | undefined,
+  report: Workspace | undefined,
   state: OverviewState,
 ): OverviewRow[] {
   if (!report) return [];
-  const participating = graphParticipationFiles(report);
   const q = state.q.toLowerCase();
   const typeCounts = entryTypeCountsByFile(report);
-  const groups = new Map<string, OverviewGroup>();
-  for (const sink of report.sinks ?? []) {
-    if (!sink.file) continue;
-    const group = groups.get(sink.file) ?? {
-      key: sink.file,
-      count: 0,
-      worst: 0,
-      depth: 0,
-      shapes: [],
-      ownership: [],
-      worstSink: null,
-    };
-    group.count += 1;
-    const burden = sink.scores?.burden ?? 0;
-    if (burden > group.worst) {
-      group.worst = burden;
-      group.worstSink = sink;
-    }
-    group.depth = Math.max(group.depth, sink.metrics?.maximumPathDepth ?? 0);
-    group.shapes.push(shapeOf(sink));
-    group.ownership.push(ownershipOf(sink));
-    groups.set(sink.file, group);
-  }
-  let rows = [...groups.values()].map((group) => ({
-    ...group,
-    shape: modalValue(group.shapes),
-    ownership: modalValue(group.ownership),
-    firstCut: firstCutFor(group.worstSink),
+  let rows = report.files.map((file) => ({
+    key: file.path, count: file.findings.count, worst: file.findings.worstBurden,
+    depth: file.findings.maxDepth, worstSink: file.worstFinding,
+    shape: file.classification.primaryShape, ownership: file.classification.ownership,
+    firstCut: file.classification.firstCut,
   }));
   rows = rows.filter((row) => {
     const counts = typeCounts.get(row.key) ?? emptyEntryCounts();
     if (state.filter === "findings" && row.count <= 0) return false;
     if (state.filter === "unknown" && !counts.unknown) return false;
-    if (state.filter === "participating" && !participating.has(row.key))
+    if (state.filter === "participating" && !report.files.find((file) => file.path === row.key)?.flags.graphParticipant)
       return false;
     if (
       q &&
@@ -130,88 +95,20 @@ export function overviewRows(
 }
 
 export function entryTypeCountsByFile(
-  report: Report | undefined,
+  report: Workspace | undefined,
 ): Map<string, EntryCounts> {
   const counts = new Map<string, EntryCounts>();
-  const bump = (file: string | undefined, key: EntryCountKey) => {
-    if (!file) return;
-    const next = counts.get(file) ?? {
-      boundaries: 0,
-      relays: 0,
-      unknown: 0,
-      fanOut: 0,
-    };
-    next[key] += 1;
-    counts.set(file, next);
-  };
-  for (const helper of report?.helpers ?? []) bump(helper.file, "boundaries");
-  for (const relay of report?.contextRelay ?? [])
-    bump(relay.parentFile, "relays");
-  for (const edge of report?.unknownEdges ?? []) bump(edge.file, "unknown");
-  const roots = new Map<string, { count: number; files: Set<string> }>();
-  for (const sink of report?.sinks ?? []) {
-    if (!sink.file) continue;
-    for (const root of sink.roots ?? []) {
-      const entry = roots.get(root) ?? { count: 0, files: new Set() };
-      entry.count += 1;
-      entry.files.add(sink.file);
-      roots.set(root, entry);
-    }
-  }
-  for (const entry of roots.values()) {
-    if (entry.count < 2) continue;
-    for (const file of entry.files) bump(file, "fanOut");
-  }
+  for (const file of report?.files ?? []) counts.set(file.path, {
+    boundaries: file.entries.boundaries, relays: file.entries.relays,
+    unknown: file.entries.unknownEdges, fanOut: file.entries.fanOutSources,
+  });
   return counts;
-}
-
-function graphParticipationFiles(report: Report): Set<string> {
-  const files = new Set<string>();
-  for (const node of report?.graph?.nodes ?? [])
-    if (node.file) files.add(node.file);
-  for (const edge of report?.graph?.edges ?? [])
-    if (edge.location?.file) files.add(edge.location.file);
-  if (files.size === 0) {
-    for (const sink of report?.sinks ?? []) if (sink.file) files.add(sink.file);
-  }
-  return files;
-}
-
-function modalValue(values: string[]): string {
-  const counts = new Map<string, number>();
-  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
-  return (
-    [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ??
-    "—"
-  );
 }
 
 export function emptyEntryCounts(): EntryCounts {
   return { boundaries: 0, relays: 0, unknown: 0, fanOut: 0 };
 }
 
-function shapeOf(sink: Sink): string {
-  return (
-    sink.advice?.primaryShape ??
-    sink.advice?.shape ??
-    sink.family ??
-    "uncategorized"
-  );
-}
-
-function ownershipOf(sink: Sink): string {
-  if ((sink.roots ?? []).some((root: string) => /^use[A-Z]/.test(root)))
-    return "feature hook/context";
-  if ((sink.rootInfos ?? []).some((source: RootInfo) => source.kind === "prop-read"))
-    return "props";
-  return "local";
-}
-
-function firstCutFor(sink: Sink | null): string {
-  return (
-    sink?.advice?.firstCut ?? sink?.advice?.headline ?? "local boundary cleanup"
-  );
-}
 
 function isOverviewFilter(value: string | null): value is OverviewFilter {
   return (
@@ -230,5 +127,3 @@ function isOverviewSort(value: string | null): value is OverviewSort {
     value === "file"
   );
 }
-
-

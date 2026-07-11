@@ -1,0 +1,56 @@
+import fs from "node:fs";
+import path from "node:path";
+import { createAnalyzer } from "../core";
+import type { AnalysisReport, AnalyzerArgs } from "../types";
+
+export function createAnalysisCache(args: AnalyzerArgs) {
+  let analyzer: ReturnType<typeof createAnalyzer> | null = null;
+  let full: AnalysisReport | null = null;
+  let generation = 0;
+  const byFile = new Map<string, AnalysisReport>();
+  const source = new Map<string, string>();
+
+  const ensureBuilt = () => {
+    if (!analyzer) {
+      analyzer = createAnalyzer({ ...args, file: [], scope: null });
+      full = analyzer.report();
+      generation += 1;
+    }
+    if (!full) throw new Error("Analyzer report was not initialized");
+    return full;
+  };
+  const reportForFile = (relPath: string) => {
+    const cached = byFile.get(relPath);
+    if (cached) return cached;
+    ensureBuilt();
+    const report = analyzer?.report({ file: [relPath], scope: null });
+    if (!report) throw new Error("Analyzer was not initialized");
+    byFile.set(relPath, report);
+    return report;
+  };
+  const resolveSourcePath = (relPath: string) => {
+    const root = path.resolve(ensureBuilt().meta.root);
+    const absolute = path.resolve(root, relPath);
+    if (absolute !== root && !absolute.startsWith(root + path.sep)) return null;
+    return absolute;
+  };
+  const sourceFor = (relPath: string) => {
+    const cached = source.get(relPath);
+    if (cached !== undefined) return cached;
+    const absolute = resolveSourcePath(relPath);
+    if (!absolute || !fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) return null;
+    const text = fs.readFileSync(absolute, "utf8");
+    source.set(relPath, text);
+    return text;
+  };
+  const refresh = () => {
+    analyzer = null;
+    full = null;
+    byFile.clear();
+    source.clear();
+    return ensureBuilt();
+  };
+  return { ensureBuilt, reportForFile, sourceFor, refresh, generation: () => generation };
+}
+
+export type AnalysisCache = ReturnType<typeof createAnalysisCache>;

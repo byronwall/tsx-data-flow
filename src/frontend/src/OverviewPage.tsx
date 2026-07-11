@@ -1,7 +1,7 @@
-import type { AnalysisReport } from "../../types";
 import { For, Show, createEffect, createMemo, createResource, createSignal, onMount } from "solid-js";
 import type { JSX } from "solid-js";
-import { fetchJson } from "./api";
+import type { Workspace } from "../../api/contracts";
+import { fetchWorkspace, refreshWorkspace } from "./api";
 import { readHiddenColumns, writeHiddenColumns } from "./client-state";
 import { ReportTabs, Shell } from "./Layout";
 import {
@@ -18,7 +18,6 @@ import type {
   OverviewState,
 } from "./overview-model";
 
-type Report = AnalysisReport;
 export type Navigate = (href: string, replace?: boolean) => void;
 type SelectOption<T extends string = string> = readonly [T, string];
 
@@ -49,10 +48,19 @@ const SORT_OPTIONS = [
 ] as const satisfies readonly SelectOption<OverviewSort>[];
 
 export function OverviewPage(props: { location: URL; navigate: Navigate }) {
-  const [report] = createResource(
+  const [response, { refetch }] = createResource(
     () => props.location.search,
-    () => fetchJson<Report>("/api/report.json"),
+    fetchWorkspace,
   );
+  const report = () => response()?.data;
+  const [refreshing, setRefreshing] = createSignal(false);
+  const [refreshError, setRefreshError] = createSignal("");
+  const refresh = async () => {
+    setRefreshing(true); setRefreshError("");
+    try { await refreshWorkspace(); await refetch(); }
+    catch (error) { setRefreshError(error instanceof Error ? error.message : String(error)); }
+    finally { setRefreshing(false); }
+  };
   const state = createMemo(() => overviewState(props.location.searchParams));
   const rows = createMemo(() => overviewRows(report(), state()));
   const pageRows = createMemo(() => {
@@ -88,19 +96,20 @@ export function OverviewPage(props: { location: URL; navigate: Navigate }) {
 
   return (
     <Shell
-      context={report()?.meta?.root ?? ""}
+      context={report()?.workspace.displayRoot ?? ""}
       tabs={<ReportTabs active={null} />}
     >
       <Show
-        when={!report.loading}
+        when={!response.loading}
         fallback={<p class="meta">Loading analysis...</p>}
       >
         <div class="toolbar">
           <h1 style={{"margin":"0"}}>Render-path overview</h1>
-          <form action="/refresh" method="post">
-            <button type="submit">↻ Re-analyze</button>
-          </form>
+          <button type="button" disabled={refreshing()} onClick={() => void refresh()}>
+            {refreshing() ? "Analyzing…" : "↻ Re-analyze"}
+          </button>
         </div>
+        <Show when={refreshError()}><p class="error" role="alert">{refreshError()}</p></Show>
         <SummaryCards summary={report()?.summary} />
         <div class="toolbar">
           <form onSubmit={submitSearch}>
@@ -242,7 +251,7 @@ export function OverviewPage(props: { location: URL; navigate: Navigate }) {
   );
 }
 
-function SummaryCards(props: { summary?: Report["summary"] }) {
+function SummaryCards(props: { summary?: Workspace["summary"] }) {
   const items = () => [
     ["Sinks", props.summary?.sinks],
     ["Sources", props.summary?.sources],
@@ -375,4 +384,3 @@ function ColumnToggle() {
     </fieldset>
   );
 }
-
