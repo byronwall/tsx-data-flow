@@ -11,15 +11,41 @@ Replace the remaining string-based HTML generation with a conventional architect
 
 This is a migration, not a redesign. Preserve the current routes, URLs, report downloads, code-map behavior, and visual language unless a phase explicitly changes a contract.
 
+## Product intent and success criterion
+
+This migration serves the durable direction in [`../../INTENT.md`](../../INTENT.md). The product is a local, disposable code-review instrument for understanding unfamiliar code, especially one file or a set of files changed in a PR. Its central questions are:
+
+- Did the latest change make the code worse?
+- Does this code introduce unnecessary fallbacks, conditional paths, transformations, object packing, relay hops, or other avoidable complexity?
+- Where is the most important problem, how does data reach it, and what source evidence supports that conclusion?
+
+The code map is the primary working surface and the overview is the primary triage surface. Context/prop-relay analysis is the next-highest-value workflow. The remaining reports are supporting lenses and do not automatically merit equal migration investment.
+
+Product acceptance criterion:
+
+> Given an unfamiliar changed file, a user can identify the most consequential newly introduced complexity, understand its path through the code, and locate the responsible source within one minute.
+
+Deleting `src/html` is an implementation milestone, not the product outcome.
+
+### Explicit non-goals
+
+- durable entity identity across refreshes, analyses, commits, or machines;
+- mobile layouts or mobile-specific behavior and tests;
+- exact visual parity with the current implementation;
+- compact localhost payloads unless measurement shows client parsing, memory, or rendering harm;
+- preserving accidental JSON response compatibility without an identified external consumer;
+- migrating every existing report before its product value is established.
+
 ## Current state
 
 The app already serves a Vite-built Solid SPA for `/`, `/file`, and `/report`, but the conversion is incomplete:
 
-- `src/frontend/src/App.tsx` is a 2,032-line component that mixes routing, fetching, selectors, view models, SVG string generation, and DOM event delegation.
-- The frontend imports `STYLE`, `renderCodeMap`, graph renderers, and `markdownToHtml` from `src/html`.
+- The first structural split is complete: `App.tsx` is now a small routing/composition root, with `OverviewPage`, `FilePage`, `ReportPage`, `CodeMap`, shared layout/tabs, API fetch helpers, view configuration, overview selectors, and viewer data/renderers extracted into named modules.
+- The split exposes rather than resolves the client/server seam: `OverviewPage`, `CodeMap`, `viewer-data`, and `viewer-renderers` still import analyzer/domain types or analysis helpers directly, while `api.ts` still trusts generic unvalidated responses.
+- The frontend still imports `STYLE`, `renderCodeMap`, graph renderers, and `markdownToHtml` from `src/html`.
 - Code maps, network viewers, and markdown reports are inserted through `innerHTML`; Solid is acting as a shell around generated HTML.
 - `/api/report.json` returns an ad hoc projection but the frontend types it as a full `AnalysisReport`, so the transport contract is not explicit or type-safe.
-- Overview and fan-out selectors are duplicated between the frontend, reports, and the older server-rendering modules.
+- Overview and graph/report selectors are now easier to locate in `overview-model.ts`, `viewer-data.ts`, and `viewer-renderers.ts`, but remain duplicated across frontend, reports, and older server-rendering modules.
 - `src/server/render-pages.ts` and `src/server/network-viewers.ts` are not on the active page route and appear vestigial.
 - `src/html/page.ts` remains only for missing-build and error responses.
 - Most UI behavior is tested as generated string fragments under `test/html`, while Solid itself has only small state-helper coverage.
@@ -48,7 +74,7 @@ typed JSON contracts
 Solid resources/stores -> Solid components -> DOM/SVG
 ```
 
-Recommended source layout:
+Recommended end-state source layout (evolve the current split into this; do not recombine it first):
 
 ```text
 src/
@@ -78,7 +104,20 @@ src/
     styles/
 ```
 
+The current flat modules are valid migration seams, not throwaway work:
+
+- `Layout.tsx` maps to shell/tab components;
+- `overview-model.ts` should shrink toward browser-only filtering, sorting, pagination, and URL state as semantic aggregation moves to server projections;
+- `viewer-data.ts` should split between server-owned qualification/projection and browser-owned graph geometry;
+- `viewer-renderers.ts` is a temporary HTML-string boundary to replace with Solid graph/report components;
+- `api.ts` should become the schema-parsing `api-client.ts` rather than adding a second fetch layer;
+- `CodeMap.tsx`, `OverviewPage.tsx`, `FilePage.tsx`, and `ReportPage.tsx` are the existing route/component shells to migrate in place.
+
 Do not introduce SolidStart or server-side rendering for this migration. The existing Node HTTP server plus a client-rendered Vite/Solid app is the smallest conventional client/server architecture for this product.
+
+Treat review scope as a first-class input throughout this architecture. The supported scopes are one file, a supplied set of changed files, and the whole project. Scoped results should retain enough project-wide context to explain downstream reach.
+
+Baseline-versus-current comparison is a core product capability, not merely a CLI compatibility concern. When a baseline is supplied, the transport and UI must be able to distinguish new, worsened, resolved, and unchanged findings and summarize changes in fallbacks, hops, transformations, packing, and conditionals. Reuse the existing baseline/compare analysis where possible, but do not design snapshot-only DTOs that make comparison awkward later.
 
 ## API contracts
 
@@ -99,7 +138,7 @@ Treat the analyzer model, transport model, and browser state as three separate t
 
 1. **Analyzer domain types** remain internal. `AnalysisReport`, `Sink`, compiler objects, trace contexts, and analysis graphs may change as the analyzer evolves and are never API response types.
 2. **Transport primitives and page/report DTOs** are strict Zod schemas under `src/api`. Server projection builders deliberately convert analyzer data into these stable, serializable shapes.
-3. **Browser state types** describe selection, filters, sort choice, pagination, open popovers, URL state, and responsive layout. They are not serialized by the server.
+3. **Browser state types** describe selection, filters, sort choice, pagination, open popovers, URL state, and viewport-dependent presentation. They are not serialized by the server.
 
 The current `/api/report.json` violates this boundary: it sends an ad hoc subset of `AnalysisReport`, while the frontend asserts the response is the full inferred `AnalysisReport`. Replace that endpoint rather than formalizing its accidental shape.
 
@@ -111,7 +150,7 @@ Apply these rules to every transport schema:
 - use `null` for known absence and omission only when a field is inapplicable to a discriminated-union variant;
 - do not expose index signatures such as `[key: string]: unknown`;
 - call workspace-relative filenames `path` consistently; reserve `file` for analyzer-internal compatibility;
-- treat IDs as opaque and stable within one cache generation;
+- treat IDs as opaque and stable only within one cache generation; cross-generation identity is unnecessary;
 - include `apiVersion`, `analysisVersion`, `generation`, and `generatedAt` in a common success envelope;
 - prefer small duplicated nested references over normalized entity tables that force the client to perform joins;
 - return semantic data, never HTML, CSS classes, SVG strings, or prebuilt URLs.
@@ -161,7 +200,7 @@ The browser owns only interaction and presentation concerns:
 
 - current selection, filter, search, sort choice, pagination, and URL construction;
 - applying a chosen sort to server-provided sort keys;
-- focus, scroll, measurement, clipboard behavior, and responsive graph geometry;
+- focus, scroll, measurement, clipboard behavior, and viewport-dependent graph geometry;
 - rendering semantic DTOs as DOM and SVG.
 
 Create explicit pure builders such as `buildWorkspaceDto`, `buildFilePageDto`, `buildFindingsReportDto`, `buildFanInReportDto`, and `buildPropRelayReportDto` under `src/api/projections` or `src/reports/view-models`. The API adapters invoke these builders and validate the result. Shared report/markdown code may reuse genuinely presentation-independent selectors, but the frontend must not reconstruct these projections from sinks.
@@ -170,7 +209,7 @@ Create explicit pure builders such as `buildWorkspaceDto`, `buildFilePageDto`, `
 
 `GET /api/workspace`
 
-Returns the summary cards, concentration, file rows, per-file entry counts, graph-participation flags, and workspace metadata. Filtering, sorting, and pagination can remain client-side initially because the full report is already loaded and expected project sizes are local-tool scale. The response should contain prepared rows, not require the client to recreate analyzer/report selectors.
+Returns the summary cards, concentration, file rows, per-file entry counts, graph-participation flags, and workspace metadata. When comparison data exists, it also returns enough prepared data to distinguish new, worsened, resolved, and unchanged problems inside the active review scope. Filtering, sorting, and pagination can remain client-side initially because transport is normally localhost. Measure parsing, memory, and rendering against the performance budgets before introducing server pagination. The response should contain prepared rows, not require the client to recreate analyzer/report selectors.
 
 The principal response shape is:
 
@@ -229,7 +268,7 @@ Returns one finished file-page payload with:
 - the minimal metadata needed for debug payloads and cross-file links;
 - source snippets needed by visible path steps, or stable references that can be fetched lazily.
 
-This replaces the current three-request combination of file report, full report, and source. Validate that the resolved path remains under the analyzed root and return structured 400/404 errors.
+This replaces the current three-request combination of file report, full report, and source. An initially large payload is acceptable on localhost; do not fragment it preemptively. Split or lazily fetch heavy details only when representative 50K–200K LOC projects show measurable parsing, memory, or rendering harm. Validate that the resolved path remains under the analyzed root and return structured 400/404 errors.
 
 Use a discriminated inventory rather than parallel collections that the browser must filter and merge:
 
@@ -281,13 +320,15 @@ Return a discriminated union keyed by `view`. Network reports should return grap
 
 Define one concrete schema per view and combine them into an exhaustive union. Do not introduce a universal JSON-section or JSON-markup format. For example, `FanInReportDto` contains already-qualified fan-in items with sink references, roots, root count, predicate count, and maximum depth; `JunctionsReportDto` contains only helpers already classified and ordered as junctions.
 
-Each selectable report item includes a stable ID, label, picker label/metric, and semantic graph or row data. It does not include `active`, `href`, CSS classes, or SVG coordinates: those depend on browser state or responsive presentation.
+Do not assume every current view deserves an equally rich native implementation. Before implementing a report DTO/component, classify the view as **migrate**, **merge into the unified code-map explorer**, **defer**, or **delete**. Code-map findings and paths come first; context/prop-relay comes next. Existing Markdown may remain the temporary surface for lower-value views.
+
+Each selectable report item includes a generation-local ID, label, picker label/metric, and semantic graph or row data. It does not include `active`, `href`, CSS classes, or SVG coordinates: those depend on browser state or desktop presentation.
 
 ### Refresh endpoint
 
 `POST /api/refresh`
 
-Return JSON with a cache generation/version after rebuilding. The client invalidates active resources and shows progress/errors without a server redirect. Keep the legacy `/refresh` redirect temporarily for bookmarked/form compatibility, then remove it after the SPA no longer posts forms to it.
+Return JSON with a cache generation/version after rebuilding. Keep the prior analysis visible with a clear analyzing indicator, then replace it atomically on success. Preserve the current page and URL-backed file/report/selection when it still exists; otherwise fall back to the containing file or overview. Do not preserve popovers, disclosures, scroll position, or other incidental state. On failure, retain the prior result and show the exact failure and likely configuration action. Keep the legacy `/refresh` redirect temporarily for bookmarked/form compatibility, then remove it after the SPA no longer posts forms to it.
 
 ### Error shape
 
@@ -295,60 +336,70 @@ All JSON endpoints return a common `{ error: { code, message, details? } }` shap
 
 ## Migration phases
 
-### Phase 0: freeze behavior and expose the seam
+### Phase 0: freeze the valuable behavior and establish product baselines
 
-1. Record route/API behavior for `/`, `/file`, `/report`, markdown downloads, refresh, assets, and unknown SPA routes.
-2. Add browser/component tests for the current overview, report tabs, file tabs, code-map selection, URL restoration, filters/sorts, source peeks, graph selection, and refresh.
-3. Add a dependency rule: frontend code may import transport schemas/types from `src/api` and explicitly designated browser-state/URL modules, but not analyzer/domain types from `src/types`, server projection builders, `src/html`, or `src/server`.
-4. Mark `src/server/render-pages.ts` and `src/server/network-viewers.ts` as deletion candidates; verify no package export or external consumer relies on them.
+1. Record route/API behavior for `/`, `/file`, `/report`, Markdown downloads, refresh, assets, and unknown SPA routes.
+2. Add browser/component tests around the primary journey: scoped overview → file → ambient code map → selected finding/path → source peek → refresh.
+3. Cover URL restoration only for page, file/report, selection, filters, and sort. Do not preserve incidental disclosure, popover, scroll, or mobile state.
+4. Record representative analysis and interaction timings at approximately 10K, 50K, and the largest available 100K–200K LOC fixture/project.
+5. Inventory report views and classify each as migrate, merge, defer, or delete. Do not begin native implementations for unclassified reports.
+6. Add a dependency rule: frontend code may import transport schemas/types from `src/api` and explicitly designated browser-state/URL modules, but not analyzer/domain types from `src/types`, server projection builders, `src/html`, or `src/server`.
+7. Mark `src/server/render-pages.ts` and `src/server/network-viewers.ts` as deletion candidates; verify no package export or identified external consumer relies on them.
 
-Exit criterion: behavior is covered well enough that generated HTML can be replaced without visual/string snapshots being the only oracle.
+Exit criterion: the high-value review journey has behavioral coverage, report priorities are explicit, and performance baselines exist. Exhaustive parity with incidental behavior is not required.
 
-### Phase 1: establish typed server contracts
+### Phase 1: establish contracts for the first vertical slice
 
 1. Add Zod as a runtime dependency and define shared schemas under `src/api`. Export DTO types with `z.infer`; do not duplicate schema shapes as handwritten interfaces.
-2. Implement server-side projection builders for workspace rows, file inventory/details, and every report union variant; test them independently from HTTP routing.
-3. Split `src/server.ts` into cache, route, response, and API adapter modules while keeping `createServer` as the public facade.
-4. Add `/api/workspace`, `/api/file`, `/api/reports/:view`, and JSON refresh.
-5. Keep existing endpoints as compatibility adapters until the Solid pages have switched.
-6. Parse outgoing DTOs with their Zod schemas and parse incoming request parameters with dedicated request schemas.
-7. Add contract tests that assert successful schema parsing, rejected malformed payloads/parameters, status, content type, required fields, file scoping, invalid view handling, invalid paths, cache invalidation, and error shapes.
+2. Define review-scope and comparison primitives before page DTOs.
+3. Implement projection builders for the workspace overview, one finished file/code-map payload, refresh, and their comparison summaries. Do not block this phase on schemas for every report.
+4. Split `src/server.ts` into cache, route, response, and API adapter modules while keeping `createServer` as the public facade.
+5. Add `/api/workspace`, `/api/file`, and JSON refresh for the vertical slice. Add `/api/reports/:view` variants only as their views are accepted for migration.
+6. Keep existing endpoints as temporary compatibility adapters until their Solid consumers switch; do not promise compatibility for the accidental JSON shape.
+7. Parse outgoing DTOs with their Zod schemas and incoming request parameters with dedicated request schemas.
+8. Add contract tests for schemas, review scoping, comparison states, invalid paths, cache invalidation, and actionable error shapes.
 
-Exit criterion: the UI can be rebuilt using JSON alone; no new endpoint returns HTML fragments.
+Exit criterion: the primary overview → file → code-map journey can be rebuilt using JSON alone, including comparison data when a baseline is supplied.
 
-### Phase 2: split the Solid shell and data layer
+### Phase 2: ship the primary Solid vertical slice
 
-1. Break `App.tsx` into route components (`OverviewPage`, `ReportPage`, `FilePage`) and reusable shell/tab/popover components.
-2. Move URL parsing/building to shared pure modules. Preserve query parameters and back/forward behavior.
-3. Add an `api-client.ts` that accepts a Zod schema per request and returns only parsed data, plus resource factories, loading/empty/error components, and refresh invalidation.
-4. Move CSS from `src/html/styles.ts` and `src/html/code-map-styles.ts` into frontend CSS files imported by Vite. Remove runtime `<style>` injection.
-5. Keep navigation client-side; use normal anchors so open-in-new-tab and fallback semantics still work.
+1. Preserve the completed `App.tsx` split and migrate the extracted route/layout/code-map modules in place. Further subdivision should follow product responsibilities discovered during conversion, not recreate a directory diagram mechanically.
+2. Evolve the existing `api.ts` into the schema-parsing API client; add resource factories and working/empty/error states. During refresh, retain the old result until the new generation succeeds.
+3. Move URL parsing/building to pure modules and preserve only useful orientation state.
+4. Move CSS into frontend assets. Optimize for a desktop code-review workspace and remove mobile-specific layout code and tests.
+5. Port the overview with scoped and comparison-aware prioritization: new, worsened, resolved, unchanged, and the most consequential current problems.
+6. Port the code map incrementally:
+   - server projections for touched lines, spans, burden inputs, comments, grouping, severity, ordering, and snippets;
+   - native JSX source pane, gutter, hit spans, heat, and multi-line spans;
+   - unified typed inventory and selected detail;
+   - paths, defenses, representation changes, reach, same-code evidence, and concise copy payloads;
+   - cross-file source peeks without leaving the code map;
+   - keyed selection/filter/sort state instead of delegated DOM mutation.
+7. Keep imperative DOM only for focus, measurement, scroll, and clipboard fallbacks.
 
-Exit criterion: shell, overview, tabs, loading, errors, and refresh are ordinary Solid components and the frontend no longer imports HTML shell/style modules.
+Exit criterion: a user can complete the one-minute unfamiliar-file review journey on native Solid markup; `CodeMap` has no `innerHTML` or DOM-driven source of truth.
 
-### Phase 3: replace markdown-driven browser reports
+### Phase 3: migrate context/prop-relay and reusable graphs
 
-1. Build a `ReportView` dispatcher over the discriminated report DTO.
-2. Implement structured Solid components for findings, repeated forks, work packets, path families, defensive ledger, context relay, inline preview, and component references.
-3. Implement the five network views (fan-out, fan-in, boundary, junctions, prop relay) from graph DTOs using Solid `<svg>` elements.
-4. Retain the Markdown button and markdown endpoints, but remove `markdownToHtml` and all report `innerHTML` use from the SPA.
-5. Give duplicated concerns one explicit owner: server projections own semantic labels, stable IDs, qualification, and default ordering; browser modules own URL parameters, selected IDs, and user-selected sort application.
+1. Implement context/prop-relay DTOs and native Solid views, emphasizing values pulled from context and then unnecessarily passed as props.
+2. Extract reusable semantic graph DTOs and Solid SVG components only as this workflow or the code map requires them.
+3. Reuse graph components in file details and accepted report views.
+4. Keep layout deterministic, desktop-oriented, and fast; do not add responsive/mobile geometry that the product does not need.
 
-Exit criterion: `/report` and file report tabs render solely from structured JSON and JSX.
+Exit criterion: the second-highest-value workflow is fully explorable without leaving the code map or relying on generated HTML.
 
-### Phase 4: convert the code map
+### Phase 4: migrate, merge, or retire supporting reports
 
-Convert the code map incrementally because it contains the most behavior and carries the highest regression risk.
+For each report classified in Phase 0:
 
-1. **Server projection model:** move `touchedLines`, span slicing, burden hue inputs, comment classification, path grouping, severity, inventory ordering keys, and snippet selection into pure server-side DTO builders. They return schema-validated semantic data, never escaped HTML. Keep only responsive geometry and DOM-specific presentation calculations in the frontend.
-2. **Source pane:** implement line, gutter, hit-span, heat, multi-line span, and comment components in JSX.
-3. **Inventory:** implement finding/fork/boundary/junction/relay/unknown/fan-out rows with Solid signals for filter, sort, and selection.
-4. **Details:** port finding details, path tables, defenses, representation/reach/same-code sections, debug payload, and copy behavior into components.
-5. **Cross-file source peeks:** return snippet data from the server and render accessible popovers in Solid; remove cloned portal markup and manual string substitution.
-6. **Selection and URL state:** replace delegated DOM querying/class mutation with keyed state (`selectedFindingIds`, `sort`, `filter`, `line`) and derived `classList`/`Show` rendering. Keep imperative DOM only for focus, measurement, scroll, and clipboard fallbacks.
-7. **Graphs:** reuse the graph DTO/components from Phase 3 inside file inventory/detail views.
+1. **Migrate:** define its concrete schema and structured Solid component.
+2. **Merge:** surface its semantic entries and detail inside the unified code-map explorer rather than preserving a separate report page.
+3. **Defer:** retain its direct Markdown download and current compatibility view temporarily.
+4. **Delete:** remove the browser view or duplicate projection once verified unused.
 
-Exit criterion: `CodeMap` contains no `innerHTML`, generated markup, DOM-driven source of truth, or imports from `src/html`.
+Retain Markdown as a first-class human/agent handoff, but make it concise and evidence-heavy. Remove generic suggested fixes and repetitive prose. JSON remains the browser/automation transport and need not preserve accidental legacy structure.
+
+Exit criterion: every report has an intentional product disposition; no report remains merely because parity was interpreted as permanent preservation.
 
 ### Phase 5: delete compatibility HTML code
 
@@ -356,7 +407,7 @@ Use the following disposition for every current `src/html` module:
 
 | Current module | Destination/disposition |
 |---|---|
-| `code-map-source-lines.ts` | Semantic calculations to server DTO projections; responsive/presentation calculations and JSX to source-line components |
+| `code-map-source-lines.ts` | Semantic calculations to server DTO projections; viewport/presentation calculations and JSX to source-line components |
 | `code-map-paths.ts` | Grouping, labels, and snippets to server DTO projections; markup to finding-detail components |
 | `code-map-finding-panel.ts` | Solid finding-detail components |
 | `code-map-entry-panels.ts` | Server inventory/severity projections plus Solid inventory/detail components |
@@ -380,26 +431,27 @@ Exit criterion: `src/html` no longer exists, server compilation excludes no brow
 ## Testing strategy
 
 - **Pure unit tests:** Zod schemas and error paths, span ranges, comment classification, path grouping, view-model selectors, graph layout, and URL state.
-- **API contract tests:** workspace/file/report payloads, invalid inputs, caching, refresh, source-root containment, markdown compatibility.
-- **Solid component tests:** report tables, inventory/detail switching, loading/error/empty states, graph nodes/links, accessible popovers.
-- **Browser tests:** deep links, history navigation, query state, code-map clicks, scrolling, copy, source peek placement, refresh, desktop/mobile layout.
-- **Visual regression:** overview, representative markdown-replacement reports, dense code map, multi-line finding, and each graph family.
+- **API contract tests:** review scope, comparison states, workspace/file payloads, accepted report payloads, invalid inputs, caching, refresh, source-root containment, and Markdown availability.
+- **Solid component tests:** comparison-aware overview, inventory/detail switching, working/error/empty states, graph nodes/links, and source peeks.
+- **Browser tests:** the primary one-minute review journey, history/query orientation, code-map clicks, scrolling, copy, source peek placement, atomic refresh, and desktop layout.
+- **Visual regression:** scoped/comparison overview, dense code map, multi-line finding, context/prop-relay, and graph families actually accepted for migration.
+- **Performance checks:** representative 10K and 50K LOC projects in routine development; periodic 100K–200K LOC verification. Target 1–5 seconds for scoped analysis, under 10 seconds for a normal whole-project analysis, and immediate loaded interactions.
 - **Build gates per phase:** `pnpm lint`, `pnpm typecheck`, focused tests, full `pnpm test`, and `pnpm build`.
 
 Prefer semantic assertions over snapshots of whole HTML strings. Keep a small set of visual snapshots for layout-sensitive SVG and code-map behavior.
 
 ## Sequencing and pull requests
 
-Keep each change deployable and avoid a flag day:
+Keep each change deployable and validate the architecture through product-complete vertical slices:
 
-1. PR 1: behavior coverage, DTO definitions, and API contracts.
-2. PR 2: server module split and new JSON endpoints.
-3. PR 3: Solid shell/overview/data layer and CSS ownership.
-4. PR 4: structured report components.
-5. PR 5: Solid network graph components.
-6. PR 6: code-map source pane and inventory.
-7. PR 7: code-map details, peeks, and interaction cleanup.
-8. PR 8: delete `src/html`, dead server renderers, and compatibility code; update docs.
+1. PR 1: primary-journey coverage, performance baseline, report disposition, review-scope/comparison primitives.
+2. PR 2: server split plus workspace/file/refresh contracts for the first vertical slice.
+3. PR 3: Solid shell, scoped/comparison overview, data layer, CSS ownership, and atomic refresh.
+4. PR 4: code-map source pane, ambient annotations, and unified inventory.
+5. PR 5: code-map details, paths, peeks, selection state, and interaction cleanup.
+6. PR 6: context/prop-relay workflow and only the reusable graph primitives it requires.
+7. Later PRs: accepted supporting reports, ordered by product value; merge or retire the rest.
+8. Final cleanup PR: delete `src/html`, dead server renderers, and obsolete compatibility code; update docs.
 
 Temporary adapters are acceptable between PRs, but each one should be named `legacy` or carry a removal issue/phase so the intermediate architecture does not become permanent.
 
@@ -411,9 +463,11 @@ Temporary adapters are acceptable between PRs, but each one should be named `leg
 - **Do not replace HTML strings with JSON fields containing HTML.** That preserves the same architecture under a different content type.
 - **Do not keep markdown as the browser rendering protocol.** Markdown downloads are valuable; browser pages need structured data for interaction and type safety.
 - **Keep graph layout deterministic.** Extract current layout math before porting SVG markup so visual changes are isolated.
-- **Treat code-map state as the hard part.** Selection, multi-hit lines, filters, sort, path overlays, peeks, and scroll restoration need parity tests before conversion.
-- **Watch payload size.** If workspace/file DTOs become large, add conditional fields or per-panel lazy endpoints based on measurements, not preemptive fragmentation.
-- **Preserve CLI behavior.** `src/reports` markdown and JSON output are separate product surfaces and should not become dependent on Solid or browser DTOs.
+- **Treat code-map state as the hard part.** Selection, multi-hit lines, filters, sort, path overlays, and peeks need high-value behavior tests before conversion. Scroll position and incidental disclosure state do not need restoration.
+- **Make comparison a first-class product path.** Snapshot-only DTOs can render today's page but cannot answer whether a PR made the code worse.
+- **Watch client cost, not byte count in isolation.** If workspace/file DTOs become large, add conditional fields or per-panel lazy endpoints only after representative measurements show parsing, memory, or rendering harm.
+- **Preserve valuable CLI behavior.** Markdown is a human/agent handoff and should remain concise and evidence-heavy. JSON supports the browser and automation, but accidental legacy shapes are not compatibility promises without an identified consumer.
+- **Do not confuse parity with value.** Reproducing every low-use report or incidental interaction can delay the code map while still satisfying architectural checklists.
 - **Worktree caution.** The repository currently contains many uncommitted changes, including the server, frontend, and HTML modules. Implement the phases on top of a known checkpoint and avoid mixing this migration with unrelated analyzer edits.
 
 ## Definition of done
@@ -422,7 +476,13 @@ Temporary adapters are acceptable between PRs, but each one should be named `leg
 - No frontend component uses `innerHTML` or imports an HTML-string renderer.
 - The Node server returns static assets, typed JSON, markdown downloads, health, and structured errors; it does not assemble application pages.
 - Every browser-visible element and SVG is rendered by Solid components.
-- Refresh, deep links, query state, browser history, file scoping, source peeks, code-map interactions, and report downloads retain behavior.
+- The scoped/comparison overview answers whether the analyzed change introduced or worsened unnecessary complexity.
+- The code map provides ambient prioritization and lets a user understand the path and source evidence without leaving the primary surface.
+- Context/prop-relay analysis is fully explorable, especially context-derived values unnecessarily passed through props.
+- Refresh preserves useful page/file/selection orientation when valid, keeps old results visible while working, and fails with actionable diagnostics.
+- File scoping, source peeks, code-map interactions, and accepted Markdown report downloads retain valuable behavior.
 - API DTOs are defined by Zod schemas, parsed on both server and client, tested, and smaller/stabler than `AnalysisReport`.
-- `App.tsx` is a small composition root rather than the owner of the entire UI.
+- `App.tsx` remains a small composition root, and the extracted route/component modules have clear product responsibilities rather than becoming new monoliths.
+- Mobile-specific implementation and test baggage is removed.
+- A scoped/unfamiliar-file review can identify, explain, and locate the most consequential problem within one minute.
 - Lint, typecheck, unit/API/component/browser tests, and production build pass.
