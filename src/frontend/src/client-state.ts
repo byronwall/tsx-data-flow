@@ -1,9 +1,5 @@
 export const OVERVIEW_COLUMNS_KEY = "tsxdf.overviewHiddenCols";
 
-export function uniqueIds(ids: Iterable<string>): string[] {
-  return [...new Set([...ids].map((id) => id.trim()).filter(Boolean))];
-}
-
 export function readHiddenColumns(
   storage: Pick<Storage, "getItem"> | null,
   validColumns: readonly string[],

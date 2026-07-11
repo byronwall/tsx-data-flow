@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`native reports > keeps semantic graph markup stable 1`] = `"<svg class="semantic-graph" role="img" viewBox="0 0 840 140" aria-label="fan-in graph for Child / account"><path d="M230 70 C275 70,555 70,600 70"></path><g class="graph-node node-source"><rect width="210" height="32" rx="7" x="20" y="54"></rect><text x="30" y="74">props.account</text></g><a href="/file?path=src%2FChild.tsx#L8"><g class="graph-node node-sink"><rect width="210" height="32" rx="7" x="600" y="54"></rect><text x="610" y="74">Child / account</text></g></a></svg>"`;

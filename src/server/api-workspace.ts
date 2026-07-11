@@ -5,7 +5,7 @@ import type { AnalysisCache } from "./cache";
 import { sendJson } from "./responses";
 
 export function serveWorkspace(cache: AnalysisCache, res: ServerResponse) {
-  const report = cache.ensureBuilt();
+  const report = cache.reviewReport();
   return sendJson(res, 200, workspaceResponseSchema.parse({
     apiVersion: 1,
     analysisVersion: report.analysisVersion,

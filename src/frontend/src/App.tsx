@@ -1,17 +1,12 @@
 import { Show, createSignal, onCleanup, onMount } from "solid-js";
 import type { JSX } from "solid-js";
 import { render } from "solid-js/web";
-import { STYLE } from "../../html/styles";
 import { FilePage } from "./FilePage";
 import { OverviewPage } from "./OverviewPage";
-import type { Navigate } from "./OverviewPage";
+import { currentLocation, type Navigate } from "./router";
 import { ReportPage } from "./ReportPage";
 import { installPopoverController } from "./popover-controller";
 import "./style.css";
-
-const style = document.createElement("style");
-style.textContent = STYLE;
-document.head.appendChild(style);
 
 function App() {
   const [location, setLocation] = createSignal(currentLocation());
@@ -72,17 +67,13 @@ function Router(props: { location: URL; navigate: Navigate }) {
             <OverviewPage location={props.location} navigate={props.navigate} />
           }
         >
-          <ReportPage location={props.location} />
+          <ReportPage location={props.location} navigate={props.navigate} />
         </Show>
       }
     >
-      <FilePage location={props.location} />
+      <FilePage location={props.location} navigate={props.navigate} />
     </Show>
   );
-}
-
-function currentLocation(): URL {
-  return new URL(window.location.href);
 }
 
 const root = document.getElementById("root");

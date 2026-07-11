@@ -83,4 +83,15 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
+  {
+    files: ["src/frontend/src/**/*.{ts,tsx}"],
+    rules: {
+      "solid/no-innerhtml": "error",
+      "no-restricted-imports": ["error", {
+        patterns: [
+          { group: ["../../types", "../../types/*", "../../analysis/*", "../../server/*", "../../html/*"], message: "Frontend code may consume validated transport DTOs, not analyzer, server, or HTML modules." },
+        ],
+      }],
+    },
+  },
 );

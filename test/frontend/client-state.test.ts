@@ -2,15 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   OVERVIEW_COLUMNS_KEY,
   readHiddenColumns,
-  uniqueIds,
   writeHiddenColumns,
 } from "../../src/frontend/src/client-state";
 
 describe("Solid client state helpers", () => {
-  it("deduplicates finding ids while preserving their order", () => {
-    expect(uniqueIds(["F2", "", " F1 ", "F2"])).toEqual(["F2", "F1"]);
-  });
-
   it("reads only known hidden columns", () => {
     const storage = {
       getItem: () => JSON.stringify({ fanout: true, unknown: false, old: true }),
@@ -34,7 +29,7 @@ describe("Solid client state helpers", () => {
     ).toBe(0);
   });
 
-  it("writes the compact legacy-compatible hidden-column shape", () => {
+  it("writes the compact hidden-column shape", () => {
     let savedKey = "";
     let savedValue = "";
     writeHiddenColumns(

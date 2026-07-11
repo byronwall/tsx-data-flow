@@ -9,7 +9,21 @@ export function compareBaseline(rankings: { all: Sink[] }, baselinePath: string)
     currentWorst,
     baselineWorst,
     regressed: currentWorst > baselineWorst,
+    metricDeltas: compareMetrics(rankings.all, baseline.sinks ?? []),
     ...diffBaselineSinks(rankings.all, baseline.sinks ?? []),
+  };
+}
+
+function compareMetrics(current: Sink[], baseline: Sink[]) {
+  const total = (sinks: Sink[], key: keyof Sink["metrics"]) =>
+    sinks.reduce((sum, sink) => sum + Number(sink.metrics?.[key] ?? 0), 0);
+  const delta = (key: keyof Sink["metrics"]) => total(current, key) - total(baseline, key);
+  return {
+    fallbacks: delta("actionableDefensiveOperationCount"),
+    hops: delta("helperHops"),
+    transformations: delta("representationChurn"),
+    packing: delta("suspiciousPackCount"),
+    conditionals: delta("controlDependencyCount"),
   };
 }
 

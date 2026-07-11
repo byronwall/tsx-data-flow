@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   buildGoldenReport,
-  fetchGoldenApiReportJson,
   renderGoldenMarkdownByView,
 } from "../helpers/golden";
 
@@ -10,9 +9,5 @@ describe("golden output baseline", () => {
     const { args, report } = await buildGoldenReport();
 
     expect(renderGoldenMarkdownByView(report, args)).toMatchSnapshot();
-  });
-
-  it("matches the /api/report.json payload for the example fixture", async () => {
-    expect(await fetchGoldenApiReportJson()).toMatchSnapshot();
   });
 });

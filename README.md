@@ -259,23 +259,25 @@ server source.
   ownership, suggested first cut), each linking into its file. Query params are
   shareable: `q=<text>`, `filter=all|findings|unknown|participating`, and
   `sort=burden|findings|depth|file`.
-- **Report assets** — every generated Markdown report is linked from the
-  overview as both `/report?view=<name>` for an HTML rendering and
-  `/api/report.<name>.md` for the raw Markdown projection.
-- **File view** (`/file?path=<rel>`) — every report view rendered as HTML in
-  collapsible sections, plus an **annotated code map**: the file's source,
+- **Report assets** — accepted reports render as native Solid views at
+  `/report?view=<name>` from `/api/reports/<name>` DTOs. Every view also retains
+  `/api/report.<name>.md` as a raw Markdown handoff.
+- **File view** (`/file?path=<rel>`) — a validated `/api/file?path=<rel>` payload
+  drives the **annotated code map**: the file's source,
   line-numbered, with a colored gutter marker on each line that renders a ranked
   finding (color by queue: quick-win / central-leverage / investigation). Click a
   marked line to inspect its finding — sink, render context, burden, confidence,
   why it was selected, and its defenses. Lines on a representative path are
   faintly highlighted so the flow through the file is visible.
-- `GET /api/report.json?path=<rel>` returns the raw report payload, and the
-  **↻ Re-analyze** button rebuilds after source edits.
+- `GET /api/workspace`, `GET /api/file?path=<rel>`, and
+  `GET /api/reports/<name>` return versioned, Zod-validated DTOs. `POST
+  /api/refresh` rebuilds after source edits while the prior result remains visible.
 
 Accepts the same analyzer options as `tsx-dataflow` (`--root`, `--source`,
 `--tsconfig`, `--scope`, `--max-items`, `--no-trace-helpers`, …) plus `--port`,
 `--host`, and `--open`. The server exposes analyzer JSON, Markdown, and source
-APIs to a built Solid SPA. Production use requires the frontend assets produced
+APIs to a built Solid SPA. Analyzer-domain objects are not browser contracts.
+Production use requires the frontend assets produced
 by `pnpm build:frontend`; `pnpm dev` runs them through Vite with HMR while
 proxying analyzer requests to the server.
 

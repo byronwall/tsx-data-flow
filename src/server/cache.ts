@@ -6,6 +6,7 @@ import type { AnalysisReport, AnalyzerArgs } from "../types";
 export function createAnalysisCache(args: AnalyzerArgs) {
   let analyzer: ReturnType<typeof createAnalyzer> | null = null;
   let full: AnalysisReport | null = null;
+  let review: AnalysisReport | null = null;
   let generation = 0;
   const byFile = new Map<string, AnalysisReport>();
   const source = new Map<string, string>();
@@ -14,11 +15,13 @@ export function createAnalysisCache(args: AnalyzerArgs) {
     if (!analyzer) {
       analyzer = createAnalyzer({ ...args, file: [], scope: null });
       full = analyzer.report();
+      review = args.file.length || args.scope ? analyzer.report({ file: args.file, scope: args.scope }) : full;
       generation += 1;
     }
     if (!full) throw new Error("Analyzer report was not initialized");
     return full;
   };
+  const reviewReport = () => { ensureBuilt(); if (!review) throw new Error("Review report was not initialized"); return review; };
   const reportForFile = (relPath: string) => {
     const cached = byFile.get(relPath);
     if (cached) return cached;
@@ -46,11 +49,12 @@ export function createAnalysisCache(args: AnalyzerArgs) {
   const refresh = () => {
     analyzer = null;
     full = null;
+    review = null;
     byFile.clear();
     source.clear();
     return ensureBuilt();
   };
-  return { ensureBuilt, reportForFile, sourceFor, refresh, generation: () => generation };
+  return { ensureBuilt, reviewReport, reportForFile, sourceFor, refresh, generation: () => generation };
 }
 
 export type AnalysisCache = ReturnType<typeof createAnalysisCache>;

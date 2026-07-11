@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { apiErrorSchema, refreshResponseSchema, workspaceResponseSchema } from "../../api/contracts";
+import { apiErrorSchema, filePageResponseSchema, refreshResponseSchema, reportResponseSchema, workspaceResponseSchema } from "../../api/contracts";
 
 export class ApiClientError extends Error {
   constructor(public readonly code: string, message: string, public readonly status: number) { super(message); }
@@ -20,7 +20,10 @@ async function fetchParsed<T extends z.ZodType>(url: string, schema: T, init?: R
 }
 
 export const fetchWorkspace = () => fetchParsed("/api/workspace", workspaceResponseSchema);
+export const fetchFilePage = (path: string) => fetchParsed(`/api/file?path=${encodeURIComponent(path)}`, filePageResponseSchema);
+export const fetchReport = (view: string, path?: string) => fetchParsed(`/api/reports/${encodeURIComponent(view)}${path ? `?path=${encodeURIComponent(path)}` : ""}`, reportResponseSchema);
 export const refreshWorkspace = () => fetchParsed("/api/refresh", refreshResponseSchema, { method: "POST" });
+export function refreshFailureMessage(error: unknown) { return `${error instanceof Error ? error.message : String(error)} Check the configured source and tsconfig paths, then try again.`; }
 
 export async function fetchText(url: string): Promise<string> {
   const response = await fetch(url);

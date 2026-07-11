@@ -1,16 +1,13 @@
-/* eslint-disable solid/no-innerhtml -- Markdown renderer escapes inserted content. */
-import type { AnalysisReport } from "../../types";
-import { Show, createMemo, createResource } from "solid-js";
-import { markdownToHtml } from "../../html/markdown-to-html";
-import { fetchJson, fetchText } from "./api";
+import { Show, createMemo, createResource, createSignal } from "solid-js";
+import { fetchFilePage, fetchReport, refreshFailureMessage, refreshWorkspace } from "./api";
 import { CodeMap } from "./CodeMap";
 import { FileTabs, Shell } from "./Layout";
 import { FILE_VIEWS, labelFor } from "./view-config";
 import type { FileView } from "./view-config";
+import { NativeReport } from "./ReportPage";
+import type { Navigate } from "./router";
 
-type Report = AnalysisReport;
-
-export function FilePage(props: { location: URL }) {
+export function FilePage(props: { location: URL; navigate: Navigate }) {
   const relPath = createMemo(
     () => props.location.searchParams.get("path") ?? "",
   );
@@ -20,58 +17,57 @@ export function FilePage(props: { location: URL }) {
       ? (view as FileView)
       : null;
   });
-  const [fileData] = createResource(
+  const [fileData, { refetch: refetchFile }] = createResource(
     () => relPath(),
     async (path) => {
       if (!path) return null;
-      const [report, fullReport, source] = await Promise.all([
-        fetchJson<Report>(`/api/report.json?path=${encodeURIComponent(path)}`),
-        fetchJson<Report>("/api/report.json"),
-        fetchText(`/api/source?path=${encodeURIComponent(path)}`),
-      ]);
-      return { report, fullReport, source };
+      return fetchFilePage(path);
     },
   );
-  const [markdown] = createResource(
+  const [refreshing, setRefreshing] = createSignal(false);
+  const [refreshError, setRefreshError] = createSignal("");
+  const [structuredReport, { refetch: refetchReport }] = createResource(
     () => ({ path: relPath(), view: activeView() }),
     async ({ path, view }) => {
-      if (!path || !view) return "";
-      return fetchText(
-        `/api/report.${encodeURIComponent(view)}.md?path=${encodeURIComponent(path)}`,
-      );
+      if (!path || !view) return null;
+      return fetchReport(view, path);
     },
   );
+  const refresh = async () => {
+    setRefreshing(true); setRefreshError("");
+    try { await refreshWorkspace(); await Promise.all([refetchFile(), refetchReport()]); }
+    catch (error) { setRefreshError(refreshFailureMessage(error)); }
+    finally { setRefreshing(false); }
+  };
 
   return (
     <Shell
       context={relPath()}
-      beforeContext={
+      beforeContext={() =>
         <a class="topbar-back" href="/">
           ← Overview
         </a>
       }
-      actions={
+      actions={() =>
         <>
           <a
             class="btn"
-            href={`/api/report.json?path=${encodeURIComponent(relPath())}`}
+            href={`/api/file?path=${encodeURIComponent(relPath())}`}
           >
             JSON
           </a>
-          <form action="/refresh" method="post">
-            <input
-              type="hidden"
-              name="from"
-              value={`/file?path=${encodeURIComponent(relPath())}`}
-            />
-            <button type="submit">↻ Re-analyze</button>
-          </form>
+          <button type="button" disabled={refreshing()} onClick={() => void refresh()}>{refreshing() ? "Analyzing…" : "↻ Re-analyze"}</button>
         </>
       }
-      tabs={<FileTabs path={relPath()} active={activeView()} />}
+      tabs={() => <FileTabs path={relPath()} active={activeView()} />}
       wide
     >
+      <Show when={refreshError()}><p class="error" role="alert">{refreshError()}</p></Show>
       <Show when={relPath()} fallback={<p class="meta">Missing ?path.</p>}>
+        <Show
+          when={!fileData.error}
+          fallback={<p class="error" role="alert">{fileData.error?.message ?? "Unable to load file."}</p>}
+        >
         <Show
           when={!fileData.loading}
           fallback={<p class="meta">Loading file...</p>}
@@ -82,28 +78,28 @@ export function FilePage(props: { location: URL }) {
               <>
                 <CodeMap
                   location={props.location}
-                  relPath={relPath()}
-                  source={fileData()?.source ?? ""}
-                  report={fileData()?.report}
-                  fullReport={fileData()?.fullReport}
+                  data={fileData()!.data}
+                  navigate={props.navigate}
+                  requestedId={props.location.searchParams.get("finding")}
                 />
               </>
             }
           >
             <h2>{labelFor(activeView())}</h2>
             <Show
-              when={!markdown.loading}
+              when={!structuredReport.loading}
               fallback={<p class="meta">Loading report...</p>}
             >
-              <div class="body" innerHTML={markdownToHtml(markdown() ?? "")} />
+              <Show when={structuredReport()?.data} fallback={<p class="meta">No report data.</p>}>
+                {(data) => <NativeReport data={data()} location={props.location} navigate={props.navigate} />}
+              </Show>
             </Show>
           </Show>
+        </Show>
         </Show>
       </Show>
     </Shell>
   );
 }
 
-// Code-map rendering and browser interactions live in the focused CodeMap component.
-// Network viewer serialization lives in viewer-renderers.ts.
-
+// Code-map and report rendering are native Solid components over validated DTOs.

@@ -354,9 +354,7 @@ export function reviewerSummaryFor(sink: Sink, group: PackGroup | null) {
       : "This sink has more data-flow plumbing than nearby JSX should need.";
   const primary = primaryAdviceShape(sink, shapes);
   const fix = SHAPE_HEADLINE_FIX[primary];
-  let fixSentence = fix
-    ? `A behavior-preserving fix is to ${fix}.`
-    : "A behavior-preserving fix is to compute a named value before JSX.";
+  let fixSentence = fix ? `A behavior-preserving fix is to ${fix}.` : null;
   if (group?.verdict === "normalization-boundary") {
     fixSentence =
       "A behavior-preserving fix is to keep the parser/model boundary and make JSX read its typed fields.";
@@ -364,7 +362,7 @@ export function reviewerSummaryFor(sink: Sink, group: PackGroup | null) {
     fixSentence =
       "A behavior-preserving fix is to split or relocate the pack before adding any broader render object.";
   }
-  const sentences = [mixed, fixSentence];
+  const sentences = [mixed, fixSentence].filter((sentence): sentence is string => Boolean(sentence));
   if (group) {
     if (packRiskForVerdict(group.verdict) > 0) {
       sentences.push(

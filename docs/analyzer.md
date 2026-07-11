@@ -78,9 +78,10 @@ self-contained HTML UI. The overview at `/` is the project command center:
 - Code Map inventory sorting uses `lsort=score|type|line|sources`. Source Peek
   overlays render as viewport-clamped body portals so path tables cannot clip
   them.
-- `/report?view=<name>` renders any concrete report view as HTML.
+- `/report?view=<name>` renders accepted report views as native Solid markup.
 - `/api/report.<name>.md` returns the raw Markdown projection for that view, and
-  `/api/report.json?path=<rel>` returns the structured payload for scripts.
+  `/api/workspace`, `/api/file?path=<rel>`, and `/api/reports/<name>` return
+  versioned structured payloads for the SPA and scripts.
 
 ## High-Level Pipeline
 

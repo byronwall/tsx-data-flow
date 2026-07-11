@@ -1,13 +1,14 @@
 import { For, Show, onCleanup, onMount } from "solid-js";
 import type { JSX } from "solid-js";
-import { FILE_VIEWS, REPORT_VIEWS, labelFor } from "./view-config";
-import type { FileView, ReportView } from "./view-config";
+import { REPORT_VIEWS, type ReportView } from "../../api/report-views";
+import { FILE_VIEWS, labelFor } from "./view-config";
+import type { FileView } from "./view-config";
 
 export function Shell(props: {
   context?: string;
-  beforeContext?: JSX.Element;
-  actions?: JSX.Element;
-  tabs?: JSX.Element;
+  beforeContext?: () => JSX.Element;
+  actions?: () => JSX.Element;
+  tabs?: () => JSX.Element;
   wide?: boolean;
   children: JSX.Element;
 }) {
@@ -42,7 +43,7 @@ export function Shell(props: {
             <a class="brand" href="/">
               tsx-dataflow
             </a>
-            {props.beforeContext}
+            {props.beforeContext?.()}
             <Show when={props.context}>
               <span class="topbar-context" title={props.context}>
                 {props.context}
@@ -50,10 +51,10 @@ export function Shell(props: {
             </Show>
           </div>
           <Show when={props.actions}>
-            <div class="topbar-actions">{props.actions}</div>
+            <div class="topbar-actions">{props.actions?.()}</div>
           </Show>
         </div>
-        {props.tabs}
+        {props.tabs?.()}
       </header>
       <div class="layout">
         <main classList={{ wide: props.wide }}>{props.children}</main>
@@ -108,5 +109,3 @@ export function FileTabs(props: { path: string; active: FileView | null }) {
     </nav>
   );
 }
-
-

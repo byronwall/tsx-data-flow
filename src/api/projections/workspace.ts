@@ -9,6 +9,7 @@ export function buildWorkspaceDto(report: AnalysisReport): Workspace {
   for (const node of report.graph.nodes) if (node.file) participating.add(node.file);
   for (const edge of report.graph.edges) if (edge.location?.file) participating.add(edge.location.file);
   const groups = new Map<string, Sink[]>();
+  const baseline = report.baseline;
   for (const sink of report.rankings.all) {
     const entries = groups.get(sink.file) ?? [];
     entries.push(sink);
@@ -38,6 +39,7 @@ export function buildWorkspaceDto(report: AnalysisReport): Workspace {
       },
       classification: { primaryShape, ownership: primaryOwnership, firstCut },
       flags: { graphParticipant: participating.has(filePath) },
+      comparisonState: comparisonState(filePath, worst?.label ?? "", baseline),
       worstFinding: worst ? {
         id: worst.id,
         label: worst.label,
@@ -55,6 +57,7 @@ export function buildWorkspaceDto(report: AnalysisReport): Workspace {
       typescriptVersion: report.meta.typescript ?? null,
       configPaths: report.meta.tsconfigs ?? (report.meta.tsconfig ? [report.meta.tsconfig] : []),
       warnings: report.meta.tsconfigWarnings ?? [],
+      reviewScope: report.meta.file?.length ? { kind: "file-set", paths: report.meta.file } : report.meta.scope ? { kind: "scope", query: report.meta.scope } : { kind: "project" },
     },
     summary: report.summary,
     concentration: {
@@ -62,6 +65,15 @@ export function buildWorkspaceDto(report: AnalysisReport): Workspace {
       top5: report.concentration?.top5 ?? 0,
       hot4Plus: report.concentration?.hot4Plus ?? 0,
     },
+    comparison: baseline ? {
+      currentWorst: baseline.currentWorst,
+      baselineWorst: baseline.baselineWorst,
+      worsened: baseline.regressedSinks.length,
+      improved: baseline.improved.length,
+      resolved: baseline.removed.map((entry) => entry.label),
+      newTop: baseline.newTop ? { label: baseline.newTop.label, path: baseline.newTop.file, line: baseline.newTop.line } : null,
+      metricDeltas: baseline.metricDeltas,
+    } : null,
     files,
   });
 }
@@ -77,4 +89,10 @@ function ownershipOf(sink: Sink) {
   if (sink.roots.some((root) => /^use[A-Z]/.test(root))) return "feature hook/context";
   if (sink.rootInfos.some((source: RootInfo) => source.kind === "prop-read")) return "props";
   return "local";
+}
+function comparisonState(path: string, label: string, baseline: AnalysisReport["baseline"]): Workspace["files"][number]["comparisonState"] {
+  if (!baseline) return null;
+  if (baseline.newTop?.file === path && baseline.newTop.label === label) return "new";
+  if (baseline.regressedSinks.some((entry) => entry.file === path && entry.label === label)) return "worsened";
+  return "unchanged";
 }

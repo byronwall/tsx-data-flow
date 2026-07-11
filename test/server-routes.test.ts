@@ -1,13 +1,12 @@
-import type { Sink } from "../src/types";
 import { describe, expect, it } from "vitest";
 import { REPORT_VIEWS } from "../src/cli/args";
+import { REPORT_VIEWS as API_REPORT_VIEWS } from "../src/api/report-views";
 import { createAnalyzer } from "../src/core";
-import { renderCodeMap } from "../src/html/code-map";
-import { peekReferences } from "../src/html/source-peek";
 import { createServer } from "../src/server";
 import { createServerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
 import { call } from "./helpers/http";
 import { FIXTURE } from "./helpers/server-test-context";
+import { filePageResponseSchema, refreshResponseSchema, reportResponseSchema, workspaceResponseSchema } from "../src/api/contracts";
 
 function expectSpaShell(response) {
   expect(response.status).toBe(200);
@@ -30,20 +29,23 @@ describe("createServer", () => {
     );
     expectSpaShell(file);
 
-    const json = await call(
-      handler,
-      "/api/report.json?path=" + encodeURIComponent("src/Card.tsx"),
-    );
-    expect(json.status).toBe(200);
-    const payload = JSON.parse(json.body);
-    expect(payload.sinks.every((s) => s.file === "src/Card.tsx")).toBe(true);
+    const workspace = workspaceResponseSchema.parse(JSON.parse((await call(handler, "/api/workspace")).body));
+    expect(workspace.data.files.some((row) => row.path === "src/Card.tsx")).toBe(true);
+    const filePayload = filePageResponseSchema.parse(JSON.parse((await call(handler, "/api/file?path=src%2FCard.tsx")).body));
+    expect(filePayload.data.file.lines.some((line) => line.text.includes("export function Card"))).toBe(true);
+    expect(filePayload.data.inventory.some((entry) => entry.kind === "finding")).toBe(true);
+    const reportPayload = reportResponseSchema.parse(JSON.parse((await call(handler, "/api/reports/findings")).body));
+    expect(reportPayload.data.view).toBe("findings");
+    const refreshed = refreshResponseSchema.parse(JSON.parse((await call(handler, "/api/refresh", "POST")).body));
+    expect(refreshed.generation).toBeGreaterThan(workspace.generation);
+  });
 
-    const source = await call(
-      handler,
-      "/api/source?path=" + encodeURIComponent("src/Card.tsx"),
-    );
-    expect(source.status).toBe(200);
-    expect(source.body).toContain("export function Card");
+  it("rejects source traversal with a structured error", async () => {
+    const project = await createFixtureProject(FIXTURE);
+    const { handler } = createServer(project.args);
+    const response = await call(handler, "/api/file?path=..%2Fpackage.json");
+    expect(response.status).toBe(404);
+    expect(JSON.parse(response.body).error.code).toBe("file_not_found");
   });
 
   it("renders the repeated-forks section on the file page", async () => {
@@ -94,11 +96,8 @@ describe("createServer", () => {
     const map = await call(handler, base);
     expectSpaShell(map);
 
-    const source = await call(
-      handler,
-      "/api/source?path=" + encodeURIComponent("src/Card.tsx"),
-    );
-    expect(source.body).toContain("return");
+    const source = filePageResponseSchema.parse(JSON.parse((await call(handler, "/api/file?path=src%2FCard.tsx")).body));
+    expect(source.data.file.lines.some((line) => line.text.includes("return"))).toBe(true);
 
     const junctions = await call(handler, base + "&view=junctions");
     expectSpaShell(junctions);
@@ -133,11 +132,9 @@ describe("createServer", () => {
     });
     const { handler } = createServer(project.args);
 
-    const data = await call(handler, "/api/report.json");
-    expect(data.status).toBe(200);
-    const payload = JSON.parse(data.body);
-    expect(payload.sinks.some((s) => s.file === "src/Card.tsx")).toBe(true);
-    expect(payload.sinks.some((s) => s.file === "src/Other.tsx")).toBe(true);
+    const payload = workspaceResponseSchema.parse(JSON.parse((await call(handler, "/api/workspace")).body));
+    expect(payload.data.files.some((row) => row.path === "src/Card.tsx")).toBe(true);
+    expect(payload.data.files.some((row) => row.path === "src/Other.tsx")).toBe(true);
 
     // Search/filter/sort state is now owned by the SPA; the server preserves the
     // URL and returns the same client shell for those navigations.
@@ -146,6 +143,14 @@ describe("createServer", () => {
 
     const unknownOnly = await call(handler, "/?filter=unknown");
     expectSpaShell(unknownOnly);
+  });
+
+  it("treats a supplied file set as the workspace review scope", async () => {
+    const project = await createFixtureProject({ ...FIXTURE, "src/Other.tsx": `export function Other(props: { value: number }) { return <div>{props.value + 1}</div>; }` });
+    const { handler } = createServer({ ...project.args, file: ["src/Card.tsx"] });
+    const workspace = workspaceResponseSchema.parse(JSON.parse((await call(handler, "/api/workspace")).body));
+    expect(workspace.data.workspace.reviewScope).toEqual({ kind: "file-set", paths: ["src/Card.tsx"] });
+    expect(workspace.data.files.every((row) => row.path === "src/Card.tsx")).toBe(true);
   });
 
   it("paginates long overview file lists", async () => {
@@ -167,9 +172,8 @@ describe("createServer", () => {
     const third = await call(handler, "/?sort=file&page=3");
     expectSpaShell(third);
 
-    const data = await call(handler, "/api/report.json");
-    const payload = JSON.parse(data.body);
-    expect(new Set(payload.sinks.map((sink: Sink) => sink.file)).size).toBe(60);
+    const payload = workspaceResponseSchema.parse(JSON.parse((await call(handler, "/api/workspace")).body));
+    expect(payload.data.files.length).toBe(60);
   });
 
   it("sorts the Worst column by per-file max burden, descending (BUG-1)", async () => {
@@ -239,59 +243,9 @@ describe("createServer", () => {
       `,
     });
     const { handler } = createServer(project.args);
-    const json = await call(
-      handler,
-      "/api/report.json?path=" + encodeURIComponent("src/Forky.tsx"),
-    );
-    expect(json.status).toBe(200);
-    const payload = JSON.parse(json.body);
-    expect(payload.sinks.some((sink: Sink) => sink.file === "src/Forky.tsx")).toBe(
-      true,
-    );
-    expect(
-      payload.repeatedForks.some((fork) => fork.file === "src/Forky.tsx"),
-    ).toBe(true);
-  });
-
-  it("marks fallback path steps as defensive and numbers path steps (DEF/ANNO)", async () => {
-    const source = [
-      "export function App() {",
-      "  return <div>{value}</div>;",
-      "}",
-    ].join("\n");
-    const sink = {
-      id: "F1",
-      file: "src/App.tsx",
-      line: 2,
-      column: 16,
-      expression: "value",
-      label: "value",
-      category: "render",
-      queue: "investigation",
-      confidence: 80,
-      metrics: {},
-      scores: { burden: 0.4 },
-      span: { startLine: 2, startColumn: 16, endLine: 2, endColumn: 21 },
-      representativeSteps: [
-        { kind: "source", label: "raw", file: "src/App.tsx", line: 1 },
-        { kind: "fallback", label: "raw ?? 0", file: "src/App.tsx", line: 2 },
-        {
-          kind: "call",
-          label: "<div>{value}</div>",
-          file: "src/App.tsx",
-          line: 2,
-        },
-      ],
-    };
-    const html = renderCodeMap({
-      relPath: "src/App.tsx",
-      source,
-      sinks: [sink],
-    });
-    expect(html).toContain('class="defensive-step"');
-    expect(html).toContain('class="def-icon"');
-    // Step map for the numbered overlay: line:ordinal[:d].
-    expect(html).toMatch(/data-path-steps="[^"]*2:2:d/);
+    const payload = filePageResponseSchema.parse(JSON.parse((await call(handler, "/api/file?path=src%2FForky.tsx")).body));
+    expect(payload.data.inventory.some((entry) => entry.kind === "finding")).toBe(true);
+    expect(payload.data.inventory.some((entry) => entry.kind === "fork")).toBe(true);
   });
 
   it("renders clickable sort headers with an active caret and a sort-aware heading", async () => {
@@ -324,9 +278,8 @@ describe("createServer", () => {
     const all = await call(handler, "/?sort=file&all=1");
     expectSpaShell(all);
 
-    const data = await call(handler, "/api/report.json");
-    const payload = JSON.parse(data.body);
-    expect(new Set(payload.sinks.map((sink: Sink) => sink.file)).size).toBe(30);
+    const payload = workspaceResponseSchema.parse(JSON.parse((await call(handler, "/api/workspace")).body));
+    expect(payload.data.files.length).toBe(30);
   });
 
   it("links back to the overview from the file page and the report tab strip", async () => {
@@ -359,21 +312,8 @@ describe("createServer", () => {
       "/file?path=" + encodeURIComponent("src/Card.tsx") + "&finding=" + target,
     );
     expectSpaShell(file);
-    const json = await call(
-      handler,
-      "/api/report.json?path=" + encodeURIComponent("src/Card.tsx"),
-    );
-    const payload = JSON.parse(json.body);
-    expect(payload.sinks.some((sink: Sink) => sink.id === target)).toBe(true);
-  });
-
-  it("adds an Open-file link inside source-peek popovers", () => {
-    const html = peekReferences("<p>see src/Card.tsx:3 now</p>", (p) =>
-      p === "src/Card.tsx" ? "a\nb\nconst c = 3;\nd" : null,
-    );
-    expect(html).toContain('class="peek-open"');
-    expect(html).toContain('href="/file?path=src%2FCard.tsx#L3"');
-    expect(html).toContain("Open Card.tsx ↗");
+    const payload = filePageResponseSchema.parse(JSON.parse((await call(handler, "/api/file?path=src%2FCard.tsx")).body));
+    expect(payload.data.inventory.some((entry) => entry.id === target)).toBe(true);
   });
 
   it("links and serves markdown assets for every registered report view", async () => {
@@ -390,6 +330,11 @@ describe("createServer", () => {
       expect(markdown.status).toBe(200);
       expect(markdown.headers["Content-Type"]).toContain("text/markdown");
     }
+    for (const view of API_REPORT_VIEWS.filter((candidate) => candidate !== "overview")) {
+      const structured = await call(handler, `/api/reports/${view}`);
+      expect(structured.status).toBe(200);
+      expect(reportResponseSchema.parse(JSON.parse(structured.body)).data.view).toBe(view);
+    }
 
     expectSpaShell(await call(handler, "/report?view=missing"));
     expect((await call(handler, "/api/report.missing.md")).status).toBe(404);
@@ -401,6 +346,6 @@ describe("createServer", () => {
     expectSpaShell(await call(handler, "/nope"));
     expectSpaShell(await call(handler, "/file"));
     expect((await call(handler, "/healthz")).status).toBe(200);
-    expect((await call(handler, "/api/source")).status).toBe(400);
+    expect((await call(handler, "/api/file")).status).toBe(400);
   });
 });

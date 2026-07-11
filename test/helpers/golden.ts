@@ -6,8 +6,6 @@ import {
   analyzeProject,
   renderAllReports,
 } from "../../src/core";
-import { createServer } from "../../src/server";
-import { call } from "./http";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -46,15 +44,6 @@ export function renderGoldenMarkdownByView(report: AnalysisReport, args: Analyze
       normalizeGoldenText(text),
     ]),
   );
-}
-
-export async function fetchGoldenApiReportJson() {
-  const { handler } = createServer(goldenArgs());
-  const response = await call(handler, "/api/report.json");
-  if (response.status !== 200) {
-    throw new Error(`/api/report.json returned ${response.status}`);
-  }
-  return normalizeGoldenText(response.body);
 }
 
 export function normalizeGoldenText(value: string) {
