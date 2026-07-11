@@ -1,8 +1,8 @@
-import type { AnalysisReport, AnalyzerArgs, RankedSink, Sink } from "../types.js";
+import type { AnalysisReport, AnalyzerArgs, RankedSink, Sink } from "../types";
 import path from "node:path";
-import { fanOutRootsFor } from "../analysis/fan-out.js";
-import { primaryAdviceShape } from "../analysis/sink-shape.js";
-import { formatExpression } from "./format-helpers.js";
+import { fanOutRootsFor } from "../analysis/fan-out";
+import { primaryAdviceShape } from "../analysis/sink-shape";
+import { formatExpression } from "./format-helpers";
 
 // THRESH-1: a "usage" is a trivial, shallow expression with no actionable
 // signal — e.g. a bare `props.search` read flowing straight into a sink (burden

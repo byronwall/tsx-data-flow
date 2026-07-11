@@ -1,13 +1,13 @@
 import type * as TypeScript from "typescript";
 import path from "node:path";
-import { locationOf, spanOf } from "./graph.js";
-import { unique } from "./collections.js";
-import { collapse, formatExpression } from "../reports/format-helpers.js";
+import { locationOf, spanOf } from "./graph";
+import { unique } from "./collections";
+import { collapse, formatExpression } from "../reports/format-helpers";
 import {
   type BranchSite,
   collectBranchSites,
   isNamedLiteralValue,
-} from "./repeated-forks/branch-sites.js";
+} from "./repeated-forks/branch-sites";
 
 //
 // The per-sink trace only ever sees a fork that sits directly on one value's

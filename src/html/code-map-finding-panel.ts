@@ -1,7 +1,7 @@
-import type { Sink } from "../types.js";
-import { findingTitle } from "../analysis/finding-title.js";
-import { escapeHtml } from "./escape.js";
-import { snippetBlockHtml } from "./source-peek.js";
+import type { Sink } from "../types";
+import { findingTitle } from "../analysis/finding-title";
+import { escapeHtml } from "./escape";
+import { snippetBlockHtml } from "./source-peek";
 import {
   defenseLocHtml,
   joinPath,
@@ -11,7 +11,7 @@ import {
   representationSection,
   sameCodeSection,
   stepLocationHtml,
-} from "./code-map-paths.js";
+} from "./code-map-paths";
 
 const QUEUE_LABEL: Record<string, string> = {
   "peripheral-quick-win": "quick win",

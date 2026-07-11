@@ -1,4 +1,4 @@
-import type { AnalysisReport, DefenseRecord, RankedSink, Sink } from "../types.js";
+import type { AnalysisReport, DefenseRecord, RankedSink, Sink } from "../types";
 
 interface CompareSummaryDependencies {
   severityFor: (sink: Sink) => string;

@@ -1,14 +1,14 @@
 import type * as TypeScript from "typescript";
-import type { AccessorRecord, AnalysisGraph, TraceContext, TraceExpressionFn } from "../types.js";
-import { isGlobalNamespaceName } from "./source-call-classification.js";
-import { arrayCallbackBinding, renderPropBinding } from "./source-sinks.js";
-import { getFunctionReturnExpression, identifierResolvesTo } from "./trace-support.js";
-import { formatExpression } from "../reports/format-helpers.js";
+import type { AccessorRecord, AnalysisGraph, TraceContext, TraceExpressionFn } from "../types";
+import { isGlobalNamespaceName } from "./source-call-classification";
+import { arrayCallbackBinding, renderPropBinding } from "./source-sinks";
+import { getFunctionReturnExpression, identifierResolvesTo } from "./trace-support";
+import { formatExpression } from "../reports/format-helpers";
 import {
   addOperationTrace,
   definitionLocationOf,
   sourceTrace,
-} from "./source-trace-records.js";
+} from "./source-trace-records";
 
 export function traceIdentifier(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Identifier, context: TraceContext, traceExpression: TraceExpressionFn) {
   const name = expression.text;

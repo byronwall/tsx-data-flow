@@ -1,6 +1,6 @@
 import type * as TypeScript from "typescript";
-import { CONTROL_FLOW_ATTRIBUTES } from "./sink-shape.js";
-import { collapse, formatExpression } from "../reports/format-helpers.js";
+import { CONTROL_FLOW_ATTRIBUTES } from "./sink-shape";
+import { collapse, formatExpression } from "../reports/format-helpers";
 
 // Conventional prop names that a custom list/collection component uses to receive
 // the iterable it renders one row per (`<RowList items={…}>{(row) => …}</RowList>`).

@@ -1,12 +1,13 @@
-import { escapeHtml } from "../html/escape.js";
-import { REPORT_VIEWS } from "../core.js";
+import type { BoundaryHelper, ReachedSink } from "../types";
+import { escapeHtml } from "../html/escape";
+import { REPORT_VIEWS } from "../cli/args";
 import {
   fanOutGraphSvg,
   fanOutAnchor,
   boundaryGraphSvg,
   boundaryAnchor,
-} from "../html/code-map.js";
-import { viewLabel } from "./view-config.js";
+} from "../html/code-map-graphs";
+import { viewLabel } from "./view-config";
 
 interface PopoverOption { label: string; href: string; active: boolean }
 interface PopoverProps {
@@ -215,4 +216,3 @@ export function boundaryViewer(helpers: BoundaryHelper[], { selected, hrefFor }:
   ${boundaryGraphSvg(active)}
 </section>`;
 }
-import type { BoundaryHelper, ReachedSink } from "../types.js";

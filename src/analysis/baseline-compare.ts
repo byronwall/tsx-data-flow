@@ -1,4 +1,4 @@
-import type { Sink } from "../types.js";
+import type { Sink } from "../types";
 import fs from "node:fs";
 
 export function compareBaseline(rankings: { all: Sink[] }, baselinePath: string) {

@@ -1,6 +1,6 @@
 // Static HTML fallback shell used for server errors and a missing SPA build.
-import { escapeHtml } from "./escape.js";
-import { STYLE } from "./styles.js";
+import { escapeHtml } from "./escape";
+import { STYLE } from "./styles";
 
 
 
@@ -36,5 +36,3 @@ export function page({ title, body, tabs = "", context = "", wide = false }: Pag
 </body>
 </html>`;
 }
-
-export { escapeHtml };

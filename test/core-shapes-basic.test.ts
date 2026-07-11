@@ -1,21 +1,10 @@
+import type { Sink } from "../src/types";
 import { describe, expect, it } from "vitest";
+import { analyzeProject, renderReport } from "../src/core";
+import { createAnalyzerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
 import {
-  REPORT_VIEWS,
-  analyzeProject,
-  appRoot,
   bannedSuggestionIdentifiers,
-  createFixtureProject,
-  createTwoAppProject,
-  helpText,
-  mkdir,
-  mkdtemp,
-  parseArgs,
-  renderAllReports,
-  renderReport,
-  resolve,
-  tmpdir,
-  writeFile,
-} from "./helpers/core-test-context.js";
+} from "./helpers/core-test-context";
 
 describe("shape-aware suggestions, sink-family grouping, and explainability", () => {
   it("classifies render-path shapes from the trace (Phase 1)", async () => {
@@ -117,10 +106,10 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
     const report = await analyzeProject(project.args);
 
-    const widthSink = report.sinks.find((sink: import("../src/types.js").Sink) =>
+    const widthSink = report.sinks.find((sink: Sink) =>
       sink.label.startsWith("width="),
     );
-    const transformSink = report.sinks.find((sink: import("../src/types.js").Sink) =>
+    const transformSink = report.sinks.find((sink: Sink) =>
       sink.label.startsWith("transform="),
     );
     expect(widthSink).toBeTruthy();
@@ -248,7 +237,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
     const report = await analyzeProject(project.args);
     const viewBoxSink = report.sinks.find(
-      (sink: import("../src/types.js").Sink) => sink.renderContext?.attribute === "viewBox",
+      (sink: Sink) => sink.renderContext?.attribute === "viewBox",
     );
 
     expect(viewBoxSink).toBeTruthy();
@@ -285,7 +274,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
     const report = await analyzeProject(project.args);
     const centerSink = report.sinks.find(
-      (sink: import("../src/types.js").Sink) =>
+      (sink: Sink) =>
         sink.renderContext?.attribute === "cx" &&
         sink.expression.includes("size / 2"),
     );

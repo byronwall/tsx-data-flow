@@ -1,21 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  FIXTURE,
-  REPORT_VIEWS,
-  analyzeProject,
-  call,
-  createAnalyzer,
-  createFixtureProject,
-  createServer,
-  fanOutAnchor,
   fanOutEntriesForFile,
   fanOutEntriesGlobal,
-  parseArgs,
-  peekReferences,
-  readFile,
-  renderCodeMap,
-  resolve,
-} from "./helpers/server-test-context.js";
+} from "../src/reports/overview-selectors";
 
 describe("fanOutEntriesForFile (ARCH-2)", () => {
   it("keeps roots that fan out (>=2 sinks) and touch the target file", () => {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { REPORT_VIEWS } from "../../src/cli/args.js";
+import { REPORT_VIEWS } from "../../src/cli/args";
 import {
   FILE_VIEWS,
   VIEW_LABELS,
   viewLabel,
-} from "../../src/server/view-config.js";
+} from "../../src/server/view-config";
 
 describe("server view configuration", () => {
   it("returns configured labels and falls back to the raw view name", () => {

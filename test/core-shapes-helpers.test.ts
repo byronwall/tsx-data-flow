@@ -1,21 +1,10 @@
+import type { Sink } from "../src/types";
+import { writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  REPORT_VIEWS,
-  analyzeProject,
-  appRoot,
-  bannedSuggestionIdentifiers,
-  createFixtureProject,
-  createTwoAppProject,
-  helpText,
-  mkdir,
-  mkdtemp,
-  parseArgs,
-  renderAllReports,
-  renderReport,
-  resolve,
-  tmpdir,
-  writeFile,
-} from "./helpers/core-test-context.js";
+import { parseArgs } from "../src/cli/args";
+import { analyzeProject, renderReport } from "../src/core";
+import { createAnalyzerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
 
 describe("shape-aware suggestions, sink-family grouping, and explainability", () => {
   it("renders human-readable confidence, reviewer summary, ownership, and boundaries", async () => {
@@ -356,7 +345,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(output).toContain("keep as certainty boundary");
     expect(output).not.toContain("stale (type-impossible)");
     expect(
-      report.sinks.every((sink: import("../src/types.js").Sink) => sink.metrics.impossibleDefenseCount === 0),
+      report.sinks.every((sink: Sink) => sink.metrics.impossibleDefenseCount === 0),
     ).toBe(true);
   });
 

@@ -1,5 +1,5 @@
 // Self-contained CSS for the HTML shell.
-import { CODE_MAP_STYLE } from "./code-map-styles.js";
+import { CODE_MAP_STYLE } from "./code-map-styles";
 
 const BASE_STYLE = `
 :root {

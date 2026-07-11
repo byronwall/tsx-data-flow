@@ -1,36 +1,21 @@
 import type * as TypeScript from "typescript";
-import type { AnalysisReport, AnalyzerArgs } from "./types.js";
-import { REPORT_VIEWS, defaultMaxItemsFor, parseArgs } from "./cli/args.js";
-import { buildReport } from "./analysis/report-builder.js";
-import { selectViewPayload } from "./reports/json.js";
-import { regenFooter } from "./reports/regen-footer.js";
-import { renderCompareReport } from "./reports/compare.js";
+import type { AnalysisReport, AnalyzerArgs } from "./types";
+import { REPORT_VIEWS, defaultMaxItemsFor, parseArgs } from "./cli/args";
+import { buildReport } from "./analysis/report-builder";
+import { selectViewPayload } from "./reports/json";
+import { regenFooter } from "./reports/regen-footer";
+import { renderCompareReport } from "./reports/compare";
 import {
   renderMarkdownView,
   reportSummaryForCompare,
   stopRecommendationFor,
-} from "./reports/markdown-views.js";
+} from "./reports/markdown-views";
 import {
-  entryTypeCountsByFile,
-  fanOutEntriesForFile,
-  fanOutEntriesGlobal,
   firstCutFor,
   hotspotGroups,
   modalValue,
-} from "./reports/overview-selectors.js";
-import { buildProgram } from "./project/typescript.js";
-
-export { REPORT_VIEWS, parseArgs } from "./cli/args.js";
-export { helpText } from "./cli/help.js";
-export { renderMarkdownView } from "./reports/markdown-views.js";
-export {
-  entryTypeCountsByFile,
-  fanOutEntriesForFile,
-  fanOutEntriesGlobal,
-  firstCutFor,
-  hotspotGroups,
-  modalValue,
-} from "./reports/overview-selectors.js";
+} from "./reports/overview-selectors";
+import { buildProgram } from "./project/typescript";
 
 export async function analyzeProject(args: AnalyzerArgs) {
   const { ts, modulePath, program, routing } = buildProgram(args);

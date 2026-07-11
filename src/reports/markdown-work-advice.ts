@@ -1,18 +1,16 @@
-import type * as TypeScript from "typescript";
-import type { PackGroup, Sink } from "../types.js";
-import { unique } from "../analysis/collections.js";
-import { packRiskForVerdict } from "../analysis/pack-groups.js";
+import type { PackGroup, Sink } from "../types";
+import { unique } from "../analysis/collections";
+import { packRiskForVerdict } from "../analysis/pack-groups";
 import {
   classifyPathShape,
   primaryAdviceShape,
-  sinkFamilyOf,
-} from "../analysis/sink-shape.js";
-import { articleFor } from "./format-helpers.js";
+} from "../analysis/sink-shape";
+import { articleFor } from "./format-helpers";
 import {
   pluralRenderedThing,
   renderedThingFor,
-} from "./markdown-path-proposals.js";
-import { modalValue } from "./overview-selectors.js";
+} from "./markdown-path-proposals";
+import { modalValue } from "./overview-selectors";
 
 // Plain-English noun for a shape tag — used in reviewer summaries (Phase 6).
 const SHAPE_PHRASES: Record<string, string> = {

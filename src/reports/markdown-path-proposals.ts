@@ -1,10 +1,10 @@
-import type { Sink, TraceStep } from "../types.js";
-import { fanOutRootsFor } from "../analysis/fan-out.js";
+import type { Sink, TraceStep } from "../types";
+import { fanOutRootsFor } from "../analysis/fan-out";
 import {
   classifyPathShape,
   sinkAttributeName,
   sinkFamilyOf,
-} from "../analysis/sink-shape.js";
+} from "../analysis/sink-shape";
 import {
   camelCase,
   camelWords,
@@ -13,7 +13,7 @@ import {
   pascalCase,
   stepVerb,
   wordsFromIdentifier,
-} from "./format-helpers.js";
+} from "./format-helpers";
 
 // Phase 5 — locate recommended extraction boundaries on the representative path
 // plus a suggested render-model shape. A boundary is placed after the last

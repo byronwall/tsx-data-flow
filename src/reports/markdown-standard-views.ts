@@ -1,8 +1,8 @@
-import type { AnalysisReport, AnalyzerArgs, DefenseRecord, Sink } from "../types.js";
-import { fanOutEntriesGlobal } from "./overview-selectors.js";
-import { familyRows } from "../analysis/ranking.js";
-import { code, fenced, formatMarkdownTable, tableReport, viewIntro } from "./markdown-format.js";
-import { formatExpression } from "./format-helpers.js";
+import type { AnalysisReport, AnalyzerArgs, DefenseRecord, Sink } from "../types";
+import { fanOutEntriesGlobal } from "./overview-selectors";
+import { familyRows } from "../analysis/ranking";
+import { code, fenced, tableReport, viewIntro } from "./markdown-format";
+import { formatExpression } from "./format-helpers";
 
 // REPORT-RECONCILE-1: the fan-out report mirrors the web "network view" — for each
 // shared source it lists *every* reached sink grouped by file, with each sink's

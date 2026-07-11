@@ -1,7 +1,7 @@
-import type { PackEvidence, PackGroup, Sink } from "../types.js";
-import { fanOutRootsFor } from "./fan-out.js";
-import { sinkAttributeName, sinkFamilyOf } from "./sink-shape.js";
-import { formatExpression } from "../reports/format-helpers.js";
+import type { PackEvidence, PackGroup, Sink } from "../types";
+import { fanOutRootsFor } from "./fan-out";
+import { sinkAttributeName, sinkFamilyOf } from "./sink-shape";
+import { formatExpression } from "../reports/format-helpers";
 
 // Group sinks that flow through the same packed object (a createMemo/object
 // literal). The verdict is evidence-based: a pack can be a useful normalization

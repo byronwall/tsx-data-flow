@@ -1,10 +1,10 @@
+/* eslint-disable solid/no-innerhtml -- Internal renderers escape source content before producing the HTML inserted by this view. */
 import type {
   AnalysisReport,
-  BoundaryHelper,
   ReachedSink,
   RootInfo,
   Sink,
-} from "../../types.js";
+} from "../../types";
 import {
   For,
   Show,
@@ -14,19 +14,20 @@ import {
   createSignal,
   onCleanup,
   onMount,
+  untrack,
 } from "solid-js";
 import type { JSX } from "solid-js";
 import { render } from "solid-js/web";
-import { STYLE } from "../../html/styles.js";
+import { STYLE } from "../../html/styles";
 import {
   boundaryAnchor,
   boundaryGraphSvg,
   fanOutAnchor,
   fanOutGraphSvg,
-  renderCodeMap,
-} from "../../html/code-map.js";
-import { markdownToHtml } from "../../html/markdown-to-html.js";
-import { fanOutIdentity, fanOutRootsFor } from "../../analysis/fan-out.js";
+} from "../../html/code-map-graphs";
+import { renderCodeMap } from "../../html/code-map";
+import { markdownToHtml } from "../../html/markdown-to-html";
+import { fanOutIdentity, fanOutRootsFor } from "../../analysis/fan-out";
 import {
   applyPathOverlay,
   clearPathOverlay,
@@ -404,7 +405,7 @@ function OverviewPage(props: { location: URL; navigate: Navigate }) {
         fallback={<p class="meta">Loading analysis...</p>}
       >
         <div class="toolbar">
-          <h1 style="margin:0">Render-path overview</h1>
+          <h1 style={{"margin":"0"}}>Render-path overview</h1>
           <form action="/refresh" method="post">
             <button type="submit">↻ Re-analyze</button>
           </form>
@@ -732,7 +733,7 @@ function ReportPage(props: { location: URL }) {
       tabs={<ReportTabs active={view()} />}
     >
       <div class="toolbar">
-        <h1 style="margin:0">{labelFor(view())}</h1>
+        <h1 style={{"margin":"0"}}>{labelFor(view())}</h1>
         <a class="btn" href={`/api/report.${encodeURIComponent(view())}.md`}>
           Markdown
         </a>
@@ -780,12 +781,11 @@ function FilePage(props: { location: URL }) {
     },
   );
   const [markdown] = createResource(
-    () => [relPath(), activeView()].join("\0"),
-    async () => {
-      const view = activeView();
-      if (!relPath() || !view) return "";
+    () => ({ path: relPath(), view: activeView() }),
+    async ({ path, view }) => {
+      if (!path || !view) return "";
       return fetchText(
-        `/api/report.${encodeURIComponent(view)}.md?path=${encodeURIComponent(relPath())}`,
+        `/api/report.${encodeURIComponent(view)}.md?path=${encodeURIComponent(path)}`,
       );
     },
   );
@@ -860,7 +860,7 @@ function CodeMap(props: {
   fullReport?: Report | null;
 }) {
   let rootRef: HTMLDivElement | undefined;
-  const initialFinding = props.location.searchParams.get("finding");
+  const initialFinding = untrack(() => props.location.searchParams.get("finding"));
   const [selectedIds, setSelectedIds] = createSignal<string[]>(
     initialFinding ? [initialFinding] : [],
   );
@@ -981,9 +981,9 @@ function CodeMap(props: {
 
   createEffect(() => {
     const nextFinding = props.location.searchParams.get("finding");
+    const hashLine = props.location.hash.match(/^#L(\d+)$/)?.[1];
     setSelectedIds(nextFinding ? [nextFinding] : []);
     window.requestAnimationFrame(() => {
-      const hashLine = props.location.hash.match(/^#L(\d+)$/)?.[1];
       if (nextFinding) reconcileSelectedFindings([nextFinding]);
       else if (hashLine) jumpToLine(hashLine);
     });

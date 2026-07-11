@@ -1,6 +1,6 @@
 import type * as TypeScript from "typescript";
 import path from "node:path";
-import { locationOf } from "./graph.js";
+import { locationOf } from "./graph";
 
 export function buildComponentRefs(ts: typeof TypeScript, checker: TypeScript.TypeChecker, sourceFiles: TypeScript.SourceFile[], root: string) {
   const byDef = new Map();

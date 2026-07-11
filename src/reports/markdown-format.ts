@@ -1,4 +1,4 @@
-import type { AnalysisReport } from "../types.js";
+import type { AnalysisReport } from "../types";
 import path from "node:path";
 
 export function commandPath(targetPath: string) {

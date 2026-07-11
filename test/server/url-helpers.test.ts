@@ -3,7 +3,7 @@ import {
   overviewHref,
   overviewState,
   paramHref,
-} from "../../src/server/url-helpers.js";
+} from "../../src/server/url-helpers";
 
 describe("server URL helpers", () => {
   it("parses overview state with defaults and sanitizes invalid choices", () => {

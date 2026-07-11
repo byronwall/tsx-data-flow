@@ -1,32 +1,26 @@
-import type { AnalysisReport, AnalyzerArgs, Sink } from "../types.js";
-import { renderMarkdownView, REPORT_VIEWS } from "../core.js";
+import type { AnalysisReport, AnalyzerArgs, Sink } from "../types";
+import { renderMarkdownView } from "../reports/markdown-views";
 import {
   entryTypeCountsByFile,
   fanOutEntriesForFile,
   firstCutFor,
   hotspotGroups,
   modalValue,
-} from "../reports/overview-selectors.js";
-import { markdownToHtml } from "../html/markdown-to-html.js";
-import { escapeHtml } from "../html/escape.js";
-import { page } from "../html/page.js";
-import { renderCodeMap } from "../html/code-map.js";
-import { peekReferences } from "../html/source-peek.js";
-import { FILE_VIEWS, VIEW_LABELS, viewLabel } from "./view-config.js";
+} from "../reports/overview-selectors";
+import { markdownToHtml } from "../html/markdown-to-html";
+import { escapeHtml } from "../html/escape";
+import { page } from "../html/page";
+import { renderCodeMap } from "../html/code-map";
+import { peekReferences } from "../html/source-peek";
+import { FILE_VIEWS, VIEW_LABELS } from "./view-config";
 import {
   OVERVIEW_PAGE_SIZE,
   OVERVIEW_TYPE_COLUMNS,
   SORT_HEADING,
-} from "./overview-config.js";
-import type { OverviewState } from "./url-helpers.js";
-import { overviewHref, overviewState, paramHref } from "./url-helpers.js";
-import { popover, reportTabs } from "./network-viewers.js";
-export {
-  boundaryViewer,
-  fanOutViewer,
-  reportTabs,
-} from "./network-viewers.js";
-
+} from "./overview-config";
+import type { OverviewState } from "./url-helpers";
+import { overviewHref, overviewState, paramHref } from "./url-helpers";
+import { popover, reportTabs } from "./network-viewers";
 function graphParticipationFiles(report: AnalysisReport) {
   const files = new Set<string>();
   for (const node of report.graph?.nodes ?? []) {

@@ -1,21 +1,9 @@
 import { describe, expect, it } from "vitest";
-import {
-  FIXTURE,
-  REPORT_VIEWS,
-  analyzeProject,
-  call,
-  createAnalyzer,
-  createFixtureProject,
-  createServer,
-  fanOutAnchor,
-  fanOutEntriesForFile,
-  fanOutEntriesGlobal,
-  parseArgs,
-  peekReferences,
-  readFile,
-  renderCodeMap,
-  resolve,
-} from "./helpers/server-test-context.js";
+import { fanOutAnchor } from "../src/html/code-map-graphs";
+import { fanOutEntriesGlobal } from "../src/reports/overview-selectors";
+import { createServer } from "../src/server";
+import { createServerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
+import { call } from "./helpers/http";
 
 function expectSpaShell(response) {
   expect(response.status).toBe(200);

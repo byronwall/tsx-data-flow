@@ -1,8 +1,8 @@
 import type * as TypeScript from "typescript";
-import type { AccessorRecord, AnalyzerArgs, CatalogFunction, CrossFileState } from "../types.js";
+import type { AccessorRecord, AnalyzerArgs, CatalogFunction, CrossFileState } from "../types";
 import path from "node:path";
-import { locationOf } from "./graph.js";
-import { collapse } from "../reports/format-helpers.js";
+import { locationOf } from "./graph";
+import { collapse } from "../reports/format-helpers";
 
 export function buildFileContext(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile) {
   const variables = new Map<string, TypeScript.VariableDeclaration>();

@@ -1,28 +1,28 @@
-import type { AnalysisReport, AnalyzerArgs, Sink } from "../types.js";
+import type { AnalysisReport, AnalyzerArgs, Sink } from "../types";
 import path from "node:path";
-import { REPORT_VIEWS } from "../cli/args.js";
-import { findingTitle } from "../analysis/finding-title.js";
-import { primaryAdviceShape } from "../analysis/sink-shape.js";
+import { REPORT_VIEWS } from "../cli/args";
+import { findingTitle } from "../analysis/finding-title";
+import { primaryAdviceShape } from "../analysis/sink-shape";
 import {
   code,
   formatMarkdownTable,
   viewIntro,
   VIEW_BLURBS,
-} from "./markdown-format.js";
-import { formatExpression } from "./format-helpers.js";
-import { affectedSinkSummary } from "./markdown-boundary-views.js";
-import { concentrationLines } from "./markdown-selection.js";
+} from "./markdown-format";
+import { formatExpression } from "./format-helpers";
+import { affectedSinkSummary } from "./markdown-boundary-views";
+import { concentrationLines } from "./markdown-selection";
 import {
   firstCutFor,
   hotspotGroups,
   modalValue,
-} from "./overview-selectors.js";
+} from "./overview-selectors";
 import {
   localFirstCutForCluster,
   ownershipHintFor,
   providerContextEvidenceFor,
   providerEvidenceSummary,
-} from "./markdown-work-advice.js";
+} from "./markdown-work-advice";
 
 function primaryShapeOf(sink: Sink) {
   return primaryAdviceShape(sink) ?? "uncategorized";

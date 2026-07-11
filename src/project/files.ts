@@ -1,4 +1,4 @@
-import type { AnalyzerArgs } from "../types.js";
+import type { AnalyzerArgs } from "../types";
 import fs from "node:fs";
 import path from "node:path";
 

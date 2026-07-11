@@ -1,6 +1,6 @@
-import type { DefenseRecord, Sink, SinkMetrics } from "../types.js";
-import { fanOutRootsFor } from "./fan-out.js";
-import { reachedSinkDescriptor } from "./sink-descriptor.js";
+import type { DefenseRecord, Sink, SinkMetrics } from "../types";
+import { fanOutRootsFor } from "./fan-out";
+import { reachedSinkDescriptor } from "./sink-descriptor";
 
 // Upper bound on enumerated reached-sinks stored per source, to keep the
 // reachedVia structure from going O(n^2) on a very high fan-out source. The

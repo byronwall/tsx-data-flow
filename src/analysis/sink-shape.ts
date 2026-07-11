@@ -1,4 +1,4 @@
-import type { Sink } from "../types.js";
+import type { Sink } from "../types";
 // Attributes that size the SVG/HTML shell itself. Split out from geometry so a
 // plain width={...} is not lumped with bar-coordinate math when grouping sinks.
 export const SVG_SHELL_ATTRIBUTES = new Set([

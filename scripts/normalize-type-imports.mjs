@@ -1,11 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 
-for (const file of ["src", "bin", "scripts"].flatMap(walk)) {
+for (const file of ["src", "bin", "scripts", "test"].flatMap(walk)) {
   if (!/\.(?:ts|tsx)$/.test(file) || file.endsWith(".d.ts")) continue;
   let text = fs.readFileSync(file, "utf8");
   const imports = new Map();
   let needsTypeScript = false;
+
+  text = text.replace(/(\bfrom\s+["'][^"']+)\.(?:js|ts)(["'])/g, "$1$2");
+  text = text.replace(/(\bimport\s+["'][^"']+)\.(?:js|ts)(["'])/g, "$1$2");
 
   text = text.replace(/typeof import\("typescript"\)/g, () => {
     needsTypeScript = true;

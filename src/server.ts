@@ -1,18 +1,18 @@
 // Local server for tsx-dataflow. Builds the TypeScript program once, exposes the
 // analyzer data/markdown APIs, and serves the Solid single-page frontend.
 import fs from "node:fs";
-import type { AnalysisReport, AnalyzerArgs } from "./types.js";
+import type { AnalysisReport, AnalyzerArgs } from "./types";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createAnalyzer,
-  renderMarkdownView,
   renderReport,
-  REPORT_VIEWS,
-} from "./core.js";
-import { escapeHtml } from "./html/escape.js";
-import { page } from "./html/page.js";
+} from "./core";
+import { REPORT_VIEWS } from "./cli/args";
+import { renderMarkdownView } from "./reports/markdown-views";
+import { escapeHtml } from "./html/escape";
+import { page } from "./html/page";
 
 type Analyzer = {
   report(overrides?: Partial<AnalyzerArgs>): AnalysisReport;

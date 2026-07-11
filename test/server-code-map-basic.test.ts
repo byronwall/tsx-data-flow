@@ -1,21 +1,10 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  FIXTURE,
-  REPORT_VIEWS,
-  analyzeProject,
-  call,
-  createAnalyzer,
-  createFixtureProject,
-  createServer,
-  fanOutAnchor,
-  fanOutEntriesForFile,
-  fanOutEntriesGlobal,
-  parseArgs,
-  peekReferences,
-  readFile,
-  renderCodeMap,
-  resolve,
-} from "./helpers/server-test-context.js";
+import { analyzeProject, createAnalyzer } from "../src/core";
+import { renderCodeMap } from "../src/html/code-map";
+import { createServerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
+import { FIXTURE } from "./helpers/server-test-context";
 
 describe("renderCodeMap", () => {
   const baseSink = {

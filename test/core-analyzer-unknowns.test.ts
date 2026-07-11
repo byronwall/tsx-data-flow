@@ -1,21 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { REPORT_VIEWS, parseArgs } from "../src/cli/args";
+import { analyzeProject, renderAllReports, renderReport } from "../src/core";
+import { createAnalyzerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
 import {
-  REPORT_VIEWS,
-  analyzeProject,
-  appRoot,
-  bannedSuggestionIdentifiers,
-  createFixtureProject,
   createTwoAppProject,
-  helpText,
-  mkdir,
-  mkdtemp,
-  parseArgs,
-  renderAllReports,
-  renderReport,
-  resolve,
-  tmpdir,
-  writeFile,
-} from "./helpers/core-test-context.js";
+} from "./helpers/core-test-context";
+import { resolve } from "node:path";
 
 describe("render path data-flow analyzer", () => {
   it("appends a copy-pasteable regenerate command to every markdown view", async () => {

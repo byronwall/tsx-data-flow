@@ -1,5 +1,5 @@
-import type { AnalysisGraph, Sink, UnknownEdgeRow } from "../types.js";
-import { reachedSinkDescriptor } from "./sink-descriptor.js";
+import type { AnalysisGraph, Sink, UnknownEdgeRow } from "../types";
+import { reachedSinkDescriptor } from "./sink-descriptor";
 
 const REACHED_VIA_CAP = 50;
 

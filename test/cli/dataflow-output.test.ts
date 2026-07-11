@@ -1,10 +1,11 @@
+import type { AnalyzerArgs } from "../../src/types";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { REPORT_VIEWS } from "../../src/core.js";
+import { REPORT_VIEWS } from "../../src/cli/args";
 
 const execFileAsync = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -110,7 +111,7 @@ async function createProject(label: string) {
   return { root, reportsDir };
 }
 
-function runCli(args: import("../../src/types.js").AnalyzerArgs) {
+function runCli(args: AnalyzerArgs) {
   return execFileAsync(process.execPath, ["--import", "tsx", cli, ...args], {
     cwd: repoRoot,
     maxBuffer: 1024 * 1024,

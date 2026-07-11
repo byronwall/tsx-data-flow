@@ -1,5 +1,5 @@
-import type { AnalysisReport, AnalyzerArgs, ReportGraph, Sink } from "../types.js";
-import type { hotspotGroups } from "./overview-selectors.js";
+import type { AnalysisReport, AnalyzerArgs, ReportGraph, Sink } from "../types";
+import type { hotspotGroups } from "./overview-selectors";
 export function selectViewPayload(report: AnalysisReport, args: AnalyzerArgs, overviewHelpers = {}) {
   return {
     analysisVersion: report.analysisVersion,

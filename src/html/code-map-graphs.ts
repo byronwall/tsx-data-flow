@@ -1,5 +1,5 @@
-import type { BoundaryHelper, ReachedSink } from "../types.js";
-import { escapeHtml } from "./escape.js";
+import type { BoundaryHelper, ReachedSink } from "../types";
+import { escapeHtml } from "./escape";
 
 // GRAPH-COLOR-1: assign every file in a fan-out graph a *distinct* color. The old
 // per-file string hash collided files onto near-identical hues ("I can't tell if

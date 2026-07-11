@@ -1,7 +1,7 @@
-import type { RankedSink, Sink, WorkUnit } from "../types.js";
-import { fanOutRootsFor } from "./fan-out.js";
-import { primaryAdviceShape } from "./sink-shape.js";
-import { formatExpression } from "../reports/format-helpers.js";
+import type { RankedSink, Sink, WorkUnit } from "../types";
+import { fanOutRootsFor } from "./fan-out";
+import { primaryAdviceShape } from "./sink-shape";
+import { formatExpression } from "../reports/format-helpers";
 
 // Collapse file-local sinks that share a cause into one work unit. Two sinks
 // join the same unit when they share a packed object or share both their primary

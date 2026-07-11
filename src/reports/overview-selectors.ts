@@ -1,11 +1,10 @@
-import type { AnalysisReport, Sink } from "../types.js";
+import type { AnalysisReport, Sink } from "../types";
 import path from "node:path";
-import { fanOutIdentity, fanOutRootsFor } from "../analysis/fan-out.js";
+import { fanOutIdentity, fanOutRootsFor } from "../analysis/fan-out";
 import {
   classifyPathShape,
   primaryAdviceShape,
-  sinkFamilyOf,
-} from "../analysis/sink-shape.js";
+} from "../analysis/sink-shape";
 
 // Upper bound on enumerated reached-sinks stored per source, to keep the
 // reachedVia structure from going O(n^2) on a very high fan-out source. The

@@ -1,4 +1,4 @@
-import type { Sink, SinkMetrics } from "../types.js";
+import type { Sink, SinkMetrics } from "../types";
 const USAGE_BURDEN_CEILING = 0.08;
 
 const BURDEN_TERMS: Array<{

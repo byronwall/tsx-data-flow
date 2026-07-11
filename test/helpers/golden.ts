@@ -1,12 +1,13 @@
+import type { AnalysisReport, AnalyzerArgs } from "../../src/types";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "../../src/cli/args";
 import {
   analyzeProject,
-  parseArgs,
   renderAllReports,
-} from "../../src/core.js";
-import { createServer } from "../../src/server.ts";
-import { call } from "./http.js";
+} from "../../src/core";
+import { createServer } from "../../src/server";
+import { call } from "./http";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -38,7 +39,7 @@ export async function buildGoldenReport() {
   return { args, report: await analyzeProject(args) };
 }
 
-export function renderGoldenMarkdownByView(report: import("../../src/types.js").AnalysisReport, args: import("../../src/types.js").AnalyzerArgs) {
+export function renderGoldenMarkdownByView(report: AnalysisReport, args: AnalyzerArgs) {
   return Object.fromEntries(
     renderAllReports(report, args).map(({ view, text }) => [
       view,

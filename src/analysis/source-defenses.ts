@@ -1,6 +1,6 @@
 import type * as TypeScript from "typescript";
-import type { DefenseRecord, SinkMetrics } from "../types.js";
-import { locationOf } from "./graph.js";
+import type { DefenseRecord, SinkMetrics } from "../types";
+import { locationOf } from "./graph";
 
 export function isCertaintyBoundaryDefense(defense: DefenseRecord) {
   return /parser-boundary|compatibility|optional|solid prop default|api-choice/i.test(

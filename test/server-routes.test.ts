@@ -1,21 +1,13 @@
+import type { Sink } from "../src/types";
 import { describe, expect, it } from "vitest";
-import {
-  FIXTURE,
-  REPORT_VIEWS,
-  analyzeProject,
-  call,
-  createAnalyzer,
-  createFixtureProject,
-  createServer,
-  fanOutAnchor,
-  fanOutEntriesForFile,
-  fanOutEntriesGlobal,
-  parseArgs,
-  peekReferences,
-  readFile,
-  renderCodeMap,
-  resolve,
-} from "./helpers/server-test-context.js";
+import { REPORT_VIEWS } from "../src/cli/args";
+import { createAnalyzer } from "../src/core";
+import { renderCodeMap } from "../src/html/code-map";
+import { peekReferences } from "../src/html/source-peek";
+import { createServer } from "../src/server";
+import { createServerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
+import { call } from "./helpers/http";
+import { FIXTURE } from "./helpers/server-test-context";
 
 function expectSpaShell(response) {
   expect(response.status).toBe(200);
@@ -177,7 +169,7 @@ describe("createServer", () => {
 
     const data = await call(handler, "/api/report.json");
     const payload = JSON.parse(data.body);
-    expect(new Set(payload.sinks.map((sink: import("../src/types.js").Sink) => sink.file)).size).toBe(60);
+    expect(new Set(payload.sinks.map((sink: Sink) => sink.file)).size).toBe(60);
   });
 
   it("sorts the Worst column by per-file max burden, descending (BUG-1)", async () => {
@@ -253,7 +245,7 @@ describe("createServer", () => {
     );
     expect(json.status).toBe(200);
     const payload = JSON.parse(json.body);
-    expect(payload.sinks.some((sink: import("../src/types.js").Sink) => sink.file === "src/Forky.tsx")).toBe(
+    expect(payload.sinks.some((sink: Sink) => sink.file === "src/Forky.tsx")).toBe(
       true,
     );
     expect(
@@ -334,7 +326,7 @@ describe("createServer", () => {
 
     const data = await call(handler, "/api/report.json");
     const payload = JSON.parse(data.body);
-    expect(new Set(payload.sinks.map((sink: import("../src/types.js").Sink) => sink.file)).size).toBe(30);
+    expect(new Set(payload.sinks.map((sink: Sink) => sink.file)).size).toBe(30);
   });
 
   it("links back to the overview from the file page and the report tab strip", async () => {
@@ -372,7 +364,7 @@ describe("createServer", () => {
       "/api/report.json?path=" + encodeURIComponent("src/Card.tsx"),
     );
     const payload = JSON.parse(json.body);
-    expect(payload.sinks.some((sink: import("../src/types.js").Sink) => sink.id === target)).toBe(true);
+    expect(payload.sinks.some((sink: Sink) => sink.id === target)).toBe(true);
   });
 
   it("adds an Open-file link inside source-peek popovers", () => {

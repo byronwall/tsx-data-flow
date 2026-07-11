@@ -1,21 +1,11 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  REPORT_VIEWS,
-  analyzeProject,
-  appRoot,
-  bannedSuggestionIdentifiers,
-  createFixtureProject,
-  createTwoAppProject,
-  helpText,
-  mkdir,
-  mkdtemp,
-  parseArgs,
-  renderAllReports,
-  renderReport,
-  resolve,
-  tmpdir,
-  writeFile,
-} from "./helpers/core-test-context.js";
+import { parseArgs } from "../src/cli/args";
+import { helpText } from "../src/cli/help";
+import { analyzeProject, renderReport } from "../src/core";
+import { appRoot } from "./helpers/core-test-context";
 
 describe("general CLI defaults and project discovery", () => {
   it("defaults the project root to the current working directory", () => {

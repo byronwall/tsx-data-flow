@@ -3,7 +3,7 @@ import {
   buildGoldenReport,
   fetchGoldenApiReportJson,
   renderGoldenMarkdownByView,
-} from "../helpers/golden.js";
+} from "../helpers/golden";
 
 describe("golden output baseline", () => {
   it("matches --view all markdown output for the example fixture", async () => {

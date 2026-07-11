@@ -1,21 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  FIXTURE,
-  REPORT_VIEWS,
-  analyzeProject,
-  call,
-  createAnalyzer,
-  createFixtureProject,
-  createServer,
-  fanOutAnchor,
-  fanOutEntriesForFile,
-  fanOutEntriesGlobal,
-  parseArgs,
-  peekReferences,
-  readFile,
-  renderCodeMap,
-  resolve,
-} from "./helpers/server-test-context.js";
+import { analyzeProject, createAnalyzer } from "../src/core";
+import { createServerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
+import { FIXTURE } from "./helpers/server-test-context";
 
 describe("createAnalyzer", () => {
   it("reprojects the same report as analyzeProject", async () => {

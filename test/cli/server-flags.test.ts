@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractServerFlags } from "../../src/cli/server-flags.js";
+import { extractServerFlags } from "../../src/cli/server-flags";
 
 describe("extractServerFlags", () => {
   it("removes server flags and keeps analyzer args in order", () => {

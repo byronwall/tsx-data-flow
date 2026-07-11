@@ -1,21 +1,9 @@
+import type { Sink } from "../src/types";
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  REPORT_VIEWS,
-  analyzeProject,
-  appRoot,
-  bannedSuggestionIdentifiers,
-  createFixtureProject,
-  createTwoAppProject,
-  helpText,
-  mkdir,
-  mkdtemp,
-  parseArgs,
-  renderAllReports,
-  renderReport,
-  resolve,
-  tmpdir,
-  writeFile,
-} from "./helpers/core-test-context.js";
+import { analyzeProject, renderReport } from "../src/core";
+import { createAnalyzerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
 
 describe("render path data-flow analyzer", () => {
   it("reports same-feature prop relay from context-aware parents", async () => {
@@ -232,10 +220,10 @@ describe("render path data-flow analyzer", () => {
     });
     const report = await analyzeProject(project.args);
     const shared = report.rankings.all.find(
-      (sink: import("../src/types.js").Sink) => sink.expression === "props.shared",
+      (sink: Sink) => sink.expression === "props.shared",
     );
     const lonely = report.rankings.all.find(
-      (sink: import("../src/types.js").Sink) => sink.expression === "props.lonely",
+      (sink: Sink) => sink.expression === "props.lonely",
     );
 
     expect(shared.metrics.reachableSinks).toBe(4);

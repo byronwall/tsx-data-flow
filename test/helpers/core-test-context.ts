@@ -2,15 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createAnalyzerFixtureProject as createFixtureProject } from "./fixture-project.js";
-import {
-  REPORT_VIEWS,
-  analyzeProject,
-  helpText,
-  parseArgs,
-  renderAllReports,
-  renderReport,
-} from "../../src/core.js";
+import { parseArgs } from "../../src/cli/args";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -30,22 +22,7 @@ export const bannedSuggestionIdentifiers = [
   "ItemModel",
 ];
 
-export {
-  REPORT_VIEWS,
-  analyzeProject,
-  createFixtureProject,
-  helpText,
-  mkdir,
-  mkdtemp,
-  parseArgs,
-  renderAllReports,
-  renderReport,
-  resolve,
-  tmpdir,
-  writeFile,
-};
-
-async function createTwoAppProject() {
+export async function createTwoAppProject() {
   const root = await mkdtemp(resolve(tmpdir(), "render-path-dataflow-multi-"));
   const baseOptions = {
     target: "ESNext",
@@ -113,4 +90,3 @@ async function createTwoAppProject() {
     ]),
   };
 }
-export { createTwoAppProject };

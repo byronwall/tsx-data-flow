@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { markdownToHtml } from "../../src/html/markdown-to-html.js";
+import { markdownToHtml } from "../../src/html/markdown-to-html";
 
 describe("markdownToHtml", () => {
   it("renders GFM tables to thead/tbody", () => {

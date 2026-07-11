@@ -1,4 +1,4 @@
-import { OVERVIEW_FILTERS, OVERVIEW_SORTS } from "./overview-config.js";
+import { OVERVIEW_FILTERS, OVERVIEW_SORTS } from "./overview-config";
 
 export function overviewState(url: URL) {
   const q = (url.searchParams.get("q") ?? "").trim();

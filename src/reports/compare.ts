@@ -1,4 +1,4 @@
-import type { AnalysisReport, AnalyzerArgs } from "../types.js";
+import type { AnalysisReport, AnalyzerArgs } from "../types";
 import {
   compareNumberLabel,
   formatDeltaLabel,
@@ -7,8 +7,8 @@ import {
   readReportDirectorySummary,
   remainingFindingFamilies,
   removedFindingFamilies,
-} from "./baseline-parser.js";
-import { commandPath, formatMarkdownTable } from "./markdown-format.js";
+} from "./baseline-parser";
+import { commandPath, formatMarkdownTable } from "./markdown-format";
 
 interface CompareSummary {
   worstScore: number; worstSeverity: string; hotspots: number;

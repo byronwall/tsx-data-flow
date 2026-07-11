@@ -1,9 +1,9 @@
 import type * as TypeScript from "typescript";
-import type { AnalysisGraph, DefenseRecord, RepresentationStep, RootInfo, TraceResult, TraceStep } from "../types.js";
+import type { AnalysisGraph, DefenseRecord, RepresentationStep, RootInfo, TraceResult, TraceStep } from "../types";
 import path from "node:path";
-import { addEdge, addNode, locationOf } from "./graph.js";
-import { safeTypeText } from "./source-defenses.js";
-import { collapse, focusSnippet, formatExpression } from "../reports/format-helpers.js";
+import { addEdge, addNode, locationOf } from "./graph";
+import { safeTypeText } from "./source-defenses";
+import { collapse, focusSnippet, formatExpression } from "../reports/format-helpers";
 
 // Representation-only hops: steps that repackage a value without changing it
 // (aliases, object packs/spreads). Tracked so the report can list exactly which

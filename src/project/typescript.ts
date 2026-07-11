@@ -1,12 +1,12 @@
 import type * as TypeScript from "typescript";
-import type { AnalyzerArgs } from "../types.js";
+import type { AnalyzerArgs } from "../types";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { shouldAnalyzeFile, walkFiles } from "./files.js";
-import { resolveProjectConfigs } from "./tsconfig.js";
-import type { TsconfigInfo } from "./tsconfig.js";
+import { shouldAnalyzeFile, walkFiles } from "./files";
+import { resolveProjectConfigs } from "./tsconfig";
+import type { TsconfigInfo } from "./tsconfig";
 
 const require = createRequire(import.meta.url);
 

@@ -1,7 +1,7 @@
 import type * as TypeScript from "typescript";
-import type { AnalysisGraph, AnalyzerArgs, BoundaryHelper, CatalogFunction, CrossFileState, FileTraceContext, RootInfo, SinkMetrics, SourceSnippet, TraceContext, TraceResult } from "../types.js";
+import type { AnalysisGraph, AnalyzerArgs, BoundaryHelper, CatalogFunction, CrossFileState, FileTraceContext, RootInfo, SinkMetrics, SourceSnippet, TraceContext, TraceResult } from "../types";
 import path from "node:path";
-import { createGraph, locationOf } from "./graph.js";
+import { createGraph, locationOf } from "./graph";
 
 const CALLER_LOCATION_LIMIT = 8;
 const INLINE_SNIPPET_LIMIT = 5;

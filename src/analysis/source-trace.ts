@@ -1,26 +1,25 @@
 import type * as TypeScript from "typescript";
-import type { AnalysisGraph, TraceContext, TraceResult } from "../types.js";
-import { createGraph } from "./graph.js";
+import type { AnalysisGraph, TraceContext, TraceResult } from "../types";
+import { createGraph } from "./graph";
 import {
   classifyUnresolvedCall,
   isOpaqueByDesignCall,
-} from "./source-call-classification.js";
-import { defenseRecord } from "./source-defenses.js";
-import { renderPropBinding } from "./source-sinks.js";
+} from "./source-call-classification";
+import { defenseRecord } from "./source-defenses";
+import { renderPropBinding } from "./source-sinks";
 import {
   getCallName,
   getFileContextCached,
   getFunctionReturnExpression,
   identifierResolvesTo,
   resolveCatalogFn,
-} from "./trace-support.js";
-import { formatExpression } from "../reports/format-helpers.js";
+} from "./trace-support";
+import { formatExpression } from "../reports/format-helpers";
 import {
   addOperationTrace,
-  definitionLocationOf,
   sourceTrace,
-} from "./source-trace-records.js";
-import { traceAccessor, traceIdentifier } from "./source-trace-identifiers.js";
+} from "./source-trace-records";
+import { traceAccessor, traceIdentifier } from "./source-trace-identifiers";
 
 export function traceExpression(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Expression, context: TraceContext): TraceResult {
   const text = expression.getText();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fanOutGraphSvg } from "../../src/html/code-map.js";
+import { fanOutGraphSvg } from "../../src/html/code-map-graphs";
 
 describe("fanOutGraphSvg (GRAPH-COLOR-1 / GRAPH-GROUP-1)", () => {
   const row = {

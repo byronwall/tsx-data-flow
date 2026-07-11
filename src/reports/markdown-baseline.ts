@@ -1,6 +1,6 @@
-import type { AnalysisReport } from "../types.js";
-import { fenced, metricTable } from "./markdown-format.js";
-import { formatExpression } from "./format-helpers.js";
+import type { AnalysisReport } from "../types";
+import { fenced, metricTable } from "./markdown-format";
+import { formatExpression } from "./format-helpers";
 
 export function appendBaseline(lines: string[], report: AnalysisReport) {
   if (!report.baseline) return;

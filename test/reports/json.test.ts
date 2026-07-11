@@ -1,5 +1,6 @@
+import type { Sink } from "../../src/types";
 import { describe, expect, it } from "vitest";
-import { boundedGraph, selectViewPayload } from "../../src/reports/json.js";
+import { boundedGraph, selectViewPayload } from "../../src/reports/json";
 
 describe("JSON report projection", () => {
   it("bounds graph nodes and edges while preserving omitted counts", () => {
@@ -43,7 +44,7 @@ describe("JSON report projection", () => {
           },
         ],
         modalValue: (values) => values[0] ?? "-",
-        firstCutFor: (sink: import("../../src/types.js").Sink) => `first:${sink.id}`,
+        firstCutFor: (sink: Sink) => `first:${sink.id}`,
       },
     );
 

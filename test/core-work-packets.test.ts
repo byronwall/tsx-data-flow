@@ -1,21 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  REPORT_VIEWS,
-  analyzeProject,
-  appRoot,
-  bannedSuggestionIdentifiers,
-  createFixtureProject,
-  createTwoAppProject,
-  helpText,
-  mkdir,
-  mkdtemp,
-  parseArgs,
-  renderAllReports,
-  renderReport,
-  resolve,
-  tmpdir,
-  writeFile,
-} from "./helpers/core-test-context.js";
+import { REPORT_VIEWS, parseArgs } from "../src/cli/args";
+import { analyzeProject, renderReport } from "../src/core";
+import { createAnalyzerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
 
 describe("work-packet variety & coverage", () => {
   // A heavy chart file (many geometry sinks off the same props) plus several

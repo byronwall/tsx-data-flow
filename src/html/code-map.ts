@@ -1,19 +1,7 @@
-import type { BoundaryHelper, Sink, UnknownEdgeRow } from "../types.js";
-import type { EntryRow, FanOutRow, ForkEntry, RelayRow } from "./code-map-entry-panels.js";
-// The annotated code map: render one source file as line-numbered code with the
-// render sinks that land in it overlaid in the gutter, plus a commentary panel
-// describing each finding. This is the one HTML view the Markdown reports cannot
-// express — it ties the analyzer's findings back to the literal source lines.
-import { escapeHtml } from "./escape.js";
-import { pathStepsAttr } from "./code-map-paths.js";
-export {
-  boundaryAnchor,
-  boundaryGraphSvg,
-  fanOutAnchor,
-  fanOutGraphSvg,
-} from "./code-map-graphs.js";
-import { fanOutAnchor } from "./code-map-graphs.js";
-import { findingPanel } from "./code-map-finding-panel.js";
+import type { BoundaryHelper, Sink, UnknownEdgeRow } from "../types";
+import type { EntryRow, FanOutRow, ForkEntry, RelayRow } from "./code-map-entry-panels";
+import { escapeHtml } from "./escape";
+import { findingPanel } from "./code-map-finding-panel";
 import {
   ENTRY_TYPES,
   entryRowHtml,
@@ -24,7 +12,7 @@ import {
   junctionPanel,
   relayPanel,
   unknownEdgePanel,
-} from "./code-map-entry-panels.js";
+} from "./code-map-entry-panels";
 import {
   burdenHue,
   dominantSink,
@@ -32,7 +20,12 @@ import {
   renderCommentLine,
   spanPart,
   touchedLines,
-} from "./code-map-source-lines.js";
+} from "./code-map-source-lines";
+
+// The annotated code map: render one source file as line-numbered code with the
+// render sinks that land in it overlaid in the gutter, plus a commentary panel
+// describing each finding. This is the one HTML view the Markdown reports cannot
+// express — it ties the analyzer's findings back to the literal source lines.
 
 interface CodeMapMeta {
   root?: string; source?: string; tsconfig?: string | null; tsconfigs?: string[];

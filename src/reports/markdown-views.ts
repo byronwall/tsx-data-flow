@@ -1,38 +1,34 @@
-import type { AnalysisReport, AnalyzerArgs, PackGroup, RankedSink, Sink } from "../types.js";
-import { defaultMaxItemsFor } from "../cli/args.js";
-import { unique } from "../analysis/collections.js";
-import { findingTitle } from "../analysis/finding-title.js";
-import { isCertaintyBoundaryDefense } from "../analysis/source-file.js";
-import { fanOutIdentity, fanOutRootsFor } from "../analysis/fan-out.js";
-import { packGroupForSink } from "../analysis/pack-groups.js";
-import { familyRows } from "../analysis/ranking.js";
-import { makeFileMatcher } from "../analysis/report-builder.js";
+import type { AnalysisReport, AnalyzerArgs, PackGroup, RankedSink, Sink } from "../types";
+import { unique } from "../analysis/collections";
+import { findingTitle } from "../analysis/finding-title";
+import { isCertaintyBoundaryDefense } from "../analysis/source-defenses";
+import { fanOutRootsFor } from "../analysis/fan-out";
+import { packGroupForSink } from "../analysis/pack-groups";
 import {
   classifyPathShape,
   sinkAttributeName,
   sinkFamilyOf,
-} from "../analysis/sink-shape.js";
+} from "../analysis/sink-shape";
 import {
   code,
   fenced,
   formatMarkdownTable,
   metricTable,
-  tableReport,
   viewIntro,
-} from "./markdown-format.js";
-import { collapse, formatExpression, pascalCase } from "./format-helpers.js";
+} from "./markdown-format";
+import { formatExpression, pascalCase } from "./format-helpers";
 import {
   reportSummaryForCompare as reportSummaryForCompareImpl,
   stopRecommendationFor as stopRecommendationForImpl,
-} from "./compare-summary.js";
-import { appendBaseline } from "./markdown-baseline.js";
+} from "./compare-summary";
+import { appendBaseline } from "./markdown-baseline";
 import {
   extractionProposalFor,
   pluralRenderedThing,
   renderedThingFor,
   representativePathWithBoundaries,
   singularRenderedThing,
-} from "./markdown-path-proposals.js";
+} from "./markdown-path-proposals";
 import {
   candidateEditsFor,
   isProviderContextCandidate,
@@ -40,25 +36,24 @@ import {
   ownershipHintFor,
   packVerdictLines,
   reviewerSummaryFor,
-} from "./markdown-work-advice.js";
-import { fanOutEntriesGlobal } from "./overview-selectors.js";
+} from "./markdown-work-advice";
 import {
   concentrationLines,
   selectWorkItems,
   selectionBanner,
   suppressionLines,
-} from "./markdown-selection.js";
+} from "./markdown-selection";
 import {
   appendFeatureClusters,
   appendStopRecommendation,
   renderOverviewReport,
-} from "./markdown-overview.js";
+} from "./markdown-overview";
 import {
   actionableSourceLabels,
   renderFindings,
   severityFor,
-} from "./markdown-findings.js";
-import { renderRepeatedForks } from "./markdown-repeated-forks.js";
+} from "./markdown-findings";
+import { renderRepeatedForks } from "./markdown-repeated-forks";
 import {
   renderContextRelay,
   renderDefensiveLedger,
@@ -66,13 +61,13 @@ import {
   renderFanOut,
   renderPathFamilies,
   renderPropRelay,
-} from "./markdown-standard-views.js";
+} from "./markdown-standard-views";
 import {
   renderBoundaryReport,
   renderComponentRefs,
   renderInlinePreview,
   renderJunctions,
-} from "./markdown-boundary-views.js";
+} from "./markdown-boundary-views";
 
 export function renderMarkdownView(report: AnalysisReport, args: AnalyzerArgs) {
   switch (args.view) {

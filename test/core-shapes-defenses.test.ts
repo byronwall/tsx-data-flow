@@ -1,21 +1,7 @@
+import type { Sink } from "../src/types";
 import { describe, expect, it } from "vitest";
-import {
-  REPORT_VIEWS,
-  analyzeProject,
-  appRoot,
-  bannedSuggestionIdentifiers,
-  createFixtureProject,
-  createTwoAppProject,
-  helpText,
-  mkdir,
-  mkdtemp,
-  parseArgs,
-  renderAllReports,
-  renderReport,
-  resolve,
-  tmpdir,
-  writeFile,
-} from "./helpers/core-test-context.js";
+import { analyzeProject, renderReport } from "../src/core";
+import { createAnalyzerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
 
 describe("shape-aware suggestions, sink-family grouping, and explainability", () => {
   it("promotes repeated optional Solid prop defaults to mergeProps", async () => {
@@ -170,11 +156,11 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const scalar = report.rankings.all.find((sink: import("../src/types.js").Sink) =>
+    const scalar = report.rankings.all.find((sink: Sink) =>
       sink.expression.includes("tickY"),
     );
     const fallback = report.rankings.all.find(
-      (sink: import("../src/types.js").Sink) => sink.expression === "label",
+      (sink: Sink) => sink.expression === "label",
     );
 
     expect(scalar.background?.label).toBe("already readable");
@@ -231,7 +217,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const layoutSink = report.rankings.all.find((sink: import("../src/types.js").Sink) =>
+    const layoutSink = report.rankings.all.find((sink: Sink) =>
       sink.expression.includes("innerWidth"),
     );
 

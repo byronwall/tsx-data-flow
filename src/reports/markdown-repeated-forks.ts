@@ -1,8 +1,8 @@
-import type { AnalysisReport, AnalyzerArgs } from "../types.js";
-import { defaultMaxItemsFor } from "../cli/args.js";
-import { makeFileMatcher } from "../analysis/report-builder.js";
-import { fenced, viewIntro } from "./markdown-format.js";
-import { formatExpression } from "./format-helpers.js";
+import type { AnalysisReport, AnalyzerArgs } from "../types";
+import { defaultMaxItemsFor } from "../cli/args";
+import { makeFileMatcher } from "../analysis/report-builder";
+import { fenced, viewIntro } from "./markdown-format";
+import { formatExpression } from "./format-helpers";
 
 // Display label + human kind for a fork-site construct.
 type RepeatedFork = AnalysisReport["repeatedForks"][number];

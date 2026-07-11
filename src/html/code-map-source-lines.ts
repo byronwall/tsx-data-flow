@@ -1,5 +1,5 @@
-import type { Sink } from "../types.js";
-import { escapeHtml } from "./escape.js";
+import type { Sink } from "../types";
+import { escapeHtml } from "./escape";
 
 // Pick the highest-burden sink on a line to drive the gutter color.
 export function dominantSink(sinks: Sink[]) {

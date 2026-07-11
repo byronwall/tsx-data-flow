@@ -1,21 +1,8 @@
+import type { Sink } from "../src/types";
 import { describe, expect, it } from "vitest";
-import {
-  REPORT_VIEWS,
-  analyzeProject,
-  appRoot,
-  bannedSuggestionIdentifiers,
-  createFixtureProject,
-  createTwoAppProject,
-  helpText,
-  mkdir,
-  mkdtemp,
-  parseArgs,
-  renderAllReports,
-  renderReport,
-  resolve,
-  tmpdir,
-  writeFile,
-} from "./helpers/core-test-context.js";
+import { parseArgs } from "../src/cli/args";
+import { analyzeProject, renderReport } from "../src/core";
+import { createAnalyzerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
 
 describe("render path data-flow analyzer", () => {
   it("validates CLI formats and report views", () => {
@@ -46,7 +33,7 @@ describe("render path data-flow analyzer", () => {
     });
 
     const report = await analyzeProject(project.args);
-    expect(report.sinks.map((sink: import("../src/types.js").Sink) => sink.category)).toEqual(
+    expect(report.sinks.map((sink: Sink) => sink.category)).toEqual(
       expect.arrayContaining([
         "style",
         "attribute",
@@ -56,7 +43,7 @@ describe("render path data-flow analyzer", () => {
       ]),
     );
     expect(
-      report.rankings.all.some((sink: import("../src/types.js").Sink) => sink.category === "event-handler"),
+      report.rankings.all.some((sink: Sink) => sink.category === "event-handler"),
     ).toBe(false);
   });
 
@@ -79,7 +66,7 @@ describe("render path data-flow analyzer", () => {
     });
 
     const report = await analyzeProject(project.args);
-    const titleSink = report.rankings.all.find((sink: import("../src/types.js").Sink) =>
+    const titleSink = report.rankings.all.find((sink: Sink) =>
       sink.expression.includes("title ??"),
     );
 
@@ -104,10 +91,10 @@ describe("render path data-flow analyzer", () => {
     });
 
     const report = await analyzeProject(project.args);
-    const memoSink = report.rankings.all.find((sink: import("../src/types.js").Sink) =>
+    const memoSink = report.rankings.all.find((sink: Sink) =>
       sink.representativePath.join(" ").includes("memo"),
     );
-    const resourceSink = report.sinks.find((sink: import("../src/types.js").Sink) =>
+    const resourceSink = report.sinks.find((sink: Sink) =>
       sink.representativePath.join(" ").includes("resource"),
     );
 
@@ -138,7 +125,7 @@ describe("render path data-flow analyzer", () => {
 
     const report = await analyzeProject(project.args);
     const mainSink = report.sinks.find(
-      (sink: import("../src/types.js").Sink) =>
+      (sink: Sink) =>
         sink.label?.includes("data-a") || sink.expression === "pos()?.a",
     );
 
@@ -319,7 +306,7 @@ describe("render path data-flow analyzer", () => {
         format: "json",
       }),
     );
-    const rootLabels = json.sinks.flatMap((sink: import("../src/types.js").Sink) => sink.roots ?? []);
+    const rootLabels = json.sinks.flatMap((sink: Sink) => sink.roots ?? []);
     // The empty `{}` and the literal-only style object are inert — never ranked.
     expect(rootLabels).not.toContain("{}");
     expect(rootLabels.some((label: string) => /^\{/.test(label))).toBe(false);

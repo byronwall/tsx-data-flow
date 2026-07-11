@@ -1,21 +1,24 @@
 import { describe, expect, it } from "vitest";
+import { REPORT_VIEWS, parseArgs } from "../../src/cli/args";
+import { helpText } from "../../src/cli/help";
 import {
-  REPORT_VIEWS,
   analyzeProgram,
   analyzeProject,
   createAnalyzer,
+  renderAllReports,
+  renderReport,
+} from "../../src/core";
+import {
   entryTypeCountsByFile,
   fanOutEntriesForFile,
   fanOutEntriesGlobal,
   firstCutFor,
-  helpText,
   hotspotGroups,
   modalValue,
-  parseArgs,
-  renderAllReports,
+} from "../../src/reports/overview-selectors";
+import {
   renderMarkdownView,
-  renderReport,
-} from "../../src/core.js";
+} from "../../src/reports/markdown-views";
 
 const facadeExports = {
   REPORT_VIEWS,
@@ -35,8 +38,8 @@ const facadeExports = {
   renderReport,
 };
 
-describe("core facade exports", () => {
-  it("keeps every current public export importable", () => {
+describe("public modules", () => {
+  it("keeps every current public API importable from its defining module", () => {
     expect(Object.keys(facadeExports).sort()).toEqual([
       "REPORT_VIEWS",
       "analyzeProgram",

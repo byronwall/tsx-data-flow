@@ -4,9 +4,7 @@
 // horizontal rules, bold, and inline code. It is deliberately not a general
 // CommonMark engine — it only needs to be correct for the markup produced in
 // src/core.js, which keeps the project dependency-free.
-import { escapeHtml } from "./escape.js";
-
-export { escapeHtml };
+import { escapeHtml } from "./escape";
 
 // Render inline markup (bold + inline code) within already-block-split text.
 // Inline code is extracted first so its contents are never treated as markup,

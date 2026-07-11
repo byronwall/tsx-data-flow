@@ -1,17 +1,17 @@
 import type * as TypeScript from "typescript";
-import type { AnalysisGraph, AnalyzerArgs, CrossFileState, ProgramRouting, Sink } from "../types.js";
-import { countDistinctUnknownEdges, createGraph } from "./graph.js";
-import { compareBaseline } from "./baseline-compare.js";
-import { unique } from "./collections.js";
-import { buildComponentRefs } from "./component-refs.js";
-import { analyzeContextRelay } from "./context-relay.js";
-import { applyPackEvidence, computePackGroups } from "./pack-groups.js";
-import { familyRows, rankSinks } from "./ranking.js";
-import { groundReachability } from "./reachability.js";
-import { analyzeSourceFile, buildHelperReport } from "./source-file.js";
-import { buildUnknownEdgeRows } from "./unknown-edges.js";
-import { computeConcentration, computeWorkUnits } from "./work-units.js";
-import { shouldAnalyzeFile } from "../project/files.js";
+import type { AnalysisGraph, AnalyzerArgs, CrossFileState, ProgramRouting, Sink } from "../types";
+import { countDistinctUnknownEdges, createGraph } from "./graph";
+import { compareBaseline } from "./baseline-compare";
+import { unique } from "./collections";
+import { buildComponentRefs } from "./component-refs";
+import { analyzeContextRelay } from "./context-relay";
+import { applyPackEvidence, computePackGroups } from "./pack-groups";
+import { familyRows, rankSinks } from "./ranking";
+import { groundReachability } from "./reachability";
+import { analyzeSourceFile, buildHelperReport } from "./source-file";
+import { buildUnknownEdgeRows } from "./unknown-edges";
+import { computeConcentration, computeWorkUnits } from "./work-units";
+import { shouldAnalyzeFile } from "../project/files";
 
 export function buildReport(
   ts: typeof TypeScript,

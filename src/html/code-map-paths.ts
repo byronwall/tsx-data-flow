@@ -1,6 +1,6 @@
-import type { DefenseRecord, RepresentationStep, Sink, TraceStep } from "../types.js";
-import { escapeHtml } from "./escape.js";
-import { snippetBlockHtml } from "./source-peek.js";
+import type { DefenseRecord, RepresentationStep, Sink, TraceStep } from "../types";
+import { escapeHtml } from "./escape";
+import { snippetBlockHtml } from "./source-peek";
 
 const STEP_KIND_LABEL: Record<string, string> = {
   source: "source",

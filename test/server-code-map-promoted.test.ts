@@ -1,21 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  FIXTURE,
-  REPORT_VIEWS,
-  analyzeProject,
-  call,
-  createAnalyzer,
-  createFixtureProject,
-  createServer,
-  fanOutAnchor,
-  fanOutEntriesForFile,
-  fanOutEntriesGlobal,
-  parseArgs,
-  peekReferences,
-  readFile,
-  renderCodeMap,
-  resolve,
-} from "./helpers/server-test-context.js";
+import { renderCodeMap } from "../src/html/code-map";
+import { fanOutAnchor } from "../src/html/code-map-graphs";
 
 describe("renderCodeMap", () => {
   const baseSink = {

@@ -1,5 +1,5 @@
-import type { AnalysisReport, AnalyzerArgs } from "../types.js";
-import { commandPath } from "./markdown-format.js";
+import type { AnalysisReport, AnalyzerArgs } from "../types";
+import { commandPath } from "./markdown-format";
 
 // A copy-pasteable command that regenerates exactly this report -- including the
 // `--out` that lands it back in the same place on disk, so re-running overwrites

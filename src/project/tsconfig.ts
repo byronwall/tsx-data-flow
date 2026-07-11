@@ -1,8 +1,8 @@
 import type * as TypeScript from "typescript";
-import type { AnalyzerArgs } from "../types.js";
+import type { AnalyzerArgs } from "../types";
 import fs from "node:fs";
 import path from "node:path";
-import { DEFAULT_IGNORED_PARTS, isWithin } from "./files.js";
+import { DEFAULT_IGNORED_PARTS, isWithin } from "./files";
 
 export interface TsconfigInfo {
   file: string; exists: boolean; error: string | null;

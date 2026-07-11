@@ -1,6 +1,6 @@
 import type * as TypeScript from "typescript";
-import { locationOf } from "../graph.js";
-import { collapse } from "../../reports/format-helpers.js";
+import { locationOf } from "../graph";
+import { collapse } from "../../reports/format-helpers";
 
 // Values that are guards/toggles, not variant axes. A discriminated split keys
 // on a named domain value (a string/number literal), never on these.

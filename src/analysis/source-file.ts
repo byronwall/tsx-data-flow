@@ -1,42 +1,34 @@
 import type * as TypeScript from "typescript";
-import type { AnalysisGraph, AnalyzerArgs, CrossFileState, DefenseRecord, GraphNode, Sink, TraceResult } from "../types.js";
+import type { AnalysisGraph, AnalyzerArgs, CrossFileState, DefenseRecord, GraphNode, Sink, TraceResult } from "../types";
 import path from "node:path";
 import {
   addEdge,
   addNode,
-  countDistinctUnknownEdges,
   locationOf,
   spanOf,
-} from "./graph.js";
-import { unique } from "./collections.js";
-import { buildHelperReport as buildHelperReportImpl } from "./helper-report.js";
-import { fanOutRootsFor } from "./fan-out.js";
-import { queueFor } from "./reachability.js";
-import { detectRepeatedForks } from "./repeated-forks.js";
-import { sinkAttributeName } from "./sink-shape.js";
+} from "./graph";
+import { buildHelperReport as buildHelperReportImpl } from "./helper-report";
+import { fanOutRootsFor } from "./fan-out";
+import { queueFor } from "./reachability";
+import { detectRepeatedForks } from "./repeated-forks";
+import { sinkAttributeName } from "./sink-shape";
 import {
   buildFileContext,
   getFileContextCached,
   resolveCatalogFn,
-} from "./trace-support.js";
+} from "./trace-support";
+
+
 import {
-  formatExpression,
-} from "../reports/format-helpers.js";
-import {
-  arrayCallbackBinding,
   enclosingFunctionName,
   getSinkExpression,
-  renderPropBinding,
-} from "./source-sinks.js";
+} from "./source-sinks";
 import {
   confidenceFor,
-  defenseRecord,
   isCertaintyBoundaryDefense,
   safeTypeText,
-} from "./source-defenses.js";
-import { traceExpression } from "./source-trace.js";
-export { isCertaintyBoundaryDefense } from "./source-defenses.js";
-
+} from "./source-defenses";
+import { traceExpression } from "./source-trace";
 export function analyzeSourceFile(
   ts: typeof TypeScript,
   checker: TypeScript.TypeChecker,

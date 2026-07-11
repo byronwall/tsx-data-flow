@@ -1,6 +1,6 @@
-import type { AnalysisReport, AnalyzerArgs, BoundaryHelper, Sink, SourceSnippet } from "../types.js";
-import { code, fenced, tableReport, viewIntro } from "./markdown-format.js";
-import { formatExpression } from "./format-helpers.js";
+import type { AnalysisReport, AnalyzerArgs, BoundaryHelper, Sink, SourceSnippet } from "../types";
+import { code, fenced, tableReport, viewIntro } from "./markdown-format";
+import { formatExpression } from "./format-helpers";
 
 // Approach 2 — classify every function reached on a render path as a data-flow
 // boundary, ranked by "boundary debt".

@@ -1,5 +1,5 @@
 import type * as TypeScript from "typescript";
-import type { AnalysisGraph, GraphNode } from "../types.js";
+import type { AnalysisGraph, GraphNode } from "../types";
 export function createGraph(root: string = process.cwd()): AnalysisGraph {
   return { nodes: [], edges: [], nextNodeId: 1, nextEdgeId: 1, root };
 }

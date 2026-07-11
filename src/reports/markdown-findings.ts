@@ -1,14 +1,14 @@
-import type { AnalysisReport, AnalyzerArgs, Sink } from "../types.js";
-import { unique } from "../analysis/collections.js";
-import { findingTitle } from "../analysis/finding-title.js";
-import { fanOutRootsFor } from "../analysis/fan-out.js";
-import { fenced, metricTable, viewIntro } from "./markdown-format.js";
-import { formatExpression } from "./format-helpers.js";
+import type { AnalysisReport, AnalyzerArgs, Sink } from "../types";
+import { unique } from "../analysis/collections";
+import { findingTitle } from "../analysis/finding-title";
+import { fanOutRootsFor } from "../analysis/fan-out";
+import { fenced, metricTable, viewIntro } from "./markdown-format";
+import { formatExpression } from "./format-helpers";
 import {
   selectWorkItems,
   selectionBanner,
   suppressionLines,
-} from "./markdown-selection.js";
+} from "./markdown-selection";
 
 type AppendBaseline = (lines: string[], report: AnalysisReport) => void;
 

@@ -1,6 +1,6 @@
 import type * as TypeScript from "typescript";
 import path from "node:path";
-import { locationOf } from "./graph.js";
+import { locationOf } from "./graph";
 
 export interface ContextRelayFinding {
   parentFile: string; line: number; column: number; childComponent: string;

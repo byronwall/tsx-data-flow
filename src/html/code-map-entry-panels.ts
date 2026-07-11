@@ -1,6 +1,6 @@
-import type { BoundaryHelper, ReachedSink, Sink, UnknownEdgeRow } from "../types.js";
-import { escapeHtml } from "./escape.js";
-import { fanOutAnchor } from "./code-map-graphs.js";
+import type { BoundaryHelper, ReachedSink, Sink, UnknownEdgeRow } from "../types";
+import { escapeHtml } from "./escape";
+import { fanOutAnchor } from "./code-map-graphs";
 
 // Type metadata for the unified entry list: badge label + sort priority. Findings
 // lead; usages sink to the bottom (they are "proof of use", not smells).

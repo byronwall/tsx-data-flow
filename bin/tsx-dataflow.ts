@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import {
   analyzeProject,
-  helpText,
-  parseArgs,
   renderAllReports,
   renderReport,
-} from "../src/core.js";
-import { writeAllReports, writeReport } from "../src/reports/output.js";
+} from "../src/core";
+import { parseArgs } from "../src/cli/args";
+import { helpText } from "../src/cli/help";
+import { writeAllReports, writeReport } from "../src/reports/output";
 
 try {
   const args = parseArgs(process.argv.slice(2));

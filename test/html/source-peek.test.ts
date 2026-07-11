@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   peekReferences,
   snippetBlockHtml,
-} from "../../src/html/source-peek.js";
+} from "../../src/html/source-peek";
 
 describe("source peek", () => {
   const SRC = [

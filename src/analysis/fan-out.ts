@@ -1,4 +1,4 @@
-import type { RootInfo, Sink } from "../types.js";
+import type { RootInfo, Sink } from "../types";
 // Global identifiers and language keywords that the local file context cannot
 // resolve and that surface as `unknown-source` roots, but are never an ownable
 // domain "source" a developer could centralize. Excluded from fan-out ranking.

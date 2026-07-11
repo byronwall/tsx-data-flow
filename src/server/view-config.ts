@@ -1,4 +1,4 @@
-import { REPORT_VIEWS } from "../cli/args.js";
+import { REPORT_VIEWS } from "../cli/args";
 
 // Short human labels for the per-file view sections.
 export const VIEW_LABELS: Record<string, string> = {

@@ -1,9 +1,9 @@
 import path from "node:path";
-import type { AnalyzerArgs } from "../types.js";
+import type { AnalyzerArgs } from "../types";
 import {
   findDefaultSource,
   findDefaultTsconfig,
-} from "../project/discovery.js";
+} from "../project/discovery";
 
 const VALID_FORMATS = new Set(["json", "markdown"]);
 // The concrete report views, in the order `--view all` emits them.

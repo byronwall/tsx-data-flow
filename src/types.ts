@@ -1,5 +1,5 @@
 import type * as TypeScript from "typescript";
-import type { buildReport } from "./analysis/report-builder.js";
+import type { buildReport } from "./analysis/report-builder";
 export interface SourceLocation { line: number; column: number; file?: string }
 export interface SourceSpan { startLine: number; startColumn: number; endLine: number; endColumn: number }
 
