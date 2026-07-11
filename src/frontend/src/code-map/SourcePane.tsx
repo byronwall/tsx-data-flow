@@ -4,6 +4,7 @@ import type { FilePage } from "../../../api/contracts";
 export function SourcePane(props: {
   file: FilePage["file"];
   selectedId: string | null;
+  pathLines: Set<number>;
   registerLine: (line: number, element: HTMLTableRowElement) => void;
   select: (id: string) => void;
 }) {
@@ -13,7 +14,7 @@ export function SourcePane(props: {
         <tbody>
           <For each={props.file.lines}>{(line) => (
             <tr id={`L${line.number}`} data-line={line.number} ref={(element) => props.registerLine(line.number, element)}
-              classList={{ "has-sink": line.annotations.length > 0, selected: line.annotations.some((a) => a.entityId === props.selectedId) }}>
+              classList={{ "has-sink": line.annotations.length > 0, "on-path": props.pathLines.has(line.number), selected: line.annotations.some((a) => a.entityId === props.selectedId) }}>
               <th class="ln"><a href={`#L${line.number}`}>{line.number}</a></th>
               <td class="source-text"><code><SourceText text={line.text} annotations={line.annotations} selectedId={props.selectedId} select={props.select} /></code></td>
               <td class="source-hits">

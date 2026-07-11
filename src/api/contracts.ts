@@ -123,6 +123,11 @@ export const findingDetailSchema = z.strictObject({
   location: sourcePointSchema, span: z.strictObject({ startLine: z.number().int(), startColumn: z.number().int(), endLine: z.number().int(), endColumn: z.number().int() }),
   context: z.strictObject({ component: z.string().nullable(), tag: z.string().nullable(), attribute: z.string().nullable() }),
   burden: z.number(), confidence: z.number(), confidenceReason: z.string(), queue: z.string(),
+  confidenceRisk: z.string(),
+  burdenBreakdown: z.strictObject({
+    backgroundPenalty: z.number(), rawSum: z.number(), total: z.number(),
+    terms: z.array(z.strictObject({ key: z.string(), label: z.string(), weight: z.number(), raw: z.number(), normalized: z.number(), contribution: z.number() })),
+  }).nullable(),
   roots: z.array(z.strictObject({ label: z.string(), kind: z.string(), location: sourcePointSchema.nullable() })),
   path: z.array(traceStepSchema), defenses: z.array(defenseSchema),
   representationSteps: z.array(z.strictObject({ kind: z.string(), label: z.string(), location: sourcePointSchema })),
