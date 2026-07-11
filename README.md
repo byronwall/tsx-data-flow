@@ -1,10 +1,17 @@
 # tsx-data-flow
 
-`tsx-dataflow` is a static **render-path data-flow analyzer** for TypeScript/TSX UI code, with first-class awareness of Solid / SolidStart patterns. It builds a typed interprocedural graph from source expressions to JSX render sinks and ranks the highest-leverage cleanup work: prop relay, fan-out/fan-in pressure, repeated object/shape conversions, broad prop bundles, and state that should be owned by a feature-scoped store/context.
+`tsx-dataflow` traces how values move through TypeScript/TSX UI code on their way
+to JSX. It builds a typed graph from source expressions to render sinks, then
+points at cleanup work worth inspecting: prop relay, fan-out and fan-in pressure,
+repeated shape conversions, broad prop bundles, and state that may belong in a
+feature-scoped store or context. It understands Solid and SolidStart patterns.
 
-It uses the TypeScript compiler API directly (no extra AST wrapper) so it can reason about types — for example flagging a `?? "fallback"` defense on a value the compiler already proves is non-nullable.
+It uses the TypeScript compiler API directly, without another AST wrapper. That
+lets it use the checked types—for example, to flag `value ?? "fallback"` when
+TypeScript already proves that `value` cannot be nullish.
 
-> The tool is **advisory**. Every high-ranked item is candidate evidence; spot-check against source before editing.
+> The tool is **advisory**. A high rank means "look here first," not "make this
+> edit blindly." Check the source before changing it.
 
 ## Install
 
@@ -28,7 +35,17 @@ Requires Node.js >= 18. The analyzer resolves `typescript` from the target proje
 
 ## Quick start
 
-Run it from the root of the project you want to analyze. `--source` and `--tsconfig` are auto-discovered (`./src` then `./app/src`; nearest `tsconfig.json` walking up). In a **monorepo**, discovery walks up from the source root, expands solution/aggregator configs (`{ "files": [], "references": [...] }`) through their project references, and scans subdirectories for reference-only roots. A **valid** `tsconfig` is required: rather than silently fall back to non-strict compiler options — which disables `strictNullChecks` and makes every nullish-defense verdict unsound (optional props look non-nullable, so `x ?? y` is wrongly flagged as a dead "type-impossible" guard) — the analyzer fails loudly and tells you what it tried. Point it at a concrete per-app config (e.g. `--tsconfig client/apps/web/tsconfig.json`) or run it scoped to that app's directory:
+Run it from the root of the project you want to analyze. The analyzer discovers
+`--source` and `--tsconfig` for the usual layouts: `./src`, then `./app/src`, and
+the nearest `tsconfig.json` walking upward.
+
+Monorepo discovery also follows project references from solution configs and
+looks for referenced configs in subdirectories. The analyzer requires a valid
+`tsconfig`. Falling back to non-strict compiler options would disable
+`strictNullChecks` and make nullish-defense findings untrustworthy, so it fails
+loudly and reports what it tried instead. For an unusual monorepo, point it at a
+specific app config, such as `--tsconfig client/apps/web/tsconfig.json`, or run it
+from that app's directory:
 
 ```bash
 # ranked, implementation-ready work items (default view)
@@ -54,7 +71,7 @@ For a non-standard layout, pass paths explicitly:
 tsx-dataflow --source app/src --tsconfig app/tsconfig.json --view findings
 ```
 
-## Toy Example
+## A small example
 
 The checked-in [`examples/bad-ish-solid/`](examples/bad-ish-solid/) project is intentionally small but shaped like real TSX that has started to drift: a route shell packs props into route models, relays those bundles through children, rebuilds view models in rows and summaries, and keeps nullish fallbacks after the TypeScript types already prove some values are present.
 
@@ -106,7 +123,15 @@ props.task, props.actor, props.preferences, preferences.accentColor
 A nullish fallback or optional access is unreachable under the checked TypeScript program.
 ````
 
-The more useful view for planning work is [`examples/bad-ish-solid/reports/work-packets.md`](examples/bad-ish-solid/reports/work-packets.md): it turns the same graph into ranked cleanup packets with a representative source-to-sink path, candidate edits, and risk queue. The companion [`overview.md`](examples/bad-ish-solid/reports/overview.md), [`prop-relay.md`](examples/bad-ish-solid/reports/prop-relay.md), [`fan-out.md`](examples/bad-ish-solid/reports/fan-out.md), and [`defensive-ledger.md`](examples/bad-ish-solid/reports/defensive-ledger.md) reports show why that code would be a good target for introducing a feature-scoped store/context or thinner component props.
+For planning work, [`examples/bad-ish-solid/reports/work-packets.md`](examples/bad-ish-solid/reports/work-packets.md)
+is probably the better starting point. It turns the same graph into ranked
+cleanup packets with a representative source-to-sink path, candidate edits, and
+a risk queue. The companion [`overview.md`](examples/bad-ish-solid/reports/overview.md),
+[`prop-relay.md`](examples/bad-ish-solid/reports/prop-relay.md),
+[`fan-out.md`](examples/bad-ish-solid/reports/fan-out.md), and
+[`defensive-ledger.md`](examples/bad-ish-solid/reports/defensive-ledger.md) reports
+show why this code may be ready for a feature-scoped store/context or thinner
+component props.
 
 ## Options
 
@@ -187,9 +212,10 @@ depth for breadth without losing the worst finding:
 The default stays `--sort burden` (today's exact ordering); everything above is
 additive.
 
-### Guidance Quality
+### Guidance quality
 
-`work-packets` includes report-layer guidance so agents do not overreact to true but low-leverage paths:
+`work-packets` adds guidance so an agent does not overreact to a path that is
+technically real but not worth changing:
 
 - Feature clusters only recommend `Provider/Context audit` when the trace contains provider/context, feature-hook, or same-feature relay evidence. Local SVG/chart renderers fall back to local render-data guidance.
 - Related SVG/collection sinks are grouped by rendered thing, such as `BarTick[]` or `BarRectangle[]`, so one cohesive extraction is visible above the individual findings.
@@ -204,7 +230,7 @@ To compare a cleanup loop, keep both `--view all` directories and run:
 tsx-dataflow --root . --file src/components/Chart.tsx --compare .tsx-dataflow-before --out .tsx-dataflow-compare.md
 ```
 
-## Browse in your browser
+## Explore it in the browser
 
 The same analysis is available as a local HTML UI. It builds the TypeScript
 program once, then serves an overview of files ranked by burden and a focused
