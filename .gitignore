@@ -4,3 +4,4 @@ dist/
 tmp/
 *.log
 .DS_Store
+.pnpm-store/
