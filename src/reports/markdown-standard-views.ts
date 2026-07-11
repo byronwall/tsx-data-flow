@@ -1,3 +1,4 @@
+import type { AnalysisReport, AnalyzerArgs, DefenseRecord, Sink } from "../types.js";
 import { fanOutEntriesGlobal } from "./overview-selectors.js";
 import { familyRows } from "../analysis/ranking.js";
 import { code, fenced, formatMarkdownTable, tableReport, viewIntro } from "./markdown-format.js";
@@ -8,7 +9,7 @@ import { formatExpression } from "./format-helpers.js";
 // depth, plus the source's definition location and a single/cross-file tag. This is
 // the markdown the agent consumes, so it carries the same "lists everything, shows
 // depth and usage" content as the on-page graph (not the old 5-column summary).
-export function renderFanOut(report, args) {
+export function renderFanOut(report: AnalysisReport, args: AnalyzerArgs) {
   const entries = fanOutEntriesGlobal(
     report.rankings?.all ?? report.sinks ?? [],
   ).slice(0, args.maxItems);
@@ -50,10 +51,10 @@ export function renderFanOut(report, args) {
   return `${lines.join("\n")}\n`;
 }
 
-export function renderFanIn(report, args) {
+export function renderFanIn(report: AnalysisReport, args: AnalyzerArgs) {
   const rows = report.rankings.all
     .slice(0, args.maxItems)
-    .map((sink) => [
+    .map((sink: Sink) => [
       `${sink.file}:${sink.line}`,
       String(sink.metrics.mergeWidth),
       String(sink.metrics.controlDependencyCount),
@@ -67,7 +68,7 @@ export function renderFanIn(report, args) {
   );
 }
 
-export function renderPathFamilies(report, args) {
+export function renderPathFamilies(report: AnalysisReport, args: AnalyzerArgs) {
   const families = familyRows(report.sinks).slice(0, args.maxItems);
   const rows = families.map((family) => [
     code(family.signature),
@@ -105,7 +106,7 @@ export function renderPathFamilies(report, args) {
   return `${lines.join("\n")}\n`;
 }
 
-export function renderDefensiveLedger(report, args) {
+export function renderDefensiveLedger(report: AnalysisReport, args: AnalyzerArgs) {
   // One defense can reach many sinks (e.g. a `size` fallback that drives several
   // JSX outputs), so the same guard would otherwise repeat once per reachable
   // sink. Dedupe by location+expression and surface the fan-out as a count so
@@ -122,7 +123,7 @@ export function renderDefensiveLedger(report, args) {
   // Impossible verdicts (dead guards) matter most; rank them first so a small
   // --max-items cap surfaces the worst, not whatever was encountered first.
   // Tie-break on fan-out (count) so a guard that reaches many sinks wins.
-  const verdictRank = { impossible: 0, possible: 1, unknown: 2 };
+  const verdictRank: Record<string, number> = { impossible: 0, possible: 1, unknown: 2 };
   const rows = [...byKey.values()]
     .sort((a, b) => {
       const va = verdictRank[a.defense.verdict] ?? 3;
@@ -148,7 +149,7 @@ export function renderDefensiveLedger(report, args) {
   );
 }
 
-function defensiveActionFor(defense) {
+function defensiveActionFor(defense: DefenseRecord) {
   if (defense.verdict === "impossible") return "remove after contract check";
   if (/solid prop default/i.test(defense.origin ?? "")) {
     return "promote to mergeProps default";
@@ -163,10 +164,10 @@ function defensiveActionFor(defense) {
   return "review boundary placement";
 }
 
-export function renderPropRelay(report, args) {
+export function renderPropRelay(report: AnalysisReport, args: AnalyzerArgs) {
   const rows = report.rankings.all
     .slice(0, args.maxItems)
-    .map((sink) => [
+    .map((sink: Sink) => [
       `${sink.file}:${sink.line}`,
       String(Math.max(0, sink.metrics.mergeWidth - 1)),
       String(sink.metrics.representationChurn),
@@ -180,7 +181,7 @@ export function renderPropRelay(report, args) {
   );
 }
 
-export function renderContextRelay(report, args) {
+export function renderContextRelay(report: AnalysisReport, args: AnalyzerArgs) {
   const findings = report.contextRelay.slice(0, args.maxItems);
   const rows = findings.map((finding) => [
     `${finding.parentFile}:${finding.line}`,
@@ -206,13 +207,13 @@ export function renderContextRelay(report, args) {
       lines.push(
         `### ${finding.childComponent} — \`${finding.parentFile}:${finding.line}\``,
         "",
-        `- Parent reads context via ${finding.contextHooks.map((hook) => code(hook)).join(", ") || "_(context hooks in scope)_"}.`,
-        `- It forwards ${plural(finding.props.length, "prop")} to \`${finding.childComponent}\`: ${finding.props.map((prop) => code(prop)).join(", ")}.`,
+        `- Parent reads context via ${finding.contextHooks.map((hook: string) => code(hook)).join(", ") || "_(context hooks in scope)_"}.`,
+        `- It forwards ${plural(finding.props.length, "prop")} to \`${finding.childComponent}\`: ${finding.props.map((prop: string) => code(prop)).join(", ")}.`,
       );
       if (finding.sharedProps?.length) {
         lines.push(
           `- ${plural(finding.sharedProps.length, "prop")} reuse a context-shaped name — ${finding.sharedProps
-            .map((prop) => code(prop))
+            .map((prop: string) => code(prop))
             .join(
               ", ",
             )} — so the child could read ${finding.sharedProps.length === 1 ? "it" : "them"} from context instead of receiving ${finding.sharedProps.length === 1 ? "it" : "them"} as ${finding.sharedProps.length === 1 ? "a prop" : "props"}.`,
@@ -232,10 +233,10 @@ export function renderContextRelay(report, args) {
 }
 
 
-function representativePathLines(sink, { showKind = true } = {}) {
+function representativePathLines(sink: Sink, { showKind = true } = {}) {
   const steps =
     sink.representativeSteps ??
-    sink.representativePath.map((label) => ({ label, kind: null }));
+    sink.representativePath.map((label: string) => ({ label, kind: null }));
   if (steps.length === 0) return ["(no path)"];
   return steps.map((step) => {
     const label = formatExpression(step.label);
@@ -245,6 +246,6 @@ function representativePathLines(sink, { showKind = true } = {}) {
   });
 }
 
-function plural(count, noun) {
+function plural(count: number, noun: string) {
   return count + " " + noun + (count === 1 ? "" : "s");
 }

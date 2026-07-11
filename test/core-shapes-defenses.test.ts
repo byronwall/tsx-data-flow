@@ -170,11 +170,11 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const scalar = report.rankings.all.find((sink) =>
+    const scalar = report.rankings.all.find((sink: import("../src/types.js").Sink) =>
       sink.expression.includes("tickY"),
     );
     const fallback = report.rankings.all.find(
-      (sink) => sink.expression === "label",
+      (sink: import("../src/types.js").Sink) => sink.expression === "label",
     );
 
     expect(scalar.background?.label).toBe("already readable");
@@ -231,7 +231,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
       `,
     });
     const report = await analyzeProject(project.args);
-    const layoutSink = report.rankings.all.find((sink) =>
+    const layoutSink = report.rankings.all.find((sink: import("../src/types.js").Sink) =>
       sink.expression.includes("innerWidth"),
     );
 

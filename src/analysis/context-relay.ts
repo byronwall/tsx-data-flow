@@ -1,9 +1,16 @@
+import type * as TypeScript from "typescript";
 import path from "node:path";
 import { locationOf } from "./graph.js";
 
-export function analyzeContextRelay(ts, sourceFiles, root) {
+export interface ContextRelayFinding {
+  parentFile: string; line: number; column: number; childComponent: string;
+  childFile: string; contextHooks: string[]; props: string[]; sharedProps: string[];
+  score: number; signal: string;
+}
+
+export function analyzeContextRelay(ts: typeof TypeScript, sourceFiles: TypeScript.SourceFile[], root: string) {
   return sourceFiles
-    .flatMap((sourceFile) => contextRelayFindingsForFile(ts, sourceFile, root))
+    .flatMap((sourceFile: TypeScript.SourceFile) => contextRelayFindingsForFile(ts, sourceFile, root))
     .sort(
       (left, right) =>
         right.score - left.score ||
@@ -12,7 +19,7 @@ export function analyzeContextRelay(ts, sourceFiles, root) {
     );
 }
 
-function contextRelayFindingsForFile(ts, sourceFile, root) {
+function contextRelayFindingsForFile(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, root: string) {
   if (
     !sourceFile.fileName.endsWith(".tsx") &&
     !sourceFile.fileName.endsWith(".jsx")
@@ -24,11 +31,11 @@ function contextRelayFindingsForFile(ts, sourceFile, root) {
   const contextHooks = contextHookNames(ts, sourceFile);
   if (contextHooks.size === 0) return [];
 
-  const usedContextHooks = new Set();
-  const findings = [];
+  const usedContextHooks = new Set<string>();
+  const findings: ContextRelayFinding[] = [];
   const currentFeature = featureKeyFor(relativePath(root, sourceFile.fileName));
 
-  const visit = (node) => {
+  const visit = (node: TypeScript.Node) => {
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
@@ -42,9 +49,9 @@ function contextRelayFindingsForFile(ts, sourceFile, root) {
       const imported = importMap.get(jsx.tag);
       if (imported?.feature === currentFeature) {
         const props = jsx.attributes
-          .map((attribute) => jsxAttributeName(ts, attribute))
+          .map((attribute: TypeScript.Node) => jsxAttributeName(ts, attribute))
           .filter(Boolean)
-          .filter((name) => !localDisplayPropNames.has(name));
+          .filter((name: string) => !localDisplayPropNames.has(name));
         const sharedProps = props.filter(isSharedContextPropName);
         if (props.length >= 3 || sharedProps.length > 0) {
           const location = locationOf(sourceFile, jsx.node);
@@ -76,7 +83,7 @@ function contextRelayFindingsForFile(ts, sourceFile, root) {
   return findings;
 }
 
-function localComponentImportMap(ts, sourceFile, root) {
+function localComponentImportMap(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, root: string) {
   const imports = new Map();
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement)) continue;
@@ -105,9 +112,9 @@ function localComponentImportMap(ts, sourceFile, root) {
   return imports;
 }
 
-function contextHookNames(ts, sourceFile) {
-  const hooks = new Set();
-  const visit = (node) => {
+function contextHookNames(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile) {
+  const hooks = new Set<string>();
+  const visit = (node: TypeScript.Node) => {
     if (
       ts.isImportDeclaration(node) &&
       ts.isStringLiteral(node.moduleSpecifier)
@@ -137,7 +144,7 @@ function contextHookNames(ts, sourceFile) {
   return hooks;
 }
 
-function jsxTagAndAttributes(ts, node) {
+function jsxTagAndAttributes(ts: typeof TypeScript, node: TypeScript.Node) {
   if (ts.isJsxSelfClosingElement(node) && ts.isIdentifier(node.tagName)) {
     return {
       node,
@@ -155,7 +162,7 @@ function jsxTagAndAttributes(ts, node) {
   return null;
 }
 
-function jsxAttributeName(ts, attribute) {
+function jsxAttributeName(ts: typeof TypeScript, attribute: TypeScript.Node) {
   if (!ts.isJsxAttribute(attribute)) return "";
   return attribute.name.getText();
 }
@@ -182,11 +189,11 @@ const localDisplayPropNames = new Set([
 const sharedContextPropPattern =
   /^(action|actions|can[A-Z]|colorSwatches|detail|filters|fragments|inspector|metadata|model|modes|nodeByDomPath|notes|on[A-Z]|pending|section|selected|selection|settings|state|table|toolModes|view|workspace|zoom)$/u;
 
-function isSharedContextPropName(name) {
+function isSharedContextPropName(name: string) {
   return sharedContextPropPattern.test(name);
 }
 
-function featureKeyFor(file) {
+function featureKeyFor(file: string) {
   const parts = file.split("/").filter(Boolean);
   const sourceIndex = parts.findIndex((part) => part === "src");
   const offset = sourceIndex >= 0 ? sourceIndex + 1 : 0;
@@ -197,6 +204,6 @@ function featureKeyFor(file) {
   return directoryParts.slice(0, 3).join("/") || path.dirname(file);
 }
 
-function relativePath(root, file) {
+function relativePath(root: string, file: string) {
   return path.relative(root, file).replaceAll(path.sep, "/");
 }

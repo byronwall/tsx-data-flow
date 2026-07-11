@@ -19,7 +19,7 @@ import {
 
 describe("fanOutEntriesForFile (ARCH-2)", () => {
   it("keeps roots that fan out (>=2 sinks) and touch the target file", () => {
-    const mk = (id, file, root) => ({
+    const mk = (id: string, file: string, root: string) => ({
       id,
       file,
       line: 1,
@@ -42,7 +42,7 @@ describe("fanOutEntriesForFile (ARCH-2)", () => {
 });
 
 describe("fanOutEntriesGlobal (HOME-1)", () => {
-  const mk = (id, file, root) => ({
+  const mk = (id: string, file: string, root: string) => ({
     id,
     file,
     line: 1,

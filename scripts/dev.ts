@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 
 // Everything passed to `pnpm dev -- ...` configures the analyzer server. Vite
 // keeps its own stable configuration (including the proxy to port 4318).
-const serverArgs = process.argv.slice(2).filter((arg, index) => {
+const serverArgs = process.argv.slice(2).filter((arg, index: number) => {
   return !(index === 0 && arg === "--");
 });
 const packageManager = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -31,7 +31,7 @@ const children = [
 
 let stopping = false;
 
-function stop(signal = "SIGTERM", exitCode = 0) {
+function stop(signal: string = "SIGTERM", exitCode: number = 0) {
   if (stopping) return;
   stopping = true;
   for (const child of children) {

@@ -43,7 +43,7 @@ describe("JSON report projection", () => {
           },
         ],
         modalValue: (values) => values[0] ?? "-",
-        firstCutFor: (sink) => `first:${sink.id}`,
+        firstCutFor: (sink: import("../../src/types.js").Sink) => `first:${sink.id}`,
       },
     );
 

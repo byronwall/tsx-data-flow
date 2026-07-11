@@ -1,4 +1,5 @@
-export function reachedSinkDescriptor(sink) {
+import type { Sink } from "../types.js";
+export function reachedSinkDescriptor(sink: Sink) {
   const ctx = sink.renderContext ?? {};
   const where = [ctx.tag, ctx.attribute].filter(Boolean).join(" / ");
   return {

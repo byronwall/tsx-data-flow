@@ -11,7 +11,9 @@ import { STYLE } from "./styles.js";
 // beneath it — the tab strip (workspace report tabs on the overview/report pages, the
 // code-map + file-scoped report tabs on the file page). `context` is the repo root or
 // the current file path; `tabs` is the pre-rendered tab strip for this page.
-export function page({ title, body, tabs = "", context = "", wide = false }) {
+interface PageOptions { title: string; body: string; tabs?: string; context?: string; wide?: boolean }
+
+export function page({ title, body, tabs = "", context = "", wide = false }: PageOptions) {
   return `<!doctype html>
 <html lang="en">
 <head>

@@ -1,3 +1,4 @@
+import type { AnalysisReport, AnalyzerArgs, PackGroup, RankedSink, Sink } from "../types.js";
 import { defaultMaxItemsFor } from "../cli/args.js";
 import { unique } from "../analysis/collections.js";
 import { findingTitle } from "../analysis/finding-title.js";
@@ -73,7 +74,7 @@ import {
   renderJunctions,
 } from "./markdown-boundary-views.js";
 
-export function renderMarkdownView(report, args) {
+export function renderMarkdownView(report: AnalysisReport, args: AnalyzerArgs) {
   switch (args.view) {
     case "overview":
       return renderOverviewReport(report, args, {
@@ -111,7 +112,7 @@ export function renderMarkdownView(report, args) {
   }
 }
 
-function renderWorkPackets(report, args) {
+function renderWorkPackets(report: AnalysisReport, args: AnalyzerArgs) {
   const selection = selectWorkItems(report, args);
   const sinks = selection.selected;
   const renderGroups = groupedRenderRecommendations(report.rankings.all);
@@ -127,7 +128,7 @@ function renderWorkPackets(report, args) {
   appendGroupedRecommendations(lines, report, args);
   lines.push(...concentrationLines(report, sinks.length));
   const itemKind = selection.useUnits ? "WORK UNIT" : "WORK ITEM";
-  sinks.forEach((sink, index) => {
+  sinks.forEach((sink: Sink, index: number) => {
     const group = packGroupForSink(sink, report.packGroups);
     lines.push(
       `## ${itemKind} DF-${String(index + 1).padStart(3, "0")}  ·  ${sink.id}`,
@@ -247,9 +248,9 @@ function renderWorkPackets(report, args) {
   return `${lines.join("\n")}\n`;
 }
 
-function appendBackgroundFindings(lines, report, args) {
+function appendBackgroundFindings(lines: string[], report: AnalysisReport, args: AnalyzerArgs) {
   const rows = report.rankings.all
-    .filter((sink) => sink.background)
+    .filter((sink: Sink) => sink.background)
     .slice(0, Math.min(5, args.maxItems));
   if (rows.length === 0) return;
   lines.push("## Background Findings");
@@ -259,11 +260,11 @@ function appendBackgroundFindings(lines, report, args) {
   lines.push(
     ...formatMarkdownTable(
       ["Location", "Expression", "Classification", "Reason"],
-      rows.map((sink) => [
+      rows.map((sink: Sink) => [
         `${sink.file}:${sink.line}`,
         formatExpression(sink.expression, 28),
-        sink.background.label,
-        sink.background.reason,
+        sink.background?.label ?? "background",
+        sink.background?.reason ?? "low-value cleanup",
       ]),
     ),
   );
@@ -272,7 +273,11 @@ function appendBackgroundFindings(lines, report, args) {
   lines.push("");
 }
 
-function extractionShapeCheckFor(sink, packGroup, renderGroups = []) {
+interface RenderGroup {
+  file: string; component: string; renderedThing: string; sinks: RankedSink[];
+  title: string; sinkCount: number; fields: string[]; shape: string; reason: string;
+}
+function extractionShapeCheckFor(sink: Sink, packGroup: PackGroup | null, renderGroups: RenderGroup[] = []) {
   if (sinkFamilyOf(sink) === "svg-shell") {
     return [
       "verdict: root shell scalar",
@@ -322,7 +327,7 @@ function extractionShapeCheckFor(sink, packGroup, renderGroups = []) {
   return null;
 }
 
-function mirrorSingletonRiskFor(sink) {
+function mirrorSingletonRiskFor(sink: Sink) {
   const family = sinkFamilyOf(sink);
   if (family === "svg-shell") return false;
   if ((sink.metrics.maximumPathDepth ?? 0) < 4) return false;
@@ -337,7 +342,7 @@ function mirrorSingletonRiskFor(sink) {
   );
 }
 
-function appendGroupedRecommendations(lines, report, args) {
+function appendGroupedRecommendations(lines: string[], report: AnalysisReport, args: AnalyzerArgs) {
   const groups = groupedRenderRecommendations(report.rankings.all).slice(0, 5);
   if (groups.length === 0) return;
   lines.push("## Grouped Recommendations");
@@ -365,8 +370,8 @@ function appendGroupedRecommendations(lines, report, args) {
   }
 }
 
-function groupedRenderRecommendations(sinks) {
-  const buckets = new Map();
+function groupedRenderRecommendations(sinks: RankedSink[]): RenderGroup[] {
+  const buckets = new Map<string, Pick<RenderGroup, "file" | "component" | "renderedThing" | "sinks">>();
   for (const sink of sinks) {
     if (!isRenderItemGroupingCandidate(sink)) continue;
     const component = sink.renderContext?.component ?? "local render";
@@ -383,7 +388,7 @@ function groupedRenderRecommendations(sinks) {
     .map((group) => {
       const fields = unique(group.sinks.map(groupedFieldName)).filter(Boolean);
       const roots = unique(
-        group.sinks.flatMap((sink) =>
+        group.sinks.flatMap((sink: Sink) =>
           fanOutRootsFor(sink).map((info) => formatExpression(info.label, 32)),
         ),
       ).slice(0, 4);
@@ -406,7 +411,7 @@ function groupedRenderRecommendations(sinks) {
     );
 }
 
-function isRenderItemGroupingCandidate(sink) {
+function isRenderItemGroupingCandidate(sink: Sink) {
   const family = sinkFamilyOf(sink);
   const tag = sink.renderContext?.tag;
   return (
@@ -418,13 +423,13 @@ function isRenderItemGroupingCandidate(sink) {
   );
 }
 
-function isSvgLikeTag(tag) {
+function isSvgLikeTag(tag: string | null) {
   return ["rect", "text", "title", "line", "path", "circle", "g"].includes(
     String(tag ?? "").toLowerCase(),
   );
 }
 
-function groupedRenderedThing(sink) {
+function groupedRenderedThing(sink: Sink) {
   const component = sink.renderContext?.component ?? "";
   if (/BarRects?$/i.test(component) || /Bars?$/i.test(component))
     return "bar rectangle";
@@ -432,7 +437,7 @@ function groupedRenderedThing(sink) {
   return renderedThingFor(sink);
 }
 
-function groupedFieldName(sink) {
+function groupedFieldName(sink: Sink) {
   return (
     sink.renderContext?.attribute ??
     sinkAttributeName(sink) ??
@@ -442,19 +447,19 @@ function groupedFieldName(sink) {
 }
 
 // "1 file" / "3 files" — pluralize a count noun for prose.
-function plural(count, noun) {
+function plural(count: number, noun: string) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-function sum(items, project) {
+function sum<T>(items: T[], project: (item: T) => number) {
   return items.reduce((total, item) => total + project(item), 0);
 }
 
-export function reportSummaryForCompare(report) {
+export function reportSummaryForCompare(report: AnalysisReport) {
   return reportSummaryForCompareImpl(report, compareSummaryDependencies());
 }
 
-export function stopRecommendationFor(report) {
+export function stopRecommendationFor(report: AnalysisReport) {
   return stopRecommendationForImpl(report, compareSummaryDependencies());
 }
 
@@ -469,16 +474,16 @@ function compareSummaryDependencies() {
   };
 }
 
-function normalized(value) {
+function normalized(value: number) {
   return Math.min(1, Math.log1p(value) / Math.log1p(20));
 }
 
-function clamp01(value) {
+function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
-function countBy(values) {
-  return values.reduce((acc, value) => {
+function countBy(values: string[]): Record<string, number> {
+  return values.reduce<Record<string, number>>((acc, value) => {
     acc[value] = (acc[value] ?? 0) + 1;
     return acc;
   }, {});

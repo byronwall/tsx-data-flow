@@ -1,19 +1,19 @@
-export function articleFor(text) {
+export function articleFor(text: string) {
   return /^[aeiou]/i.test(String(text)) ? "an" : "a";
 }
 
-export function wordsFromIdentifier(value) {
+export function wordsFromIdentifier(value: string) {
   return camelWords(value).map((word) => word.toLowerCase());
 }
 
-export function camelWords(value) {
+export function camelWords(value: string) {
   return String(value)
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .split(/[^A-Za-z0-9]+/)
     .filter(Boolean);
 }
 
-export function camelCase(value) {
+export function camelCase(value: string) {
   const words = camelWords(value);
   if (words.length === 0) return "value";
   return [
@@ -24,7 +24,7 @@ export function camelCase(value) {
   ].join("");
 }
 
-export function pascalCase(value) {
+export function pascalCase(value: string) {
   return camelWords(value)
     .map((word) => word[0].toUpperCase() + word.slice(1).toLowerCase())
     .join("");
@@ -32,7 +32,7 @@ export function pascalCase(value) {
 
 // Turn a source label into a plausible parameter name: the last identifier of a
 // property chain (`props.profile` -> `profile`), else a safe fallback.
-export function paramNameFor(label) {
+export function paramNameFor(label: string) {
   const segments = String(label)
     .split(/[^A-Za-z0-9_$]+/)
     .filter(Boolean);
@@ -44,7 +44,7 @@ export function paramNameFor(label) {
 // of actions ("read", "default", "compute", "helper", "format") instead of bare
 // analyzer kinds. The exact kind vocabulary still lives in the
 // transformation-ledger view for anyone who wants it.
-const STEP_KIND_VERBS = {
+const STEP_KIND_VERBS: Record<string, string> = {
   source: "source",
   "unknown-source": "source?",
   "property-read": "read",
@@ -64,7 +64,7 @@ const STEP_KIND_VERBS = {
   unknown: "external",
 };
 
-export function stepVerb(kind) {
+export function stepVerb(kind: string) {
   return STEP_KIND_VERBS[kind] ?? (kind || "step");
 }
 
@@ -72,7 +72,7 @@ export function stepVerb(kind) {
 // token-ish boundary with a trailing ellipsis. The prose-renderer analogue of
 // formatTableCell: no rendered expression should carry a raw newline or be cut
 // mid-identifier without a `...` marker.
-export function formatExpression(value, max = 100) {
+export function formatExpression(value: string, max: number = 100) {
   const collapsed = String(value).replace(/\s+/g, " ").trim();
   if (collapsed.length <= max) return collapsed;
   const window = collapsed.slice(0, max);
@@ -86,7 +86,7 @@ export function formatExpression(value, max = 100) {
 
 // Collapse all whitespace to single spaces without truncating - used to compare
 // a child sub-expression against its parent's text by substring.
-export function collapse(value) {
+export function collapse(value: string) {
   return String(value).replace(/\s+/g, " ").trim();
 }
 
@@ -94,7 +94,7 @@ export function collapse(value) {
 // in from the previous step), marking `via` with « » and trimming surrounding
 // context with ellipses to fit `max`. Falls back to a plain truncation when
 // `via` is absent, unlocatable, or spans essentially the whole expression.
-export function focusSnippet(full, via, max) {
+export function focusSnippet(full: string, via: string | null, max: number) {
   if (!via) return formatExpression(full, max);
   const idx = full.indexOf(via);
   if (idx < 0 || (idx === 0 && via.length >= full.length)) {

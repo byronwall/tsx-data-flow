@@ -1,10 +1,19 @@
+import type * as TypeScript from "typescript";
+import type { AnalyzerArgs } from "../types.js";
 import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_IGNORED_PARTS, isWithin } from "./files.js";
 
+export interface TsconfigInfo {
+  file: string; exists: boolean; error: string | null;
+  options: TypeScript.CompilerOptions; fileNames: string[]; references: string[];
+  strictNullChecks: boolean; isSolution: boolean;
+}
+interface ConfigAttempt { file: string; status: string }
+
 // Collect every tsconfig.json walking up from startDir to stopDir, nearest first.
-function ascendCollectTsconfigs(startDir, stopDir) {
-  const found = [];
+function ascendCollectTsconfigs(startDir: string, stopDir: string) {
+  const found: string[] = [];
   let dir = startDir;
   while (true) {
     const candidate = path.join(dir, "tsconfig.json");
@@ -21,9 +30,9 @@ function ascendCollectTsconfigs(startDir, stopDir) {
 // and dependency directories. Used as a fallback when nothing is found walking
 // up — the common shape for solution-style monorepos whose only configs live in
 // per-app/per-package subdirectories.
-function scanDownForTsconfigs(root) {
-  const out = [];
-  const walk = (dir) => {
+function scanDownForTsconfigs(root: string) {
+  const out: string[] = [];
+  const walk = (dir: string) => {
     let entries;
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -51,9 +60,9 @@ function scanDownForTsconfigs(root) {
 // Parse one tsconfig and summarize what the analyzer needs: how many source
 // files it governs, its (extends-resolved) compiler options, whether it is a
 // reference-only "solution" file, and any parse error.
-function inspectTsconfig(ts, file) {
+function inspectTsconfig(ts: typeof TypeScript, file: string): TsconfigInfo {
   if (!fs.existsSync(file)) {
-    return { file, exists: false, error: "file does not exist" };
+    return { file, exists: false, error: "file does not exist", options: {}, fileNames: [], references: [], strictNullChecks: false, isSolution: false };
   }
   const configFile = ts.readConfigFile(file, ts.sys.readFile);
   if (configFile.error) {
@@ -64,6 +73,7 @@ function inspectTsconfig(ts, file) {
         configFile.error.messageText,
         "\n",
       ),
+      options: {}, fileNames: [], references: [], strictNullChecks: false, isSolution: false,
     };
   }
   const parsed = ts.parseJsonConfigFileContent(
@@ -92,7 +102,7 @@ function inspectTsconfig(ts, file) {
 
 // Resolve a project reference path (which TypeScript reports as either a
 // directory or a concrete config file) to a tsconfig.json path.
-function referenceToConfigPath(refPath) {
+function referenceToConfigPath(refPath: string) {
   try {
     if (fs.statSync(refPath).isDirectory()) {
       return path.join(refPath, "tsconfig.json");
@@ -110,9 +120,9 @@ function referenceToConfigPath(refPath) {
 // loud, actionable error when nothing valid can be found — we never silently
 // analyze with default (non-strict) options, because that makes every nullish
 // verdict unsound (optional props look non-nullable, so `?? x` reads as dead).
-export function resolveProjectConfigs(ts, args) {
-  const attempts = [];
-  const note = (file, status) =>
+export function resolveProjectConfigs(ts: typeof TypeScript, args: AnalyzerArgs) {
+  const attempts: ConfigAttempt[] = [];
+  const note = (file: string, status: string) =>
     attempts.push({ file: relativeTo(args.root, file), status });
 
   // Seed the search. An explicit --tsconfig anchors resolution (but is still
@@ -132,7 +142,7 @@ export function resolveProjectConfigs(ts, args) {
   const visited = new Set();
   const valid = new Map();
   while (queue.length > 0) {
-    const file = queue.shift();
+    const file = queue.shift()!;
     if (visited.has(file)) continue;
     visited.add(file);
     const info = inspectTsconfig(ts, file);
@@ -185,7 +195,7 @@ export function resolveProjectConfigs(ts, args) {
   };
 }
 
-function pickPrimaryConfig(configs, sourceRoot) {
+function pickPrimaryConfig(configs: TsconfigInfo[], sourceRoot: string) {
   // Among configs whose directory is an ancestor of the source root, the nearest
   // wins (that is the project that actually owns the source). Otherwise fall back
   // to whichever config governs the most files. Within each group, prefer a
@@ -196,9 +206,9 @@ function pickPrimaryConfig(configs, sourceRoot) {
     isWithin(sourceRoot, path.dirname(info.file)),
   );
   const pool = ancestors.length > 0 ? ancestors : configs;
-  const byDepth = (a, b) =>
+  const byDepth = (a: TsconfigInfo, b: TsconfigInfo) =>
     path.dirname(b.file).length - path.dirname(a.file).length;
-  const byFiles = (a, b) => b.fileNames.length - a.fileNames.length;
+  const byFiles = (a: TsconfigInfo, b: TsconfigInfo) => b.fileNames.length - a.fileNames.length;
   const tieBreak = ancestors.length > 0 ? byDepth : byFiles;
   return [...pool].sort((a, b) => {
     if (a.strictNullChecks !== b.strictNullChecks) {
@@ -208,12 +218,12 @@ function pickPrimaryConfig(configs, sourceRoot) {
   })[0];
 }
 
-function relativeTo(root, file) {
+function relativeTo(root: string, file: string) {
   const rel = path.relative(root, file);
   return rel && !rel.startsWith("..") ? rel : file;
 }
 
-function buildTsconfigFailureMessage(args, seeds, attempts) {
+function buildTsconfigFailureMessage(args: AnalyzerArgs, seeds: string[], attempts: ConfigAttempt[]) {
   const lines = [
     "tsx-dataflow: could not resolve a valid tsconfig.json to type-check against.",
     "",

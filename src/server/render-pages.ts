@@ -1,3 +1,4 @@
+import type { AnalysisReport, AnalyzerArgs, Sink } from "../types.js";
 import { renderMarkdownView, REPORT_VIEWS } from "../core.js";
 import {
   entryTypeCountsByFile,
@@ -17,6 +18,7 @@ import {
   OVERVIEW_TYPE_COLUMNS,
   SORT_HEADING,
 } from "./overview-config.js";
+import type { OverviewState } from "./url-helpers.js";
 import { overviewHref, overviewState, paramHref } from "./url-helpers.js";
 import { popover, reportTabs } from "./network-viewers.js";
 export {
@@ -25,8 +27,8 @@ export {
   reportTabs,
 } from "./network-viewers.js";
 
-function graphParticipationFiles(report) {
-  const files = new Set();
+function graphParticipationFiles(report: AnalysisReport) {
+  const files = new Set<string>();
   for (const node of report.graph?.nodes ?? []) {
     if (node.file) files.add(node.file);
   }
@@ -36,11 +38,13 @@ function graphParticipationFiles(report) {
   return files;
 }
 
-function fileHasUnknownEdges(group) {
+type HotspotGroup = ReturnType<typeof hotspotGroups>[number];
+
+function fileHasUnknownEdges(group: HotspotGroup) {
   return group.worstSink?.metrics?.unknownEdgeCount > 0;
 }
 
-function searchableGroupText(group) {
+function searchableGroupText(group: HotspotGroup) {
   return [
     group.key,
     modalValue(group.shapes),
@@ -51,7 +55,7 @@ function searchableGroupText(group) {
     .toLowerCase();
 }
 
-function overviewRows(report, state) {
+function overviewRows(report: AnalysisReport, state: OverviewState) {
   const participating = graphParticipationFiles(report);
   const q = state.q.toLowerCase();
   const groups = hotspotGroups(report, "file").filter((group) => {
@@ -93,7 +97,7 @@ function overviewRows(report, state) {
   });
   return sorted;
 }
-export function renderOverview(report, url = new URL("http://localhost/")) {
+export function renderOverview(report: AnalysisReport, url = new URL("http://localhost/")) {
   const state = overviewState(url);
   const s = report.summary;
   const cards = [
@@ -119,7 +123,7 @@ export function renderOverview(report, url = new URL("http://localhost/")) {
   const pageGroups = showAll
     ? groups
     : groups.slice(pageStart, pageStart + OVERVIEW_PAGE_SIZE);
-  const typeCells = (file) => {
+  const typeCells = (file: string) => {
     const c = typeCounts.get(file) ?? {};
     return OVERVIEW_TYPE_COLUMNS.map(
       ({ key, col }) =>
@@ -152,7 +156,7 @@ ${typeCells(g.key)}
       : "";
 
   // A sortable column header: clicking re-sorts; the active column shows a caret.
-  const sortHeader = (sort, label) => {
+  const sortHeader = (sort: string, label: string) => {
     const active = state.sort === sort;
     // CARET-1: the caret is a flex sibling pushed to the right, never wrapping to
     // a new line or growing the header height. The label sits in its own span.
@@ -293,14 +297,14 @@ ${pagination}`;
 // SHELL-3: the file page is a tab strip — the code map is its own first tab, then one
 // tab per file-scoped report. The active tab lives in `?view=` (empty/"codemap" = the
 // code map), so a refresh restores the same tab.
-function fileTabs(relPath, activeView) {
+function fileTabs(relPath: string, activeView: string | null) {
   const base = `/file?path=${encodeURIComponent(relPath)}`;
   const onMap = !activeView || activeView === "codemap";
   const tabs = [
     `<a class="report-tab${onMap ? " active" : ""}"${
       onMap ? ' aria-current="page"' : ""
     } href="${base}">Code map</a>`,
-    ...FILE_VIEWS.map((view) => {
+    ...FILE_VIEWS.map((view: string) => {
       const on = view === activeView;
       return `<a class="report-tab${on ? " active" : ""}"${
         on ? ' aria-current="page"' : ""
@@ -313,16 +317,16 @@ function fileTabs(relPath, activeView) {
 }
 
 export function renderFilePage(
-  report,
-  relPath,
-  source,
-  args,
-  openView,
-  resolveSource,
-  selectedFinding = null,
-  fullReport = null,
+  report: AnalysisReport,
+  relPath: string,
+  source: string | null,
+  args: AnalyzerArgs,
+  openView: string | null,
+  resolveSource: (file: string) => string | null,
+  selectedFinding: string | null = null,
+  fullReport: AnalysisReport | null = null,
 ) {
-  const sinks = report.rankings.all.filter((sink) => sink.file === relPath);
+  const sinks = report.rankings.all.filter((sink: Sink) => sink.file === relPath);
   // ARCH-1/TS-1/ARCH-2: pull EVERY analysis type for this file so it appears in
   // the unified inventory — repeated forks, junction/boundary helpers, unknown
   // edges, context relays, and fan-out roots. These are also the only content on
@@ -362,7 +366,7 @@ export function renderFilePage(
   // SHELL-3: render exactly one tab's content — the code map (default), or the one
   // selected file-scoped report. No more stacked `<details>`; the tab strip in the
   // top bar switches views, with the active tab in `?view=`.
-  const activeView = FILE_VIEWS.includes(openView) ? openView : null;
+  const activeView = openView && FILE_VIEWS.includes(openView) ? openView : null;
   const codeMapPane = `<h2 id="codemap">Code map</h2>
 <p class="meta">Lines with a colored dot render a ranked finding — click to inspect. Color signals <strong>burden</strong> (severity): the hotter the line, the heavier the render path. Faintly bordered lines lie on a representative path through this file.</p>
 <div class="heat-legend"><span>low burden</span><span class="bar"></span><span>high burden</span></div>

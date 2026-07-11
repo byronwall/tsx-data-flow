@@ -1,8 +1,9 @@
+import type { Sink } from "../types.js";
 import fs from "node:fs";
 
-export function compareBaseline(rankings, baselinePath) {
+export function compareBaseline(rankings: { all: Sink[] }, baselinePath: string) {
   const baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
-  const currentWorst = rankings.all[0]?.scores.burden ?? 0;
+  const currentWorst = rankings.all[0]?.scores?.burden ?? 0;
   const baselineWorst = baseline.sinks?.[0]?.scores?.burden ?? 0;
   return {
     currentWorst,
@@ -16,19 +17,19 @@ export function compareBaseline(rankings, baselinePath) {
 // file + structural signature so small line shifts don't read as churn; burden
 // is the lower-is-better quality number. Categories: removed (gone), regressed
 // (got heavier), improved (got lighter), and the current new top finding.
-function diffBaselineSinks(currentSinks, baselineSinks) {
-  const keyOf = (sink) =>
+function diffBaselineSinks(currentSinks: Sink[], baselineSinks: Sink[]) {
+  const keyOf = (sink: Sink) =>
     `${sink.file ?? "?"}::${sink.signature ?? sink.label ?? "?"}`;
-  const burdenOf = (sink) => sink.scores?.burden ?? 0;
+  const burdenOf = (sink: Sink) => sink.scores?.burden ?? 0;
 
-  const currentByKey = new Map(currentSinks.map((sink) => [keyOf(sink), sink]));
-  const baselineByKey = new Map(
-    baselineSinks.map((sink) => [keyOf(sink), sink]),
+  const currentByKey = new Map<string, Sink>(currentSinks.map((sink: Sink) => [keyOf(sink), sink]));
+  const baselineByKey = new Map<string, Sink>(
+    baselineSinks.map((sink: Sink) => [keyOf(sink), sink]),
   );
 
-  const removed = [];
-  const improved = [];
-  const regressed = [];
+  const removed: Array<{ label: string; depth: number | null }> = [];
+  const improved: Array<{ label: string; file: string; line: number; before: number; after: number }> = [];
+  const regressed: Array<{ label: string; file: string; line: number; before: number; after: number }> = [];
   for (const [key, baseSink] of baselineByKey) {
     const current = currentByKey.get(key);
     if (!current) {

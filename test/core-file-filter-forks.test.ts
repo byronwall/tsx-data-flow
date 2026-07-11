@@ -49,7 +49,7 @@ describe("--file path filtering", () => {
     });
     expect(report.sinks.length).toBeGreaterThan(0);
     expect(
-      report.sinks.every((sink) => sink.file === "src/widgets/Card.tsx"),
+      report.sinks.every((sink: import("../src/types.js").Sink) => sink.file === "src/widgets/Card.tsx"),
     ).toBe(true);
     expect(report.meta.file).toEqual(["src/widgets/Card.tsx"]);
   });
@@ -62,7 +62,7 @@ describe("--file path filtering", () => {
     });
     expect(report.sinks.length).toBeGreaterThan(0);
     expect(
-      report.sinks.every((sink) => sink.file === "src/panels/Panel.tsx"),
+      report.sinks.every((sink: import("../src/types.js").Sink) => sink.file === "src/panels/Panel.tsx"),
     ).toBe(true);
   });
 
@@ -72,14 +72,14 @@ describe("--file path filtering", () => {
       ...project.args,
       file: ["src/**/*.tsx"],
     });
-    expect(new Set(glob.sinks.map((sink) => sink.file)).size).toBe(2);
+    expect(new Set(glob.sinks.map((sink: import("../src/types.js").Sink) => sink.file)).size).toBe(2);
 
     const dir = await analyzeProject({
       ...project.args,
       file: ["src/widgets"],
     });
     expect(
-      dir.sinks.every((sink) => sink.file === "src/widgets/Card.tsx"),
+      dir.sinks.every((sink: import("../src/types.js").Sink) => sink.file === "src/widgets/Card.tsx"),
     ).toBe(true);
   });
 
@@ -89,7 +89,7 @@ describe("--file path filtering", () => {
       ...project.args,
       file: ["Card.tsx", "Panel.tsx"],
     });
-    expect(new Set(both.sinks.map((sink) => sink.file)).size).toBe(2);
+    expect(new Set(both.sinks.map((sink: import("../src/types.js").Sink) => sink.file)).size).toBe(2);
 
     const none = await analyzeProject({
       ...project.args,

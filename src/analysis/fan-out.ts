@@ -1,3 +1,4 @@
+import type { RootInfo, Sink } from "../types.js";
 // Global identifiers and language keywords that the local file context cannot
 // resolve and that surface as `unknown-source` roots, but are never an ownable
 // domain "source" a developer could centralize. Excluded from fan-out ranking.
@@ -25,10 +26,10 @@ const NON_FAN_OUT_GLOBALS = new Set([
 // "sources" - a developer cannot own or centralize them - so they are excluded,
 // as are unresolved language globals (`undefined`, `Math`). Property reads off
 // a parameter (`props.meta`) and named locals are kept.
-export function fanOutRootsFor(sink) {
+export function fanOutRootsFor(sink: Pick<Sink, "rootInfos" | "roots">) {
   const infos =
     sink.rootInfos ??
-    sink.roots.map((root) => ({ label: root, kind: "source" }));
+    sink.roots.map((root: string) => ({ label: root, kind: "source" }));
   return infos.filter(
     (info) =>
       info.kind !== "literal" &&
@@ -49,7 +50,7 @@ export function fanOutRootsFor(sink) {
 // roots stay globally keyed because those genuinely are one shared source.
 const PROP_SCOPED_FANOUT_KINDS = new Set(["prop-read"]);
 
-export function fanOutIdentity(sink, info) {
+export function fanOutIdentity(sink: Sink, info: RootInfo) {
   if (PROP_SCOPED_FANOUT_KINDS.has(info.kind)) {
     const component = sink.renderContext?.component ?? null;
     const scope = component ?? sink.file ?? "";

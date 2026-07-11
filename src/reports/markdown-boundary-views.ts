@@ -1,9 +1,10 @@
+import type { AnalysisReport, AnalyzerArgs, BoundaryHelper, Sink, SourceSnippet } from "../types.js";
 import { code, fenced, tableReport, viewIntro } from "./markdown-format.js";
 import { formatExpression } from "./format-helpers.js";
 
 // Approach 2 — classify every function reached on a render path as a data-flow
 // boundary, ranked by "boundary debt".
-export function renderBoundaryReport(report, args) {
+export function renderBoundaryReport(report: AnalysisReport, args: AnalyzerArgs) {
   const helpers = (report.helpers ?? []).slice(0, args.maxItems);
   if (helpers.length === 0) {
     return `# Boundary Report\n\n${viewIntro("boundary-report", report).join("\n")}No first-party helper functions were reached on a render path.\n(Imported library calls stay opaque; try --max-helper-depth.)\n`;
@@ -49,7 +50,7 @@ export function renderBoundaryReport(report, args) {
 // XREF-1: "where used" for components. Each row is a component definition and
 // the JSX sites that render it (resolved by symbol, not name). Locations are
 // emitted as file:line so peekReferences makes every use site click-to-reveal.
-export function renderComponentRefs(report, args) {
+export function renderComponentRefs(report: AnalysisReport, args: AnalyzerArgs) {
   const rows = (report.componentRefs ?? []).slice(0, args.maxItems);
   if (rows.length === 0) {
     return `# References\n\n${viewIntro("component-refs", report).join("\n")}No component usages were resolved in the selected files.\n`;
@@ -58,7 +59,7 @@ export function renderComponentRefs(report, args) {
     "References",
     ["Component", "Defined", "Uses", "Used by"],
     rows.map((row) => {
-      const shown = row.uses.slice(0, 6).map((u) => `${u.file}:${u.line}`);
+      const shown = row.uses.slice(0, 6).map((u: { file: string; line: number }) => `${u.file}:${u.line}`);
       const extra = row.useCount - shown.length;
       return [
         code(row.name),
@@ -71,7 +72,7 @@ export function renderComponentRefs(report, args) {
   );
 }
 
-export function affectedSinkSummary(sinks) {
+export function affectedSinkSummary(sinks: Array<Pick<Sink, "file" | "line" | "label">>) {
   if (!sinks?.length) return "";
   return sinks
     .slice(0, 4)
@@ -82,7 +83,7 @@ export function affectedSinkSummary(sinks) {
 }
 
 // A one-line, human reason for a function's verdict.
-function boundaryNote(helper) {
+function boundaryNote(helper: BoundaryHelper) {
   switch (helper.verdict) {
     case "thin pass-through (inline)":
       return `forwards a parameter with no transformation across ${helper.callerCount} call site(s); inlining removes a hop for free.`;
@@ -102,9 +103,9 @@ function boundaryNote(helper) {
 // Approach 5 — where independent lineages fork in and re-spread. A junction has
 // ≥3 in-sources and ≥2 callers; a heavy confluence has many in-sources but one
 // consumer.
-export function renderJunctions(report, args) {
+export function renderJunctions(report: AnalysisReport, args: AnalyzerArgs) {
   const helpers = report.helpers ?? [];
-  const score = (helper) => helper.inSources * Math.max(1, helper.callerCount);
+  const score = (helper: BoundaryHelper) => helper.inSources * Math.max(1, helper.callerCount);
   const junctions = helpers
     .filter((helper) => helper.inSources >= 3 && helper.callerCount >= 2)
     .sort((left, right) => score(right) - score(left))
@@ -147,7 +148,7 @@ export function renderJunctions(report, args) {
   return `${lines.join("\n")}`;
 }
 
-function junctionBody(helper) {
+function junctionBody(helper: BoundaryHelper) {
   const lines = ["tributaries (independent lineages flowing in)"];
   const tribs = (helper.inRoots ?? []).length
     ? helper.inRoots
@@ -170,12 +171,12 @@ function junctionBody(helper) {
 
 // Approach 3 — inline-vs-keep decision per reached helper, from its internal
 // metrics and caller count (a heuristic preview, not a codemod).
-export function renderInlinePreview(report, args) {
+export function renderInlinePreview(report: AnalysisReport, args: AnalyzerArgs) {
   // The point of this view is the actionable verdict, so rank the helpers worth
   // inlining first (INLINE), then the fix-the-boundary cases, with plain KEEP
   // last — otherwise the cap shows a wall of "keep" that tells the reader
   // nothing. Decide on the full list before capping.
-  const verdictRank = (verdict) => {
+  const verdictRank = (verdict: string) => {
     if (verdict === "INLINE") return 0;
     if (verdict === "KEEP (fix boundary)") return 1;
     if (verdict === "KEEP & FORMALIZE") return 2;
@@ -242,7 +243,7 @@ export function renderInlinePreview(report, args) {
   return `${lines.join("\n")}`;
 }
 
-function appendInlineEvidence(lines, helper, callers) {
+function appendInlineEvidence(lines: string[], helper: BoundaryHelper, callers: BoundaryHelper["callers"]) {
   if (helper.inlineBodySnippet?.lines?.length) {
     lines.push("", "Helper body (capped at 10 lines):");
     lines.push(...fenced(snippetLines(helper.inlineBodySnippet)));
@@ -254,7 +255,7 @@ function appendInlineEvidence(lines, helper, callers) {
   lines.push("", "Call-site samples (first 5, ±2 lines):");
   for (const caller of samples) {
     lines.push("", `\`${caller.file}:${caller.line}\``);
-    lines.push(...fenced(snippetLines(caller.snippet)));
+    if (caller.snippet) lines.push(...fenced(snippetLines(caller.snippet)));
   }
   if (helper.callerCount > samples.length) {
     lines.push(
@@ -264,13 +265,13 @@ function appendInlineEvidence(lines, helper, callers) {
   }
 }
 
-function snippetLines(snippet) {
+function snippetLines(snippet: SourceSnippet) {
   const lines = [...(snippet.lines ?? [])];
   if (snippet.truncated) lines.push("...");
   return lines;
 }
 
-function inlineDecision(helper) {
+function inlineDecision(helper: BoundaryHelper) {
   if (helper.inSources >= 3 && helper.callerCount >= 2) {
     return {
       verdict: "KEEP & FORMALIZE",
@@ -305,6 +306,6 @@ function inlineDecision(helper) {
   };
 }
 
-function formatDelta(value) {
+function formatDelta(value: number) {
   return value > 0 ? `+${value}` : String(value);
 }

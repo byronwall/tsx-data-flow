@@ -1,3 +1,5 @@
+import type * as TypeScript from "typescript";
+import type { PackGroup, Sink } from "../types.js";
 import { unique } from "../analysis/collections.js";
 import { packRiskForVerdict } from "../analysis/pack-groups.js";
 import {
@@ -13,7 +15,7 @@ import {
 import { modalValue } from "./overview-selectors.js";
 
 // Plain-English noun for a shape tag — used in reviewer summaries (Phase 6).
-const SHAPE_PHRASES = {
+const SHAPE_PHRASES: Record<string, string> = {
   "svg-shell": "SVG shell sizing",
   "local-scalar-geometry": "local SVG scalar geometry",
   "geometry-chain": "SVG/layout geometry",
@@ -27,7 +29,7 @@ const SHAPE_PHRASES = {
 
 // One-line headline fix per primary shape — the lead sentence of the reviewer
 // summary (Phase 6) and the spine of the candidate edits (Phase 2).
-const SHAPE_HEADLINE_FIX = {
+const SHAPE_HEADLINE_FIX: Record<string, string> = {
   "svg-shell":
     "keep root shell sizing inline or in a tiny local thunk unless it is a shared typed boundary",
   "local-scalar-geometry":
@@ -48,7 +50,7 @@ const SHAPE_HEADLINE_FIX = {
     "move shared state behind a Provider/Context instead of threading props",
 };
 
-export function candidateEditsFor(sink, group = null) {
+export function candidateEditsFor(sink: Sink, group: PackGroup | null = null) {
   const shapes = classifyPathShape(sink);
   const reminder =
     "Keep JSX scannable — attributes should read named values, not derive them.";
@@ -94,7 +96,7 @@ export function candidateEditsFor(sink, group = null) {
     ];
   }
 
-  const shapeEdits = {
+  const shapeEdits: Record<string, string[]> = {
     "svg-shell": [
       "Keep SVG shell attributes such as width, height, and viewBox as root-level values; prefer a simple inline expression or a tiny local thunk immediately above the render block.",
       "If shell sizing depends on optional Solid props, default those props once with mergeProps before the shell calculation.",
@@ -152,20 +154,21 @@ export function candidateEditsFor(sink, group = null) {
   return edits;
 }
 
-function solidPropDefaultNames(sink) {
+function solidPropDefaultNames(sink: Sink) {
   return unique(
     (sink.defenses ?? [])
       .filter((defense) => /solid prop default/i.test(defense.origin ?? ""))
-      .map((defense) => propNameFromExpression(defense.guardedExpression)),
+      .map((defense) => propNameFromExpression(defense.guardedExpression ?? ""))
+      .filter((name: string | null): name is string => name != null),
   ).slice(0, 4);
 }
 
-function propNameFromExpression(expression) {
+function propNameFromExpression(expression: string) {
   const match = /\.([A-Za-z_$][A-Za-z0-9_$]*)$/.exec(String(expression ?? ""));
   return match?.[1] ?? null;
 }
 
-function providerContextEdits(sink) {
+function providerContextEdits(sink: Sink) {
   if (hasContextHookRoot(sink)) {
     return [
       "This flow already starts at a feature hook; do not reintroduce parent pass-through props.",
@@ -197,11 +200,11 @@ function providerContextEdits(sink) {
   ];
 }
 
-export function isProviderContextCandidate(sink) {
+export function isProviderContextCandidate(sink: Sink) {
   return providerContextEvidenceFor(sink).eligible;
 }
 
-export function providerContextEvidenceFor(sink) {
+export function providerContextEvidenceFor(sink: Sink) {
   if (hasContextHookRoot(sink)) {
     return { eligible: true, reason: "context hook root" };
   }
@@ -228,7 +231,7 @@ export function providerContextEvidenceFor(sink) {
   return { eligible: false, reason: "no provider/context signals" };
 }
 
-function pathTextFor(sink) {
+function pathTextFor(sink: Sink) {
   return [
     sink.label,
     sink.expression,
@@ -237,17 +240,17 @@ function pathTextFor(sink) {
   ].join(" ");
 }
 
-function hasImportedFeatureBoundary(sink) {
+function hasImportedFeatureBoundary(sink: Sink) {
   const roots = sink.roots ?? [];
   return (
-    roots.some((root) => /^use[A-Z]/.test(root)) ||
-    roots.some((root) =>
+    roots.some((root: string) => /^use[A-Z]/.test(root)) ||
+    roots.some((root: string) =>
       /(?:Store|Context|Provider|Feature|State|Model)$/.test(root),
     )
   );
 }
 
-export function localFirstCutForCluster(cluster) {
+export function localFirstCutForCluster(cluster: { shapes: string[] }) {
   const dominantShape = modalValue(cluster.shapes ?? []);
   switch (dominantShape) {
     case "local-scalar-geometry":
@@ -269,19 +272,19 @@ export function localFirstCutForCluster(cluster) {
   }
 }
 
-export function providerEvidenceSummary(evidence) {
+export function providerEvidenceSummary(evidence: string[]) {
   const concrete = unique(
     evidence.filter((reason) => reason !== "no provider/context signals"),
   );
   return concrete.length ? concrete.join(", ") : "provider/context signals";
 }
 
-function hasContextHookRoot(sink) {
-  return sink.roots.some((root) => /^use[A-Z]/.test(root));
+function hasContextHookRoot(sink: Sink) {
+  return sink.roots.some((root: string) => /^use[A-Z]/.test(root));
 }
 
 // Human labels for the sink families in a split recommendation.
-const FAMILY_LABELS = {
+const FAMILY_LABELS: Record<string, string> = {
   "svg-shell": "SVG shell",
   geometry: "Geometry",
   "control-flow": "Control flow",
@@ -291,7 +294,7 @@ const FAMILY_LABELS = {
   other: "Other",
 };
 
-const PACK_VERDICT_LABELS = {
+const PACK_VERDICT_LABELS: Record<string, string> = {
   "cohesive-render-model": "cohesive render model",
   "normalization-boundary": "normalization boundary",
   "overpacked-bag": "overpacked bag",
@@ -299,7 +302,7 @@ const PACK_VERDICT_LABELS = {
   "relay-bag": "relay bag",
 };
 
-export function packVerdictLines(group) {
+export function packVerdictLines(group: PackGroup) {
   const evidence = group.evidence;
   const lines = [
     `verdict: ${PACK_VERDICT_LABELS[group.verdict] ?? group.verdict}`,
@@ -331,7 +334,7 @@ export function packVerdictLines(group) {
 
 // The "split this object by sink family" block shown under a work item whose
 // packed object feeds more than one family (Phase 3d).
-export function overpackedSplitLines(group) {
+export function overpackedSplitLines(group: PackGroup) {
   const lines = [
     `Object \`${group.label}\` feeds ${group.families.length} sink families — split it:`,
   ];
@@ -344,7 +347,7 @@ export function overpackedSplitLines(group) {
 
 // Phase 6 — a compact PR-review framing: what the sink mixes, the headline fix,
 // and (when relevant) an over-packing warning.
-export function reviewerSummaryFor(sink, group) {
+export function reviewerSummaryFor(sink: Sink, group: PackGroup | null) {
   const shapes = classifyPathShape(sink);
   const phrases = shapes.map((shape) => SHAPE_PHRASES[shape]).filter(Boolean);
   const mixed =
@@ -380,7 +383,7 @@ export function reviewerSummaryFor(sink, group) {
 
 // Phase 7 — the kind of change this is, as a four-rung ladder of honest
 // categories rather than a binary Provider/Context flag.
-export function ownershipHintFor(sink) {
+export function ownershipHintFor(sink: Sink) {
   if (classifyPathShape(sink).includes("cross-component-relay")) {
     return "cross-component prop relay";
   }
@@ -392,7 +395,7 @@ export function ownershipHintFor(sink) {
   return "local component cleanup";
 }
 
-function joinList(items) {
+function joinList(items: string[]) {
   if (items.length <= 1) return items.join("");
   if (items.length === 2) return `${items[0]} and ${items[1]}`;
   return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;

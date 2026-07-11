@@ -154,8 +154,8 @@ describe("render path data-flow analyzer", () => {
 
     const sourceCells = output
       .split("\n")
-      .filter((line) => line.startsWith("## "))
-      .map((line) => line.slice(3).split(" — ")[0].trim());
+      .filter((line: number) => line.startsWith("## "))
+      .map((line: number) => line.slice(3).split(" — ")[0].trim());
 
     // Literals (0, "", false) and the bare `props` object must not rank as sources.
     expect(sourceCells).not.toContain("0");
@@ -194,14 +194,14 @@ describe("render path data-flow analyzer", () => {
     const signatures = output
       .split("\n")
       .filter(
-        (line) =>
+        (line: number) =>
           line.startsWith("| ") &&
           !line.includes("---") &&
           !line.includes("Signature"),
       )
       // Signatures are wrapped in backticks (code) and padded for alignment;
       // strip both to read the bare signature.
-      .map((line) => line.split("|")[1].trim().replaceAll("`", ""));
+      .map((line: number) => line.split("|")[1].trim().replaceAll("`", ""));
 
     // The shallow direct read and the deeper packed/defended path must not
     // collapse into one bare `jsx-sink` family.
@@ -232,10 +232,10 @@ describe("render path data-flow analyzer", () => {
     });
     const report = await analyzeProject(project.args);
     const shared = report.rankings.all.find(
-      (sink) => sink.expression === "props.shared",
+      (sink: import("../src/types.js").Sink) => sink.expression === "props.shared",
     );
     const lonely = report.rankings.all.find(
-      (sink) => sink.expression === "props.lonely",
+      (sink: import("../src/types.js").Sink) => sink.expression === "props.lonely",
     );
 
     expect(shared.metrics.reachableSinks).toBe(4);

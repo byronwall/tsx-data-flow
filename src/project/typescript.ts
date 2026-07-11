@@ -1,9 +1,12 @@
+import type * as TypeScript from "typescript";
+import type { AnalyzerArgs } from "../types.js";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { shouldAnalyzeFile, walkFiles } from "./files.js";
 import { resolveProjectConfigs } from "./tsconfig.js";
+import type { TsconfigInfo } from "./tsconfig.js";
 
 const require = createRequire(import.meta.url);
 
@@ -14,8 +17,8 @@ const packageDir = path.resolve(
   "../..",
 );
 
-export function loadTypescript(args) {
-  const bases = [
+export function loadTypescript(args: AnalyzerArgs) {
+  const bases: string[] = [
     args.typescriptFrom,
     args.tsconfig ? path.dirname(args.tsconfig) : null,
     args.source,
@@ -25,9 +28,9 @@ export function loadTypescript(args) {
     // Fall back to the analyzer's own dependency when the target project does
     // not ship its own TypeScript install.
     packageDir,
-  ].filter(Boolean);
+  ].filter((base): base is string => Boolean(base));
 
-  const attempted = [];
+  const attempted: string[] = [];
   for (const base of unique(bases)) {
     try {
       const resolved = require.resolve("typescript", { paths: [base] });
@@ -46,7 +49,7 @@ export function loadTypescript(args) {
   );
 }
 
-export function collectSourceFiles(ts, args) {
+export function collectSourceFiles(ts: typeof TypeScript, args: AnalyzerArgs) {
   const configs = args.tsconfigs?.length
     ? args.tsconfigs
     : args.tsconfig
@@ -75,13 +78,13 @@ export function collectSourceFiles(ts, args) {
     }
   }
   if (set.size > 0) return [...set];
-  return walkFiles(args.source).filter((file) => shouldAnalyzeFile(file, args));
+  return walkFiles(args.source).filter((file: string) => shouldAnalyzeFile(file, args));
 }
 
 // Load TypeScript, resolve the governing tsconfig(s) (throwing loudly if none
 // is valid), reflect the resolution onto `args` for downstream meta, and build
 // the program once. Shared by analyzeProject and createAnalyzer.
-export function buildProgram(args) {
+export function buildProgram(args: AnalyzerArgs) {
   const { ts, modulePath } = loadTypescript(args);
   const resolution = resolveProjectConfigs(ts, args);
   args.tsconfig = resolution.primary.file;
@@ -111,12 +114,12 @@ export function buildProgram(args) {
 // those imports resolve to their real declarations. Files no aliased config owns
 // stay on the primary program. Returns null when no config declares aliases (the
 // common single-project case), preserving the original single-program path.
-function buildProgramRouting(ts, resolution, args) {
+function buildProgramRouting(ts: typeof TypeScript, resolution: ReturnType<typeof resolveProjectConfigs>, args: AnalyzerArgs) {
   const aliased = resolution.configs.filter(
-    (config) =>
+    (config: TsconfigInfo) =>
       config.options?.paths &&
       Object.keys(config.options.paths).length > 0 &&
-      config.fileNames.some((file) => shouldAnalyzeFile(file, args)),
+      config.fileNames.some((file: string) => shouldAnalyzeFile(file, args)),
   );
   if (aliased.length === 0) return null;
 
@@ -143,7 +146,7 @@ function buildProgramRouting(ts, resolution, args) {
     );
   }
   const checkerByConfig = new Map();
-  const checkerFor = (config) => {
+  const checkerFor = (config: TsconfigInfo) => {
     if (!checkerByConfig.has(config.file)) {
       checkerByConfig.set(
         config.file,
@@ -164,6 +167,6 @@ function buildProgramRouting(ts, resolution, args) {
   return { byFile, programs: [...programByConfig.values()] };
 }
 
-function unique(values) {
+function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
 }

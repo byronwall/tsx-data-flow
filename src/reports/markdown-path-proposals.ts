@@ -1,3 +1,4 @@
+import type { Sink, TraceStep } from "../types.js";
 import { fanOutRootsFor } from "../analysis/fan-out.js";
 import {
   classifyPathShape,
@@ -20,13 +21,13 @@ import {
 // model shape comes from the sink family. Boundaries are returned by the step
 // index they sit *after* so the path renderer can mark them in place rather
 // than referring to an opaque "step N".
-function extractionBoundariesFor(sink) {
+function extractionBoundariesFor(sink: Sink) {
   const steps = sink.representativeSteps ?? [];
-  const boundaries = [];
+  const boundaries: Array<{ afterIndex: number; text: string }> = [];
 
   let lastNormalization = -1;
   let lastGeometry = -1;
-  steps.forEach((step, index) => {
+  steps.forEach((step, index: number) => {
     if (step.kind === "fallback" || step.kind === "optional-read") {
       lastNormalization = index;
     }
@@ -75,7 +76,7 @@ function extractionBoundariesFor(sink) {
 // Approach 4 — synthesize the clean helper a messy boundary implies: inputs are
 // the source lineages crossing the cut (with where they come from), output is the
 // value/model at the sink, named from the render shape. A proposal, not a rewrite.
-export function extractionProposalFor(sink) {
+export function extractionProposalFor(sink: Sink) {
   // Only worth proposing for paths deep enough that a boundary actually helps.
   if ((sink.metrics?.maximumPathDepth ?? 0) < 4) return null;
   if (sinkFamilyOf(sink) === "svg-shell") return null;
@@ -84,7 +85,7 @@ export function extractionProposalFor(sink) {
   if (inputs.length === 0) return null;
 
   const steps = sink.representativeSteps ?? [];
-  const originOf = (label) => {
+  const originOf = (label: string) => {
     const step = steps.find((candidate) => candidate.label === label);
     return step?.file && step?.line ? `${step.file}:${step.line}` : null;
   };
@@ -98,12 +99,13 @@ export function extractionProposalFor(sink) {
 
   const ownLines = steps
     .filter((step) => step.file === sink.file && step.line)
-    .map((step) => step.line);
+    .map((step) => step.line)
+    .filter((line): line is number => line != null);
   const lo = ownLines.length ? Math.min(...ownLines) : null;
   const hi = ownLines.length ? Math.max(...ownLines) : null;
 
   const lines = [`proposed: function ${name}(`];
-  inputs.forEach((info, index) => {
+  inputs.forEach((info, index: number) => {
     const origin = originOf(info.label);
     const comma = index < inputs.length - 1 ? "," : "";
     const where = origin ? `  (${origin})` : "";
@@ -132,7 +134,7 @@ export function extractionProposalFor(sink) {
 
 // A domain-flavored helper name from the sink's render family — never a banned
 // catch-all (`layout`, `viewModel`, …).
-function proposedHelperName(sink) {
+function proposedHelperName(sink: Sink) {
   if (sink.packVerdicts?.includes("normalization-boundary")) {
     return "parsedValue";
   }
@@ -162,7 +164,7 @@ function proposedHelperName(sink) {
   }
 }
 
-export function renderedThingFor(sink) {
+export function renderedThingFor(sink: Sink) {
   const component = sink.renderContext?.component ?? "";
   const tag = String(sink.renderContext?.tag ?? "").toLowerCase();
   const attribute = sink.renderContext?.attribute ?? sinkAttributeName(sink);
@@ -181,7 +183,7 @@ export function renderedThingFor(sink) {
   return domain ? `${domain} value` : "rendered value";
 }
 
-function predicateNameFor(sink) {
+function predicateNameFor(sink: Sink) {
   const alias = [...(sink.representativeSteps ?? [])]
     .reverse()
     .find(
@@ -202,11 +204,11 @@ function predicateNameFor(sink) {
   return `has${noun}`;
 }
 
-export function singularRenderedThing(text) {
+export function singularRenderedThing(text: string) {
   const words = String(text).split(/\s+/);
   if (words.length === 0) return String(text);
   const last = words.at(-1);
-  const singularLast = last
+  const singularLast = last!
     .replace(/^(rectangles|rects)$/i, "rectangle")
     .replace(/^ticks$/i, "tick")
     .replace(/ies$/i, "y")
@@ -214,7 +216,7 @@ export function singularRenderedThing(text) {
   return [...words.slice(0, -1), singularLast].join(" ");
 }
 
-export function pluralRenderedThing(text) {
+export function pluralRenderedThing(text: string) {
   const value = String(text);
   if (/rectangle$/i.test(value)) return `${value}s`;
   if (/tick$/i.test(value)) return `${value}s`;
@@ -230,10 +232,10 @@ export function pluralRenderedThing(text) {
 // verb column names what each hop does; recommended extraction boundaries are
 // marked inline, exactly where they apply (show, don't tell); a closing line
 // names the suggested sink-model shape. A `Files` legend maps each F# to a path.
-export function representativePathWithBoundaries(sink) {
+export function representativePathWithBoundaries(sink: Sink) {
   const steps =
     sink.representativeSteps ??
-    sink.representativePath.map((label) => ({ label, kind: null }));
+    sink.representativePath.map((label: string) => ({ label, kind: null }));
   if (steps.length === 0) return ["(no path)"];
 
   const { boundaries, modelShape } = extractionBoundariesFor(sink);
@@ -253,7 +255,7 @@ export function representativePathWithBoundaries(sink) {
       fileIds.set(step.file, `F${fileIds.size + 1}`);
     }
   }
-  const refFor = (step) =>
+  const refFor = (step: TraceStep) =>
     step.file && step.line ? `${fileIds.get(step.file)}:${step.line}` : "";
 
   const refWidth = Math.max(...steps.map((step) => refFor(step).length), 2);
@@ -262,11 +264,11 @@ export function representativePathWithBoundaries(sink) {
     ...steps.map((step) => stepVerb(step.kind).length),
   );
   const noteIndent = " ".repeat(refWidth + 2 + numberWidth + 2 + verbWidth + 2);
-  const lines = [];
+  const lines: string[] = [];
   // Track the file stack so a change between consecutive steps reads as entering
   // a helper's file (push) or returning from it (pop) — Approach 1 markers.
-  const fileStack = [];
-  steps.forEach((step, index) => {
+  const fileStack: string[] = [];
+  steps.forEach((step, index: number) => {
     if (step.file && fileIds.has(step.file)) {
       const top = fileStack[fileStack.length - 1];
       if (top !== step.file) {

@@ -1,7 +1,7 @@
 import { REPORT_VIEWS } from "../cli/args.js";
 
 // Short human labels for the per-file view sections.
-export const VIEW_LABELS = {
+export const VIEW_LABELS: Record<string, string> = {
   // "Overview report" (not just "Overview") so it never collides with the homepage
   // "Overview" tab (the burden table); this is the agent-facing markdown summary.
   overview: "Overview report",
@@ -20,12 +20,12 @@ export const VIEW_LABELS = {
   "component-refs": "References",
 };
 
-export const viewLabel = (view) => VIEW_LABELS[view] ?? view;
+export const viewLabel = (view: string) => VIEW_LABELS[view] ?? view;
 
 // Report lists are presented alphabetically by label (the curated REPORT_VIEWS
 // order is kept for the CLI `--view all` emission only). The `overview` report is a
 // workspace-level summary (concentration, repair buckets, ...), so it is not a
 // per-file tab -- it would be meaningless scoped to one file.
 export const FILE_VIEWS = REPORT_VIEWS.filter(
-  (view) => view !== "overview",
+  (view: string) => view !== "overview",
 ).sort((a, b) => viewLabel(a).localeCompare(viewLabel(b)));

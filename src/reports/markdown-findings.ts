@@ -1,3 +1,4 @@
+import type { AnalysisReport, AnalyzerArgs, Sink } from "../types.js";
 import { unique } from "../analysis/collections.js";
 import { findingTitle } from "../analysis/finding-title.js";
 import { fanOutRootsFor } from "../analysis/fan-out.js";
@@ -9,7 +10,9 @@ import {
   suppressionLines,
 } from "./markdown-selection.js";
 
-export function renderFindings(report, args, { appendBaseline }) {
+type AppendBaseline = (lines: string[], report: AnalysisReport) => void;
+
+export function renderFindings(report: AnalysisReport, args: AnalyzerArgs, { appendBaseline }: { appendBaseline: AppendBaseline }) {
   const selection = selectWorkItems(report, { ...args, units: false });
   const sinks = selection.selected;
   const lines = [
@@ -43,7 +46,7 @@ export function renderFindings(report, args, { appendBaseline }) {
         ["impossible defenses", sink.metrics.impossibleDefenseCount],
         ["pack risk", sink.metrics.packRisk],
         ["downstream sink count", sink.metrics.reachableSinks],
-        ["centrality percentile", Math.round(sink.scores.centrality * 100)],
+        ["centrality percentile", Math.round((sink.scores?.centrality ?? 0) * 100)],
         ["analysis confidence", `${sink.confidence}%`],
       ]),
     );
@@ -75,9 +78,9 @@ export function renderFindings(report, args, { appendBaseline }) {
 // Phase 8 — itemize which exact path operations produced the headline metric
 // counts, so a "defensive operations: 2" is backed by the two steps that caused
 // it. Driven by the representative (longest) path steps.
-function metricContributionLines(sink) {
+function metricContributionLines(sink: Sink) {
   const steps = sink.representativeSteps ?? [];
-  const lines = [];
+  const lines: string[] = [];
   const defensive = steps.filter(
     (step) => step.kind === "fallback" || step.kind === "optional-read",
   );
@@ -102,10 +105,10 @@ function metricContributionLines(sink) {
 // One-lined, kind-annotated path steps for the fenced prose renderers. The
 // per-step operation kind comes from representativeSteps (P5); falls back to the
 // plain label array for any record analyzed before steps were threaded through.
-function representativePathLines(sink, { showKind = true } = {}) {
+function representativePathLines(sink: Sink, { showKind = true } = {}) {
   const steps =
     sink.representativeSteps ??
-    sink.representativePath.map((label) => ({ label, kind: null }));
+    sink.representativePath.map((label: string) => ({ label, kind: null }));
   if (steps.length === 0) return ["(no path)"];
   return steps.map((step) => {
     const label = formatExpression(step.label);
@@ -118,7 +121,7 @@ function representativePathLines(sink, { showKind = true } = {}) {
 // Actionable domain sources for a sink: named locals and qualified property
 // reads (props.meta), with literals, bare parameters, language globals, and
 // inline function bodies dropped via fanOutRootsFor. Capped with a `(+N more)`.
-export function actionableSourceLabels(sink, max = 6) {
+export function actionableSourceLabels(sink: Sink, max: number = 6) {
   const labels = unique(
     fanOutRootsFor(sink).map((info) => formatExpression(info.label, 60)),
   );
@@ -127,15 +130,15 @@ export function actionableSourceLabels(sink, max = 6) {
   return `${labels.slice(0, max).join(", ")} (+${labels.length - max} more)`;
 }
 
-function findingSentence(sink) {
+function findingSentence(sink: Sink) {
   if (sink.metrics.impossibleDefenseCount > 0) {
     return "A nullish fallback or optional access is unreachable under the checked TypeScript program.";
   }
   return "This rendered value has more data-flow plumbing than nearby JSX should usually need.";
 }
 
-export function severityFor(sink) {
+export function severityFor(sink: Sink) {
   if (sink.metrics.impossibleDefenseCount > 0) return "HIGH";
-  if (sink.scores.burden > 0.55) return "MEDIUM";
+  if ((sink.scores?.burden ?? 0) > 0.55) return "MEDIUM";
   return "LOW";
 }

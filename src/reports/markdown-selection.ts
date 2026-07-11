@@ -1,3 +1,4 @@
+import type { AnalysisReport, AnalyzerArgs, RankedSink, Sink } from "../types.js";
 import path from "node:path";
 import { fanOutRootsFor } from "../analysis/fan-out.js";
 import { primaryAdviceShape } from "../analysis/sink-shape.js";
@@ -22,21 +23,21 @@ const DEFAULT_PER_FEATURE = 4;
 
 // The primary actionable source ("pivot") and primary shape tag of a sink — the
 // redundancy/grouping keys shared by MMR and work-unit grouping.
-function primaryPivotOf(sink) {
+function primaryPivotOf(sink: Sink) {
   const roots = fanOutRootsFor(sink);
   return roots.length ? formatExpression(roots[0].label, 40) : null;
 }
-function primaryShapeOf(sink) {
+function primaryShapeOf(sink: Sink) {
   return primaryAdviceShape(sink) ?? "uncategorized";
 }
 
 // For each file with at least one shown item, how many of its ranked siblings
 // were NOT shown — the "+N more" collapsed tally that keeps the concentration
 // signal visible (the "don't hide the worst" risk).
-function suppressionFor(allItems, selected) {
+function suppressionFor(allItems: RankedSink[], selected: RankedSink[]) {
   const totalByFile = countBy(allItems.map((item) => item.file));
   const selectedByFile = countBy(selected.map((item) => item.file));
-  const suppressed = new Map();
+  const suppressed = new Map<string, number>();
   for (const [file, total] of Object.entries(totalByFile)) {
     const shown = selectedByFile[file] ?? 0;
     if (shown > 0 && total > shown) suppressed.set(file, total - shown);
@@ -46,12 +47,12 @@ function suppressionFor(allItems, selected) {
 
 // Approach 1 — per-file / per-feature diversity caps. Walks the burden-sorted
 // list admitting an item only while its file and feature quotas have room.
-function selectSpread(items, args) {
+function selectSpread(items: RankedSink[], args: AnalyzerArgs) {
   const perFile = args.perFile ?? DEFAULT_PER_FILE;
   const perFeature = args.perFeature ?? DEFAULT_PER_FEATURE;
-  const fileCount = new Map();
-  const featureCount = new Map();
-  const selected = [];
+  const fileCount = new Map<string, number>();
+  const featureCount = new Map<string, number>();
+  const selected: RankedSink[] = [];
   for (const item of items) {
     if (selected.length >= args.maxItems) break;
     const feature = featureKeyFor(item.file);
@@ -68,10 +69,10 @@ function selectSpread(items, args) {
 
 // Approach 6 (coverage) — one item per file (best first) until every file is
 // represented or the list fills, then fill remaining slots by burden.
-function selectCoverage(items, args) {
-  const selected = [];
-  const chosen = new Set();
-  const seenFiles = new Set();
+function selectCoverage(items: RankedSink[], args: AnalyzerArgs) {
+  const selected: RankedSink[] = [];
+  const chosen = new Set<RankedSink>();
+  const seenFiles = new Set<string>();
   for (const item of items) {
     if (selected.length >= args.maxItems) break;
     if (!seenFiles.has(item.file)) {
@@ -93,17 +94,17 @@ function selectCoverage(items, args) {
 // Approach 2 — Maximal Marginal Relevance. Greedily pick the item maximizing
 // burden − λ·redundancy, where redundancy rises when an item shares a file,
 // shape, or pivot with what is already selected. λ scales with --diversity.
-function selectMMR(items, args) {
-  const lambda = clamp01(args.diversity);
+function selectMMR(items: RankedSink[], args: AnalyzerArgs) {
+  const lambda = clamp01(args.diversity ?? 0);
   const maxBurden = Math.max(
     0.0001,
     ...items.map((item) => item.scores.burden),
   );
   const pool = items.slice();
-  const selected = [];
-  const fileCount = new Map();
-  const shapeCount = new Map();
-  const pivotCount = new Map();
+  const selected: RankedSink[] = [];
+  const fileCount = new Map<string, number>();
+  const shapeCount = new Map<string, number>();
+  const pivotCount = new Map<string | null, number>();
   while (selected.length < args.maxItems && pool.length > 0) {
     const n = selected.length;
     let bestIndex = 0;
@@ -136,22 +137,22 @@ function selectMMR(items, args) {
 // The selection used by the packet/finding views. Picks the unit/sink list per
 // --units + --sort + --diversity, never dropping the worst item. Returns the
 // chosen items, the suppression tally, and the resolved mode for the banner.
-export function selectWorkItems(report, args) {
+export function selectWorkItems(report: AnalysisReport, args: AnalyzerArgs) {
   const mode = args.sort ?? "burden";
   const useUnits = Boolean(args.units) && mode !== "quick-win";
-  let pool = useUnits ? report.workUnits : report.rankings.all;
+  let pool: RankedSink[] = useUnits ? report.workUnits : report.rankings.all;
   if (args.view === "work-packets") {
     const actionable = pool.filter((item) => !item.background);
     if (actionable.length > 0) pool = actionable;
   }
 
   if (mode === "quick-win") {
-    const quickIds = new Set(report.rankings.quickWins.map((sink) => sink.id));
+    const quickIds = new Set(report.rankings.quickWins.map((sink: Sink) => sink.id));
     pool = report.rankings.quickWins
-      .filter((sink) => !sink.background)
-      .concat(report.rankings.all.filter((sink) => !quickIds.has(sink.id)));
+      .filter((sink: Sink) => !sink.background)
+      .concat(report.rankings.all.filter((sink: Sink) => !quickIds.has(sink.id)));
     if (args.view === "work-packets")
-      pool = pool.filter((sink) => !sink.background);
+      pool = pool.filter((sink: Sink) => !sink.background);
   }
 
   let result;
@@ -169,7 +170,8 @@ export function selectWorkItems(report, args) {
 
 // A one-line banner describing the active selection mode (omitted for the
 // default burden sort so today's output is unchanged at the top).
-export function selectionBanner(selection, args) {
+interface SelectionResult { selected: RankedSink[]; suppressed: Map<string, number>; useUnits: boolean; mode: string }
+export function selectionBanner(selection: SelectionResult, args: AnalyzerArgs) {
   if (args.diversity != null) {
     return `_Ranked by burden, diversified (--diversity ${args.diversity}). Redundant siblings deferred._`;
   }
@@ -186,7 +188,7 @@ export function selectionBanner(selection, args) {
 }
 
 // The collapsed "still hot" note for cap-demoted siblings (Approach 1).
-export function suppressionLines(suppressed) {
+export function suppressionLines(suppressed: Map<string, number>) {
   if (!suppressed || suppressed.size === 0) return [];
   const parts = Array.from(suppressed.entries())
     .sort((left, right) => right[1] - left[1])
@@ -199,10 +201,10 @@ export function suppressionLines(suppressed) {
 }
 
 // Approach 5 — the "Coverage" paragraph shown in the packet/repair-map headers.
-export function concentrationLines(report, shownCount) {
+export function concentrationLines(report: AnalysisReport, shownCount: number) {
   const concentration = report.concentration;
   if (!concentration || concentration.fileCount === 0) return [];
-  const pct = (value) => `${Math.round(value * 100)}%`;
+  const pct = (value: number) => `${Math.round(value * 100)}%`;
   const topFiles = Math.min(5, concentration.fileCount);
   let sentence = `_${shownCount} shown. Ranked burden is concentrated: top ${plural(topFiles, "file")} = ${pct(concentration.top5)}`;
   if (concentration.fileCount > 9)
@@ -216,7 +218,7 @@ export function concentrationLines(report, shownCount) {
 }
 
 
-function featureKeyFor(file) {
+function featureKeyFor(file: string) {
   const parts = file.split("/");
   const sourceIndex = parts.findIndex((part) => part === "src");
   const offset = sourceIndex >= 0 ? sourceIndex + 1 : 0;
@@ -227,17 +229,17 @@ function featureKeyFor(file) {
   return directoryParts.slice(0, 3).join("/") || path.dirname(file);
 }
 
-function plural(count, noun) {
+function plural(count: number, noun: string) {
   return count + " " + noun + (count === 1 ? "" : "s");
 }
 
-function clamp01(value) {
+function clamp01(value: number) {
   return Math.max(0, Math.min(1, Number(value)));
 }
 
-function countBy(values) {
-  return values.reduce((acc, value) => {
+function countBy(values: string[]): Record<string, number> {
+  return values.reduce((acc: Record<string, number>, value) => {
     acc[value] = (acc[value] ?? 0) + 1;
     return acc;
-  }, {});
+  }, {} as Record<string, number>);
 }

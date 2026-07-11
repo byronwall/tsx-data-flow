@@ -18,7 +18,7 @@ export const OVERVIEW_SORTS = new Set(["burden", "findings", "depth", "file"]);
 export const OVERVIEW_PAGE_SIZE = 25;
 
 // Heading reflects the active sort so it never lies (it was hard-coded "by burden").
-export const SORT_HEADING = {
+export const SORT_HEADING: Record<string, string> = {
   burden: "Files by burden",
   findings: "Files by finding count",
   depth: "Files by path depth",

@@ -1,6 +1,7 @@
 // Local server for tsx-dataflow. Builds the TypeScript program once, exposes the
 // analyzer data/markdown APIs, and serves the Solid single-page frontend.
 import fs from "node:fs";
+import type { AnalysisReport, AnalyzerArgs } from "./types.js";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,37 +14,14 @@ import {
 import { escapeHtml } from "./html/escape.js";
 import { page } from "./html/page.js";
 
-type AnalyzerArgs = {
-  compare?: string | null;
-  file?: string[];
-  format?: string;
-  maxItems?: number | null;
-  root: string;
-  scope?: string | null;
-  view?: string;
-  [key: string]: unknown;
-};
-
-type Report = {
-  concentration?: unknown;
-  contextRelay?: unknown;
-  helpers?: unknown;
-  meta: { root: string; [key: string]: unknown };
-  packGroups?: unknown;
-  rankings: { all: unknown };
-  repeatedForks?: unknown;
-  summary?: unknown;
-  unknownEdges?: unknown;
-};
-
 type Analyzer = {
-  report(overrides?: Partial<AnalyzerArgs>): Report;
+  report(overrides?: Partial<AnalyzerArgs>): AnalysisReport;
 };
 
 type ServerCache = {
   analyzer: Analyzer | null;
-  full: Report | null;
-  byFile: Map<string, Report>;
+  full: AnalysisReport | null;
+  byFile: Map<string, AnalysisReport>;
   source: Map<string, string>;
 };
 
@@ -71,7 +49,7 @@ function send(
   res: ServerResponse,
   status: number,
   body: string | Buffer,
-  type = "text/html; charset=utf-8",
+  type: string = "text/html; charset=utf-8",
 ) {
   res.writeHead(status, { "Content-Type": type });
   res.end(body);
@@ -235,7 +213,7 @@ export function createServer(args: AnalyzerArgs) {
 
       return sendSpa(res);
     } catch (error) {
-      const message = error instanceof Error ? error.stack : String(error);
+      const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
       return send(
         res,
         500,

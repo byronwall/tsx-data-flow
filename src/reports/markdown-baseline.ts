@@ -1,7 +1,8 @@
+import type { AnalysisReport } from "../types.js";
 import { fenced, metricTable } from "./markdown-format.js";
 import { formatExpression } from "./format-helpers.js";
 
-export function appendBaseline(lines, report) {
+export function appendBaseline(lines: string[], report: AnalysisReport) {
   if (!report.baseline) return;
   const baseline = report.baseline;
   lines.push("## Baseline");
@@ -14,7 +15,7 @@ export function appendBaseline(lines, report) {
     ]),
   );
 
-  const changes = [];
+  const changes: string[] = [];
   for (const item of baseline.removed ?? []) {
     changes.push(
       `Removed:   ${formatExpression(item.label, 60)}${item.depth != null ? ` (depth ${item.depth})` : ""}`,

@@ -38,7 +38,7 @@ export async function buildGoldenReport() {
   return { args, report: await analyzeProject(args) };
 }
 
-export function renderGoldenMarkdownByView(report, args) {
+export function renderGoldenMarkdownByView(report: import("../../src/types.js").AnalysisReport, args: import("../../src/types.js").AnalyzerArgs) {
   return Object.fromEntries(
     renderAllReports(report, args).map(({ view, text }) => [
       view,
@@ -56,7 +56,7 @@ export async function fetchGoldenApiReportJson() {
   return normalizeGoldenText(response.body);
 }
 
-export function normalizeGoldenText(value) {
+export function normalizeGoldenText(value: string) {
   return String(value)
     .replaceAll(exampleRoot, "<EXAMPLE_ROOT>")
     .replaceAll(repoRoot, "<REPO_ROOT>")

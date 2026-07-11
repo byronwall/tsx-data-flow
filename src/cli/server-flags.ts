@@ -1,5 +1,5 @@
-export function extractServerFlags(argv) {
-  const rest = [];
+export function extractServerFlags(argv: string[]) {
+  const rest: string[] = [];
   const server = { port: 4317, host: "127.0.0.1", open: false };
   for (let i = 0; i < argv.length; i += 1) {
     const raw = argv[i];

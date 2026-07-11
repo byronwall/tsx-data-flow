@@ -1,3 +1,4 @@
+import type { Sink } from "../types.js";
 import { findingTitle } from "../analysis/finding-title.js";
 import { escapeHtml } from "./escape.js";
 import { snippetBlockHtml } from "./source-peek.js";
@@ -12,7 +13,7 @@ import {
   stepLocationHtml,
 } from "./code-map-paths.js";
 
-const QUEUE_LABEL = {
+const QUEUE_LABEL: Record<string, string> = {
   "peripheral-quick-win": "quick win",
   "central-leverage": "central leverage",
   investigation: "investigation",
@@ -21,9 +22,9 @@ const QUEUE_LABEL = {
 // "Why selected" bullets, mirroring the work-packets rationale but compact.
 // Path depth, representation hops, and reach are surfaced as their own detailed
 // sections (see findingPanel) rather than bare counts, so they are omitted here.
-function whyBullets(sink) {
+function whyBullets(sink: Sink) {
   const m = sink.metrics;
-  const bullets = [];
+  const bullets: string[] = [];
   if (m.actionableDefensiveOperationCount)
     bullets.push(`${m.actionableDefensiveOperationCount} defensive operations`);
   if (m.impossibleDefenseCount)
@@ -32,13 +33,16 @@ function whyBullets(sink) {
   return bullets;
 }
 
-function debugInfo(sink, relPath, source, meta) {
+interface FindingMeta { root?: string; source?: string; tsconfig?: string | null; tsconfigs?: string[]; typescript?: string | null; generatedAt?: string }
+type ResolveSource = (file: string) => string | null;
+
+function debugInfo(sink: Sink, relPath: string, source: string, meta: FindingMeta) {
   const srcLines = source ? source.split("\n") : [];
-  const lineText = (n) =>
+  const lineText = (n: number | null) =>
     n && srcLines[n - 1] != null ? srcLines[n - 1].trim() : null;
   const ctx = sink.renderContext ?? {};
   const span = sink.span;
-  const out = [];
+  const out: string[] = [];
   out.push(`tsx-dataflow finding ${sink.id}`);
   if (meta) {
     out.push(`analysis root (cwd): ${meta.root ?? "?"}`);
@@ -123,7 +127,7 @@ function debugInfo(sink, relPath, source, meta) {
   if ((sink.reachedVia ?? []).length) {
     out.push("");
     out.push("reaches:");
-    for (const g of sink.reachedVia)
+    for (const g of sink.reachedVia ?? [])
       out.push(`  via ${g.source} → ${g.total ?? g.sinks.length} sinks`);
   }
   out.push("");
@@ -164,7 +168,7 @@ function debugInfo(sink, relPath, source, meta) {
   return out.join("\n");
 }
 
-export function findingPanel(sink, source, peers, relPath, meta, resolveSource) {
+export function findingPanel(sink: Sink, source: string, peers: Sink[] | undefined, relPath: string, meta: FindingMeta, resolveSource: ResolveSource) {
   const ctx = sink.renderContext ?? {};
   const excerpt = source
     ? snippetBlockHtml(source, sink.line, { context: 3 })
@@ -271,7 +275,7 @@ export function findingPanel(sink, source, peers, relPath, meta, resolveSource) 
 // while the metric counts every defensive operation across ALL paths through the
 // value (the panel shows the single worst path). When they differ, say so rather
 // than leave the gap looking like a bug.
-function defenseNote(sink) {
+function defenseNote(sink: Sink) {
   const shown = (sink.defenses ?? []).length;
   const ops = sink.metrics?.actionableDefensiveOperationCount ?? 0;
   if (ops <= shown) return "";
@@ -288,7 +292,7 @@ function defenseNote(sink) {
 // metric and its share of the total; the exact `weight × normalized(raw)` math is
 // in the tooltip. Only terms that actually contribute are listed, widest first,
 // so a clean path shows a short "burden is 0" note instead.
-function burdenBreakdownHtml(sink) {
+function burdenBreakdownHtml(sink: Sink) {
   const breakdown = sink.scores?.burdenBreakdown;
   if (!breakdown) return "";
   const total = breakdown.total ?? 0;

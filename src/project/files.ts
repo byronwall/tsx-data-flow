@@ -1,3 +1,4 @@
+import type { AnalyzerArgs } from "../types.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -14,7 +15,7 @@ export const DEFAULT_IGNORED_PARTS = new Set([
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".js", ".cjs"];
 
-export function shouldAnalyzeFile(file, args) {
+export function shouldAnalyzeFile(file: string, args: AnalyzerArgs) {
   const ext = path.extname(file);
   if (!SOURCE_EXTENSIONS.includes(ext)) return false;
   if (file.endsWith(".d.ts")) return false;
@@ -29,7 +30,7 @@ export function shouldAnalyzeFile(file, args) {
   return true;
 }
 
-export function walkFiles(root) {
+export function walkFiles(root: string): string[] {
   const entries = fs.readdirSync(root, { withFileTypes: true });
   return entries.flatMap((entry) => {
     const current = path.join(root, entry.name);
@@ -38,7 +39,7 @@ export function walkFiles(root) {
   });
 }
 
-export function isWithin(file, root) {
+export function isWithin(file: string, root: string) {
   const relative = path.relative(root, file);
   return (
     relative === "" ||

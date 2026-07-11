@@ -1,4 +1,4 @@
-const HTML_ESCAPES = {
+const HTML_ESCAPES: Record<string, string> = {
   "&": "&amp;",
   "<": "&lt;",
   ">": "&gt;",
@@ -6,6 +6,6 @@ const HTML_ESCAPES = {
   "'": "&#39;",
 };
 
-export function escapeHtml(text) {
+export function escapeHtml(text: string) {
   return String(text).replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
 }

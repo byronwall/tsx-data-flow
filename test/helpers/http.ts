@@ -1,4 +1,4 @@
-export function call(handler, url, method = "GET") {
+export function call(handler, url: string, method = "GET") {
   return new Promise((resolveCall) => {
     const chunks = [];
     const res = {

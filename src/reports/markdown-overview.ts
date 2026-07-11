@@ -1,3 +1,4 @@
+import type { AnalysisReport, AnalyzerArgs, Sink } from "../types.js";
 import path from "node:path";
 import { REPORT_VIEWS } from "../cli/args.js";
 import { findingTitle } from "../analysis/finding-title.js";
@@ -23,7 +24,7 @@ import {
   providerEvidenceSummary,
 } from "./markdown-work-advice.js";
 
-function primaryShapeOf(sink) {
+function primaryShapeOf(sink: Sink) {
   return primaryAdviceShape(sink) ?? "uncategorized";
 }
 
@@ -50,9 +51,12 @@ function reportManifestLines() {
 }
 
 export function renderOverviewReport(
-  report,
-  args,
-  { appendBaseline, stopRecommendationFor },
+  report: AnalysisReport,
+  args: AnalyzerArgs,
+  { appendBaseline, stopRecommendationFor }: {
+    appendBaseline: (lines: string[], report: AnalysisReport) => void;
+    stopRecommendationFor: (report: AnalysisReport) => { recommend: boolean; reason: string };
+  },
 ) {
   const lines = ["# Overview", "", ...viewIntro("overview", report)];
   lines.push(...reportManifestLines());
@@ -91,17 +95,18 @@ export function renderOverviewReport(
   }
 
   // Repair buckets (old repair-map).
-  for (const [heading, sinks] of [
+  const repairBuckets: Array<[string, Sink[]]> = [
     ["Peripheral quick wins", report.rankings.quickWins],
     ["Central leverage", report.rankings.centralLeverage],
     ["Investigate", report.rankings.investigations],
-  ]) {
+  ];
+  for (const [heading, sinks] of repairBuckets) {
     lines.push(`## ${heading}`, "");
     const selected = (sinks ?? []).slice(0, args.maxItems);
     if (selected.length === 0) lines.push("- none");
-    selected.forEach((sink) => {
+    selected.forEach((sink: Sink) => {
       lines.push(
-        `- **${sink.scores.burden.toFixed(1)}** ${sink.file}:${sink.line} — ${findingTitle(sink)} _(${ownershipHintFor(sink)})_`,
+        `- **${(sink.scores?.burden ?? 0).toFixed(1)}** ${sink.file}:${sink.line} — ${findingTitle(sink)} _(${ownershipHintFor(sink)})_`,
       );
     });
     lines.push("");
@@ -133,7 +138,7 @@ export function renderOverviewReport(
   return `${lines.join("\n")}\n`;
 }
 
-export function appendStopRecommendation(lines, report, stopRecommendationFor) {
+export function appendStopRecommendation(lines: string[], report: AnalysisReport, stopRecommendationFor: (report: AnalysisReport) => { recommend: boolean; reason: string }) {
   const stop = stopRecommendationFor(report);
   lines.push("## Stop Recommendation");
   lines.push("");
@@ -147,7 +152,7 @@ export function appendStopRecommendation(lines, report, stopRecommendationFor) {
   lines.push("");
 }
 
-export function appendFeatureClusters(lines, report, args) {
+export function appendFeatureClusters(lines: string[], report: AnalysisReport, args: AnalyzerArgs) {
   const rows = featureClusterRows(report.rankings.all).slice(
     0,
     Math.min(args.maxItems, 8),
@@ -172,7 +177,7 @@ export function appendFeatureClusters(lines, report, args) {
   lines.push("");
 }
 
-function featureClusterRows(sinks) {
+function featureClusterRows(sinks: Sink[]) {
   const clusters = new Map();
   for (const sink of sinks) {
     const key = featureKeyFor(sink.file);
@@ -229,7 +234,7 @@ function featureClusterRows(sinks) {
     );
 }
 
-function featureKeyFor(file) {
+function featureKeyFor(file: string) {
   const parts = file.split("/");
   const sourceIndex = parts.findIndex((part) => part === "src");
   const offset = sourceIndex >= 0 ? sourceIndex + 1 : 0;

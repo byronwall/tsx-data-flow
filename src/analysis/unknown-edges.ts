@@ -1,12 +1,13 @@
+import type { AnalysisGraph, Sink, UnknownEdgeRow } from "../types.js";
 import { reachedSinkDescriptor } from "./sink-descriptor.js";
 
 const REACHED_VIA_CAP = 50;
 
-export function buildUnknownEdgeRows(graph, sinks) {
+export function buildUnknownEdgeRows(graph: AnalysisGraph, sinks: Sink[]) {
   const nodes = new Map((graph.nodes ?? []).map((node) => [node.id, node]));
-  const byKey = new Map();
-  const rows = [];
-  const record = (key, build) => {
+  const byKey = new Map<string, UnknownEdgeRow>();
+  const rows: UnknownEdgeRow[] = [];
+  const record = (key: string, build: () => Omit<UnknownEdgeRow, "occurrences">) => {
     const existing = byKey.get(key);
     if (existing) {
       existing.occurrences += 1;
@@ -74,12 +75,12 @@ export function buildUnknownEdgeRows(graph, sinks) {
   );
 }
 
-function affectedSinksForUnknownEdge(sinks, edge) {
+function affectedSinksForUnknownEdge(sinks: Sink[], edge: { file: string; line: number | null; kind: string; label: string }) {
   return sinks
-    .filter((sink) => {
+    .filter((sink: Sink) => {
       const roots =
         sink.rootInfos ??
-        sink.roots.map((root) => ({ label: root, kind: "source" }));
+        sink.roots.map((root: string) => ({ label: root, kind: "source" }));
       if (
         roots.some(
           (root) => root.label === edge.label && root.kind === edge.kind,

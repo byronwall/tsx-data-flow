@@ -1,3 +1,5 @@
+import type * as TypeScript from "typescript";
+import type { AnalysisGraph, TraceContext, TraceResult } from "../types.js";
 import { createGraph } from "./graph.js";
 import {
   classifyUnresolvedCall,
@@ -20,7 +22,7 @@ import {
 } from "./source-trace-records.js";
 import { traceAccessor, traceIdentifier } from "./source-trace-identifiers.js";
 
-export function traceExpression(ts, checker, graph, expression, context) {
+export function traceExpression(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Expression, context: TraceContext): TraceResult {
   const text = expression.getText();
   if (context.stack.has(expression)) {
     return sourceTrace(graph, expression, "cycle", text, true);
@@ -102,7 +104,7 @@ export function traceExpression(ts, checker, graph, expression, context) {
   return sourceTrace(graph, expression, "literal", text, false);
 }
 
-function tracePropertyAccess(ts, checker, graph, expression, context) {
+function tracePropertyAccess(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.PropertyAccessExpression, context: TraceContext) {
   const receiverTrace = traceExpression(
     ts,
     checker,
@@ -144,7 +146,7 @@ function tracePropertyAccess(ts, checker, graph, expression, context) {
 
 // Mark a callee's catalog function as reached on a render path, so the boundary
 // report only lists functions that actually participate in rendering.
-function markReached(ts, checker, calleeIdent, context) {
+function markReached(ts: typeof TypeScript, checker: TypeScript.TypeChecker, calleeIdent: TypeScript.Identifier, context: TraceContext) {
   if (!context.crossFile) return;
   const record = resolveCatalogFn(ts, checker, calleeIdent, context.crossFile);
   if (record) context.crossFile.reached.add(record.symbol);
@@ -153,7 +155,7 @@ function markReached(ts, checker, calleeIdent, context) {
 // Descend into a first-party imported helper, or return null to fall through to
 // the opaque generic-call handling (imported-but-not-first-party, depth/recursion
 // limits hit, no resolvable body, or helper tracing disabled).
-function traceCrossFileCall(ts, checker, graph, expression, callee, context) {
+function traceCrossFileCall(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.CallExpression, callee: string, context: TraceContext): TraceResult | null {
   const crossFile = context.crossFile;
   if (!crossFile?.args?.traceHelpers) return null;
   // The node whose symbol identifies the callee: a bare identifier (`helper()`)
@@ -161,7 +163,7 @@ function traceCrossFileCall(ts, checker, graph, expression, callee, context) {
   // callee) is unfollowable.
   const calleeIdent = ts.isIdentifier(expression.expression)
     ? expression.expression
-    : ts.isPropertyAccessExpression(expression.expression)
+    : ts.isPropertyAccessExpression(expression.expression) && ts.isIdentifier(expression.expression.name)
       ? expression.expression.name
       : null;
   if (!calleeIdent) return null;
@@ -187,7 +189,7 @@ function traceCrossFileCall(ts, checker, graph, expression, callee, context) {
   // (summary/dossier) lose the descended interior, which is an acceptable trade.
   const subGraph = createGraph(context.root);
   const paramBindings = new Map();
-  record.params.forEach((parameter, index) => {
+  record.params.forEach((parameter, index: number) => {
     const argument = expression.arguments[index];
     if (argument) {
       paramBindings.set(
@@ -231,7 +233,7 @@ function traceCrossFileCall(ts, checker, graph, expression, callee, context) {
   });
 }
 
-function traceCallExpression(ts, checker, graph, expression, context) {
+function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.CallExpression, context: TraceContext): TraceResult {
   const callee = getCallName(ts, expression);
   // A control-flow render callback may receive its data as an accessor that is
   // *invoked* in the body: `<Show when={x}>{(value) => <div>{value()}</div>}`
@@ -268,21 +270,21 @@ function traceCallExpression(ts, checker, graph, expression, context) {
       );
     }
   }
+  const localFunction = context.functions.get(callee);
   if (
     ts.isIdentifier(expression.expression) &&
-    context.functions.has(callee) &&
+    localFunction &&
     identifierResolvesTo(
       ts,
       checker,
       expression.expression,
-      context.functions.get(callee),
+      localFunction,
     )
   ) {
     // Same-file helper: record that it was reached (for the boundary report) and
     // trace through its body inline, as before.
     markReached(ts, checker, expression.expression, context);
-    const fn = context.functions.get(callee);
-    const returnExpression = getFunctionReturnExpression(ts, fn);
+    const returnExpression = getFunctionReturnExpression(ts, localFunction);
     const traces = expression.arguments.map((argument) =>
       traceExpression(ts, checker, graph, argument, context),
     );
@@ -299,14 +301,15 @@ function traceCallExpression(ts, checker, graph, expression, context) {
     });
   }
 
+  const accessor = context.accessors.get(callee);
   if (
     ts.isIdentifier(expression.expression) &&
-    context.accessors.has(callee) &&
+    accessor &&
     identifierResolvesTo(
       ts,
       checker,
       expression.expression,
-      context.accessors.get(callee).declaration,
+      accessor.declaration,
     )
   ) {
     return traceAccessor(
@@ -314,7 +317,7 @@ function traceCallExpression(ts, checker, graph, expression, context) {
       checker,
       graph,
       expression.expression,
-      context.accessors.get(callee),
+      accessor,
       context,
       traceExpression,
     );
@@ -334,7 +337,7 @@ function traceCallExpression(ts, checker, graph, expression, context) {
   );
   if (crossFileTrace) return crossFileTrace;
 
-  const traces = [];
+  const traces: TraceResult[] = [];
   if (ts.isPropertyAccessExpression(expression.expression)) {
     traces.push(
       traceExpression(
@@ -374,8 +377,8 @@ function traceCallExpression(ts, checker, graph, expression, context) {
   });
 }
 
-function traceObjectLiteral(ts, checker, graph, expression, context) {
-  const traces = [];
+function traceObjectLiteral(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.ObjectLiteralExpression, context: TraceContext): TraceResult {
+  const traces: TraceResult[] = [];
   for (const property of expression.properties) {
     if (ts.isSpreadAssignment(property)) {
       traces.push(
@@ -392,7 +395,7 @@ function traceObjectLiteral(ts, checker, graph, expression, context) {
   return addOperationTrace(ts, graph, "object-pack", expression, traces);
 }
 
-function traceBinaryExpression(ts, checker, graph, expression, context) {
+function traceBinaryExpression(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.BinaryExpression, context: TraceContext) {
   const operator = expression.operatorToken.kind;
   const kind =
     operator === ts.SyntaxKind.QuestionQuestionToken ||

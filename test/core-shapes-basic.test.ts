@@ -117,10 +117,10 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
     const report = await analyzeProject(project.args);
 
-    const widthSink = report.sinks.find((sink) =>
+    const widthSink = report.sinks.find((sink: import("../src/types.js").Sink) =>
       sink.label.startsWith("width="),
     );
-    const transformSink = report.sinks.find((sink) =>
+    const transformSink = report.sinks.find((sink: import("../src/types.js").Sink) =>
       sink.label.startsWith("transform="),
     );
     expect(widthSink).toBeTruthy();
@@ -248,7 +248,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
     const report = await analyzeProject(project.args);
     const viewBoxSink = report.sinks.find(
-      (sink) => sink.renderContext?.attribute === "viewBox",
+      (sink: import("../src/types.js").Sink) => sink.renderContext?.attribute === "viewBox",
     );
 
     expect(viewBoxSink).toBeTruthy();
@@ -285,7 +285,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     });
     const report = await analyzeProject(project.args);
     const centerSink = report.sinks.find(
-      (sink) =>
+      (sink: import("../src/types.js").Sink) =>
         sink.renderContext?.attribute === "cx" &&
         sink.expression.includes("size / 2"),
     );

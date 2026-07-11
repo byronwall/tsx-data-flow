@@ -1,3 +1,5 @@
+import type { BoundaryHelper, Sink, UnknownEdgeRow } from "../types.js";
+import type { EntryRow, FanOutRow, ForkEntry, RelayRow } from "./code-map-entry-panels.js";
 // The annotated code map: render one source file as line-numbered code with the
 // render sinks that land in it overlaid in the gutter, plus a commentary panel
 // describing each finding. This is the one HTML view the Markdown reports cannot
@@ -32,6 +34,21 @@ import {
   touchedLines,
 } from "./code-map-source-lines.js";
 
+interface CodeMapMeta {
+  root?: string; source?: string; tsconfig?: string | null; tsconfigs?: string[];
+  typescript?: string | null; generatedAt?: string; label?: string;
+}
+interface InventoryEntry {
+  id: string; type: string; line: number; sortLine: number; score: number;
+  sortSources?: number; row: EntryRow; panelHtml: string;
+}
+interface CodeMapOptions {
+  relPath: string; source: string; sinks: Sink[]; meta: CodeMapMeta;
+  resolveSource: (file: string) => string | null;
+  selectedFinding?: string | null; forks?: ForkEntry[]; helpers?: BoundaryHelper[];
+  unknownEdges?: UnknownEdgeRow[]; relays?: Array<RelayRow & { score?: number }>; fanOut?: FanOutRow[];
+}
+
 export function renderCodeMap({
   relPath,
   source,
@@ -44,26 +61,26 @@ export function renderCodeMap({
   unknownEdges = [],
   relays = [],
   fanOut = [],
-}) {
+}: CodeMapOptions) {
   const lines = source.split("\n");
 
   // line number -> sinks whose highlighted span touches that line.
-  const byLine = new Map();
+  const byLine = new Map<number, Sink[]>();
   for (const sink of sinks) {
     for (const lineNo of touchedLines(sink, lines.length)) {
       if (!byLine.has(lineNo)) byLine.set(lineNo, []);
-      byLine.get(lineNo).push(sink);
+      byLine.get(lineNo)!.push(sink);
     }
   }
 
   // Group sinks by identical rendered expression, so each finding panel can list
   // the other places the same code recurs.
-  const byExpr = new Map();
+  const byExpr = new Map<string, Sink[]>();
   for (const sink of sinks) {
     const key = (sink.expression ?? "").trim();
     if (!key) continue;
     if (!byExpr.has(key)) byExpr.set(key, []);
-    byExpr.get(key).push(sink);
+    byExpr.get(key)!.push(sink);
   }
 
   // lines this file contributes to any representative path (the trace threading
@@ -77,12 +94,12 @@ export function renderCodeMap({
 
   // Carries open block-comment state across lines for comment dimming (COMMENT-1).
   const commentState = { inBlock: false };
-  const rows = lines.map((text, index) => {
+  const rows = lines.map((text: string, index: number) => {
     const lineNo = index + 1;
     const lineSinks = byLine.get(lineNo);
     const onPath = pathLines.has(lineNo);
     let gutter = "";
-    let cls = [];
+    const cls: string[] = [];
     let style = "";
     // Always scan to advance comment state; use the dimmed render unless the line
     // carries findings (then the burden-tinted hit spans take precedence).
@@ -90,7 +107,7 @@ export function renderCodeMap({
     if (lineSinks && lineSinks.length) {
       const worst = dominantSink(lineSinks);
       const burden = worst.scores?.burden ?? 0;
-      const parts = new Set(lineSinks.map((sink) => spanPart(sink, lineNo)));
+      const parts = new Set(lineSinks.map((sink: Sink) => spanPart(sink, lineNo)));
       const title =
         lineSinks.length > 1
           ? `${lineSinks.length} findings on this line (burden ${burden.toFixed(2)})`
@@ -114,7 +131,7 @@ export function renderCodeMap({
   // Nothing is force-opened; selecting an entry (or loading ?finding=<id>) opens
   // it, and closing returns to the list.
   const seen = new Set();
-  const uniqueSinks = [];
+  const uniqueSinks: Sink[] = [];
   for (const sink of sinks) {
     if (seen.has(sink.id)) continue;
     seen.add(sink.id);
@@ -127,7 +144,7 @@ export function renderCodeMap({
   // report info the user wanted promoted, and on a sink-less .ts file it is the
   // only content here (TS-1). The verdict (classifyBoundary) drives both the
   // type (junction vs boundary) and whether it reads as a problem.
-  const entries = [];
+  const entries: InventoryEntry[] = [];
   for (const sink of uniqueSinks) {
     const type = sink.tier === "usage" ? "usage" : "finding";
     const burden = sink.scores?.burden ?? 0;
@@ -181,7 +198,7 @@ export function renderCodeMap({
     });
   }
   const seenHelperIds = new Set();
-  (helpers ?? []).forEach((helper, index) => {
+  (helpers ?? []).forEach((helper, index: number) => {
     const sev = helperSeverity(helper);
     const id = `${sev.type === "junction" ? "JCT" : "BND"}-${helper.line ?? index}`;
     const uid = seenHelperIds.has(id) ? `${id}-${index}` : id;
@@ -211,18 +228,18 @@ export function renderCodeMap({
   // its own per-file {line} and a severity proxy derived from its counts, mirroring
   // the helper pattern above. Unknown edges (unresolved flow), context relays
   // (prop bundles), and fan-out (shared sources).
-  (unknownEdges ?? []).forEach((row, index) => {
+  (unknownEdges ?? []).forEach((row, index: number) => {
     const id = `UNK-${row.line ?? index}-${index}`;
     entries.push({
       id,
       type: "unknown",
-      line: row.line,
+      line: row.line ?? 0,
       sortLine: row.line ?? 0,
       score: Math.min(0.4, 0.15 + (row.occurrences ?? 1) * 0.03),
       row: {
         id,
         type: "unknown",
-        line: row.line,
+        line: row.line ?? undefined,
         primary: row.label ?? "(unknown)",
         secondary: row.kind ?? "unknown",
         metric: "",
@@ -231,18 +248,18 @@ export function renderCodeMap({
       panelHtml: unknownEdgePanel(row, id, relPath),
     });
   });
-  (relays ?? []).forEach((row, index) => {
+  (relays ?? []).forEach((row, index: number) => {
     const id = `REL-${row.line ?? index}-${index}`;
     entries.push({
       id,
       type: "relay",
-      line: row.line,
+      line: row.line ?? 0,
       sortLine: row.line ?? 0,
       score: Math.min(0.5, 0.1 + (row.score ?? 0) * 0.03),
       row: {
         id,
         type: "relay",
-        line: row.line,
+        line: row.line ?? undefined,
         primary: row.childComponent ?? "(relay)",
         secondary: `${(row.props ?? []).length} props`,
         metric: "",
@@ -251,19 +268,19 @@ export function renderCodeMap({
       panelHtml: relayPanel(row, id),
     });
   });
-  (fanOut ?? []).forEach((row, index) => {
+  (fanOut ?? []).forEach((row, index: number) => {
     const id = `FANOUT-${row.line ?? index}-${index}`;
     entries.push({
       id,
       type: "fan-out",
-      line: row.line,
+      line: row.line ?? 0,
       sortLine: row.line ?? 0,
       score: Math.min(0.5, 0.12 + (row.sinkCount ?? 0) * 0.02),
       sortSources: row.sinkCount ?? 0,
       row: {
         id,
         type: "fan-out",
-        line: row.line,
+        line: row.line ?? undefined,
         primary: row.root ?? "(source)",
         secondary: `${row.sinkCount ?? 0} sinks`,
         metric: "",
@@ -295,7 +312,7 @@ export function renderCodeMap({
   );
 
   // Type-filter chips, only for types actually present.
-  const counts = {};
+  const counts: Record<string, number> = {};
   for (const e of entries) counts[e.type] = (counts[e.type] ?? 0) + 1;
   const filterTypes = [
     "finding",

@@ -1,7 +1,8 @@
+import type { DefenseRecord, RepresentationStep, Sink, TraceStep } from "../types.js";
 import { escapeHtml } from "./escape.js";
 import { snippetBlockHtml } from "./source-peek.js";
 
-const STEP_KIND_LABEL = {
+const STEP_KIND_LABEL: Record<string, string> = {
   source: "source",
   parameter: "param",
   "property-read": "read",
@@ -15,7 +16,10 @@ const STEP_KIND_LABEL = {
   template: "template",
 };
 
-function stepLocationText(step, { basename = false } = {}) {
+type ResolveSource = (file: string) => string | null;
+interface PathStepGroup { step: TraceStep; start: number; end: number; defensive: boolean; kinds: string[]; labels: string[] }
+
+function stepLocationText(step: Pick<TraceStep, "file" | "line">, { basename = false }: { basename?: boolean } = {}) {
   if (!step.line) return "";
   const file = step.file
     ? basename
@@ -31,7 +35,7 @@ function stepLocationText(step, { basename = false } = {}) {
 //     on the source column (no popover, no context switch);
 //   - a different file → an inline code reveal (so you don't lose the code map,
 //     transcript INLINE-1) PLUS a real link to that file's page for full nav.
-export function stepLocationHtml(step, resolveSource, relPath) {
+export function stepLocationHtml(step: Pick<TraceStep, "file" | "line">, resolveSource: ResolveSource, relPath: string) {
   if (!step.line) return '<span class="meta">-</span>';
   if (!step.file) return `<span class="meta">:${step.line}</span>`;
   if (relPath && step.file === relPath) {
@@ -40,7 +44,7 @@ export function stepLocationHtml(step, resolveSource, relPath) {
   // Cross-file: embed the target snippet (resolved server-side) so it can be
   // revealed inline, plus a link to open the file. The user wants to see the
   // jumped-to code "without losing all this code-map stuff on the left."
-  const base = escapeHtml(step.file.split("/").pop());
+  const base = escapeHtml(step.file.split("/").pop() ?? step.file);
   const open = `<a class="xfile" href="/file?path=${encodeURIComponent(
     step.file,
   )}#L${step.line}" title="Open ${escapeHtml(step.file)}">${base}:${step.line} ↗</a>`;
@@ -59,7 +63,7 @@ export function stepLocationHtml(step, resolveSource, relPath) {
 // A defense's location, surfaced next to its verdict. The transcript called out
 // that defenses showed the expression/verdict but dropped the line — the data is
 // present (debug dump uses it), it just was not rendered here.
-export function defenseLocHtml(defense, relPath, resolveSource) {
+export function defenseLocHtml(defense: DefenseRecord, relPath: string, resolveSource: ResolveSource) {
   const line = defense.location?.line;
   if (!line) return "";
   const step = { file: defense.location?.file ?? relPath, line };
@@ -72,7 +76,7 @@ export function defenseLocHtml(defense, relPath, resolveSource) {
 // `||`, or `?.`); the analyzer only records `??`/`?.` in `defenses[]`, so mark
 // defensiveness from the PATH here too — that is why "352 is defensive as well"
 // even though only one site showed in the Defenses list (DEF-1/DEF-2).
-function isDefensiveStep(step) {
+function isDefensiveStep(step: Pick<TraceStep, "kind">) {
   return step.kind === "fallback";
 }
 
@@ -83,9 +87,9 @@ function isDefensiveStep(step) {
 // shown ONCE and the steps read as "1–3", with the distinct kinds/expressions
 // listed against that single snippet. Each group keeps the original ordinals so
 // the gutter overlay still lines up.
-function groupPathSteps(steps) {
-  const groups = [];
-  steps.forEach((step, index) => {
+function groupPathSteps(steps: TraceStep[]) {
+  const groups: PathStepGroup[] = [];
+  steps.forEach((step, index: number) => {
     const prev = groups[groups.length - 1];
     const sameLine =
       prev && prev.step.line === step.line && prev.step.file === step.file;
@@ -110,7 +114,7 @@ function groupPathSteps(steps) {
   return groups;
 }
 
-export function pathSection(sink, resolveSource, relPath) {
+export function pathSection(sink: Sink, resolveSource: ResolveSource, relPath: string) {
   const steps = sink.representativeSteps ?? [];
   if (steps.length < 2) return "";
   const groups = groupPathSteps(steps);
@@ -169,11 +173,11 @@ export function pathSection(sink, resolveSource, relPath) {
 // (ANNO-1: "annotate this as item number seven… click the number to jump").
 // Also flags which of those lines are defensive (fallback) so the overlay can
 // badge them. Returns a compact "line:ordinal[:d],…" string.
-export function pathStepsAttr(sink, relPath) {
+export function pathStepsAttr(sink: Sink, relPath: string) {
   const steps = sink.representativeSteps ?? [];
-  const seen = new Set();
-  const parts = [];
-  steps.forEach((step, index) => {
+  const seen = new Set<number>();
+  const parts: string[] = [];
+  steps.forEach((step, index: number) => {
     if (step.file !== relPath || !step.line || seen.has(step.line)) return;
     seen.add(step.line);
     parts.push(`${step.line}:${index + 1}${isDefensiveStep(step) ? ":d" : ""}`);
@@ -182,12 +186,12 @@ export function pathStepsAttr(sink, relPath) {
 }
 
 // The distinct representation-only hops (alias/pack/spread) on this slice.
-export function representationSection(sink) {
+export function representationSection(sink: Sink) {
   const steps = sink.representationSteps ?? [];
   if (steps.length === 0) return "";
   // Collapse consecutive identical hops (same kind/expression/line) into one row
   // with a ×N count (STEP-1) — a stack of 14 identical ALIAS rows reads as one.
-  const groups = [];
+  const groups: Array<{ step: RepresentationStep; count: number }> = [];
   for (const step of steps) {
     const prev = groups[groups.length - 1];
     if (
@@ -218,7 +222,7 @@ const REACH_PER_SOURCE_CAP = 8;
 
 // "Reaches N sinks" expanded into the actual sinks, grouped by the shared source
 // that feeds them (a nested chain: source → each render sink it drives).
-export function reachSection(sink) {
+export function reachSection(sink: Sink) {
   const reach = sink.metrics?.reachableSinks ?? 1;
   const groups = sink.reachedVia ?? [];
   if (reach <= 1 || groups.length === 0) return "";
@@ -230,7 +234,7 @@ export function reachSection(sink) {
       const leaves = shown
         .map(
           (s) =>
-            `<li><code>${escapeHtml(s.file.split("/").pop())}:${s.line}</code>${
+            `<li><code>${escapeHtml(s.file.split("/").pop() ?? s.file)}:${s.line}</code>${
               s.label ? ` <span class="meta">${escapeHtml(s.label)}</span>` : ""
             }</li>`,
         )
@@ -244,7 +248,7 @@ export function reachSection(sink) {
 
 // Other findings whose rendered expression is identical to this one — so a
 // click reveals every place the same code recurs, not just the one clicked.
-export function sameCodeSection(sink, peers) {
+export function sameCodeSection(sink: Sink, peers: Sink[] | undefined) {
   const others = (peers ?? []).filter((other) => other.id !== sink.id);
   if (others.length === 0) return "";
   const items = others
@@ -269,7 +273,7 @@ export function sameCodeSection(sink, peers) {
 // to the wrong definition.
 // Join an absolute root with a relative file path (posix-style) for a debug
 // dump — best-effort, good enough to click/open the real source.
-export function joinPath(root, rel) {
+export function joinPath(root: string | null | undefined, rel: string) {
   if (!root) return rel;
   return `${String(root).replace(/[/\\]+$/, "")}/${rel}`;
 }

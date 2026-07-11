@@ -1,10 +1,11 @@
+import type * as TypeScript from "typescript";
 import path from "node:path";
 import { locationOf } from "./graph.js";
 
-export function buildComponentRefs(ts, checker, sourceFiles, root) {
+export function buildComponentRefs(ts: typeof TypeScript, checker: TypeScript.TypeChecker, sourceFiles: TypeScript.SourceFile[], root: string) {
   const byDef = new Map();
   let budget = 8000;
-  const resolveDecl = (symbol) => {
+  const resolveDecl = (symbol: TypeScript.Symbol | undefined) => {
     let s = symbol;
     try {
       if (s && s.flags & ts.SymbolFlags.Alias) s = checker.getAliasedSymbol(s);
@@ -15,7 +16,7 @@ export function buildComponentRefs(ts, checker, sourceFiles, root) {
   };
   for (const sourceFile of sourceFiles) {
     const fileRel = relativePath(root, sourceFile.fileName);
-    const visit = (node) => {
+    const visit = (node: TypeScript.Node) => {
       if (budget <= 0) return;
       const tag =
         ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)
@@ -59,11 +60,11 @@ export function buildComponentRefs(ts, checker, sourceFiles, root) {
     .sort((a, b) => b.useCount - a.useCount || a.name.localeCompare(b.name));
 }
 
-function relativePath(root, file) {
+function relativePath(root: string, file: string) {
   return path.relative(root, file).replaceAll(path.sep, "/");
 }
 
-function isInsideRoot(root, file) {
+function isInsideRoot(root: string, file: string) {
   const rel = path.relative(root, file);
   return rel && !rel.startsWith("..") && !path.isAbsolute(rel);
 }

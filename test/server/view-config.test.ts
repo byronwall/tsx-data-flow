@@ -15,7 +15,7 @@ describe("server view configuration", () => {
   it("keeps file tabs to current non-overview views sorted by label", () => {
     expect(FILE_VIEWS).toEqual(
       expect.arrayContaining(
-        REPORT_VIEWS.filter((view) => view !== "overview"),
+        REPORT_VIEWS.filter((view: string) => view !== "overview"),
       ),
     );
     expect(FILE_VIEWS).toHaveLength(REPORT_VIEWS.length - 1);

@@ -1,3 +1,4 @@
+import type { DefenseRecord, Sink, SinkMetrics } from "../types.js";
 import { fanOutRootsFor } from "./fan-out.js";
 import { reachedSinkDescriptor } from "./sink-descriptor.js";
 
@@ -6,7 +7,7 @@ import { reachedSinkDescriptor } from "./sink-descriptor.js";
 // true count is kept separately so the UI can show "+N more".
 const REACHED_VIA_CAP = 50;
 
-export function queueFor(metrics, defenses, reachThreshold = 3) {
+export function queueFor(metrics: SinkMetrics, defenses: DefenseRecord[], reachThreshold: number = 3) {
   if (
     metrics.unknownEdgeCount > 0 ||
     defenses.some((defense) => defense.verdict === "unknown")
@@ -30,22 +31,22 @@ export function queueFor(metrics, defenses, reachThreshold = 3) {
 // of distinct render sinks its actionable roots feed. Each sink then inherits
 // the reach of its most-central source. This replaces the former constant base
 // reach in centralityScore and the hardcoded `reachable sinks: 1`.
-export function groundReachability(sinks) {
+export function groundReachability(sinks: Sink[]) {
   // Map each fan-out source identity to every sink it feeds, so reach is not
   // just a number but an enumerable set — the report can show *which* sinks a
   // shared source reaches, grouped by that source (the chain root → sinks).
-  const sinksByRoot = new Map();
+  const sinksByRoot = new Map<string, Sink[]>();
   for (const sink of sinks) {
     for (const info of fanOutRootsFor(sink)) {
       if (!sinksByRoot.has(info.label)) sinksByRoot.set(info.label, []);
-      sinksByRoot.get(info.label).push(sink);
+      sinksByRoot.get(info.label)!.push(sink);
     }
   }
   for (const sink of sinks) {
     let reach = 1;
     // Group the other sinks this sink's sources also feed, keyed by the shared
     // source. Only roots with genuine fan-out (>1 sink) are interesting.
-    const reachedVia = [];
+    const reachedVia: NonNullable<Sink["reachedVia"]> = [];
     for (const info of fanOutRootsFor(sink)) {
       const fed = sinksByRoot.get(info.label) ?? [sink];
       reach = Math.max(reach, fed.length);
@@ -71,7 +72,7 @@ export function groundReachability(sinks) {
   // keeps central-leverage a meaningful minority. The floor of 3 means a sink
   // must feed at least three render sinks to qualify on small/flat projects.
   const reaches = sinks
-    .map((sink) => sink.metrics.reachableSinks)
+    .map((sink: Sink) => sink.metrics.reachableSinks)
     .sort((a, b) => a - b);
   const reachThreshold = Math.max(3, percentile(reaches, 0.75));
   for (const sink of sinks) {
@@ -79,7 +80,7 @@ export function groundReachability(sinks) {
   }
 }
 
-function percentile(values, target) {
+function percentile(values: number[], target: number) {
   if (values.length === 0) return 0;
   return values[
     Math.min(values.length - 1, Math.floor(values.length * target))

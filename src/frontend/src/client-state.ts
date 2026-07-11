@@ -18,7 +18,7 @@ export function readHiddenColumns(
     }
     return new Set(
       validColumns.filter(
-        (column) => (value as Record<string, unknown>)[column] === true,
+        (column: string) => (value as Record<string, unknown>)[column] === true,
       ),
     );
   } catch {

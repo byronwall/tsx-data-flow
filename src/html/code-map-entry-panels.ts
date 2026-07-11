@@ -1,9 +1,10 @@
+import type { BoundaryHelper, ReachedSink, Sink, UnknownEdgeRow } from "../types.js";
 import { escapeHtml } from "./escape.js";
 import { fanOutAnchor } from "./code-map-graphs.js";
 
 // Type metadata for the unified entry list: badge label + sort priority. Findings
 // lead; usages sink to the bottom (they are "proof of use", not smells).
-export const ENTRY_TYPES = {
+export const ENTRY_TYPES: Record<string, { label: string; plural: string; order: number }> = {
   finding: { label: "finding", plural: "findings", order: 0 },
   fork: { label: "fork", plural: "forks", order: 1 },
   junction: { label: "junction", plural: "junctions", order: 2 },
@@ -20,7 +21,19 @@ export const ENTRY_TYPES = {
 // Classify a reached helper for the unified list (ARCH-2): is it a load-bearing
 // junction/leaky boundary (a problem, colored hot) or a helper that merely exists
 // (benign, colored cool/muted)? Drives the entry type, hue, and score-sort weight.
-export function helperSeverity(helper) {
+export interface EntryRow { id: string; type: string; line?: number; primary: string; secondary?: string; metric?: string; hue?: number; sources?: number; hasDefenses?: boolean }
+export interface ForkEntry {
+  id: string; file: string; line: number; component?: string | null; confidence?: string; discriminant?: string;
+  sites?: Array<{ line: number; kind?: string; snippet?: string; value?: string | null }>;
+  branchRanges?: Array<{ startLine: number; endLine: number }>;
+  branchExclusive?: Array<{ line: number; name?: string; branch?: string }>;
+  branchGatedSinks?: Array<{ id: string; line: number; label?: string }>;
+  branchValues?: string[]; namedValues?: string[]; siteCount?: number;
+}
+export interface RelayRow { line: number; childComponent?: string; childFile?: string; parentFile?: string; signal?: string; props?: string[]; sharedProps?: string[]; contextHooks?: string[] }
+export interface FanOutRow { line: number | null; root: string; kind?: string; sinkCount: number; fileCount: number; maxDepth: number }
+
+export function helperSeverity(helper: BoundaryHelper) {
   const verdict = (helper.verdict ?? "").toLowerCase();
   const isJunctionVerdict =
     verdict.includes("junction") || verdict.includes("confluence");
@@ -40,7 +53,7 @@ export function helperSeverity(helper) {
 
 // One row in the unified inventory. `entry` = {id, type, line, primary, secondary,
 // metric, hue}. The whole list (findings, forks, junctions, usages) shares this.
-export function entryRowHtml(entry, score = 0) {
+export function entryRowHtml(entry: EntryRow, score: number = 0) {
   const meta = ENTRY_TYPES[entry.type] ?? { label: entry.type };
   const hue = entry.hue ?? 150;
   const order = ENTRY_TYPES[entry.type]?.order ?? 5;
@@ -67,9 +80,9 @@ export function entryRowHtml(entry, score = 0) {
 // branch-exclusive eager computations, and the findings a split would fix. This
 // is the worked example the user asked for — a fork shown AS a finding, with all
 // its info in the detail panel and its sites overlaid on the source (ARCH-1).
-export function forkPanel(fork) {
+export function forkPanel(fork: ForkEntry) {
   const siteLines = (fork.sites ?? []).map((s) => s.line).filter(Boolean);
-  const branchLines = [];
+  const branchLines: number[] = [];
   for (const range of fork.branchRanges ?? []) {
     for (let n = range.startLine; n <= range.endLine; n += 1)
       branchLines.push(n);
@@ -141,7 +154,7 @@ export function forkPanel(fork) {
 // ARCH-2 C: fold the inline-preview view into the junction/boundary detail — a
 // keep-vs-inline recommendation. Mirrors core's inlineDecision (kept compact;
 // the helper is already a row, so this is a detail facet, not a new entry).
-function helperInlineHint(helper) {
+function helperInlineHint(helper: BoundaryHelper) {
   if ((helper.inSources ?? 0) >= 3 && (helper.callerCount ?? 0) >= 2)
     return {
       verdict: "Keep & formalize",
@@ -177,7 +190,7 @@ function helperInlineHint(helper) {
 // page.js — position:fixed, cloned to a body portal), so seeing what is inside a
 // count never shifts the layout. `summary` is the count text; `bodyHtml` the
 // popover content. Falls back to plain text when there is nothing to reveal.
-function countPeek(summary, bodyHtml) {
+function countPeek(summary: string, bodyHtml: string) {
   if (!bodyHtml) return escapeHtml(summary);
   return `<span class="peek"><button type="button" class="peek-label">${escapeHtml(
     summary,
@@ -185,7 +198,7 @@ function countPeek(summary, bodyHtml) {
 }
 
 // A capped <ul> with a "+N more" tail when the list runs longer than `cap`.
-function cappedList(items, cap = 14, cls = "why") {
+function cappedList(items: string[], cap = 14, cls = "why") {
   if (!(items ?? []).length) return "";
   const shown = items.slice(0, cap).join("");
   const more =
@@ -195,7 +208,7 @@ function cappedList(items, cap = 14, cls = "why") {
   return `<ul class="${cls}">${shown}${more}</ul>`;
 }
 
-export function junctionPanel(helper, id, type) {
+export function junctionPanel(helper: BoundaryHelper, id: string, type: string) {
   const inline = helperInlineHint(helper);
   const what = type === "boundary" ? "boundary" : "junction";
   const tribLabels = (
@@ -210,7 +223,7 @@ export function junctionPanel(helper, id, type) {
     (c) =>
       `<li><a class="xfile" href="/file?path=${encodeURIComponent(
         c.file,
-      )}#L${c.line}">${escapeHtml(c.file.split("/").pop())}:${c.line} ↗</a></li>`,
+      )}#L${c.line}">${escapeHtml(c.file.split("/").pop() ?? c.file)}:${c.line} ↗</a></li>`,
   );
   // DRILL-3: gloss the terms inline so the count's meaning is not implied.
   const inSources = helper.inSources ?? 0;
@@ -255,7 +268,7 @@ export function junctionPanel(helper, id, type) {
 // A list of sinks affected by a promoted report entry (source boundary, unknown
 // edge, fan-out root). Same-file sinks become in-panel jump links (.xref selects
 // the finding); cross-file sinks open their own page.
-function affectedSinkList(sinks, relPath, omitted = 0) {
+function affectedSinkList(sinks: ReachedSink[], relPath: string, omitted = 0) {
   if (!(sinks ?? []).length) return "";
   const items = sinks
     .map((s) => {
@@ -264,7 +277,7 @@ function affectedSinkList(sinks, relPath, omitted = 0) {
           ? `<a class="xref" data-finding="${escapeHtml(s.id)}">:${s.line}</a>`
           : `<a class="xfile" href="/file?path=${encodeURIComponent(
               s.file,
-            )}#L${s.line}">${escapeHtml(s.file.split("/").pop())}:${s.line} ↗</a>`;
+            )}#L${s.line}">${escapeHtml(s.file.split("/").pop() ?? s.file)}:${s.line} ↗</a>`;
       return `<li>${where}${
         s.label ? ` <code>${escapeHtml(s.label)}</code>` : ""
       }</li>`;
@@ -276,7 +289,7 @@ function affectedSinkList(sinks, relPath, omitted = 0) {
 
 // ARCH-2: an unknown-edge panel — an unresolved call/identifier the analyzer
 // could not follow, and the findings whose paths cross it.
-export function unknownEdgePanel(row, id, relPath) {
+export function unknownEdgePanel(row: UnknownEdgeRow, id: string, relPath: string) {
   return `<div class="finding" data-finding="${escapeHtml(
     id,
   )}" data-entry-type="unknown" data-path-lines="${row.line ?? ""}" data-sink-line="${
@@ -300,17 +313,17 @@ export function unknownEdgePanel(row, id, relPath) {
 
 // ARCH-2: a context-relay panel — a parent JSX site forwarding a same-feature prop
 // bundle to a child, a candidate for moving the data into context.
-export function relayPanel(row, id) {
-  const propList = (props, cls) =>
-    (props ?? []).length
-      ? `<ul class="why ${cls}">${props
-          .map((p) => `<li><code>${escapeHtml(String(p))}</code></li>`)
-          .join("")}</ul>`
+export function relayPanel(row: RelayRow, id: string) {
+  const propList = (props: string[] | undefined, cls: string) => {
+    const values = props ?? [];
+    return values.length
+      ? `<ul class="why ${cls}">${values.map((p) => `<li><code>${escapeHtml(String(p))}</code></li>`).join("")}</ul>`
       : "";
+  };
   const childOpen = row.childFile
     ? ` → <a class="xfile" href="/file?path=${encodeURIComponent(
         row.childFile,
-      )}">${escapeHtml(row.childFile.split("/").pop())} ↗</a>`
+      )}">${escapeHtml(row.childFile.split("/").pop() ?? row.childFile)} ↗</a>`
     : "";
   return `<div class="finding" data-finding="${escapeHtml(
     id,
@@ -324,7 +337,7 @@ export function relayPanel(row, id) {
     row.signal ?? `${(row.props ?? []).length} props forwarded`,
   )}</div>
   ${
-    (row.sharedProps ?? []).length
+    row.sharedProps?.length
       ? `<strong>Shared-context props — ${row.sharedProps.length}</strong>${propList(
           row.sharedProps,
           "branch-exclusive",
@@ -332,7 +345,7 @@ export function relayPanel(row, id) {
       : ""
   }
   ${
-    (row.props ?? []).length
+    row.props?.length
       ? `<strong>All forwarded props — ${row.props.length}</strong>${propList(row.props, "relay-prop")}`
       : ""
   }
@@ -348,7 +361,7 @@ export function relayPanel(row, id) {
 // the full node/edge graph, which now lives on the overview (HOME-1). The in-file
 // SVG was removed: a fan-out is a cross-file story, so its picture belongs on the
 // cross-file page, not scoped to one file.
-export function fanOutPanel(row, id) {
+export function fanOutPanel(row: FanOutRow, id: string) {
   return `<div class="finding" data-finding="${escapeHtml(
     id,
   )}" data-entry-type="fan-out" data-path-lines="${row.line ?? ""}" data-sink-line="${
@@ -373,7 +386,7 @@ export function fanOutPanel(row, id) {
 // panel header. Hotspots/census have no per-row unit (they describe the file as a
 // whole), so they live here rather than as list entries. Computed directly from
 // the file's ranked sinks.
-export function fileStatsHtml(sinks) {
+export function fileStatsHtml(sinks: Sink[]) {
   const ranked = (sinks ?? []).filter((s) => s.tier !== "usage");
   if (ranked.length === 0) return "";
   const burdens = ranked.map((s) => s.scores?.burden ?? 0);
@@ -383,7 +396,7 @@ export function fileStatsHtml(sinks) {
     .map((s) => s.metrics?.maximumPathDepth ?? 0)
     .filter((n) => n > 0)
     .sort((a, b) => a - b);
-  const pct = (p) =>
+  const pct = (p: number) =>
     depths.length
       ? depths[Math.min(depths.length - 1, Math.floor(p * depths.length))]
       : 0;

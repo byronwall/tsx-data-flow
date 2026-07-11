@@ -1,8 +1,10 @@
+import type { AnalysisReport, Sink } from "../types.js";
 import path from "node:path";
 import { fanOutIdentity, fanOutRootsFor } from "../analysis/fan-out.js";
 import {
   classifyPathShape,
   primaryAdviceShape,
+  sinkFamilyOf,
 } from "../analysis/sink-shape.js";
 
 // Upper bound on enumerated reached-sinks stored per source, to keep the
@@ -11,7 +13,7 @@ import {
 const REACHED_VIA_CAP = 50;
 
 // Concise "suggested first cut" per shape — the headline action for a hotspot.
-const SHAPE_FIRST_CUT = {
+const SHAPE_FIRST_CUT: Record<string, string> = {
   "svg-shell": "keep shell sizing inline",
   "local-scalar-geometry": "name repeated local scalars",
   "geometry-chain": "extract render item geometry",
@@ -23,13 +25,13 @@ const SHAPE_FIRST_CUT = {
   "cross-component-relay": "move state behind context",
 };
 
-export function firstCutFor(sink) {
+export function firstCutFor(sink: Sink) {
   if (!sink) return "—";
   return SHAPE_FIRST_CUT[primaryShapeOf(sink)] ?? "local boundary cleanup";
 }
 
 // The most common value in a list (for dominant shape/ownership columns).
-export function modalValue(values) {
+export function modalValue(values: string[]) {
   const counts = countBy(values);
   const entries = Object.entries(counts).sort(
     (left, right) => right[1] - left[1],
@@ -39,7 +41,7 @@ export function modalValue(values) {
 
 // Approach 4 — aggregate the burden ranking into one row per file (or feature
 // area). The breadth map: every place with a finding appears once.
-export function hotspotGroups(report, by) {
+export function hotspotGroups(report: AnalysisReport, by: string) {
   const groups = new Map();
   for (const sink of report.rankings.all) {
     const key = by === "feature" ? featureKeyFor(sink.file) : sink.file;
@@ -79,7 +81,7 @@ export function hotspotGroups(report, by) {
 // keep the true reach count, then keep only roots that touch `relPath` and anchor
 // each to one of its in-file sinks. `total` is the cross-file sink count;
 // `sinks` is the (capped) list of in-file sinks for jump links.
-export function fanOutEntriesForFile(allSinks, relPath) {
+export function fanOutEntriesForFile(allSinks: Sink[], relPath: string) {
   const map = new Map();
   for (const sink of allSinks ?? []) {
     for (const info of fanOutRootsFor(sink)) {
@@ -146,7 +148,7 @@ export function fanOutEntriesForFile(allSinks, relPath) {
 // reaches ≥2 sinks is returned with its full (uncapped) cross-file sink set for the
 // graph. The overview is the "here are the detected fan-outs" starting point that
 // motivates drilling into a file (each sink node links to its file page).
-export function fanOutEntriesGlobal(allSinks) {
+export function fanOutEntriesGlobal(allSinks: Sink[]) {
   const map = new Map();
   for (const sink of allSinks ?? []) {
     for (const info of fanOutRootsFor(sink)) {
@@ -194,9 +196,9 @@ export function fanOutEntriesGlobal(allSinks) {
 // columns. Findings/path-depth already come from hotspotGroups; this adds
 // boundaries (reached helpers), relays (context-aware parents), unknown edges,
 // and fan-out roots. One pass over sinks for fan-out; the rest are direct.
-export function entryTypeCountsByFile(report) {
+export function entryTypeCountsByFile(report: AnalysisReport) {
   const counts = new Map();
-  const bump = (file, key) => {
+  const bump = (file: string, key: string) => {
     if (!file) return;
     let c = counts.get(file);
     if (!c) {
@@ -228,11 +230,11 @@ export function entryTypeCountsByFile(report) {
   return counts;
 }
 
-function primaryShapeOf(sink) {
+function primaryShapeOf(sink: Sink) {
   return primaryAdviceShape(sink) ?? "uncategorized";
 }
 
-function featureKeyFor(file) {
+function featureKeyFor(file: string) {
   const parts = file.split("/");
   const sourceIndex = parts.findIndex((part) => part === "src");
   const offset = sourceIndex >= 0 ? sourceIndex + 1 : 0;
@@ -243,29 +245,13 @@ function featureKeyFor(file) {
   return directoryParts.slice(0, 3).join("/") || path.dirname(file);
 }
 
-function hasContextHookRoot(sink) {
-  return sink.roots.some((root) => /^use[A-Z]/.test(root));
-}
-
-// Phase 3a — the render region a sink belongs to. width/height/viewBox are the
-// SVG/HTML *shell*; coordinate attributes are *geometry*; when/each/fallback are
-// *control-flow*; class/style are *style*; id/href-like fields are *identity*;
-// bare values are *text*.
-function sinkFamilyOf(sink) {
-  const attribute = sinkAttributeName(sink);
-  if (attribute && SVG_SHELL_ATTRIBUTES.has(attribute)) return "svg-shell";
-  if (attribute && GEOMETRY_FAMILY_ATTRIBUTES.has(attribute)) return "geometry";
-  if (attribute && CONTROL_FLOW_ATTRIBUTES.has(attribute))
-    return "control-flow";
-  if (attribute && STYLE_ATTRIBUTES.has(attribute)) return "style";
-  if (attribute && IDENTITY_ATTRIBUTES.has(attribute)) return "identity";
-  if (sink.category === "rendered-value") return "text";
-  return "other";
+function hasContextHookRoot(sink: Sink) {
+  return sink.roots.some((root: string) => /^use[A-Z]/.test(root));
 }
 
 // Phase 7 — the kind of change this is, as a four-rung ladder of honest
 // categories rather than a binary Provider/Context flag.
-function ownershipHintFor(sink) {
+function ownershipHintFor(sink: Sink) {
   if (classifyPathShape(sink).includes("cross-component-relay")) {
     return "cross-component prop relay";
   }
@@ -278,7 +264,7 @@ function ownershipHintFor(sink) {
 }
 
 // Compact, render-friendly descriptor of a sink reached through a shared source.
-function reachedSinkDescriptor(sink) {
+function reachedSinkDescriptor(sink: Sink) {
   const ctx = sink.renderContext ?? {};
   const where = [ctx.tag, ctx.attribute].filter(Boolean).join(" / ");
   return {
@@ -294,9 +280,9 @@ function reachedSinkDescriptor(sink) {
   };
 }
 
-function countBy(values) {
-  return values.reduce((acc, value) => {
+function countBy(values: string[]): Record<string, number> {
+  return values.reduce((acc: Record<string, number>, value: string) => {
     acc[value] = (acc[value] ?? 0) + 1;
     return acc;
-  }, {});
+  }, {} as Record<string, number>);
 }

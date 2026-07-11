@@ -1,4 +1,6 @@
-export function selectViewPayload(report, args, overviewHelpers = {}) {
+import type { AnalysisReport, AnalyzerArgs, ReportGraph, Sink } from "../types.js";
+import type { hotspotGroups } from "./overview-selectors.js";
+export function selectViewPayload(report: AnalysisReport, args: AnalyzerArgs, overviewHelpers = {}) {
   return {
     analysisVersion: report.analysisVersion,
     generatedAt: report.generatedAt,
@@ -34,7 +36,7 @@ export function selectViewPayload(report, args, overviewHelpers = {}) {
   };
 }
 
-export function boundedGraph(graph, maxItems) {
+export function boundedGraph(graph: ReportGraph, maxItems: number) {
   return {
     nodes: graph.nodes.slice(0, maxItems),
     edges: graph.edges.slice(0, maxItems),
@@ -44,7 +46,13 @@ export function boundedGraph(graph, maxItems) {
   };
 }
 
-function overviewHotspotsPayload(report, args, helpers) {
+type OverviewHelpers = {
+  hotspotGroups: (report: AnalysisReport, by: string) => ReturnType<typeof hotspotGroups>;
+  modalValue: (values: string[]) => string;
+  firstCutFor: (sink: Sink) => string;
+};
+
+function overviewHotspotsPayload(report: AnalysisReport, args: AnalyzerArgs, helpers: Partial<OverviewHelpers>) {
   const { hotspotGroups, modalValue, firstCutFor } = helpers;
   if (!hotspotGroups || !modalValue || !firstCutFor) {
     throw new Error("overview JSON payload requires overview helper functions");

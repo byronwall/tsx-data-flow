@@ -1,3 +1,4 @@
+import type { AnalysisReport, AnalyzerArgs } from "../types.js";
 import {
   compareNumberLabel,
   formatDeltaLabel,
@@ -9,8 +10,20 @@ import {
 } from "./baseline-parser.js";
 import { commandPath, formatMarkdownTable } from "./markdown-format.js";
 
-export function renderCompareReport(report, args, helpers) {
+interface CompareSummary {
+  worstScore: number; worstSeverity: string; hotspots: number;
+  defensiveEntries: number; wrappers: number; families: string[];
+  backgroundLabels: string[];
+  missing: string[];
+}
+interface CompareHelpers {
+  reportSummaryForCompare: (report: AnalysisReport) => CompareSummary;
+  stopRecommendationFor: (report: AnalysisReport) => { recommend: boolean; reason: string };
+}
+
+export function renderCompareReport(report: AnalysisReport, args: AnalyzerArgs, helpers: CompareHelpers) {
   const { reportSummaryForCompare, stopRecommendationFor } = helpers;
+  if (!args.compare) throw new Error("A compare directory is required");
   const baseline = readReportDirectorySummary(args.compare);
   const current = reportSummaryForCompare(report);
   const lines = [

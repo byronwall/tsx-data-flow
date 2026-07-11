@@ -46,7 +46,7 @@ describe("render path data-flow analyzer", () => {
     });
 
     const report = await analyzeProject(project.args);
-    expect(report.sinks.map((sink) => sink.category)).toEqual(
+    expect(report.sinks.map((sink: import("../src/types.js").Sink) => sink.category)).toEqual(
       expect.arrayContaining([
         "style",
         "attribute",
@@ -56,7 +56,7 @@ describe("render path data-flow analyzer", () => {
       ]),
     );
     expect(
-      report.rankings.all.some((sink) => sink.category === "event-handler"),
+      report.rankings.all.some((sink: import("../src/types.js").Sink) => sink.category === "event-handler"),
     ).toBe(false);
   });
 
@@ -79,7 +79,7 @@ describe("render path data-flow analyzer", () => {
     });
 
     const report = await analyzeProject(project.args);
-    const titleSink = report.rankings.all.find((sink) =>
+    const titleSink = report.rankings.all.find((sink: import("../src/types.js").Sink) =>
       sink.expression.includes("title ??"),
     );
 
@@ -104,10 +104,10 @@ describe("render path data-flow analyzer", () => {
     });
 
     const report = await analyzeProject(project.args);
-    const memoSink = report.rankings.all.find((sink) =>
+    const memoSink = report.rankings.all.find((sink: import("../src/types.js").Sink) =>
       sink.representativePath.join(" ").includes("memo"),
     );
-    const resourceSink = report.sinks.find((sink) =>
+    const resourceSink = report.sinks.find((sink: import("../src/types.js").Sink) =>
       sink.representativePath.join(" ").includes("resource"),
     );
 
@@ -138,7 +138,7 @@ describe("render path data-flow analyzer", () => {
 
     const report = await analyzeProject(project.args);
     const mainSink = report.sinks.find(
-      (sink) =>
+      (sink: import("../src/types.js").Sink) =>
         sink.label?.includes("data-a") || sink.expression === "pos()?.a",
     );
 
@@ -239,7 +239,7 @@ describe("render path data-flow analyzer", () => {
       });
       const stepLines = output
         .split("\n")
-        .filter((line) => /->|readings:/.test(line));
+        .filter((line: number) => /->|readings:/.test(line));
       for (const line of stepLines) {
         expect(line).not.toMatch(/readings:\s*$/);
       }
@@ -262,7 +262,7 @@ describe("render path data-flow analyzer", () => {
       view: "findings",
       format: "markdown",
     });
-    const truncated = output.split("\n").filter((line) => line.includes("…"));
+    const truncated = output.split("\n").filter((line: number) => line.includes("…"));
     expect(truncated.length).toBeGreaterThan(0);
     // A truncated line must not end mid-identifier (the char before `…` is a
     // boundary, or the whole identifier survived).
@@ -319,12 +319,12 @@ describe("render path data-flow analyzer", () => {
         format: "json",
       }),
     );
-    const rootLabels = json.sinks.flatMap((sink) => sink.roots ?? []);
+    const rootLabels = json.sinks.flatMap((sink: import("../src/types.js").Sink) => sink.roots ?? []);
     // The empty `{}` and the literal-only style object are inert — never ranked.
     expect(rootLabels).not.toContain("{}");
-    expect(rootLabels.some((label) => /^\{/.test(label))).toBe(false);
+    expect(rootLabels.some((label: string) => /^\{/.test(label))).toBe(false);
     // The dynamic style (`{ color: props.color }`) is a real sink and is kept.
-    expect(rootLabels.some((label) => label.includes("props.color"))).toBe(
+    expect(rootLabels.some((label: string) => label.includes("props.color"))).toBe(
       true,
     );
 
@@ -409,12 +409,12 @@ describe("render path data-flow analyzer", () => {
 
     const kinds = output
       .split("\n")
-      .map((line) => /->.*\[([a-z-]+)\]\s*$/.exec(line)?.[1])
+      .map((line: number) => /->.*\[([a-z-]+)\]\s*$/.exec(line)?.[1])
       .filter(Boolean);
     expect(kinds.length).toBeGreaterThan(0);
     expect(kinds).not.toContain("data-flow");
     expect(
-      kinds.some((kind) =>
+      kinds.some((kind: string) =>
         ["fallback", "call", "object-pack", "property-read"].includes(kind),
       ),
     ).toBe(true);
@@ -438,9 +438,9 @@ describe("render path data-flow analyzer", () => {
     });
     const tableLines = output
       .split("\n")
-      .filter((line) => line.startsWith("|"));
+      .filter((line: number) => line.startsWith("|"));
     // Every rendered table row has the same character width (columns padded).
-    const widths = new Set(tableLines.map((line) => line.length));
+    const widths = new Set(tableLines.map((line: number) => line.length));
     expect(widths.size).toBe(1);
     // The separator row's dashes fill the padded column width (more than 3).
     const separator = tableLines[1];

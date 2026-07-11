@@ -1,6 +1,6 @@
 import { OVERVIEW_FILTERS, OVERVIEW_SORTS } from "./overview-config.js";
 
-export function overviewState(url) {
+export function overviewState(url: URL) {
   const q = (url.searchParams.get("q") ?? "").trim();
   const filter = url.searchParams.get("filter") ?? "all";
   const sort = url.searchParams.get("sort") ?? "burden";
@@ -17,7 +17,10 @@ export function overviewState(url) {
   };
 }
 
-export function overviewHref(state, changes = {}) {
+export type OverviewState = ReturnType<typeof overviewState>;
+export type OverviewStateChanges = Partial<OverviewState>;
+
+export function overviewHref(state: OverviewState, changes: OverviewStateChanges = {}) {
   const next = { ...state, ...changes };
   const params = new URLSearchParams();
   if (next.q) params.set("q", next.q);
@@ -32,7 +35,7 @@ export function overviewHref(state, changes = {}) {
 // Build an href from the current URL, overriding/deleting the given query params
 // and keeping everything else -- so a control can change one bit of state (the
 // selected fan-out, the sort) without dropping the rest (INTENT section 5: state in URL).
-export function paramHref(url, overrides) {
+export function paramHref(url: URL, overrides: Record<string, string | number | boolean | null | undefined>) {
   const next = new URL(url.href);
   for (const [key, value] of Object.entries(overrides)) {
     if (value == null) next.searchParams.delete(key);

@@ -1,3 +1,5 @@
+import type * as TypeScript from "typescript";
+import type { AnalysisGraph, AnalyzerArgs, BoundaryHelper, CatalogFunction, CrossFileState, FileTraceContext, RootInfo, SinkMetrics, SourceSnippet, TraceContext, TraceResult } from "../types.js";
 import path from "node:path";
 import { createGraph, locationOf } from "./graph.js";
 
@@ -5,15 +7,29 @@ const CALLER_LOCATION_LIMIT = 8;
 const INLINE_SNIPPET_LIMIT = 5;
 const INLINE_HELPER_BODY_LINE_LIMIT = 10;
 
+interface HelperDependencies {
+  fanOutRootsFor: (sink: { rootInfos: RootInfo[]; roots: string[] }) => RootInfo[];
+  getFileContextCached: (ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, crossFile: CrossFileState) => FileTraceContext;
+  metricsFor: (trace: TraceResult) => SinkMetrics;
+  resolveCatalogFn: (ts: typeof TypeScript, checker: TypeScript.TypeChecker, identifier: TypeScript.Identifier, crossFile: CrossFileState, args: AnalyzerArgs) => CatalogFunction | null;
+  safeTypeText: (text?: string) => string;
+  traceExpression: (ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Expression, context: TraceContext) => TraceResult;
+}
+interface EnrichedCatalog extends CatalogFunction {
+  returnType: string; inRoots: string[]; inSources: number; inlineBodySnippet: SourceSnippet | null;
+  passThrough: boolean; typeLeak: boolean; internalDepth: number; internalChurn: number;
+  internalDefenses: number; internalImpossible: number;
+}
+
 export function buildHelperReport(
-  ts,
-  checker,
-  crossFile,
-  args,
-  sourceFiles,
-  dependencies,
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  crossFile: CrossFileState,
+  args: AnalyzerArgs,
+  sourceFiles: TypeScript.SourceFile[],
+  dependencies: HelperDependencies,
 ) {
-  const reached = [];
+  const reached: CatalogFunction[] = [];
   for (const record of crossFile.catalog.values()) {
     if (record && crossFile.reached.has(record.symbol)) reached.push(record);
   }
@@ -29,7 +45,7 @@ export function buildHelperReport(
     dependencies,
   );
 
-  const records = [];
+  const records: BoundaryHelper[] = [];
   for (const record of reached) {
     const enriched = {
       ...record,
@@ -68,12 +84,12 @@ export function buildHelperReport(
 }
 
 function enrichCatalogRecord(
-  ts,
-  checker,
-  record,
-  args,
-  crossFile,
-  dependencies,
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  record: CatalogFunction,
+  args: AnalyzerArgs,
+  crossFile: CrossFileState,
+  dependencies: HelperDependencies,
 ) {
   const {
     fanOutRootsFor,
@@ -105,7 +121,7 @@ function enrichCatalogRecord(
     impossibleDefenseCount: 0,
   };
   let inSources = 0;
-  let inRoots = [];
+  let inRoots: string[] = [];
   if (returnExpr) {
     const throwawayGraph = createGraph(args.root);
     const bodyTrace = traceExpression(
@@ -153,25 +169,25 @@ function enrichCatalogRecord(
 }
 
 function countCallers(
-  ts,
-  checker,
-  sourceFiles,
-  reached,
-  crossFile,
-  args,
-  dependencies,
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  sourceFiles: TypeScript.SourceFile[],
+  reached: CatalogFunction[],
+  crossFile: CrossFileState,
+  args: AnalyzerArgs,
+  dependencies: HelperDependencies,
 ) {
-  const keyOf = (record) => `${record.file}:${record.line}:${record.name}`;
+  const keyOf = (record: CatalogFunction) => `${record.file}:${record.line}:${record.name}`;
   const byKey = new Map(reached.map((record) => [keyOf(record), record]));
-  const names = new Set(reached.map((record) => record.name));
+  const names = new Set<string>(reached.map((record) => record.name));
   let budget = 6000;
   for (const sourceFile of sourceFiles) {
     const fileRel = relativePath(args.root, sourceFile.fileName);
-    const visit = (node) => {
+    const visit = (node: TypeScript.Node) => {
       if (budget > 0 && ts.isCallExpression(node)) {
         const ident = ts.isIdentifier(node.expression)
           ? node.expression
-          : ts.isPropertyAccessExpression(node.expression)
+          : ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.name)
             ? node.expression.name
             : null;
         if (ident && names.has(ident.text)) {
@@ -206,7 +222,7 @@ function countCallers(
   }
 }
 
-function classifyBoundary(record) {
+function classifyBoundary(record: EnrichedCatalog) {
   const isJunction = record.inSources >= 3 && record.callerCount >= 2;
   const messyInternals =
     record.internalDepth >= 6 ||
@@ -223,7 +239,7 @@ function classifyBoundary(record) {
   return "clean pipe";
 }
 
-function isLocalScalarMathBoundary(record) {
+function isLocalScalarMathBoundary(record: EnrichedCatalog) {
   if (record.typeLeak) return false;
   if (record.internalImpossible > 0 || record.internalDefenses > 0)
     return false;
@@ -237,7 +253,7 @@ function isLocalScalarMathBoundary(record) {
   );
 }
 
-function boundaryDebt(record) {
+function boundaryDebt(record: EnrichedCatalog) {
   const isJunction = record.inSources >= 3 && record.callerCount >= 2;
   const scalarPenalty = isLocalScalarMathBoundary(record) ? -3 : 0;
   return (
@@ -252,7 +268,7 @@ function boundaryDebt(record) {
   );
 }
 
-function isPassThrough(ts, expression, paramNames) {
+function isPassThrough(ts: typeof TypeScript, expression: TypeScript.Expression, paramNames: ReadonlySet<string>) {
   let current = expression;
   while (
     ts.isParenthesizedExpression(current) ||
@@ -263,7 +279,7 @@ function isPassThrough(ts, expression, paramNames) {
   }
   if (ts.isIdentifier(current)) return paramNames.has(current.text);
   if (ts.isPropertyAccessExpression(current)) {
-    let receiver = current;
+    let receiver: TypeScript.Expression = current;
     while (ts.isPropertyAccessExpression(receiver))
       receiver = receiver.expression;
     return ts.isIdentifier(receiver) && paramNames.has(receiver.text);
@@ -271,17 +287,17 @@ function isPassThrough(ts, expression, paramNames) {
   return false;
 }
 
-function isTypeLeak(typeText) {
+function isTypeLeak(typeText: string) {
   if (!typeText) return false;
   if (/\b(any|unknown)\b/.test(typeText)) return true;
   return typeText.split("|").length > 4;
 }
 
-function relativePath(root, file) {
+function relativePath(root: string, file: string) {
   return path.relative(root, file).replaceAll(path.sep, "/");
 }
 
-function functionSnippet(sourceFile, node) {
+function functionSnippet(sourceFile: TypeScript.SourceFile, node: TypeScript.Node) {
   const start =
     sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line +
     1;
@@ -290,7 +306,7 @@ function functionSnippet(sourceFile, node) {
   return lineRangeSnippet(sourceFile, start, cappedEnd, null, end > cappedEnd);
 }
 
-function lineWindowSnippet(sourceFile, line, context) {
+function lineWindowSnippet(sourceFile: TypeScript.SourceFile, line: number, context: number) {
   return lineRangeSnippet(
     sourceFile,
     line - context,
@@ -301,11 +317,11 @@ function lineWindowSnippet(sourceFile, line, context) {
 }
 
 function lineRangeSnippet(
-  sourceFile,
-  startLine,
-  endLine,
-  hitLine = null,
-  truncated = false,
+  sourceFile: TypeScript.SourceFile,
+  startLine: number,
+  endLine: number,
+  hitLine: number | null = null,
+  truncated: boolean = false,
 ) {
   const lines = String(sourceFile.text ?? "").split("\n");
   const start = Math.max(1, startLine);
@@ -317,7 +333,7 @@ function lineRangeSnippet(
     endLine: end,
     hitLine,
     truncated,
-    lines: lines.slice(start - 1, end).map((text, index) => {
+    lines: lines.slice(start - 1, end).map((text: string, index: number) => {
       const line = start + index;
       return `${String(line).padStart(width, " ")}${line === hitLine ? " >" : "  "} ${text}`;
     }),

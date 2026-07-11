@@ -7,19 +7,22 @@
 import { escapeHtml } from "./escape.js";
 
 // A window of lines around `line` (1-based), each tagged as the hit or context.
-function snippetRows(sourceText, line, context) {
+interface SnippetRow { n: number; text: string; hit: boolean }
+type SourceResolver = (file: string) => string | null;
+
+function snippetRows(sourceText: string, line: number, context: number): SnippetRow[] {
   const lines = String(sourceText).split("\n");
   if (!Number.isFinite(line) || line < 1) return [];
   const start = Math.max(1, line - context);
   const end = Math.min(lines.length, line + context);
-  const rows = [];
+  const rows: SnippetRow[] = [];
   for (let n = start; n <= end; n += 1) {
     rows.push({ n, text: lines[n - 1] ?? "", hit: n === line });
   }
   return rows;
 }
 
-const gutterWidth = (rows) =>
+const gutterWidth = (rows: SnippetRow[]) =>
   rows.length ? String(rows[rows.length - 1].n).length : 1;
 
 // A line-numbered excerpt with the cited line highlighted. Rendered with
@@ -27,7 +30,7 @@ const gutterWidth = (rows) =>
 // embedded inside a paragraph without the parser auto-closing the <p>. Each row
 // is display:block (the visual line break); rows are joined with no newline so
 // white-space:pre does not introduce blank lines between them.
-export function snippetBlockHtml(sourceText, line, { context = 3 } = {}) {
+export function snippetBlockHtml(sourceText: string, line: number, { context = 3 }: { context?: number } = {}) {
   const rows = snippetRows(sourceText, line, context);
   if (!rows.length) return "";
   const width = gutterWidth(rows);
@@ -46,21 +49,21 @@ export function snippetBlockHtml(sourceText, line, { context = 3 } = {}) {
 // popover carries an "Open file" link so a reference is not just previewable but
 // navigable — report findings can now reach their file page (transcript: the
 // project-level findings were an inert markdown dump with no click-through).
-function inlinePeekHtml(refText, sourceText, line, filePath) {
+function inlinePeekHtml(refText: string, sourceText: string, line: number, filePath: string) {
   const snippet = snippetBlockHtml(sourceText, line, { context: 3 });
   if (!snippet) return null; // no source resolved → leave the plain text alone
   const openLink = filePath
     ? `<a class="peek-open" href="/file?path=${encodeURIComponent(filePath)}${
         Number.isFinite(line) && line > 0 ? `#L${line}` : ""
-      }">Open ${escapeHtml(filePath.split("/").pop())} ↗</a>`
+      }">Open ${escapeHtml(filePath.split("/").pop() ?? filePath)} ↗</a>`
     : "";
   return `<span class="peek"><button type="button" class="peek-label"><code>${escapeHtml(
     refText,
   )}</code></button><span class="peek-pop">${snippet}${openLink}</span></span>`;
 }
 
-export function sourceReferenceHtml(filePath, line, resolve) {
-  const lineNo = Number.parseInt(line, 10);
+export function sourceReferenceHtml(filePath: string, line: string | number, resolve: SourceResolver) {
+  const lineNo = Number.parseInt(String(line), 10);
   const refText =
     Number.isFinite(lineNo) && lineNo > 0 ? `${filePath}:${lineNo}` : filePath;
   if (!filePath || typeof resolve !== "function") return escapeHtml(refText);
@@ -86,8 +89,8 @@ const REF = /([A-Za-z0-9_./-]+\.(?:tsx|ts|jsx|js|mjs|cjs)):(\d+)/g;
 // `F1:line` shorthand used inside some fenced blocks is left untouched.
 // `resolve(path)` returns source text for a root-relative path, or null/""
 // when unavailable.
-export function peekReferences(html, resolve) {
-  return String(html).replace(REF, (whole, filePath, lineText) => {
+export function peekReferences(html: string, resolve: SourceResolver) {
+  return html.replace(REF, (whole, filePath, lineText) => {
     let source;
     try {
       source = resolve(filePath);

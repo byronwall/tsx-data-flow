@@ -1,8 +1,9 @@
+import type { Sink } from "../types.js";
 import { escapeHtml } from "./escape.js";
 
 // Pick the highest-burden sink on a line to drive the gutter color.
-export function dominantSink(sinks) {
-  return sinks.reduce((worst, sink) =>
+export function dominantSink(sinks: Sink[]) {
+  return sinks.reduce((worst, sink: Sink) =>
     (sink.scores?.burden ?? 0) > (worst.scores?.burden ?? 0) ? sink : worst,
   );
 }
@@ -11,7 +12,7 @@ export function dominantSink(sinks) {
 // for low burden through amber to red for the worst. Saturation/lightness are
 // applied in CSS (theme-aware), so this only chooses the hue.
 const BURDEN_HUE_SCALE = 0.7;
-export function burdenHue(burden) {
+export function burdenHue(burden: number) {
   const t = Math.max(0, Math.min(1, (burden ?? 0) / BURDEN_HUE_SCALE));
   // 140 (green) -> 0 (red), passing through yellow/orange.
   return Math.round(140 - 140 * t);
@@ -19,7 +20,7 @@ export function burdenHue(burden) {
 
 // Char range [a, b) (0-based) that a sink's span occupies on `lineNo`, or null
 // if it does not touch this line. Multi-line spans clamp to the line's extent.
-export function spanPart(sink, lineNo) {
+export function spanPart(sink: Sink, lineNo: number) {
   const span = sink.span;
   if (!span || span.startLine === span.endLine) return "single";
   if (lineNo === span.startLine) return "start";
@@ -27,7 +28,7 @@ export function spanPart(sink, lineNo) {
   return "middle";
 }
 
-function rangeOnLine(sink, lineNo, lineLength) {
+function rangeOnLine(sink: Sink, lineNo: number, lineLength: number) {
   const span = sink.span;
   if (!span) {
     return sink.line === lineNo
@@ -49,8 +50,8 @@ function rangeOnLine(sink, lineNo, lineLength) {
 // Split one source line into plain + clickable "hit" segments. Overlapping
 // findings on the same characters merge into one hit that carries ALL their ids,
 // so a single click can reveal every finding at that spot.
-export function renderCodeLine(text, lineNo, lineSinks) {
-  const ranges = [];
+export function renderCodeLine(text: string, lineNo: number, lineSinks: Sink[]) {
+  const ranges: Array<{ a: number; b: number; part: string; sink: Sink }> = [];
   for (const sink of lineSinks) {
     const r = rangeOnLine(sink, lineNo, text.length);
     if (r && r.b > r.a) ranges.push({ ...r, sink });
@@ -97,7 +98,7 @@ export function renderCodeLine(text, lineNo, lineSinks) {
 // the eye can skip them. Not a syntax highlighter: only comments are styled.
 // `state.inBlock` carries an open block comment across lines; strings are
 // respected so a `//` inside a string literal is not mistaken for a comment.
-export function renderCommentLine(text, state) {
+export function renderCommentLine(text: string, state: { inBlock: boolean }) {
   let out = "";
   let buf = "";
   let cbuf = "";
@@ -176,14 +177,14 @@ export function renderCommentLine(text, state) {
   return out;
 }
 
-export function touchedLines(sink, maxLine) {
+export function touchedLines(sink: Sink, maxLine: number) {
   const span = sink.span;
   const start = Math.max(1, span?.startLine ?? sink.line ?? 1);
   const end = Math.min(
     maxLine,
     Math.max(start, span?.endLine ?? sink.line ?? start),
   );
-  const lines = [];
+  const lines: number[] = [];
   for (let lineNo = start; lineNo <= end; lineNo += 1) lines.push(lineNo);
   return lines;
 }

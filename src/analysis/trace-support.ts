@@ -1,19 +1,21 @@
+import type * as TypeScript from "typescript";
+import type { AccessorRecord, AnalyzerArgs, CatalogFunction, CrossFileState } from "../types.js";
 import path from "node:path";
 import { locationOf } from "./graph.js";
 import { collapse } from "../reports/format-helpers.js";
 
-export function buildFileContext(ts, sourceFile) {
-  const variables = new Map();
-  const functions = new Map();
-  const accessors = new Map();
-  const parameters = new Set();
+export function buildFileContext(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile) {
+  const variables = new Map<string, TypeScript.VariableDeclaration>();
+  const functions = new Map<string, TypeScript.FunctionLikeDeclaration>();
+  const accessors = new Map<string, AccessorRecord>();
+  const parameters = new Set<string>();
   // Local names bound by an import. A value imported from another module is a
   // genuine source boundary (the value enters the component from outside), not
   // an unresolved edge — so identifiers we cannot place locally are checked
   // against this set before dead-ending as `unknown-source`.
-  const imports = new Set();
+  const imports = new Set<string>();
 
-  const visit = (node) => {
+  const visit = (node: TypeScript.Node) => {
     if (ts.isImportDeclaration(node)) {
       registerImports(ts, node, imports);
     }
@@ -48,7 +50,7 @@ export function buildFileContext(ts, sourceFile) {
 
 // Per-file contexts are reused across every sink and every cross-file descent,
 // so build each at most once.
-export function getFileContextCached(ts, sourceFile, crossFile) {
+export function getFileContextCached(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, crossFile: CrossFileState) {
   let context = crossFile.contextCache.get(sourceFile);
   if (!context) {
     context = buildFileContext(ts, sourceFile);
@@ -65,7 +67,7 @@ export function getFileContextCached(ts, sourceFile, crossFile) {
 // descend into the wrong scope's binding. `storedNode` is the function node (for
 // `functions`) or the variable declaration (for `accessors`/`variables`).
 // Returns true when the symbol can't be resolved, preserving prior behavior.
-export function identifierResolvesTo(ts, checker, identifier, storedNode) {
+export function identifierResolvesTo(ts: typeof TypeScript, checker: TypeScript.TypeChecker, identifier: TypeScript.Identifier, storedNode: TypeScript.Node) {
   let symbol = checker.getSymbolAtLocation(identifier);
   // A shorthand property (`return { color }`) resolves to the property symbol,
   // whose declaration is the ShorthandPropertyAssignment — not the local binding
@@ -88,7 +90,7 @@ export function identifierResolvesTo(ts, checker, identifier, storedNode) {
       return true;
     // Accessor/variable entries store the VariableDeclaration; a binding-pattern
     // element (signal/resource) resolves up to it.
-    for (let node = decl; node; node = node.parent) {
+    for (let node: TypeScript.Node | undefined = decl; node; node = node.parent) {
       if (node === storedNode) return true;
     }
     return false;
@@ -104,7 +106,7 @@ export function identifierResolvesTo(ts, checker, identifier, storedNode) {
 //
 // The checker calls are wrapped because type resolution on a pathologically deep
 // expression can overflow TypeScript's own recursion; treat as unresolved.
-export function resolveCatalogFn(ts, checker, calleeIdent, crossFile, args) {
+export function resolveCatalogFn(ts: typeof TypeScript, checker: TypeScript.TypeChecker, calleeIdent: TypeScript.Identifier, crossFile: CrossFileState, args: AnalyzerArgs | null = null): CatalogFunction | null {
   if (!calleeIdent) return null;
   let symbol;
   try {
@@ -116,7 +118,7 @@ export function resolveCatalogFn(ts, checker, calleeIdent, crossFile, args) {
     return null;
   }
   if (!symbol) return null;
-  if (crossFile.catalog.has(symbol)) return crossFile.catalog.get(symbol);
+  if (crossFile.catalog.has(symbol)) return crossFile.catalog.get(symbol) ?? null;
 
   const found = traceableFromSymbol(ts, symbol);
   const record =
@@ -131,11 +133,11 @@ export function resolveCatalogFn(ts, checker, calleeIdent, crossFile, args) {
   return record;
 }
 
-export function getFunctionReturnExpression(ts, fn) {
+export function getFunctionReturnExpression(ts: typeof TypeScript, fn: TypeScript.FunctionLikeDeclaration): TypeScript.Expression | null {
   if (!fn) return null;
   if (ts.isArrowFunction(fn) && !ts.isBlock(fn.body)) return fn.body;
-  let found = null;
-  const visit = (node) => {
+  let found: TypeScript.Expression | null = null;
+  const visit = (node: TypeScript.Node) => {
     if (!found && ts.isReturnStatement(node) && node.expression)
       found = node.expression;
     if (!found) ts.forEachChild(node, visit);
@@ -144,7 +146,7 @@ export function getFunctionReturnExpression(ts, fn) {
   return found;
 }
 
-export function getCallName(ts, node) {
+export function getCallName(ts: typeof TypeScript, node: TypeScript.Node) {
   if (!ts.isCallExpression(node)) return "";
   if (ts.isIdentifier(node.expression)) return node.expression.text;
   if (ts.isPropertyAccessExpression(node.expression))
@@ -155,7 +157,7 @@ export function getCallName(ts, node) {
 // Collect the local names an import declaration binds: default, namespace, and
 // named specifiers. `import type` declarations are skipped (type-only bindings
 // never appear in a render value).
-function registerImports(ts, node, imports) {
+function registerImports(ts: typeof TypeScript, node: TypeScript.ImportDeclaration, imports: Set<string>) {
   const clause = node.importClause;
   if (!clause || clause.isTypeOnly) return;
   if (clause.name) imports.add(clause.name.text);
@@ -170,7 +172,7 @@ function registerImports(ts, node, imports) {
   }
 }
 
-function registerVariable(ts, node, variables, accessors) {
+function registerVariable(ts: typeof TypeScript, node: TypeScript.VariableDeclaration, variables: Map<string, TypeScript.VariableDeclaration>, accessors: Map<string, AccessorRecord>) {
   if (ts.isIdentifier(node.name)) {
     variables.set(node.name.text, node);
     if (node.initializer && isCallNamed(ts, node.initializer, "createMemo")) {
@@ -181,7 +183,7 @@ function registerVariable(ts, node, variables, accessors) {
 
   if (ts.isArrayBindingPattern(node.name) && node.initializer) {
     const callName = getCallName(ts, node.initializer);
-    node.name.elements.forEach((element, index) => {
+    node.name.elements.forEach((element, index: number) => {
       if (ts.isBindingElement(element) && ts.isIdentifier(element.name)) {
         variables.set(element.name.text, node);
         if (
@@ -210,7 +212,7 @@ function registerVariable(ts, node, variables, accessors) {
 // Given a function/variable symbol, find a traceable declaration: a function
 // declaration, or an arrow/function-expression bound to a name. Returns the
 // function node plus its naming identifier, or null.
-function traceableFromSymbol(ts, symbol) {
+function traceableFromSymbol(ts: typeof TypeScript, symbol: TypeScript.Symbol) {
   for (const decl of symbol.declarations ?? []) {
     if (ts.isFunctionDeclaration(decl) && decl.name) {
       return { fnNode: decl, nameNode: decl.name };
@@ -251,7 +253,7 @@ function traceableFromSymbol(ts, symbol) {
 
 // True when a declaration lives in first-party source we analyze (not a .d.ts,
 // not node_modules, inside the project root) — the only helpers safe to descend.
-function isFirstPartyDecl(decl, args) {
+function isFirstPartyDecl(decl: TypeScript.Declaration, args: AnalyzerArgs) {
   const file = decl.getSourceFile();
   if (file.isDeclarationFile) return false;
   const relative = relativePath(args.root, file.fileName);
@@ -262,12 +264,12 @@ function isFirstPartyDecl(decl, args) {
 // body tracing. The expensive parts (return type, internal metrics) are computed
 // lazily in buildHelperReport for functions actually reached on a render path —
 // tracing every function body in a large repo is what blows up memory.
-function makeCatalogRecord(ts, found, symbol, args) {
+function makeCatalogRecord(ts: typeof TypeScript, found: { fnNode: TypeScript.FunctionLikeDeclaration; nameNode: TypeScript.Identifier }, symbol: TypeScript.Symbol, args: AnalyzerArgs): CatalogFunction {
   const { fnNode, nameNode } = found;
   const sourceFile = fnNode.getSourceFile();
   const location = locationOf(sourceFile, nameNode);
   const params = fnNode.parameters
-    .filter((parameter) => ts.isIdentifier(parameter.name))
+    .filter((parameter): parameter is TypeScript.ParameterDeclaration & { name: TypeScript.Identifier } => ts.isIdentifier(parameter.name))
     .map((parameter) => ({
       name: parameter.name.text,
       // Syntactic annotation only (cheap); unannotated params are left unknown.
@@ -288,10 +290,10 @@ function makeCatalogRecord(ts, found, symbol, args) {
   };
 }
 
-function isCallNamed(ts, node, name) {
+function isCallNamed(ts: typeof TypeScript, node: TypeScript.Node, name: string) {
   return ts.isCallExpression(node) && getCallName(ts, node) === name;
 }
 
-function relativePath(root, file) {
+function relativePath(root: string, file: string) {
   return path.relative(root, file).replaceAll(path.sep, "/");
 }

@@ -1,10 +1,13 @@
+import type { AnalysisReport, AnalyzerArgs } from "../types.js";
 import { defaultMaxItemsFor } from "../cli/args.js";
 import { makeFileMatcher } from "../analysis/report-builder.js";
 import { fenced, viewIntro } from "./markdown-format.js";
 import { formatExpression } from "./format-helpers.js";
 
 // Display label + human kind for a fork-site construct.
-const FORK_SITE_KIND = {
+type RepeatedFork = AnalysisReport["repeatedForks"][number];
+
+const FORK_SITE_KIND: Record<string, string> = {
   "switch-match": "Match",
   show: "Show",
   ternary: "ternary",
@@ -12,7 +15,7 @@ const FORK_SITE_KIND = {
   logical: "&&/||",
 };
 
-function forkSeverityLabel(fork) {
+function forkSeverityLabel(fork: RepeatedFork) {
   // Driven by named-value diversity (the real split signal) and severity, which
   // already weights distinct named values × 5.
   const named = fork.namedValues?.length ?? 0;
@@ -22,7 +25,7 @@ function forkSeverityLabel(fork) {
   return "LOW";
 }
 
-export function renderRepeatedForks(report, args) {
+export function renderRepeatedForks(report: AnalysisReport, args: AnalyzerArgs) {
   const fileMatch = makeFileMatcher(args.file);
   const all = report.repeatedForks ?? [];
   const forks = fileMatch ? all.filter((fork) => fileMatch(fork.file)) : all;
@@ -65,7 +68,7 @@ export function renderRepeatedForks(report, args) {
     lines.push("");
     if (fork.branchValues.length > 0) {
       lines.push(
-        `Branch values: ${fork.branchValues.map((value) => `\`${value}\``).join(", ")}`,
+        `Branch values: ${fork.branchValues.map((value: string) => `\`${value}\``).join(", ")}`,
       );
       lines.push("");
     }
@@ -140,7 +143,7 @@ export function renderRepeatedForks(report, args) {
   return `${lines.join("\n")}\n`;
 }
 
-function forkRecommendation(fork, component) {
+function forkRecommendation(fork: RepeatedFork, component: string) {
   // Only suggest concrete sub-component names when the component has a usable
   // PascalCase name and the branches key on ≥2 named domain values; otherwise
   // the generated names ("EnterCombobox") are noise.
@@ -150,7 +153,7 @@ function forkRecommendation(fork, component) {
     named.length >= 2 && isPascal
       ? named
           .slice(0, 3)
-          .map((value) => `\`${pascalish(value)}${component}\``)
+          .map((value: string) => `\`${pascalish(value)}${component}\``)
           .join(" / ")
       : "one sub-component per branch";
   const eager =
@@ -165,7 +168,7 @@ function forkRecommendation(fork, component) {
 
 // "bar" -> "Bar", "line-chart" -> "LineChart"; best-effort label for a suggested
 // sub-component name. Non-identifier values fall back to a generic tag.
-function pascalish(value) {
+function pascalish(value: string) {
   const cleaned = String(value)
     .replace(/[^A-Za-z0-9]+/g, " ")
     .trim();

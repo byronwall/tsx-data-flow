@@ -12,8 +12,8 @@ export { escapeHtml };
 // Inline code is extracted first so its contents are never treated as markup,
 // matching the way `code()` in core.js picks a backtick run longer than any
 // run inside the value.
-function renderInline(text) {
-  const tokens = [];
+function renderInline(text: string) {
+  const tokens: Array<{ type: "text" | "code"; value: string }> = [];
   let rest = text;
   // Pull out inline code spans delimited by runs of one-or-more backticks.
   const codeSpan = /(`+)([\s\S]*?)\1/;
@@ -41,13 +41,13 @@ function renderInline(text) {
 
 // Bold (`**x**`) and links (`[text](url)`) on plain text, with everything else
 // HTML-escaped. Applied only to non-code inline segments.
-function formatEmphasis(text) {
+function formatEmphasis(text: string) {
   const escaped = escapeHtml(text);
   return (
     escaped
       .replace(
         /\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
-        (_, label, href) => `<a href="${href}">${label}</a>`,
+        (_, label: string, href) => `<a href="${href}">${label}</a>`,
       )
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
       // Emphasis: `*x*`, and `_x_` only when the underscores sit on a word
@@ -58,8 +58,8 @@ function formatEmphasis(text) {
 }
 
 // Split a GFM table row into cells, honoring escaped pipes (`\|`).
-function splitRow(line) {
-  const cells = [];
+function splitRow(line: string) {
+  const cells: string[] = [];
   let current = "";
   for (let i = 0; i < line.length; i += 1) {
     const char = line[i];
@@ -82,20 +82,20 @@ function splitRow(line) {
   return cells.map((cell) => cell.trim());
 }
 
-const isTableSeparator = (line) =>
+const isTableSeparator = (line: string) =>
   /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(line) &&
   line.includes("-");
 
-const isTableRow = (line) => line.includes("|");
+const isTableRow = (line: string) => line.includes("|");
 
-const isFence = (line) => /^\s*(`{3,}|~{3,})/.exec(line);
+const isFence = (line: string) => /^\s*(`{3,}|~{3,})/.exec(line);
 
-export function markdownToHtml(markdown) {
+export function markdownToHtml(markdown: string): string {
   const lines = String(markdown).replace(/\r\n?/g, "\n").split("\n");
-  const out = [];
+  const out: string[] = [];
   let i = 0;
 
-  const flushList = (items) => {
+  const flushList = (items: string[]) => {
     if (!items.length) return;
     out.push("<ul>");
     for (const item of items) out.push(`<li>${renderInline(item)}</li>`);
@@ -112,7 +112,7 @@ export function markdownToHtml(markdown) {
       const marker = fence[1][0];
       const len = fence[1].length;
       const lang = line.slice(fence.index + fence[1].length).trim();
-      const body = [];
+      const body: string[] = [];
       i += 1;
       while (i < lines.length) {
         const closing = new RegExp(
@@ -154,7 +154,7 @@ export function markdownToHtml(markdown) {
     ) {
       const header = splitRow(line);
       i += 2; // skip header + separator
-      const rows = [];
+      const rows: string[][] = [];
       while (
         i < lines.length &&
         isTableRow(lines[i]) &&
@@ -181,7 +181,7 @@ export function markdownToHtml(markdown) {
 
     // Blockquote — collect consecutive `>`-prefixed lines, recurse on the body.
     if (/^\s*>/.test(line)) {
-      const quoted = [];
+      const quoted: string[] = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) {
         quoted.push(lines[i].replace(/^\s*>\s?/, ""));
         i += 1;
@@ -192,7 +192,7 @@ export function markdownToHtml(markdown) {
 
     // Bullet list.
     if (/^\s*[-*]\s+/.test(line)) {
-      const items = [];
+      const items: string[] = [];
       while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
         items.push(lines[i].replace(/^\s*[-*]\s+/, ""));
         i += 1;
@@ -208,7 +208,7 @@ export function markdownToHtml(markdown) {
     }
 
     // Paragraph — gather until a blank line or a block starter.
-    const para = [];
+    const para: string[] = [];
     while (
       i < lines.length &&
       lines[i].trim() !== "" &&

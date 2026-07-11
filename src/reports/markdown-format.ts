@@ -1,6 +1,7 @@
+import type { AnalysisReport } from "../types.js";
 import path from "node:path";
 
-export function commandPath(targetPath) {
+export function commandPath(targetPath: string) {
   const relative = path.relative(process.cwd(), targetPath);
   if (relative && !relative.startsWith("..") && !path.isAbsolute(relative))
     return relative;
@@ -8,7 +9,10 @@ export function commandPath(targetPath) {
   return targetPath;
 }
 
-export function tableReport(title, headers, rows, intro = []) {
+type TableValue = string | number | boolean | null | undefined;
+type TableRow = TableValue[];
+
+export function tableReport(title: string, headers: string[], rows: TableRow[], intro: string[] = []) {
   const lines = [
     `# ${title}`,
     "",
@@ -21,7 +25,7 @@ export function tableReport(title, headers, rows, intro = []) {
 // A short at-a-glance header for every report: where it came from and what the
 // view shows / what its terms mean. Reports are often read without the analyzer
 // source at hand, so this has to stand alone. Rendered as a blockquote note.
-export function viewIntro(view, report) {
+export function viewIntro(view: string, report: AnalysisReport) {
   const root = report?.meta?.root ?? null;
   const displayRoot = root ? commandPath(root) : null;
   const generated = report?.generatedAt
@@ -50,7 +54,7 @@ export function viewIntro(view, report) {
 
 // Per-view "what am I looking at" sentence(s): what the rows are and what the
 // non-obvious column/field names mean.
-export const VIEW_BLURBS = {
+export const VIEW_BLURBS: Record<string, string> = {
   overview:
     "The orientation document: read this first. It guides you to every other " +
     "report (what each is for) and carries the workspace aggregates — hotspot " +
@@ -134,26 +138,26 @@ export const VIEW_BLURBS = {
 // dashes fill the same width. Cells are sanitized via formatTableCell (newlines
 // collapsed, pipes escaped); padding is computed on the *visible* width so an
 // escaped pipe (`\|`, two source chars, one rendered char) still aligns.
-export function formatMarkdownTable(headers, rows) {
+export function formatMarkdownTable(headers: string[], rows: TableRow[]) {
   const grid = [headers, ...rows].map((row) =>
-    headers.map((_, column) => formatTableCell(row[column] ?? "")),
+    headers.map((_, column: number) => formatTableCell(row[column] ?? "")),
   );
-  const widths = headers.map((_, column) =>
+  const widths = headers.map((_, column: number) =>
     Math.max(3, ...grid.map((row) => cellWidth(row[column]))),
   );
-  const renderRow = (row) =>
-    `| ${row.map((cell, column) => padCell(cell, widths[column])).join(" | ")} |`;
+  const renderRow = (row: string[]) =>
+    `| ${row.map((cell, column: number) => padCell(cell, widths[column])).join(" | ")} |`;
   const separator = `| ${widths.map((width) => "-".repeat(width)).join(" | ")} |`;
   return [renderRow(grid[0]), separator, ...grid.slice(1).map(renderRow)];
 }
 
-function formatTableCell(value) {
+function formatTableCell(value: TableValue) {
   return String(value).replaceAll("\n", " ").replaceAll("|", "\\|");
 }
 
 // A small two-column metric/value table. Numeric and label metrics read better
 // as an aligned table than as a fenced block; fences are reserved for code.
-export function metricTable(pairs) {
+export function metricTable(pairs: Array<[string, TableValue]>) {
   return formatMarkdownTable(
     ["Metric", "Value"],
     pairs.map(([label, value]) => [label, String(value)]),
@@ -162,11 +166,11 @@ export function metricTable(pairs) {
 
 // Visible width of an already-escaped cell. GFM unescapes `\|` to `|` before
 // rendering, so each escaped pipe occupies one rendered column, not two.
-function cellWidth(escaped) {
+function cellWidth(escaped: string) {
   return escaped.length - (escaped.match(/\\\|/g)?.length ?? 0);
 }
 
-function padCell(escaped, width) {
+function padCell(escaped: string, width: number) {
   return escaped + " ".repeat(Math.max(0, width - cellWidth(escaped)));
 }
 
@@ -176,7 +180,7 @@ function padCell(escaped, width) {
 // backticks (template literals), so the delimiter is a backtick run one longer
 // than any internal run, with a pad space when the text starts/ends with a
 // backtick (GFM strips one space each side). Empty values are left untouched.
-export function code(value) {
+export function code(value: string) {
   const text = String(value).trim();
   if (!text) return "";
   const longestRun = Math.max(
@@ -196,10 +200,10 @@ export function code(value) {
 // the block is already monospace, so a template literal's source backticks
 // (`` `link-${id}` ``) read as stray markdown ticks rather than signal — and a
 // stray "```" line would otherwise close the fence early.
-export function fenced(content) {
+export function fenced(content: string[]) {
   return [
     "```",
-    ...content.map((line) => String(line).replaceAll("`", "")),
+    ...content.map((line: string) => String(line).replaceAll("`", "")),
     "```",
   ];
 }

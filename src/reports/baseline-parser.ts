@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export function readReportDirectorySummary(directory) {
-  const missing = [];
-  const read = (name) => {
+export function readReportDirectorySummary(directory: string) {
+  const missing: string[] = [];
+  const read = (name: string) => {
     const file = path.join(directory, name);
     if (!fs.existsSync(file)) {
       missing.push(name);
@@ -15,7 +15,7 @@ export function readReportDirectorySummary(directory) {
   // still exist in older baseline directories. Read them optionally — present is a
   // bonus (richer fallback), absent is not "missing" — so a current-tool baseline
   // doesn't spuriously report them as gaps.
-  const readOptional = (name) => {
+  const readOptional = (name: string) => {
     const file = path.join(directory, name);
     return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
   };
@@ -38,35 +38,35 @@ export function readReportDirectorySummary(directory) {
   };
 }
 
-function parsePrimaryPivotScore(text) {
+function parsePrimaryPivotScore(text: string) {
   const match = /\|\s*`[^`]*`\s*\|\s*\d+\s*\|\s*([0-9.]+)\s*\|/.exec(text);
   return match ? Number(match[1]) : null;
 }
 
-function parseWorstFindingScore(text) {
+function parseWorstFindingScore(text: string) {
   const match = /burden score\s*\|\s*([0-9.]+)/i.exec(text);
   return match ? Number(match[1]) : null;
 }
 
-function parseWorstSeverity(text) {
+function parseWorstSeverity(text: string) {
   const match = /^## RPF-[^·]+·\s*([A-Z]+)/m.exec(text);
   return match?.[1] ?? "n/a";
 }
 
-function parseDossierSinkCount(text) {
+function parseDossierSinkCount(text: string) {
   const match = /\|\s*\d+\s*\|\s*\d+\s*\|\s*\d+\s*\|\s*(\d+)\s*\|/.exec(text);
   return match ? Number(match[1]) : null;
 }
 
-function countMarkdownHeadings(text, pattern) {
-  return text.split("\n").filter((line) => pattern.test(line)).length;
+function countMarkdownHeadings(text: string, pattern: RegExp) {
+  return text.split("\n").filter((line: string) => pattern.test(line)).length;
 }
 
-function countMarkdownTableRows(text) {
+function countMarkdownTableRows(text: string) {
   return text
     .split("\n")
     .filter(
-      (line) =>
+      (line: string) =>
         /^\|/.test(line) &&
         !/^\|\s*-/.test(line) &&
         !/^\|\s*Location\s*\|/.test(line) &&
@@ -74,15 +74,15 @@ function countMarkdownTableRows(text) {
     ).length;
 }
 
-function parseTransformationWrappers(text) {
+function parseTransformationWrappers(text: string) {
   const match = /representation-only(?: wrapper)? steps\s*\|\s*(\d+)/i.exec(
     text,
   );
   return match ? Number(match[1]) : null;
 }
 
-function parseFindingFamilies(text, defensiveText = "") {
-  const families = [];
+function parseFindingFamilies(text: string, defensiveText: string = "") {
+  const families: string[] = [];
   if (
     /\|[^\n|]+\|[^\n|]+\|[^\n|]+\|[^\n|]+\|\s*impossible\s*\|/i.test(
       defensiveText,
@@ -106,26 +106,29 @@ function parseFindingFamilies(text, defensiveText = "") {
   return unique(families);
 }
 
-export function removedFindingFamilies(baseline, current) {
+type ReportDirectorySummary = ReturnType<typeof readReportDirectorySummary>;
+
+export function removedFindingFamilies(baseline: ReportDirectorySummary, current: ReportDirectorySummary) {
   return (baseline.families ?? []).filter(
     (family) => !(current.families ?? []).includes(family),
   );
 }
 
-export function remainingFindingFamilies(current) {
+export function remainingFindingFamilies(current: ReportDirectorySummary) {
   return current.families ?? [];
 }
 
-export function formatWorstMetric(summary) {
-  if (!Number.isFinite(summary.worstScore)) return "n/a";
+export function formatWorstMetric(summary: ReportDirectorySummary) {
+  if (summary.worstScore == null || !Number.isFinite(summary.worstScore)) return "n/a";
   return `${summary.worstScore.toFixed(2)} ${summary.worstSeverity ?? ""}`.trim();
 }
 
-export function formatOptionalNumber(value) {
+export function formatOptionalNumber(value: number | null) {
   return Number.isFinite(value) ? String(value) : "n/a";
 }
 
-export function compareNumberLabel(before, after, lowerIsBetter) {
+export function compareNumberLabel(before: number | null, after: number | null, lowerIsBetter: boolean) {
+  if (before == null || after == null) return "n/a";
   if (!Number.isFinite(before) || !Number.isFinite(after)) return "n/a";
   const improved = lowerIsBetter ? after < before : after > before;
   const regressed = lowerIsBetter ? after > before : after < before;
@@ -133,13 +136,14 @@ export function compareNumberLabel(before, after, lowerIsBetter) {
   return improved ? "improved" : regressed ? "regressed" : "changed";
 }
 
-export function formatDeltaLabel(before, after, lowerIsBetter) {
+export function formatDeltaLabel(before: number | null, after: number | null, lowerIsBetter: boolean) {
+  if (before == null || after == null) return "n/a";
   if (!Number.isFinite(before) || !Number.isFinite(after)) return "n/a";
   const delta = after - before;
   const label = compareNumberLabel(before, after, lowerIsBetter);
   return `${delta > 0 ? "+" : ""}${delta} ${label}`;
 }
 
-function unique(items) {
+function unique<T>(items: T[]): T[] {
   return Array.from(new Set(items));
 }

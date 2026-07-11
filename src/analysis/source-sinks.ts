@@ -1,3 +1,4 @@
+import type * as TypeScript from "typescript";
 import { CONTROL_FLOW_ATTRIBUTES } from "./sink-shape.js";
 import { collapse, formatExpression } from "../reports/format-helpers.js";
 
@@ -21,7 +22,7 @@ const RENDER_PROP_ITERABLE_ATTRIBUTES = new Set([
 // finding nor a fan-out source. A literal-like node is a primitive literal (or a
 // nested object/array of such); anything dynamic (identifier reference, property
 // access, call, shorthand, spread, …) makes the object a real sink we keep.
-function isLiteralLikeExpression(ts, node) {
+function isLiteralLikeExpression(ts: typeof TypeScript, node: TypeScript.Node): boolean {
   switch (node.kind) {
     case ts.SyntaxKind.StringLiteral:
     case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
@@ -51,7 +52,7 @@ function isLiteralLikeExpression(ts, node) {
   return false;
 }
 
-function isInertObjectLiteral(ts, node) {
+function isInertObjectLiteral(ts: typeof TypeScript, node: TypeScript.Node): boolean {
   if (!ts.isObjectLiteralExpression(node)) return false;
   // Empty object → vacuously inert. Otherwise every property must be a plain
   // literal value; a shorthand (`{ x }`), spread, method, or accessor is dynamic.
@@ -62,7 +63,7 @@ function isInertObjectLiteral(ts, node) {
   );
 }
 
-export function getSinkExpression(ts, node) {
+export function getSinkExpression(ts: typeof TypeScript, node: TypeScript.Node) {
   if (ts.isJsxExpression(node) && node.expression) {
     const parent = node.parent;
     if (parent && ts.isJsxAttribute(parent)) return null;
@@ -97,7 +98,7 @@ export function getSinkExpression(ts, node) {
   return null;
 }
 
-function jsxElementContext(ts, node) {
+function jsxElementContext(ts: typeof TypeScript, node: TypeScript.Node) {
   let current = node;
   while (current) {
     if (ts.isJsxElement(current)) {
@@ -123,11 +124,11 @@ function jsxElementContext(ts, node) {
   return { tag: null };
 }
 
-function jsxTagNameText(tagName) {
+function jsxTagNameText(tagName: TypeScript.JsxTagNameExpression) {
   return tagName ? collapse(tagName.getText()) : null;
 }
 
-export function enclosingFunctionName(ts, node) {
+export function enclosingFunctionName(ts: typeof TypeScript, node: TypeScript.Node) {
   let current = node;
   while (current) {
     if (ts.isFunctionDeclaration(current) && current.name)
@@ -154,7 +155,7 @@ export function enclosingFunctionName(ts, node) {
 // identifier param (`(item) => …`) as well as the bindings of a destructured
 // tuple/object param (`([key, value]) => …`, `({ id }) => …`) so a `<For>` row
 // that destructures its element still traces back to the iterated source.
-function bindingCoversName(ts, bindingName, name) {
+function bindingCoversName(ts: typeof TypeScript, bindingName: TypeScript.BindingName, name: string): boolean {
   if (ts.isIdentifier(bindingName)) return bindingName.text === name;
   if (
     ts.isArrayBindingPattern(bindingName) ||
@@ -173,7 +174,7 @@ function bindingCoversName(ts, bindingName, name) {
 // First iterable-valued prop on a custom list/collection component
 // (`items`/`rows`/`each`/…), or null. Used to bind a render-callback child's
 // element parameter when the host is not a native Solid control-flow component.
-function iterableAttribute(ts, opening) {
+function iterableAttribute(ts: typeof TypeScript, opening: TypeScript.JsxOpeningElement | TypeScript.JsxSelfClosingElement) {
   for (const property of opening.attributes.properties) {
     if (!ts.isJsxAttribute(property)) continue;
     const name = property.name.getText();
@@ -189,7 +190,7 @@ function iterableAttribute(ts, opening) {
   return null;
 }
 
-export function renderPropBinding(ts, expression, name) {
+export function renderPropBinding(ts: typeof TypeScript, expression: TypeScript.Node, name: string) {
   let fn = null;
   let paramIndex = -1;
   let current = expression.parent;
@@ -230,7 +231,7 @@ export function renderPropBinding(ts, expression, name) {
       tag,
     };
   }
-  const isComponent = /^[A-Z]/.test(tag) || tag.includes(".");
+  const isComponent = tag != null && (/^[A-Z]/.test(tag) || tag.includes("."));
   if (isComponent) {
     const iterable = iterableAttribute(ts, opening);
     if (iterable) {
@@ -265,7 +266,7 @@ const ARRAY_ELEMENT_CALLBACK_METHODS = new Set([
 // invoked on (`xs.map((item) => …)`, `xs.sort((left, right) => …)`). Returns the
 // receiver expression and whether `name` is an element parameter, or null. This
 // is the plain-JS analogue of `renderPropBinding` for Solid control flow.
-export function arrayCallbackBinding(ts, expression, name) {
+export function arrayCallbackBinding(ts: typeof TypeScript, expression: TypeScript.Node, name: string) {
   let fn = null;
   let paramIndex = -1;
   let current = expression.parent;
@@ -302,7 +303,7 @@ export function arrayCallbackBinding(ts, expression, name) {
 
 // First control-flow attribute (`each`/`when`/`fallback`) on an opening element
 // that carries a value expression, or null.
-function controlFlowAttribute(ts, opening) {
+function controlFlowAttribute(ts: typeof TypeScript, opening: TypeScript.JsxOpeningElement | TypeScript.JsxSelfClosingElement) {
   for (const property of opening.attributes.properties) {
     if (!ts.isJsxAttribute(property)) continue;
     const name = property.name.getText();
@@ -318,7 +319,7 @@ function controlFlowAttribute(ts, opening) {
   return null;
 }
 
-function classifyAttribute(name) {
+function classifyAttribute(name: string) {
   if (["class", "className", "style"].includes(name)) return "style";
   if (["when", "each"].includes(name)) return "render-control";
   return "attribute";

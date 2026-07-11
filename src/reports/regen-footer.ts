@@ -1,3 +1,4 @@
+import type { AnalysisReport, AnalyzerArgs } from "../types.js";
 import { commandPath } from "./markdown-format.js";
 
 // A copy-pasteable command that regenerates exactly this report -- including the
@@ -10,7 +11,7 @@ import { commandPath } from "./markdown-format.js";
 //   - single view written to a file: `--view <view> --out <file>`
 //   - `--view all` written to a directory (regenAll): `--view all --out <dir>`,
 //     which rebuilds every file in that directory (this one included).
-export function regenCommand(args, view) {
+export function regenCommand(args: AnalyzerArgs, view: string) {
   const regenAll = Boolean(args.regenAll);
   const parts = [
     "tsx-dataflow",
@@ -51,7 +52,7 @@ export function regenCommand(args, view) {
   return parts.join(" ");
 }
 
-export function regenFooter(args, view, report) {
+export function regenFooter(args: AnalyzerArgs, view: string, report: AnalysisReport) {
   const lines = [
     "---",
     "",
@@ -79,7 +80,7 @@ export function regenFooter(args, view, report) {
 // How many distinct files the report's findings touch, used to decide whether a
 // per-file focus hint is worth showing. Counts ranked sinks first (what most
 // views list) and falls back to context-relay findings for relay-only reports.
-export function spansMultipleFiles(report) {
+export function spansMultipleFiles(report: AnalysisReport) {
   if (!report) return false;
   const files = new Set();
   for (const sink of report.rankings?.all ?? []) files.add(sink.file);
@@ -92,7 +93,7 @@ export function spansMultipleFiles(report) {
   return files.size > 1;
 }
 
-export function shellQuote(value) {
+export function shellQuote(value: string) {
   const text = String(value);
   // Single-quote anything that isn't a safe bare token, escaping embedded quotes.
   return /^[A-Za-z0-9_./@:-]+$/.test(text)

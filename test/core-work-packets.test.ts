@@ -131,14 +131,14 @@ describe("work-packet variety & coverage", () => {
     // No single file appears in more than two work-item headings.
     const chartHeadings = output
       .split("\n")
-      .filter((line) => line.startsWith("## WORK ITEM")).length;
+      .filter((line: number) => line.startsWith("## WORK ITEM")).length;
     expect(chartHeadings).toBeLessThanOrEqual(report.rankings.all.length);
   });
 
   it("coverage sort reaches more distinct files than pure burden", async () => {
     const project = await spreadProject();
     const report = await analyzeProject(project.args);
-    const filesIn = (sort) => {
+    const filesIn = (sort: string) => {
       const out = renderReport(report, {
         ...project.args,
         view: "work-packets",
@@ -149,8 +149,8 @@ describe("work-packet variety & coverage", () => {
       return new Set(
         out
           .split("\n")
-          .filter((line) => line.startsWith("Simplify "))
-          .map((line) => line.split(" in ").at(-1)),
+          .filter((line: number) => line.startsWith("Simplify "))
+          .map((line: number) => line.split(" in ").at(-1)),
       ).size;
     };
     expect(filesIn("coverage")).toBeGreaterThanOrEqual(filesIn("burden"));

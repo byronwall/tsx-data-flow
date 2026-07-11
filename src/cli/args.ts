@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { AnalyzerArgs } from "../types.js";
 import {
   findDefaultSource,
   findDefaultTsconfig,
@@ -50,7 +51,7 @@ const TABLE_VIEWS = new Set([
 const DEFAULT_TABLE_MAX_ITEMS = 12;
 const DEFAULT_REPORT_MAX_ITEMS = 5;
 
-export function defaultMaxItemsFor(view) {
+export function defaultMaxItemsFor(view: string) {
   return TABLE_VIEWS.has(view)
     ? DEFAULT_TABLE_MAX_ITEMS
     : DEFAULT_REPORT_MAX_ITEMS;
@@ -60,10 +61,11 @@ export function defaultMaxItemsFor(view) {
 // so the current working directory is the right default root.
 const defaultRoot = process.cwd();
 
-export function parseArgs(argv, defaults = {}) {
-  const args = {
+export function parseArgs(argv: string[], defaults: Partial<AnalyzerArgs> = {}): AnalyzerArgs {
+  let sourceFollowsRoot = defaults.source == null;
+  const args: AnalyzerArgs = {
     root: defaults.root ?? defaultRoot,
-    source: defaults.source ?? null,
+    source: defaults.source ?? findDefaultSource(defaults.root ?? defaultRoot),
     tsconfig: defaults.tsconfig ?? null,
     // Set when the user passes --tsconfig explicitly. Auto-discovery (walk-up +
     // solution-file expansion) only runs when this is false.
@@ -79,7 +81,7 @@ export function parseArgs(argv, defaults = {}) {
     baseline: defaults.baseline ?? null,
     compare: defaults.compare ?? null,
     // Resolved per-view after parsing unless the caller/CLI sets it explicitly.
-    maxItems: defaults.maxItems ?? null,
+    maxItems: defaults.maxItems ?? defaultMaxItemsFor(defaults.view ?? "work-packets"),
     maxItemsExplicit: defaults.maxItems != null,
     // Selection lens (Approach 6): how the packet/finding views pick from the
     // burden ranking. `burden` reproduces today's pure worst-first sort.
@@ -124,9 +126,11 @@ export function parseArgs(argv, defaults = {}) {
     switch (name) {
       case "--root":
         args.root = readValue();
+        if (sourceFollowsRoot) args.source = findDefaultSource(args.root);
         break;
       case "--source":
         args.source = readValue();
+        sourceFollowsRoot = false;
         break;
       case "--tsconfig":
         args.tsconfig = readValue();
@@ -136,7 +140,7 @@ export function parseArgs(argv, defaults = {}) {
         args.typescriptFrom = readValue();
         break;
       case "--format":
-        args.format = readValue();
+        args.format = readValue() as AnalyzerArgs["format"];
         break;
       case "--view":
         args.view = readValue();
@@ -235,7 +239,7 @@ export function parseArgs(argv, defaults = {}) {
   for (const [flag, value] of [
     ["--per-file", args.perFile],
     ["--per-feature", args.perFeature],
-  ]) {
+  ] as Array<[string, number | null]>) {
     if (value != null && (!Number.isFinite(value) || value < 1)) {
       throw new Error(`${flag} must be a positive number`);
     }

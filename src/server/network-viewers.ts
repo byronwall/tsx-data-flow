@@ -8,11 +8,24 @@ import {
 } from "../html/code-map.js";
 import { viewLabel } from "./view-config.js";
 
+interface PopoverOption { label: string; href: string; active: boolean }
+interface PopoverProps {
+  id: string; label: string; options: PopoverOption[];
+  ariaLabel?: string; triggerValue?: string | null;
+}
+interface FanOutEntry {
+  root: string; sinkCount: number; maxDepth: number; fileCount: number;
+  def?: { file: string; line: number } | null;
+  sinks: ReachedSink[];
+  graphSinks: ReachedSink[];
+}
+type HrefFor = (updates: Record<string, string>) => string;
+
 // SHELL-5: a reusable custom popover — the on-page replacement for native <select>s
 // (INTENT §8). The trigger shows `label: <current>`; the panel is a listbox of
 // option links, so picking one navigates and the choice lives in the URL. Open/close,
 // outside-click, Escape, and positioning are handled once in page.js.
-export function popover({ id, label, options, ariaLabel, triggerValue }) {
+export function popover({ id, label, options, ariaLabel, triggerValue = null }: PopoverProps) {
   const current = options.find((option) => option.active);
   const shown = triggerValue ?? current?.label ?? options[0]?.label ?? "";
   const items = options
@@ -37,10 +50,10 @@ export function popover({ id, label, options, ariaLabel, triggerValue }) {
 // from the left sidebar. "Overview" is first; the rest mirror the alphabetized
 // report list. The active tab is highlighted; selection is just the URL, so a
 // refresh restores it. `activeView` is null on the overview, or the report view id.
-export function reportTabs(activeView) {
+export function reportTabs(activeView: string | null) {
   const tabs = [
     { view: null, label: "Overview", href: "/" },
-    ...REPORT_VIEWS.map((view) => ({
+    ...REPORT_VIEWS.map((view: string) => ({
       view,
       label: viewLabel(view),
       href: `/report?view=${encodeURIComponent(view)}`,
@@ -59,20 +72,21 @@ export function reportTabs(activeView) {
 // FANOUT-SORT-1: only sort keys already on the entry — no new analysis. The active
 // key's value is shown on each tab so the order is never a mystery (INTENT §6).
 const FANOUT_SORTS = [
-  { key: "spread", label: "spread", get: (f) => f.sinkCount, dir: -1 },
-  { key: "depth", label: "depth", get: (f) => f.maxDepth, dir: -1 },
-  { key: "files", label: "files", get: (f) => f.fileCount, dir: -1 },
-  { key: "name", label: "name", get: (f) => f.root, dir: 1 },
+  { key: "spread", label: "spread", get: (f: FanOutEntry) => f.sinkCount, dir: -1 },
+  { key: "depth", label: "depth", get: (f: FanOutEntry) => f.maxDepth, dir: -1 },
+  { key: "files", label: "files", get: (f: FanOutEntry) => f.fileCount, dir: -1 },
+  { key: "name", label: "name", get: (f: FanOutEntry) => f.root, dir: 1 },
 ];
 const FANOUT_TAB_LIMIT = 5;
 
-function sortFanOuts(fanOuts, sortKey) {
+function sortFanOuts(fanOuts: FanOutEntry[], sortKey: string) {
   const sort = FANOUT_SORTS.find((s) => s.key === sortKey) ?? FANOUT_SORTS[0];
   const sorted = [...fanOuts].sort((a, b) => {
     const av = sort.get(a);
     const bv = sort.get(b);
-    if (typeof av === "string") return sort.dir * av.localeCompare(bv);
-    return sort.dir * (av - bv) || b.sinkCount - a.sinkCount;
+    if (typeof av === "string" && typeof bv === "string") return sort.dir * av.localeCompare(bv);
+    if (typeof av === "number" && typeof bv === "number") return sort.dir * (av - bv) || b.sinkCount - a.sinkCount;
+    return 0;
   });
   return { sorted, sort };
 }
@@ -83,7 +97,7 @@ function sortFanOuts(fanOuts, sortKey) {
 // (the dropdown answers "what are the other N?"), the sort key + value are visible
 // and controllable, and a single-file vs cross-file tag explains the kind. Selection
 // and sort live in the URL via `hrefFor`.
-export function fanOutViewer(fanOuts, { selected, sortKey, hrefFor }) {
+export function fanOutViewer(fanOuts: FanOutEntry[], { selected, sortKey, hrefFor }: { selected?: string; sortKey: string; hrefFor: HrefFor }) {
   if (!fanOuts.length)
     return `<p class="meta">No shared source fans out to ≥2 render sinks.</p>`;
   const { sorted, sort } = sortFanOuts(fanOuts, sortKey);
@@ -91,7 +105,7 @@ export function fanOutViewer(fanOuts, { selected, sortKey, hrefFor }) {
     sorted.find((f) => fanOutAnchor(f.root) === selected) ?? sorted[0];
   const tabsList = sorted.slice(0, FANOUT_TAB_LIMIT);
   const rest = sorted.slice(FANOUT_TAB_LIMIT);
-  const valueOf = (f) =>
+  const valueOf = (f: FanOutEntry) =>
     sort.key === "name" ? `${f.fileCount}f` : String(sort.get(f));
   const tabs = tabsList
     .map((f) => {
@@ -154,7 +168,7 @@ const BOUNDARY_TAB_LIMIT = 5;
 // and the template for fan-in/junctions/prop-relay. A tab strip of the heaviest-debt
 // boundaries + a popover for the rest selects ONE helper (selection in the URL via
 // `?boundary=`), and only that helper's sources → boundary → callers diagram renders.
-export function boundaryViewer(helpers, { selected, hrefFor }) {
+export function boundaryViewer(helpers: BoundaryHelper[], { selected, hrefFor }: { selected?: string; hrefFor: HrefFor }) {
   if (!helpers.length)
     return `<p class="meta">No first-party helper functions were reached on a render path. (Imported library calls stay opaque; try --max-helper-depth.)</p>`;
   const active =
@@ -201,3 +215,4 @@ export function boundaryViewer(helpers, { selected, hrefFor }) {
   ${boundaryGraphSvg(active)}
 </section>`;
 }
+import type { BoundaryHelper, ReachedSink } from "../types.js";

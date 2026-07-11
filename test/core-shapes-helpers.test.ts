@@ -356,7 +356,7 @@ describe("shape-aware suggestions, sink-family grouping, and explainability", ()
     expect(output).toContain("keep as certainty boundary");
     expect(output).not.toContain("stale (type-impossible)");
     expect(
-      report.sinks.every((sink) => sink.metrics.impossibleDefenseCount === 0),
+      report.sinks.every((sink: import("../src/types.js").Sink) => sink.metrics.impossibleDefenseCount === 0),
     ).toBe(true);
   });
 

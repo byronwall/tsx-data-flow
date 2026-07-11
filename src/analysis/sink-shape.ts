@@ -1,3 +1,4 @@
+import type { Sink } from "../types.js";
 // Attributes that size the SVG/HTML shell itself. Split out from geometry so a
 // plain width={...} is not lumped with bar-coordinate math when grouping sinks.
 export const SVG_SHELL_ATTRIBUTES = new Set([
@@ -54,7 +55,7 @@ export const IDENTITY_ATTRIBUTES = new Set([
 
 // The JSX attribute name a sink renders into (`transform` from `transform={...}`),
 // or null for bare rendered values / text nodes.
-export function sinkAttributeName(sink) {
+export function sinkAttributeName(sink: Pick<Sink, "label">) {
   const match = /^([A-Za-z0-9_-]+)=\{/.exec(sink.label ?? "");
   return match ? match[1] : null;
 }
@@ -62,7 +63,7 @@ export function sinkAttributeName(sink) {
 // The render region a sink belongs to. width/height/viewBox are the SVG/HTML
 // shell; coordinate attributes are geometry; when/each/fallback are control-flow;
 // class/style are style; id/href-like fields are identity; bare values are text.
-export function sinkFamilyOf(sink) {
+export function sinkFamilyOf(sink: Sink) {
   const attribute = sinkAttributeName(sink);
   if (attribute && SVG_SHELL_ATTRIBUTES.has(attribute)) return "svg-shell";
   if (attribute && GEOMETRY_FAMILY_ATTRIBUTES.has(attribute)) return "geometry";
@@ -77,14 +78,14 @@ export function sinkFamilyOf(sink) {
 // Classify the data-flow path feeding a sink into zero or more shape tags,
 // derived purely from the sink's own trace. Tags are non-exclusive; the array is
 // returned in priority order so callers can treat element 0 as the primary shape.
-export function classifyPathShape(sink) {
+export function classifyPathShape(sink: Sink) {
   const attribute = sinkAttributeName(sink);
   const steps = sink.representativeSteps ?? [];
   const kinds = new Set(steps.map((step) => step.kind));
   const labelText = steps.map((step) => step.label).join(" ");
   const metrics = sink.metrics;
   const rootInfos = sink.rootInfos ?? [];
-  const tags = [];
+  const tags: string[] = [];
 
   if (attribute && SVG_SHELL_ATTRIBUTES.has(attribute)) {
     tags.push("svg-shell");
@@ -153,7 +154,7 @@ export function classifyPathShape(sink) {
   return tags;
 }
 
-export function primaryAdviceShape(sink, shapes = classifyPathShape(sink)) {
+export function primaryAdviceShape(sink: Sink, shapes = classifyPathShape(sink)) {
   if (sinkFamilyOf(sink) === "svg-shell" && shapes.includes("svg-shell")) {
     return "svg-shell";
   }
@@ -175,7 +176,7 @@ export function primaryAdviceShape(sink, shapes = classifyPathShape(sink)) {
   return shapes[0] ?? null;
 }
 
-function isLocalScalarGeometry(sink) {
+function isLocalScalarGeometry(sink: Sink) {
   const attribute = sinkAttributeName(sink);
   if (!attribute || !LOCAL_SCALAR_GEOMETRY_ATTRIBUTES.has(attribute)) {
     return false;
@@ -214,7 +215,7 @@ function isLocalScalarGeometry(sink) {
   return true;
 }
 
-function classifyPathText(sink) {
+function classifyPathText(sink: Sink) {
   return [
     sink.label,
     sink.expression,
@@ -222,7 +223,7 @@ function classifyPathText(sink) {
   ].join(" ");
 }
 
-function hasSolidPropDefaultBoundary(sink) {
+function hasSolidPropDefaultBoundary(sink: Sink) {
   return (sink.defenses ?? []).some((defense) =>
     /solid prop default/i.test(defense.origin ?? ""),
   );

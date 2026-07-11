@@ -1,3 +1,4 @@
+import type * as TypeScript from "typescript";
 import { locationOf } from "../graph.js";
 import { collapse } from "../../reports/format-helpers.js";
 
@@ -11,8 +12,27 @@ const NULLISH_OR_BOOLEAN_VALUES = new Set([
   "",
 ]);
 
-export const isNamedLiteralValue = (value) =>
+export const isNamedLiteralValue = (value: string | null) =>
   value != null && !NULLISH_OR_BOOLEAN_VALUES.has(value);
+
+interface BranchSiteDependencies {
+  ts: typeof TypeScript;
+  checker: TypeScript.TypeChecker;
+  sourceFile: TypeScript.SourceFile;
+  ownerFor: (node: TypeScript.Node) => TypeScript.FunctionLikeDeclaration | null;
+  nodeHasJsx: (node: TypeScript.Node) => boolean;
+}
+interface Discriminant {
+  subjectNode: TypeScript.Expression;
+  subjectText: string;
+  value: string | null;
+}
+export interface BranchSite {
+  kind: string; node: TypeScript.Node; subjectNode: TypeScript.Expression;
+  subjectText: string; value: string | null; location: { line: number; column: number };
+  consequent: TypeScript.Node | null; consequentIds: Set<string>; snippet: string;
+  dedupeEnd?: number; key?: string;
+}
 
 export function collectBranchSites({
   ts,
@@ -20,7 +40,7 @@ export function collectBranchSites({
   sourceFile,
   ownerFor,
   nodeHasJsx,
-}) {
+}: BranchSiteDependencies) {
   const literalKinds = new Set([
     ts.SyntaxKind.StringLiteral,
     ts.SyntaxKind.NumericLiteral,
@@ -29,10 +49,10 @@ export function collectBranchSites({
     ts.SyntaxKind.NullKeyword,
     ts.SyntaxKind.NoSubstitutionTemplateLiteral,
   ]);
-  const isLiteralish = (node) =>
+  const isLiteralish = (node: TypeScript.Node) =>
     literalKinds.has(node.kind) ||
     (ts.isIdentifier(node) && node.text === "undefined");
-  const literalText = (node) =>
+  const literalText = (node: TypeScript.Node) =>
     ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
       ? node.text
       : collapse(node.getText());
@@ -46,7 +66,7 @@ export function collectBranchSites({
   // Reduce a branch condition to { subjectNode, subjectText, value }: the thing
   // discriminated on, plus (for a comparison against a literal) the value that
   // selects this branch.
-  const discriminantOf = (node) => {
+  const discriminantOf = (node: TypeScript.Expression): Discriminant => {
     let cond = node;
     while (ts.isParenthesizedExpression(cond)) cond = cond.expression;
     if (
@@ -94,7 +114,7 @@ export function collectBranchSites({
   // that the same prop/signal groups across sites, and so distinct locals that
   // merely share a name (a `const box` re-declared in five functions) do NOT
   // collapse into one false fork. Falls back to owner-scoped text.
-  const subjectKey = (subjectNode, ownerNode) => {
+  const subjectKey = (subjectNode: TypeScript.Node, ownerNode: TypeScript.Node) => {
     try {
       const symbol = checker.getSymbolAtLocation(subjectNode);
       const decl = symbol?.getDeclarations?.()?.[0];
@@ -106,9 +126,9 @@ export function collectBranchSites({
     return `txt:${ownerNode.getStart()}:${collapse(subjectNode.getText())}`;
   };
 
-  const collectIdentifiers = (node) => {
-    const ids = new Set();
-    const walk = (current) => {
+  const collectIdentifiers = (node: TypeScript.Node) => {
+    const ids = new Set<string>();
+    const walk = (current: TypeScript.Node) => {
       if (ts.isIdentifier(current)) ids.add(current.text);
       ts.forEachChild(current, walk);
     };
@@ -118,7 +138,7 @@ export function collectBranchSites({
 
   // An `if` whose then-branch is only an early exit (return/throw/break/continue
   // that renders nothing) is narrowing one path, not forking into siblings.
-  const isGuardClause = (thenStatement) => {
+  const isGuardClause = (thenStatement: TypeScript.Statement) => {
     let stmt = thenStatement;
     if (ts.isBlock(stmt)) {
       if (stmt.statements.length !== 1) return false;
@@ -133,7 +153,7 @@ export function collectBranchSites({
     );
   };
 
-  const makeSite = (kind, node, condition, consequent) => {
+  const makeSite = (kind: string, node: TypeScript.Node, condition: TypeScript.Expression, consequent: TypeScript.Node | null): BranchSite => {
     const disc = discriminantOf(condition);
     return {
       kind,
@@ -150,9 +170,9 @@ export function collectBranchSites({
 
   // Solid control-flow elements: <Match when={...}> and <Show when={...}>. The
   // `when` guard is the discriminant; the element's subtree is the branch body.
-  const jsxBranchSite = (node) => {
-    let tagName = null;
-    let attributes = null;
+  const jsxBranchSite = (node: TypeScript.Node): BranchSite | null => {
+    let tagName: string;
+    let attributes: TypeScript.JsxAttributes;
     if (ts.isJsxElement(node)) {
       tagName = node.openingElement.tagName.getText();
       attributes = node.openingElement.attributes;
@@ -165,7 +185,7 @@ export function collectBranchSites({
     const base = tagName.split(".").pop();
     if (base !== "Match" && base !== "Show") return null;
     const whenAttr = attributes.properties.find(
-      (property) =>
+      (property): property is TypeScript.JsxAttribute =>
         ts.isJsxAttribute(property) && property.name.getText() === "when",
     );
     if (
@@ -190,14 +210,14 @@ export function collectBranchSites({
     };
   };
 
-  const sitesByOwner = new Map();
-  const addSite = (owner, site) => {
+  const sitesByOwner = new Map<TypeScript.FunctionLikeDeclaration, BranchSite[]>();
+  const addSite = (owner: TypeScript.FunctionLikeDeclaration, site: BranchSite) => {
     if (!sitesByOwner.has(owner)) sitesByOwner.set(owner, []);
-    sitesByOwner.get(owner).push(site);
+    sitesByOwner.get(owner)!.push(site);
   };
 
-  const visit = (node) => {
-    let site = null;
+  const visit = (node: TypeScript.Node) => {
+    let site: BranchSite | null = null;
     if (ts.isConditionalExpression(node)) {
       site = makeSite("ternary", node, node.condition, node.whenTrue);
       // The else chain (whenFalse) holds sibling branches, not nesting — stop the

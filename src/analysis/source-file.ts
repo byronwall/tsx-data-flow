@@ -1,3 +1,5 @@
+import type * as TypeScript from "typescript";
+import type { AnalysisGraph, AnalyzerArgs, CrossFileState, DefenseRecord, GraphNode, Sink, TraceResult } from "../types.js";
 import path from "node:path";
 import {
   addEdge,
@@ -36,19 +38,19 @@ import { traceExpression } from "./source-trace.js";
 export { isCertaintyBoundaryDefense } from "./source-defenses.js";
 
 export function analyzeSourceFile(
-  ts,
-  checker,
-  graph,
-  sourceFile,
-  args,
-  crossFile,
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  graph: AnalysisGraph,
+  sourceFile: TypeScript.SourceFile,
+  args: AnalyzerArgs,
+  crossFile: CrossFileState | null,
 ) {
   const context = crossFile
     ? getFileContextCached(ts, sourceFile, crossFile)
     : buildFileContext(ts, sourceFile);
-  const sinks = [];
+  const sinks: Sink[] = [];
 
-  const visit = (node) => {
+  const visit = (node: TypeScript.Node) => {
     const sinkExpression = getSinkExpression(ts, node);
     if (sinkExpression) {
       const trace = traceExpression(
@@ -99,7 +101,7 @@ export function analyzeSourceFile(
 }
 
 // --- Repeated fork/split detector (component-scoped branch inventory) ---------
-export function buildHelperReport(ts, checker, crossFile, args, sourceFiles) {
+export function buildHelperReport(ts: typeof TypeScript, checker: TypeScript.TypeChecker, crossFile: CrossFileState, args: AnalyzerArgs, sourceFiles: TypeScript.SourceFile[]) {
   return buildHelperReportImpl(ts, checker, crossFile, args, sourceFiles, {
     fanOutRootsFor,
     getFileContextCached,
@@ -111,14 +113,14 @@ export function buildHelperReport(ts, checker, crossFile, args, sourceFiles) {
 }
 
 function buildSinkRecord(
-  ts,
-  checker,
-  sourceFile,
-  node,
-  sinkExpression,
-  trace,
-  sinkNode,
-  root,
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  sourceFile: TypeScript.SourceFile,
+  node: TypeScript.Node,
+  sinkExpression: NonNullable<ReturnType<typeof getSinkExpression>>,
+  trace: TraceResult,
+  sinkNode: GraphNode,
+  root: string,
 ) {
   const location = locationOf(sourceFile, node);
   // One physical guard reached via several render sub-paths is a single
@@ -144,7 +146,7 @@ function buildSinkRecord(
     renderContext: {
       tag: sinkExpression.jsx?.tag ?? null,
       attribute:
-        sinkExpression.jsx?.attribute ??
+        ("attribute" in sinkExpression.jsx ? sinkExpression.jsx.attribute : null) ??
         sinkAttributeName({ label: sinkExpression.label }),
       component: enclosingFunctionName(ts, node),
     },
@@ -156,7 +158,7 @@ function buildSinkRecord(
     roots: trace.roots,
     rootInfos:
       trace.rootInfos ??
-      trace.roots.map((root) => ({ label: root, kind: "source" })),
+      trace.roots.map((root: string) => ({ label: root, kind: "source" })),
     representativePath: trace.longestPath.map((step) => step.label),
     representativeSteps: trace.longestPath.map((step) => ({
       label: step.label,
@@ -180,8 +182,8 @@ function buildSinkRecord(
 }
 
 function metricsFor(
-  trace,
-  defenses = dedupeDefenses(trace.defenses),
+  trace: TraceResult,
+  defenses: DefenseRecord[] = dedupeDefenses(trace.defenses),
   representationSteps = dedupeByKey(trace.representationSteps ?? []),
 ) {
   const edgeCounts = countBy(trace.edges);
@@ -231,7 +233,7 @@ function metricsFor(
 // Collapse defenses that refer to the same physical guard site (the trace
 // re-walks shared sub-paths, so one `props.size ?? 32` can appear many times).
 // First occurrence wins; order is preserved.
-function dedupeDefenses(defenses) {
+function dedupeDefenses(defenses: DefenseRecord[]) {
   return dedupeByKey(
     defenses,
     (defense) =>
@@ -242,9 +244,9 @@ function dedupeDefenses(defenses) {
 // Generic first-wins, order-preserving dedupe over a `.key` (or a supplied key
 // function). Used to collapse trace artifacts (defenses, representation hops)
 // that the per-sink re-trace can visit through multiple sub-paths.
-function dedupeByKey(items, keyOf = (item) => item.key) {
-  const seen = new Set();
-  const distinct = [];
+function dedupeByKey<T>(items: T[], keyOf: (item: T) => string = (item) => (item as { key: string }).key) {
+  const seen = new Set<string>();
+  const distinct: T[] = [];
   for (const item of items) {
     const key = keyOf(item);
     if (seen.has(key)) continue;
@@ -254,21 +256,20 @@ function dedupeByKey(items, keyOf = (item) => item.key) {
   return distinct;
 }
 
-function findingSentence(sink) {
+function findingSentence(sink: Sink) {
   if (sink.metrics.impossibleDefenseCount > 0) {
     return "A nullish fallback or optional access is unreachable under the checked TypeScript program.";
   }
   return "This rendered value has more data-flow plumbing than nearby JSX should usually need.";
 }
 
-function countBy(values) {
-  return values.reduce((acc, value) => {
+function countBy(values: string[]): Record<string, number> {
+  return values.reduce<Record<string, number>>((acc, value) => {
     acc[value] = (acc[value] ?? 0) + 1;
     return acc;
   }, {});
 }
 
-function relativePath(root, file) {
+function relativePath(root: string, file: string) {
   return path.relative(root, file).replaceAll(path.sep, "/");
 }
-

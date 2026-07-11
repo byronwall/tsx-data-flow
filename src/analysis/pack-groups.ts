@@ -1,3 +1,4 @@
+import type { PackEvidence, PackGroup, Sink } from "../types.js";
 import { fanOutRootsFor } from "./fan-out.js";
 import { sinkAttributeName, sinkFamilyOf } from "./sink-shape.js";
 import { formatExpression } from "../reports/format-helpers.js";
@@ -7,8 +8,8 @@ import { formatExpression } from "../reports/format-helpers.js";
 // boundary or cohesive render model, not just wrapper churn; it becomes
 // suspicious when it mixes sink families, mirrors props, or expands one source
 // into broad relay work.
-export function computePackGroups(sinks) {
-  const byPack = new Map();
+export function computePackGroups(sinks: Sink[]) {
+  const byPack = new Map<string, { key: string; label: string; sinks: Sink[] }>();
   for (const sink of sinks) {
     for (const pack of sink.packs ?? []) {
       let entry = byPack.get(pack.key);
@@ -20,15 +21,15 @@ export function computePackGroups(sinks) {
     }
   }
 
-  const groups = [];
+  const groups: PackGroup[] = [];
   for (const entry of byPack.values()) {
     if (entry.sinks.length < 2) continue;
-    const familyMembers = new Map();
+    const familyMembers = new Map<string, Set<string>>();
     for (const sink of entry.sinks) {
       const family = sinkFamilyOf(sink);
       if (!familyMembers.has(family)) familyMembers.set(family, new Set());
       familyMembers
-        .get(family)
+        .get(family)!
         .add(sinkAttributeName(sink) ?? formatExpression(sink.expression, 24));
     }
     const families = Array.from(familyMembers.keys());
@@ -56,14 +57,14 @@ export function computePackGroups(sinks) {
   );
 }
 
-function packEvidenceFor(entry, families) {
+function packEvidenceFor(entry: { label: string; sinks: Sink[] }, families: string[]): PackEvidence {
   const sinks = entry.sinks;
-  const roots = unique(
-    sinks.flatMap((sink) =>
+  const roots = unique<string>(
+    sinks.flatMap((sink: Sink) =>
       fanOutRootsFor(sink).map((info) => formatExpression(info.label, 48)),
-    ),
+    ) as string[],
   );
-  const steps = sinks.flatMap((sink) => sink.representativeSteps ?? []);
+  const steps = sinks.flatMap((sink: Sink) => sink.representativeSteps ?? []);
   const callText = steps
     .filter((step) => step.kind === "call")
     .map((step) => step.label)
@@ -79,18 +80,18 @@ function packEvidenceFor(entry, families) {
     );
   const defensiveOps = sum(
     sinks,
-    (sink) => sink.metrics.defensiveOperationCount,
+    (sink: Sink) => sink.metrics.defensiveOperationCount,
   );
   const representationChurn = sum(
     sinks,
-    (sink) => sink.metrics.representationChurn,
+    (sink: Sink) => sink.metrics.representationChurn,
   );
-  const helperHops = sum(sinks, (sink) => sink.metrics.helperHops);
+  const helperHops = sum(sinks, (sink: Sink) => sink.metrics.helperHops);
   const maxReach = Math.max(
     0,
-    ...sinks.map((sink) => sink.metrics.reachableSinks),
+    ...sinks.map((sink: Sink) => sink.metrics.reachableSinks),
   );
-  const propRoots = roots.filter((root) => /^props\./.test(root));
+  const propRoots = roots.filter((root: string) => /^props\./.test(root));
   const geometryOnly = families.every((family) =>
     ["geometry", "svg-shell", "other"].includes(family),
   );
@@ -119,7 +120,7 @@ function packEvidenceFor(entry, families) {
   };
 }
 
-function packVerdictFor(evidence) {
+function packVerdictFor(evidence: PackEvidence) {
   if (
     evidence.parserBoundary &&
     (evidence.defensiveOps > 0 || evidence.helperHops > 0)
@@ -132,12 +133,12 @@ function packVerdictFor(evidence) {
   return "cohesive-render-model";
 }
 
-function sourceFamilyKey(root) {
+function sourceFamilyKey(root: string) {
   const parts = String(root).split(".");
   return parts.slice(0, Math.min(parts.length, 2)).join(".");
 }
 
-export function packRiskForVerdict(verdict) {
+export function packRiskForVerdict(verdict: string) {
   switch (verdict) {
     case "relay-bag":
       return 12;
@@ -154,12 +155,12 @@ export function packRiskForVerdict(verdict) {
   }
 }
 
-export function applyPackEvidence(sinks, packGroups) {
+export function applyPackEvidence(sinks: Sink[], packGroups: PackGroup[]) {
   const groupsByKey = new Map(packGroups.map((group) => [group.key, group]));
   for (const sink of sinks) {
     const groups = (sink.packs ?? [])
       .map((pack) => groupsByKey.get(pack.key))
-      .filter(Boolean);
+      .filter((group): group is PackGroup => group != null);
     if (groups.length === 0) continue;
     sink.packVerdicts = unique(groups.map((group) => group.verdict));
     sink.metrics.packFamilyDiversity = Math.max(
@@ -178,7 +179,7 @@ export function applyPackEvidence(sinks, packGroups) {
 
 // The pack group (if any) that a given sink flows through - suspicious groups
 // win, then broader family spread, then larger sink count.
-export function packGroupForSink(sink, packGroups) {
+export function packGroupForSink(sink: Sink, packGroups: PackGroup[]) {
   const keys = new Set((sink.packs ?? []).map((pack) => pack.key));
   return (
     (packGroups ?? [])
@@ -193,10 +194,10 @@ export function packGroupForSink(sink, packGroups) {
   );
 }
 
-function sum(items, project) {
+function sum<T>(items: T[], project: (item: T) => number) {
   return items.reduce((total, item) => total + project(item), 0);
 }
 
-function unique(values) {
+function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values.filter(Boolean)));
 }

@@ -1,3 +1,4 @@
+import type * as TypeScript from "typescript";
 import path from "node:path";
 
 // Global namespace objects. As a call receiver (`Array.from`, `Object.entries`,
@@ -194,11 +195,11 @@ const SOLID_BUILTINS = new Set([
   "observable",
 ]);
 
-export function isGlobalNamespaceName(name) {
+export function isGlobalNamespaceName(name: string) {
   return JS_GLOBAL_NAMESPACES.has(name);
 }
 
-export function isOpaqueByDesignCall(ts, expression, callee) {
+export function isOpaqueByDesignCall(ts: typeof TypeScript, expression: TypeScript.CallExpression, callee: string) {
   const inner = expression.expression;
   if (ts.isPropertyAccessExpression(inner)) {
     const receiver = inner.expression;
@@ -213,7 +214,7 @@ export function isOpaqueByDesignCall(ts, expression, callee) {
   return false;
 }
 
-export function classifyUnresolvedCall(ts, checker, expression, crossFile) {
+export function classifyUnresolvedCall(ts: typeof TypeScript, checker: TypeScript.TypeChecker, expression: TypeScript.CallExpression, crossFile: { args: { root: string } } | null) {
   if (!crossFile?.args) return null;
   const inner = expression.expression;
   const calleeIdent = ts.isIdentifier(inner)
@@ -234,7 +235,7 @@ export function classifyUnresolvedCall(ts, checker, expression, crossFile) {
   const declarations = symbol?.declarations ?? [];
   if (declarations.length === 0) return null;
 
-  const isExternalDecl = (declaration) => {
+  const isExternalDecl = (declaration: TypeScript.Declaration) => {
     const file = declaration.getSourceFile();
     if (file.isDeclarationFile) return true;
     const relative = relativePath(crossFile.args.root, file.fileName);
@@ -242,12 +243,16 @@ export function classifyUnresolvedCall(ts, checker, expression, crossFile) {
   };
   if (declarations.every(isExternalDecl)) return "host-call";
 
-  const hasFunctionInitializer = (declaration) =>
-    declaration.initializer &&
-    (ts.isArrowFunction(declaration.initializer) ||
-      ts.isFunctionExpression(declaration.initializer));
+  const hasFunctionInitializer = (declaration: TypeScript.Declaration) => {
+    if (!ts.isVariableDeclaration(declaration) &&
+        !ts.isPropertyDeclaration(declaration) &&
+        !ts.isPropertyAssignment(declaration)) return false;
+    const initializer = declaration.initializer;
+    return Boolean(initializer &&
+      (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)));
+  };
 
-  const isAccessorLike = (declaration) =>
+  const isAccessorLike = (declaration: TypeScript.Declaration) =>
     ts.isPropertySignature(declaration) ||
     ts.isMethodSignature(declaration) ||
     ts.isParameter(declaration) ||
@@ -260,7 +265,7 @@ export function classifyUnresolvedCall(ts, checker, expression, crossFile) {
       !hasFunctionInitializer(declaration));
   if (declarations.every(isAccessorLike)) return "accessor-read";
 
-  const isFactoryCallable = (declaration) =>
+  const isFactoryCallable = (declaration: TypeScript.Declaration) =>
     ts.isVariableDeclaration(declaration) &&
     declaration.initializer &&
     !hasFunctionInitializer(declaration);
@@ -269,6 +274,6 @@ export function classifyUnresolvedCall(ts, checker, expression, crossFile) {
   return null;
 }
 
-function relativePath(root, file) {
+function relativePath(root: string, file: string) {
   return path.relative(root, file).replaceAll(path.sep, "/");
 }

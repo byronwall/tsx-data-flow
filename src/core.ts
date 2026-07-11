@@ -1,4 +1,6 @@
-import { REPORT_VIEWS, defaultMaxItemsFor } from "./cli/args.js";
+import type * as TypeScript from "typescript";
+import type { AnalysisReport, AnalyzerArgs } from "./types.js";
+import { REPORT_VIEWS, defaultMaxItemsFor, parseArgs } from "./cli/args.js";
 import { buildReport } from "./analysis/report-builder.js";
 import { selectViewPayload } from "./reports/json.js";
 import { regenFooter } from "./reports/regen-footer.js";
@@ -30,7 +32,7 @@ export {
   modalValue,
 } from "./reports/overview-selectors.js";
 
-export async function analyzeProject(args) {
+export async function analyzeProject(args: AnalyzerArgs) {
   const { ts, modulePath, program, routing } = buildProgram(args);
   return buildReport(ts, program, args, modulePath, routing);
 }
@@ -40,28 +42,25 @@ export async function analyzeProject(args) {
 // time at startup and re-projects file-focused reports on demand (each `report()`
 // call is a fresh graph trace, but skips program construction). `overrides` is
 // merged onto the base args — typically `{ file: [path] }` or `{ scope }`.
-export function createAnalyzer(args) {
+export function createAnalyzer(args: AnalyzerArgs) {
   const { ts, modulePath, program, routing } = buildProgram(args);
   return {
     ts,
     program,
     args,
-    report: (overrides = {}) =>
+    report: (overrides: Partial<AnalyzerArgs> = {}) =>
       buildReport(ts, program, { ...args, ...overrides }, modulePath, routing),
   };
 }
 
-export function analyzeProgram(ts, program, args = {}) {
+export function analyzeProgram(ts: typeof TypeScript, program: TypeScript.Program, args: Partial<AnalyzerArgs> = {}) {
   return buildReport(ts, program, {
-    root: args.root ?? process.cwd(),
-    source: args.source ?? process.cwd(),
-    scope: args.scope ?? null,
-    maxItems: args.maxItems ?? 20,
-    baseline: args.baseline ?? null,
+    ...parseArgs([], { root: args.root ?? process.cwd(), source: args.source ?? process.cwd() }),
+    ...args,
   });
 }
 
-export function renderReport(report, args) {
+export function renderReport(report: AnalysisReport, args: AnalyzerArgs) {
   if (args.compare) {
     return `${renderCompareReport(report, args, {
       reportSummaryForCompare,
@@ -85,9 +84,9 @@ export function renderReport(report, args) {
 // Render every concrete report view from a single already-built report. The
 // report is view-independent, so `--view all` analyzes once and projects each
 // view, returning the bytes plus a per-view filename for directory output.
-export function renderAllReports(report, args) {
+export function renderAllReports(report: AnalysisReport, args: AnalyzerArgs) {
   const extension = args.format === "json" ? "json" : "md";
-  return REPORT_VIEWS.map((view) => {
+  return REPORT_VIEWS.map((view: string) => {
     // Each view keeps its own per-view default cap unless --max-items was given.
     const maxItems = args.maxItemsExplicit
       ? args.maxItems

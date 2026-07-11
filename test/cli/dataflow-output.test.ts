@@ -39,7 +39,7 @@ describe("tsx-dataflow CLI output", () => {
       `Wrote ${REPORT_VIEWS.length} render-path data-flow reports`,
     );
     expect((await readdir(reportsDir)).sort()).toEqual(
-      REPORT_VIEWS.map((view) => `${view}.md`).sort(),
+      REPORT_VIEWS.map((view: string) => `${view}.md`).sort(),
     );
     expect(
       await readFile(resolve(reportsDir, "overview.md"), "utf8"),
@@ -69,7 +69,7 @@ describe("tsx-dataflow CLI output", () => {
     ]);
 
     expect((await readdir(reportsDir)).sort()).toEqual(
-      REPORT_VIEWS.map((view) => `${view}.json`).sort(),
+      REPORT_VIEWS.map((view: string) => `${view}.json`).sort(),
     );
     const overview = await readFile(
       resolve(reportsDir, "overview.json"),
@@ -79,7 +79,7 @@ describe("tsx-dataflow CLI output", () => {
   });
 });
 
-async function createProject(label) {
+async function createProject(label: string) {
   const tmpRoot = resolve(repoRoot, "tmp");
   await mkdir(tmpRoot, { recursive: true });
   const root = await mkdtemp(resolve(tmpRoot, `cli-output-${label}-`));
@@ -110,7 +110,7 @@ async function createProject(label) {
   return { root, reportsDir };
 }
 
-function runCli(args) {
+function runCli(args: import("../../src/types.js").AnalyzerArgs) {
   return execFileAsync(process.execPath, ["--import", "tsx", cli, ...args], {
     cwd: repoRoot,
     maxBuffer: 1024 * 1024,

@@ -1,3 +1,5 @@
+import type * as TypeScript from "typescript";
+import type { AnalysisGraph, DefenseRecord, RepresentationStep, RootInfo, TraceResult, TraceStep } from "../types.js";
 import path from "node:path";
 import { addEdge, addNode, locationOf } from "./graph.js";
 import { safeTypeText } from "./source-defenses.js";
@@ -9,7 +11,8 @@ import { collapse, focusSnippet, formatExpression } from "../reports/format-help
 // per render sub-path that crosses it.
 const REPRESENTATION_KINDS = new Set(["alias", "object-pack", "object-spread"]);
 
-export function addOperationTrace(ts, graph, kind, expression, traces, options = {}) {
+interface OperationTraceOptions { label?: string; detail?: string | null; type?: string; unknown?: boolean }
+export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, kind: string, expression: TypeScript.Node, traces: Array<TraceResult | null>, options: OperationTraceOptions = {}): TraceResult {
   const explicit = options.label != null;
   const fullText = collapse(expression.getText());
   const nodeLabel = options.label ?? formatExpression(fullText);
@@ -29,22 +32,22 @@ export function addOperationTrace(ts, graph, kind, expression, traces, options =
     location,
     type: safeTypeText(options.type),
   });
-  const edges = [];
-  const rootInfos = [];
-  const defenses = [];
-  const representationSteps = [];
+  const edges: string[] = [];
+  const rootInfos: RootInfo[] = [];
+  const defenses: DefenseRecord[] = [];
+  const representationSteps: RepresentationStep[] = [];
   // Packed objects the value flows through, so sinks sharing one packed object
   // (a createMemo/object literal) can be grouped and checked for over-packing
   // (Phase 3). Identity is the object literal's *source location*, NOT the graph
   // node id: the trace graph re-traces each sink, minting a fresh node per
   // object-pack, so node ids are never shared even for the same literal.
-  const packs = [];
+  const packs: Array<{ key: string; label: string }> = [];
   // Each path step carries its operation kind so the transformation ledger and
   // path renderers can name the real operation (property-read, fallback, call,
   // object-pack, …) instead of a constant placeholder.
-  let winnerChild = null;
-  let longest = [{ label: nodeLabel, kind, detail, file, line: location.line }];
-  for (const trace of traces.filter(Boolean)) {
+  let winnerChild: TraceResult | null = null;
+  let longest: TraceStep[] = [{ label: nodeLabel, kind, detail, file, line: location.line }];
+  for (const trace of traces.filter((trace: TraceResult | null): trace is TraceResult => trace != null)) {
     addEdge(
       graph,
       trace.lastNodeId,
@@ -56,7 +59,7 @@ export function addOperationTrace(ts, graph, kind, expression, traces, options =
     edges.push(...trace.edges, kind);
     rootInfos.push(
       ...(trace.rootInfos ??
-        trace.roots.map((root) => ({ label: root, kind: "source" }))),
+        trace.roots.map((root: string) => ({ label: root, kind: "source" }))),
     );
     defenses.push(...trace.defenses);
     representationSteps.push(...(trace.representationSteps ?? []));
@@ -115,8 +118,8 @@ export function addOperationTrace(ts, graph, kind, expression, traces, options =
 }
 
 // Deduplicate packs by their source-location key, keeping the first label seen.
-function uniquePacks(packs) {
-  const seen = new Map();
+function uniquePacks(packs: Array<{ key: string; label: string }>) {
+  const seen = new Map<string, { key: string; label: string }>();
   for (const pack of packs) {
     if (!seen.has(pack.key)) seen.set(pack.key, pack);
   }
@@ -126,8 +129,8 @@ function uniquePacks(packs) {
 // Deduplicate root descriptors by label, keeping the first (most specific)
 // kind seen. Sources are tracked with their node kind so reports can filter
 // out literal/primitive roots that are not actionable "sources".
-function uniqueRootInfos(rootInfos) {
-  const seen = new Map();
+function uniqueRootInfos(rootInfos: RootInfo[]) {
+  const seen = new Map<string, RootInfo>();
   for (const info of rootInfos) {
     if (!info || !info.label) continue;
     if (!seen.has(info.label)) seen.set(info.label, info);
@@ -141,7 +144,7 @@ function uniqueRootInfos(rootInfos) {
 // `useCommitsTableContext` is defined — the user shouldn't have to click into a
 // usage and chase an import. Best-effort: returns null when the symbol is
 // unresolved or only declared externally (node_modules / `.d.ts`).
-export function definitionLocationOf(ts, checker, expression, root) {
+export function definitionLocationOf(ts: typeof TypeScript, checker: TypeScript.TypeChecker, expression: TypeScript.Node, root: string) {
   let symbol;
   try {
     symbol = checker.getSymbolAtLocation(expression);
@@ -153,7 +156,7 @@ export function definitionLocationOf(ts, checker, expression, root) {
   }
   const declarations = symbol?.declarations ?? [];
   if (declarations.length === 0) return null;
-  const internal = declarations.find((declaration) => {
+  const internal = declarations.find((declaration: TypeScript.Declaration) => {
     const file = declaration.getSourceFile();
     if (file.isDeclarationFile) return false;
     const relative = relativePath(root, file.fileName);
@@ -171,14 +174,14 @@ export function definitionLocationOf(ts, checker, expression, root) {
 }
 
 export function sourceTrace(
-  graph,
-  expression,
-  kind,
-  label,
-  unknown,
-  rootKind = kind,
-  def = null,
-) {
+  graph: AnalysisGraph,
+  expression: TypeScript.Node,
+  kind: string,
+  label: string,
+  unknown: boolean,
+  rootKind: string = kind,
+  def: { file: string; line: number } | null = null,
+): TraceResult {
   const sourceFile = expression.getSourceFile();
   const file = relativePath(graph.root, sourceFile.fileName);
   const location = locationOf(sourceFile, expression);
@@ -203,6 +206,6 @@ export function sourceTrace(
   };
 }
 
-function relativePath(root, file) {
+function relativePath(root: string, file: string) {
   return path.relative(root, file).replaceAll(path.sep, "/");
 }

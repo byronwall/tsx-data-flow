@@ -1,4 +1,5 @@
-export function findingTitle(sink) {
+import type { Sink } from "../types.js";
+export function findingTitle(sink: Sink) {
   if (sink.metrics.impossibleDefenseCount > 0) {
     return "type-impossible defensive render path";
   }

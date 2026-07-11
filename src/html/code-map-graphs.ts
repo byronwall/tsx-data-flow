@@ -1,3 +1,4 @@
+import type { BoundaryHelper, ReachedSink } from "../types.js";
 import { escapeHtml } from "./escape.js";
 
 // GRAPH-COLOR-1: assign every file in a fan-out graph a *distinct* color. The old
@@ -5,9 +6,9 @@ import { escapeHtml } from "./escape.js";
 // those are different"). Here hues walk the golden angle (≈137.5°) so consecutive
 // files land far apart on the wheel, and a slow lightness cycle keeps them apart
 // once the wheel wraps. Deterministic per render (insertion order of files).
-function fanoutFileColors(files) {
-  const map = new Map();
-  files.forEach((file, i) => {
+function fanoutFileColors(files: string[]) {
+  const map = new Map<string, { hue: number; sat: number; light: number }>();
+  files.forEach((file: string, i) => {
     const hue = Math.round((i * 137.508) % 360);
     const sat = 62;
     const light = 46 + (Math.floor((i * 137.508) / 360) % 3) * 7;
@@ -18,7 +19,7 @@ function fanoutFileColors(files) {
 
 // Stable anchor for a fan-out source, so the per-file panel (HOME-2) can link to
 // the same source's graph in the overview's "Detected fan-outs" section (HOME-1).
-export function fanOutAnchor(root) {
+export function fanOutAnchor(root: string) {
   return (
     "fanout-" +
     String(root ?? "source")
@@ -28,7 +29,7 @@ export function fanOutAnchor(root) {
   );
 }
 
-const truncMid = (text, max = 26) => {
+const truncMid = (text: string, max: number = 26) => {
   const s = String(text);
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
 };
@@ -44,14 +45,17 @@ const truncMid = (text, max = 26) => {
 // membership, the per-sink fan was just noise. No caps. `relPath` may be null
 // (overview = purely cross-file); in-file sinks select on the code map, cross-file
 // sinks open the target file.
-export function fanOutGraphSvg(row, relPath) {
+interface GraphFanOut { root: string; fileCount: number; def?: { file: string; line: number } | null; sinks?: ReachedSink[]; graphSinks?: ReachedSink[] }
+interface GraphColumn { x: number; y: number; items: Array<{ file: string; top: number; h: number }> }
+
+export function fanOutGraphSvg(row: GraphFanOut, relPath: string | null) {
   const sinks = row.graphSinks ?? row.sinks ?? [];
   if (!sinks.length) return "";
 
-  const byFile = new Map();
+  const byFile = new Map<string, ReachedSink[]>();
   for (const s of sinks) {
     if (!byFile.has(s.file)) byFile.set(s.file, []);
-    byFile.get(s.file).push(s);
+    byFile.get(s.file)!.push(s);
   }
   const fileList = [...byFile.keys()];
   const colors = fanoutFileColors(fileList);
@@ -70,8 +74,8 @@ export function fanOutGraphSvg(row, relPath) {
   // FANOUT-GRID-1: distribute the file bands across two columns, always adding the
   // next band to the currently-shorter column, so the columns stay balanced and the
   // graph is ~half the height of the old single stack.
-  const bandHeightOf = (file) => headH + byFile.get(file).length * rowH;
-  const cols = [
+  const bandHeightOf = (file: string) => headH + byFile.get(file)!.length * rowH;
+  const cols: GraphColumn[] = [
     { x: colAX, y: top, items: [] },
     { x: colBX, y: top, items: [] },
   ];
@@ -84,12 +88,12 @@ export function fanOutGraphSvg(row, relPath) {
   const totalH = Math.max(96, Math.max(cols[0].y, cols[1].y) + 2);
   const srcCy = totalH / 2;
 
-  const edges = [];
-  const bands = [];
+  const edges: string[] = [];
+  const bands: string[] = [];
   for (const col of cols) {
     for (const { file, top: bandTop, h } of col.items) {
-      const list = byFile.get(file);
-      const { hue, sat, light } = colors.get(file);
+      const list = byFile.get(file)!;
+      const { hue, sat, light } = colors.get(file)!;
       const hsl = `${hue} ${sat}% ${light}%`;
       const bandX = col.x;
       const leafX = bandX + 14;
@@ -97,7 +101,7 @@ export function fanOutGraphSvg(row, relPath) {
         `<rect x="${bandX}" y="${bandTop}" width="${bandW}" height="${h}" rx="8" fill="hsl(${hsl} / 0.06)" stroke="hsl(${hsl})" stroke-width="1"/>
       <rect x="${bandX + 11}" y="${bandTop + 7}" width="9" height="9" rx="2" fill="hsl(${hsl})"/>
       <text x="${bandX + 25}" y="${bandTop + 15}" font-size="11" font-weight="600" fill="currentColor">${escapeHtml(
-        truncMid(file.split("/").pop(), 28),
+        truncMid(file.split("/").pop() ?? file, 28),
       )}</text>`,
       );
       list.forEach((s, j) => {
@@ -130,9 +134,9 @@ export function fanOutGraphSvg(row, relPath) {
 
   const legend = fileList
     .map((f) => {
-      const { hue, sat, light } = colors.get(f);
+      const { hue, sat, light } = colors.get(f)!;
       return `<span class="fg-key"><span class="fg-swatch" style="background:hsl(${hue} ${sat}% ${light}%)"></span>${escapeHtml(
-        f.split("/").pop(),
+        f.split("/").pop() ?? f,
       )}</span>`;
     })
     .join("");
@@ -166,7 +170,7 @@ export function fanOutGraphSvg(row, relPath) {
 
 // VIZ-1: a stable anchor for a boundary helper, so the boundary viewer can key the
 // selected helper in the URL (refresh-safe), the same way fan-out does.
-export function boundaryAnchor(helper) {
+export function boundaryAnchor(helper: BoundaryHelper) {
   return (
     "boundary-" +
     `${helper.name}-${helper.file}-${helper.line}`
@@ -182,7 +186,7 @@ export function boundaryAnchor(helper) {
 // one edge per node. This is the template the fan-in / junctions / prop-relay views
 // will adopt (each is the same sources → boundary → consumers shape). Mirrors
 // `fanOutGraphSvg`'s node styling so the two pictures read consistently.
-export function boundaryGraphSvg(helper) {
+export function boundaryGraphSvg(helper: BoundaryHelper) {
   const sources = helper.inRoots ?? [];
   const callers = helper.callers ?? [];
   const nh = 24;
@@ -197,17 +201,17 @@ export function boundaryGraphSvg(helper) {
   const H = Math.max(120, 28 + rows * (nh + gap));
   const midCy = H / 2;
   // Center each column's block of nodes vertically against the middle node.
-  const cyOf = (i, count) => {
+  const cyOf = (i: number, count: number) => {
     const blockH = Math.max(0, count * (nh + gap) - gap);
     return (H - blockH) / 2 + i * (nh + gap) + nh / 2;
   };
 
   const sourceHsl = "262 60% 52%";
   const callerHsl = "150 55% 40%";
-  const edges = [];
-  const nodes = [];
+  const edges: string[] = [];
+  const nodes: string[] = [];
 
-  sources.forEach((label, i) => {
+  sources.forEach((label: string, i) => {
     const cy = cyOf(i, sources.length);
     nodes.push(
       `<g class="fg-node"><rect class="fg-hit" x="0" y="${cy - nh / 2}" width="${colW}" height="${nh}" rx="6" fill="hsl(${sourceHsl} / 0.08)" stroke="hsl(${sourceHsl} / 0.5)"/><text x="12" y="${

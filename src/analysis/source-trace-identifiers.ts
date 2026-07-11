@@ -1,3 +1,5 @@
+import type * as TypeScript from "typescript";
+import type { AccessorRecord, AnalysisGraph, TraceContext, TraceExpressionFn } from "../types.js";
 import { isGlobalNamespaceName } from "./source-call-classification.js";
 import { arrayCallbackBinding, renderPropBinding } from "./source-sinks.js";
 import { getFunctionReturnExpression, identifierResolvesTo } from "./trace-support.js";
@@ -8,7 +10,7 @@ import {
   sourceTrace,
 } from "./source-trace-records.js";
 
-export function traceIdentifier(ts, checker, graph, expression, context, traceExpression) {
+export function traceIdentifier(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Identifier, context: TraceContext, traceExpression: TraceExpressionFn) {
   const name = expression.text;
   // The global value-keywords are identifiers syntactically but have no
   // declaration to resolve to; treating them as sources dead-ends every path
@@ -33,7 +35,7 @@ export function traceIdentifier(ts, checker, graph, expression, context, traceEx
   // resolves to the caller's argument trace, stitching the lineage across the
   // boundary. Checked first so it wins over the callee file's own bindings.
   if (context.paramBindings && context.paramBindings.has(name)) {
-    return context.paramBindings.get(name);
+    return context.paramBindings.get(name)!;
   }
   const accessor = context.accessors.get(name);
   if (
@@ -111,10 +113,11 @@ export function traceIdentifier(ts, checker, graph, expression, context, traceEx
   // A locally-defined function referenced as a value (`onClick={handleExport}`,
   // `fallback={renderHeader}`) — not called here, so it never reaches the call
   // path. It is a known local definition, not an unresolved identifier.
+  const localFunction = context.functions.get(name);
   if (
-    context.functions.has(name) &&
+    localFunction &&
     !context.parameters.has(name) &&
-    identifierResolvesTo(ts, checker, expression, context.functions.get(name))
+    identifierResolvesTo(ts, checker, expression, localFunction)
   ) {
     return sourceTrace(
       graph,
@@ -167,7 +170,7 @@ export function traceIdentifier(ts, checker, graph, expression, context, traceEx
     if (
       declarations.length > 0 &&
       declarations.every(
-        (declaration) =>
+        (declaration: TypeScript.Declaration) =>
           ts.isEnumDeclaration(declaration) ||
           ts.isEnumMember(declaration) ||
           ts.isClassDeclaration(declaration) ||
@@ -198,7 +201,7 @@ export function traceIdentifier(ts, checker, graph, expression, context, traceEx
   );
 }
 
-export function traceAccessor(ts, checker, graph, expression, accessor, context, traceExpression) {
+export function traceAccessor(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Identifier, accessor: AccessorRecord, context: TraceContext, traceExpression: TraceExpressionFn) {
   const call = accessor.declaration.initializer;
   if (!call || !ts.isCallExpression(call)) {
     return sourceTrace(
@@ -211,7 +214,9 @@ export function traceAccessor(ts, checker, graph, expression, accessor, context,
   }
   if (accessor.kind === "memo") {
     const callback = call.arguments[0];
-    const body = getFunctionReturnExpression(ts, callback);
+    const body = callback && ts.isFunctionLike(callback)
+      ? getFunctionReturnExpression(ts, callback)
+      : null;
     if (body) {
       const trace = traceExpression(ts, checker, graph, body, context);
       return addOperationTrace(

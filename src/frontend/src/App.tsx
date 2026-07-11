@@ -1,3 +1,10 @@
+import type {
+  AnalysisReport,
+  BoundaryHelper,
+  ReachedSink,
+  RootInfo,
+  Sink,
+} from "../../types.js";
 import {
   For,
   Show,
@@ -39,55 +46,6 @@ type OverviewSort = "burden" | "findings" | "depth" | "file";
 type Navigate = (href: string, replace?: boolean) => void;
 type SelectOption<T extends string = string> = readonly [T, string];
 
-interface SpanLocation {
-  startLine: number;
-  endLine: number;
-  startColumn: number;
-  endColumn: number;
-}
-
-interface RootInfo {
-  label: string;
-  kind?: string;
-  def?: { file: string; line: number } | null;
-}
-
-interface Sink {
-  id: string;
-  file?: string;
-  line?: number;
-  span?: SpanLocation;
-  scores?: { burden?: number };
-  metrics?: {
-    maximumPathDepth?: number;
-    mergeWidth?: number;
-    controlDependencyCount?: number;
-    representationChurn?: number;
-    helperHops?: number;
-  };
-  advice?: {
-    primaryShape?: string;
-    shape?: string;
-    firstCut?: string;
-    headline?: string;
-  };
-  roots?: string[];
-  sources?: Array<{ kind?: string }>;
-  family?: string;
-  kind?: string;
-  representativeSteps?: Array<{
-    file?: string;
-    line?: number;
-    label?: string;
-    kind?: string;
-  }>;
-  expression?: string;
-  target?: string;
-  label?: string;
-  rootInfos?: RootInfo[];
-  renderContext?: { tag?: string; attribute?: string; component?: string };
-}
-
 interface FanOutEntry {
   root: string;
   kind?: string;
@@ -100,50 +58,7 @@ interface FanOutEntry {
   graphSinks: ReachedSink[];
 }
 
-interface ReachedSink {
-  id: string;
-  file?: string;
-  line?: number;
-  label?: string;
-  depth: number;
-}
-
-interface BoundaryHelper {
-  name: string;
-  file: string;
-  line: number;
-  inSources?: number;
-  callerCount?: number;
-  verdict?: string;
-  inRoots?: string[];
-  callers?: Array<{ file: string; line: number }>;
-}
-
-interface Report {
-  meta?: { root?: string };
-  summary?: {
-    sinks?: number;
-    sources?: number;
-    pathFamilies?: number;
-    unknownEdges?: number;
-    nodes?: number;
-  };
-  concentration?: {
-    fileCount: number;
-    top5: number;
-    hot4Plus: number;
-  };
-  sinks?: Sink[];
-  helpers?: BoundaryHelper[];
-  repeatedForks?: Array<Record<string, unknown> & { file?: string }>;
-  contextRelay?: Array<Record<string, unknown> & { parentFile?: string }>;
-  unknownEdges?: Array<Record<string, unknown> & { file?: string }>;
-  packGroups?: Array<Record<string, unknown>>;
-  graph?: {
-    nodes?: Array<{ file?: string }>;
-    edges?: Array<{ location?: { file?: string } }>;
-  };
-}
+type Report = AnalysisReport;
 
 interface OverviewState {
   q: string;
@@ -225,7 +140,7 @@ const VIEW_LABELS: Record<ReportView, string> = {
 };
 
 const FILE_VIEWS: FileView[] = REPORT_VIEWS.filter(
-  (view): view is FileView => view !== "overview",
+  (view: string): view is FileView => view !== "overview",
 ).sort((a, b) => labelFor(a).localeCompare(labelFor(b)));
 
 const TYPE_COLUMNS = [
@@ -402,7 +317,7 @@ function ReportTabs(props: { active: ReportView | null }) {
         Overview
       </a>
       <For each={REPORT_VIEWS}>
-        {(view) => (
+        {(view: string) => (
           <a
             class="report-tab"
             classList={{ active: active() === view }}
@@ -426,7 +341,7 @@ function FileTabs(props: { path: string; active: FileView | null }) {
         Code map
       </a>
       <For each={FILE_VIEWS}>
-        {(view) => (
+        {(view: string) => (
           <a
             class="report-tab"
             classList={{ active: active() === view }}
@@ -580,7 +495,7 @@ function OverviewPage(props: { location: URL; navigate: Navigate }) {
                       <td>{row.worst.toFixed(2)}</td>
                       <td>{row.depth}</td>
                       <For each={TYPE_COLUMNS}>
-                        {(col) => (
+                        {(col: (typeof TYPE_COLUMNS)[number]) => (
                           <td class={`col-${col.col} num`}>
                             {counts[col.key] || <span class="meta">·</span>}
                           </td>
@@ -954,14 +869,14 @@ function CodeMap(props: {
     const report = props.report;
     const fullReport = props.fullReport ?? report;
     const sinks = (report?.sinks ?? []).filter(
-      (sink) => sink.file === props.relPath,
+      (sink: Sink) => sink.file === props.relPath,
     );
     return renderCodeMap({
       relPath: props.relPath,
       source: props.source,
       sinks,
-      meta: report?.meta,
-      resolveSource: null,
+      meta: report?.meta ?? {},
+      resolveSource: () => null,
       selectedFinding: selected(),
       forks: (report?.repeatedForks ?? []).filter(
         (fork) => fork.file === props.relPath,
@@ -1632,7 +1547,7 @@ function fanOutValue(entry: FanOutEntry, sortKey: string): string {
 
 function fanInEntries(sinks: Sink[]) {
   return sinks
-    .map((sink) => {
+    .map((sink: Sink) => {
       const roots = sourceLabelsForSink(sink);
       return {
         key: `fanin-${sink.id}`,
@@ -1654,7 +1569,7 @@ function fanInEntries(sinks: Sink[]) {
 
 function propRelayEntries(sinks: Sink[]) {
   return sinks
-    .map((sink) => {
+    .map((sink: Sink) => {
       const roots = sourceLabelsForSink(sink);
       const wrapperSteps = sink.metrics?.representationChurn ?? 0;
       const boundaries = Math.max(0, (sink.metrics?.mergeWidth ?? 1) - 1);
@@ -1684,7 +1599,7 @@ function propRelayEntries(sinks: Sink[]) {
 }
 
 function sourceLabelsForSink(sink: Sink): string[] {
-  const labels = fanOutRootsFor(sink).map((info) => info.label);
+  const labels: string[] = fanOutRootsFor(sink).map((info) => String(info.label));
   if (!labels.length) labels.push(...(sink.roots ?? []));
   return [...new Set(labels)].slice(0, 12);
 }
@@ -1736,7 +1651,7 @@ function relationshipGraphSvg(options: {
     `<text x="0" y="16" font-size="11" font-weight="600" fill="var(--muted)">${escapeHtml(options.leftTitle)}</text>`,
     `<text x="${rightX}" y="16" font-size="11" font-weight="600" fill="var(--muted)">${escapeHtml(options.rightTitle)}</text>`,
   );
-  left.forEach((label, index) => {
+  left.forEach((label: string, index: number) => {
     const cy = cyOf(index, left.length);
     nodes.push(
       `<g class="fg-node"><rect class="fg-hit" x="0" y="${cy - nodeH / 2}" width="${colW}" height="${nodeH}" rx="6" fill="hsl(${sourceHsl} / 0.08)" stroke="hsl(${sourceHsl} / 0.5)"/><text x="12" y="${cy + 4}" font-size="11" fill="currentColor">${escapeHtml(truncText(label, 30))}</text></g>`,
@@ -1745,7 +1660,7 @@ function relationshipGraphSvg(options: {
       `<path d="M${colW} ${cy} C ${colW + 30} ${cy}, ${midX - 30} ${midCy}, ${midX} ${midCy}" fill="none" stroke="hsl(${sourceHsl} / 0.5)" stroke-width="1.4"/>`,
     );
   });
-  right.forEach((item, index) => {
+  right.forEach((item, index: number) => {
     const cy = cyOf(index, right.length);
     const content = `<g class="fg-node"><rect class="fg-hit" x="${rightX}" y="${cy - nodeH / 2}" width="${colW}" height="${nodeH}" rx="6" fill="hsl(${sinkHsl} / 0.08)" stroke="hsl(${sinkHsl} / 0.5)"/><text x="${rightX + 12}" y="${cy + 4}" font-size="11" fill="currentColor">${escapeHtml(truncText(item.label, 30))}</text></g>`;
     nodes.push(
@@ -2056,15 +1971,14 @@ function shapeOf(sink: Sink): string {
     sink.advice?.primaryShape ??
     sink.advice?.shape ??
     sink.family ??
-    sink.kind ??
     "uncategorized"
   );
 }
 
 function ownershipOf(sink: Sink): string {
-  if ((sink.roots ?? []).some((root) => /^use[A-Z]/.test(root)))
+  if ((sink.roots ?? []).some((root: string) => /^use[A-Z]/.test(root)))
     return "feature hook/context";
-  if ((sink.sources ?? []).some((source) => source.kind === "prop"))
+  if ((sink.rootInfos ?? []).some((source: RootInfo) => source.kind === "prop-read"))
     return "props";
   return "local";
 }

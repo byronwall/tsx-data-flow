@@ -1,8 +1,10 @@
+import type * as TypeScript from "typescript";
 import path from "node:path";
 import { locationOf, spanOf } from "./graph.js";
 import { unique } from "./collections.js";
 import { collapse, formatExpression } from "../reports/format-helpers.js";
 import {
+  type BranchSite,
   collectBranchSites,
   isNamedLiteralValue,
 } from "./repeated-forks/branch-sites.js";
@@ -45,16 +47,28 @@ const SIDE_EFFECT_CALLEES = new Set([
   "addEventListener",
 ]);
 
-export function detectRepeatedForks(ts, checker, sourceFile, root) {
+export interface DerivedDeclaration { name: string; line: number }
+export interface RepeatedForkFinding {
+  id: string; kind: string; file: string; line: number; column: number;
+  component: string | null; componentLine: number; discriminant: string;
+  branchValues: string[]; namedValues: string[];
+  branchRanges: Array<{ startLine: number; endLine: number }>;
+  sites: Array<{ kind: string; line: number; column: number; value: string | null; snippet: string }>;
+  siteCount: number;
+  branchExclusive: Array<DerivedDeclaration & { branch: string }>;
+  confidence: string; severity: number;
+}
+
+export function detectRepeatedForks(ts: typeof TypeScript, checker: TypeScript.TypeChecker, sourceFile: TypeScript.SourceFile, root: string) {
   const file = relativePath(root, sourceFile.fileName);
 
-  const isFunctionLike = (node) =>
+  const isFunctionLike = (node: TypeScript.Node): node is TypeScript.FunctionLikeDeclaration =>
     ts.isFunctionDeclaration(node) ||
     ts.isArrowFunction(node) ||
     ts.isFunctionExpression(node) ||
     ts.isMethodDeclaration(node);
 
-  const functionName = (node) => {
+  const functionName = (node: TypeScript.Node) => {
     if (ts.isFunctionDeclaration(node) && node.name) return node.name.text;
     if (ts.isMethodDeclaration(node) && node.name) return node.name.getText();
     const parent = node.parent;
@@ -70,9 +84,9 @@ export function detectRepeatedForks(ts, checker, sourceFile, root) {
   };
 
   // Does a subtree contain JSX (not counting JSX inside a nested function)?
-  const nodeHasJsx = (node, stopAtFunctions = false) => {
+  const nodeHasJsx = (node: TypeScript.Node, stopAtFunctions: boolean = false) => {
     let found = false;
-    const walk = (current) => {
+    const walk = (current: TypeScript.Node) => {
       if (found) return;
       if (
         ts.isJsxElement(current) ||
@@ -92,14 +106,14 @@ export function detectRepeatedForks(ts, checker, sourceFile, root) {
 
   // Memoized "does this function body render JSX" test → it is a component.
   const jsxCache = new Map();
-  const containsJsx = (fnNode) => {
+  const containsJsx = (fnNode: TypeScript.FunctionLikeDeclaration) => {
     if (jsxCache.has(fnNode)) return jsxCache.get(fnNode);
     const found = nodeHasJsx(fnNode, true);
     jsxCache.set(fnNode, found);
     return found;
   };
 
-  const calleeName = (expr) => {
+  const calleeName = (expr: TypeScript.Expression) => {
     if (ts.isIdentifier(expr)) return expr.text;
     if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
     return null;
@@ -108,7 +122,7 @@ export function detectRepeatedForks(ts, checker, sourceFile, root) {
   // A non-JSX function is render-feeding (a derived accessor/memo whose output
   // flows into JSX) unless it is an event handler or a lifecycle/effect
   // callback. Those carry control flow, never a render fork.
-  const isRenderFeedingAccessor = (fn) => {
+  const isRenderFeedingAccessor = (fn: TypeScript.FunctionLikeDeclaration) => {
     const parent = fn.parent;
     // Bound to a JSX `on*` event attribute: <x onClick={() => ...} />
     if (
@@ -155,7 +169,7 @@ export function detectRepeatedForks(ts, checker, sourceFile, root) {
   // path. The nearest enclosing function-like must be the component itself
   // (renders JSX) or a render-feeding accessor that ultimately sits inside a
   // component. Event handlers and effect callbacks return null → ignored.
-  const ownerFor = (node) => {
+  const ownerFor = (node: TypeScript.Node) => {
     let fn = node.parent;
     while (fn && !isFunctionLike(fn)) fn = fn.parent;
     if (!fn) return null;
@@ -171,7 +185,7 @@ export function detectRepeatedForks(ts, checker, sourceFile, root) {
 
   // owner function node -> { node, name, sites: [] }
   const components = new Map();
-  const componentFor = (fnNode) => {
+  const componentFor = (fnNode: TypeScript.FunctionLikeDeclaration) => {
     let entry = components.get(fnNode);
     if (!entry) {
       entry = { node: fnNode, name: functionName(fnNode), sites: [] };
@@ -193,10 +207,10 @@ export function detectRepeatedForks(ts, checker, sourceFile, root) {
 
   // Component-scope derived bindings (`const x = () => ...`, memos, ternaries):
   // candidates for "computed eagerly, read under one branch only".
-  const componentScopeDecls = (fnNode) => {
+  const componentScopeDecls = (fnNode: TypeScript.FunctionLikeDeclaration) => {
     const body = fnNode.body;
     if (!body || !ts.isBlock(body)) return [];
-    const decls = [];
+    const decls: DerivedDeclaration[] = [];
     for (const stmt of body.statements) {
       if (!ts.isVariableStatement(stmt)) continue;
       for (const declaration of stmt.declarationList.declarations) {
@@ -221,11 +235,11 @@ export function detectRepeatedForks(ts, checker, sourceFile, root) {
   // Drop sites contained inside another same-subject site's condition/consequent
   // window (`dedupeEnd` excludes the else chain), so an `if` and a ternary nested
   // in its then-branch don't double-count, while chained ternaries stay distinct.
-  const dedupeNested = (sites) => {
+  const dedupeNested = (sites: BranchSite[]) => {
     const sorted = [...sites].sort(
       (a, b) => a.node.getStart() - b.node.getStart(),
     );
-    const kept = [];
+    const kept: BranchSite[] = [];
     for (const site of sorted) {
       const start = site.node.getStart();
       const end = site.node.getEnd();
@@ -240,7 +254,7 @@ export function detectRepeatedForks(ts, checker, sourceFile, root) {
     return kept;
   };
 
-  const findings = [];
+  const findings: RepeatedForkFinding[] = [];
   for (const component of components.values()) {
     if (!containsJsx(component.node)) continue;
     // Group by resolved discriminant identity, not raw text.
@@ -283,7 +297,7 @@ export function detectRepeatedForks(ts, checker, sourceFile, root) {
         if (!usageByValue.has(key)) usageByValue.set(key, new Set());
         for (const id of site.consequentIds) usageByValue.get(key).add(id);
       }
-      const branchExclusive = [];
+      const branchExclusive: Array<DerivedDeclaration & { branch: string }> = [];
       for (const decl of decls) {
         const inValues = [...usageByValue.entries()]
           .filter(([, ids]) => ids.has(decl.name))
@@ -296,7 +310,7 @@ export function detectRepeatedForks(ts, checker, sourceFile, root) {
       // sites actually rendered under the discriminated branches.
       const branchRanges = sites
         .map((site) => site.consequent)
-        .filter(Boolean)
+        .filter((node): node is TypeScript.Node => node != null)
         .map((node) => {
           const span = spanOf(sourceFile, node);
           return { startLine: span.startLine, endLine: span.endLine };
@@ -343,6 +357,6 @@ export function detectRepeatedForks(ts, checker, sourceFile, root) {
   return findings.sort((a, b) => b.severity - a.severity);
 }
 
-function relativePath(root, file) {
+function relativePath(root: string, file: string) {
   return path.relative(root, file).replaceAll(path.sep, "/");
 }

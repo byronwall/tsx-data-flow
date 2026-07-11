@@ -1,6 +1,12 @@
+import type { Sink, SinkMetrics } from "../types.js";
 const USAGE_BURDEN_CEILING = 0.08;
 
-const BURDEN_TERMS = [
+const BURDEN_TERMS: Array<{
+  key: string;
+  label: string;
+  weight: number;
+  read: (metrics: SinkMetrics) => number;
+}> = [
   {
     key: "maximumPathDepth",
     label: "path depth",
@@ -61,8 +67,8 @@ const SCALAR_HELPER_STEP_KINDS = new Set([
   "solid-accessor",
 ]);
 
-export function rankSinks(sinks) {
-  const enriched = sinks.map((sink) => {
+export function rankSinks(sinks: Sink[]) {
+  const enriched = sinks.map((sink: Sink) => {
     const background = backgroundClassificationFor(sink);
     const rawBurden = burdenScore(sink.metrics);
     const burden = background ? rawBurden * background.penalty : rawBurden;
@@ -99,16 +105,16 @@ export function rankSinks(sinks) {
       (left, right) => right.scores.burden - left.scores.burden,
     ),
     quickWins: enriched
-      .filter((sink) => sink.queue === "peripheral-quick-win")
+      .filter((sink: Sink) => sink.queue === "peripheral-quick-win")
       .sort((left, right) => right.scores.quickWin - left.scores.quickWin),
     centralLeverage: enriched
-      .filter((sink) => sink.queue === "central-leverage")
+      .filter((sink: Sink) => sink.queue === "central-leverage")
       .sort(
         (left, right) =>
           right.scores.centralLeverage - left.scores.centralLeverage,
       ),
     investigations: enriched
-      .filter((sink) => sink.queue === "investigation")
+      .filter((sink: Sink) => sink.queue === "investigation")
       .sort(
         (left, right) =>
           right.scores.investigationPriority -
@@ -117,7 +123,7 @@ export function rankSinks(sinks) {
   };
 }
 
-export function familyRows(sinks) {
+export function familyRows(sinks: Sink[]) {
   const families = new Map();
   for (const sink of sinks) {
     const signature = signatureFor(sink);
@@ -144,7 +150,7 @@ export function familyRows(sinks) {
   }));
 }
 
-function classifyTier(sink, burden) {
+function classifyTier(sink: Sink, burden: number) {
   const m = sink.metrics ?? {};
   const hasSignal =
     (m.actionableDefensiveOperationCount ?? 0) > 0 ||
@@ -159,8 +165,8 @@ function classifyTier(sink, burden) {
   return burden < USAGE_BURDEN_CEILING && !hasSignal ? "usage" : "finding";
 }
 
-function signatureFor(sink) {
-  const parts = [];
+function signatureFor(sink: Sink) {
+  const parts: string[] = [];
   if (sink.metrics.representationChurn > 0) parts.push("object-pack");
   if (sink.metrics.helperHops > 0) parts.push("call");
   if (sink.metrics.controlDependencyCount > 0) parts.push("conditional");
@@ -171,25 +177,25 @@ function signatureFor(sink) {
   return `${depthBand(sink.metrics.maximumPathDepth)} ${parts.join(" -> ")}`;
 }
 
-function depthBand(depth) {
+function depthBand(depth: number) {
   if (depth <= 1) return "trivial";
   if (depth <= 3) return "shallow";
   if (depth <= 7) return "medium";
   return "deep";
 }
 
-function burdenScore(metrics) {
+function burdenScore(metrics: SinkMetrics) {
   return clamp01(burdenRawSum(metrics));
 }
 
-function burdenRawSum(metrics) {
+function burdenRawSum(metrics: SinkMetrics) {
   return BURDEN_TERMS.reduce(
     (sum, term) => sum + term.weight * normalized(term.read(metrics) ?? 0),
     0,
   );
 }
 
-function burdenBreakdown(metrics) {
+function burdenBreakdown(metrics: SinkMetrics) {
   const terms = BURDEN_TERMS.map((term) => {
     const raw = term.read(metrics) ?? 0;
     const norm = normalized(raw);
@@ -206,7 +212,7 @@ function burdenBreakdown(metrics) {
   return { terms, rawSum, total: clamp01(rawSum) };
 }
 
-function centralityScore(metrics) {
+function centralityScore(metrics: SinkMetrics) {
   return clamp01(
     0.4 * normalized(metrics.reachableSinks) +
       0.2 * normalized(metrics.maximumPathDepth) +
@@ -216,7 +222,7 @@ function centralityScore(metrics) {
   );
 }
 
-function changeRiskScore(metrics) {
+function changeRiskScore(metrics: SinkMetrics) {
   return clamp01(
     0.25 * normalized(metrics.reachableSinks) +
       0.25 * normalized(metrics.unknownEdgeCount) +
@@ -226,7 +232,7 @@ function changeRiskScore(metrics) {
   );
 }
 
-function backgroundClassificationFor(sink) {
+function backgroundClassificationFor(sink: Sink) {
   const healthyBoundary = healthySharedBoundaryFor(sink);
   if (healthyBoundary) {
     return {
@@ -246,7 +252,7 @@ function backgroundClassificationFor(sink) {
   return null;
 }
 
-function healthySharedBoundaryFor(sink) {
+function healthySharedBoundaryFor(sink: Sink) {
   const metrics = sink.metrics ?? {};
   if ((metrics.impossibleDefenseCount ?? 0) > 0) return null;
   if ((metrics.defensiveOperationCount ?? 0) > 0) return null;
@@ -275,7 +281,7 @@ function healthySharedBoundaryFor(sink) {
   return /Layout|Geometry|Bounds|Scale|Chart/.test(text) ? helper.label : null;
 }
 
-function isLowValueScalarHelper(sink) {
+function isLowValueScalarHelper(sink: Sink) {
   const metrics = sink.metrics ?? {};
   if ((metrics.maximumPathDepth ?? 0) > 7) return false;
   if ((metrics.impossibleDefenseCount ?? 0) > 0) return false;
@@ -298,17 +304,17 @@ function isLowValueScalarHelper(sink) {
   );
 }
 
-function finalLocalStepFor(sink) {
+function finalLocalStepFor(sink: Sink) {
   const steps = sink.representativeSteps ?? [];
   return [...steps]
     .reverse()
     .find((step) => ["call", "alias", "property-read"].includes(step.kind));
 }
 
-function normalized(value) {
+function normalized(value: number) {
   return Math.min(1, Math.log1p(value) / Math.log1p(20));
 }
 
-function clamp01(value) {
+function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }

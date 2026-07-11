@@ -1,12 +1,14 @@
+import type * as TypeScript from "typescript";
+import type { DefenseRecord, SinkMetrics } from "../types.js";
 import { locationOf } from "./graph.js";
 
-export function isCertaintyBoundaryDefense(defense) {
+export function isCertaintyBoundaryDefense(defense: DefenseRecord) {
   return /parser-boundary|compatibility|optional|solid prop default|api-choice/i.test(
     defense.origin ?? "",
   );
 }
 
-export function defenseRecord(ts, checker, guardedExpression, node, operation) {
+export function defenseRecord(ts: typeof TypeScript, checker: TypeScript.TypeChecker, guardedExpression: TypeScript.Expression, node: TypeScript.Node, operation: string): DefenseRecord {
   const runtimeBoundary = runtimeBoundaryFallback(
     ts,
     checker,
@@ -45,12 +47,12 @@ export function defenseRecord(ts, checker, guardedExpression, node, operation) {
 // guards, using only local signals: the guard's type/optionality and any
 // leading comment on the AST node (no repo scanning).
 function fallbackOrigin(
-  ts,
-  checker,
-  guardedExpression,
-  node,
-  verdict,
-  runtimeBoundary = null,
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  guardedExpression: TypeScript.Expression,
+  node: TypeScript.Node,
+  verdict: string,
+  runtimeBoundary: { origin: string } | null = null,
 ) {
   if (runtimeBoundary) return runtimeBoundary.origin;
   if (verdict === "impossible") return "stale (type-impossible)";
@@ -77,7 +79,7 @@ function fallbackOrigin(
   return "defensive (review)";
 }
 
-function isOptionalPropRead(ts, checker, expression) {
+function isOptionalPropRead(ts: typeof TypeScript, checker: TypeScript.TypeChecker, expression: TypeScript.Node) {
   const unwrapped = unwrapExpression(ts, expression);
   if (!ts.isPropertyAccessExpression(unwrapped)) return false;
   if (!ts.isIdentifier(unwrapped.expression)) return false;
@@ -95,13 +97,13 @@ function isOptionalPropRead(ts, checker, expression) {
   );
 }
 
-function isParameterIdentifier(ts, checker, identifier) {
+function isParameterIdentifier(ts: typeof TypeScript, checker: TypeScript.TypeChecker, identifier: TypeScript.Identifier) {
   const symbol = checker.getSymbolAtLocation(identifier);
   const declaration = symbol?.valueDeclaration;
   return Boolean(declaration && ts.isParameter(declaration));
 }
 
-function isApiChoiceFallback(ts, node) {
+function isApiChoiceFallback(ts: typeof TypeScript, node: TypeScript.Node) {
   if (!ts.isBinaryExpression(node)) return false;
   const operator = node.operatorToken.kind;
   if (
@@ -124,9 +126,9 @@ function isApiChoiceFallback(ts, node) {
   return expressionHasIdentifierOrPropertyRead(ts, right);
 }
 
-function expressionHasIdentifierOrPropertyRead(ts, expression) {
+function expressionHasIdentifierOrPropertyRead(ts: typeof TypeScript, expression: TypeScript.Node) {
   let found = false;
-  const visit = (node) => {
+  const visit = (node: TypeScript.Node) => {
     if (found) return;
     if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) {
       found = true;
@@ -142,7 +144,7 @@ function expressionHasIdentifierOrPropertyRead(ts, expression) {
 // target enables noUncheckedIndexedAccess. Parser code often defaults indexed
 // regex/extraction results precisely because a valid broad string may yield no
 // token, so do not promote those fallbacks to "type-impossible".
-function runtimeBoundaryFallback(ts, checker, expression, seen = new Set()) {
+function runtimeBoundaryFallback(ts: typeof TypeScript, checker: TypeScript.TypeChecker, expression: TypeScript.Node, seen: Set<TypeScript.Node> = new Set()) {
   const unwrapped = unwrapExpression(ts, expression);
   if (seen.has(unwrapped)) return null;
   seen.add(unwrapped);
@@ -162,7 +164,7 @@ function runtimeBoundaryFallback(ts, checker, expression, seen = new Set()) {
   return { origin: "parser-boundary fallback" };
 }
 
-function declarationInitializer(ts, checker, identifier) {
+function declarationInitializer(ts: typeof TypeScript, checker: TypeScript.TypeChecker, identifier: TypeScript.Identifier) {
   const symbol = checker.getSymbolAtLocation(identifier);
   const declaration = symbol?.valueDeclaration;
   if (!declaration || !ts.isVariableDeclaration(declaration)) return null;
@@ -170,7 +172,7 @@ function declarationInitializer(ts, checker, identifier) {
   return declaration.initializer ?? null;
 }
 
-function isRuntimeOptionalSequence(ts, checker, expression, seen) {
+function isRuntimeOptionalSequence(ts: typeof TypeScript, checker: TypeScript.TypeChecker, expression: TypeScript.Node, seen: Set<TypeScript.Node>): boolean {
   const unwrapped = unwrapExpression(ts, expression);
   if (seen.has(unwrapped)) return false;
   seen.add(unwrapped);
@@ -193,7 +195,7 @@ function isRuntimeOptionalSequence(ts, checker, expression, seen) {
   return isArrayLikeExtractionType(ts, checker, unwrapped);
 }
 
-function isParserLikeCall(ts, call) {
+function isParserLikeCall(ts: typeof TypeScript, call: TypeScript.CallExpression) {
   const callee = call.expression;
   if (ts.isPropertyAccessExpression(callee)) {
     return /^(exec|filter|flatMap|map|match|matchAll|split)$/u.test(
@@ -206,14 +208,14 @@ function isParserLikeCall(ts, call) {
   return false;
 }
 
-function isArrayLikeExtractionType(ts, checker, expression) {
+function isArrayLikeExtractionType(ts: typeof TypeScript, checker: TypeScript.TypeChecker, expression: TypeScript.Node) {
   const typeText = checker.typeToString(checker.getTypeAtLocation(expression));
   return /\b(?:Array|ReadonlyArray|RegExpMatchArray|string)\b|\[\]/u.test(
     typeText,
   );
 }
 
-function looksLikeNumericIndex(ts, expression) {
+function looksLikeNumericIndex(ts: typeof TypeScript, expression: TypeScript.Node) {
   if (!expression) return true;
   if (ts.isNumericLiteral(expression)) return true;
   return (
@@ -222,7 +224,7 @@ function looksLikeNumericIndex(ts, expression) {
   );
 }
 
-function unwrapExpression(ts, expression) {
+function unwrapExpression(ts: typeof TypeScript, expression: TypeScript.Node) {
   let current = expression;
   while (
     ts.isParenthesizedExpression(current) ||
@@ -234,7 +236,7 @@ function unwrapExpression(ts, expression) {
   return current;
 }
 
-function leadingCommentText(ts, node) {
+function leadingCommentText(ts: typeof TypeScript, node: TypeScript.Node) {
   const sourceFile = node.getSourceFile();
   const fullText = sourceFile.getFullText();
   const ranges =
@@ -242,7 +244,7 @@ function leadingCommentText(ts, node) {
   return ranges.map((range) => fullText.slice(range.pos, range.end)).join(" ");
 }
 
-function getNullishStatus(ts, checker, expression) {
+function getNullishStatus(ts: typeof TypeScript, checker: TypeScript.TypeChecker, expression: TypeScript.Node) {
   const type = checker.getTypeAtLocation(expression);
   const members = type.isUnion() ? type.types : [type];
   const uncertain = members.some(
@@ -264,7 +266,7 @@ function getNullishStatus(ts, checker, expression) {
 // Confidence as a score plus a plain-English reason and risk (Phase 4). The
 // numeric `score` preserves the prior return value so ranking/queueing are
 // unchanged; reason/risk explain it in human terms for the report.
-export function confidenceFor(metrics, defenses) {
+export function confidenceFor(metrics: SinkMetrics, defenses: DefenseRecord[]) {
   if (metrics.unknownEdgeCount > 0) {
     return {
       score: 72,
@@ -293,6 +295,6 @@ export function confidenceFor(metrics, defenses) {
   };
 }
 
-export function safeTypeText(value = "") {
+export function safeTypeText(value: string = "") {
   return value || "unknown";
 }

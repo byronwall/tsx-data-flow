@@ -1,15 +1,17 @@
-export function createGraph(root = process.cwd()) {
+import type * as TypeScript from "typescript";
+import type { AnalysisGraph, GraphNode } from "../types.js";
+export function createGraph(root: string = process.cwd()): AnalysisGraph {
   return { nodes: [], edges: [], nextNodeId: 1, nextEdgeId: 1, root };
 }
 
-export function addNode(graph, node) {
+export function addNode(graph: AnalysisGraph, node: Omit<GraphNode, "id">) {
   const record = { id: `n${graph.nextNodeId}`, ...node };
   graph.nextNodeId += 1;
   graph.nodes.push(record);
   return record;
 }
 
-export function addEdge(graph, from, to, kind, node, unknown = false) {
+export function addEdge(graph: AnalysisGraph, from: string, to: string, kind: string, node: TypeScript.Node, unknown: boolean = false) {
   if (!from || !to) return null;
   const record = {
     id: `e${graph.nextEdgeId}`,
@@ -24,7 +26,7 @@ export function addEdge(graph, from, to, kind, node, unknown = false) {
   return record;
 }
 
-export function locationOf(sourceFile, node) {
+export function locationOf(sourceFile: TypeScript.SourceFile, node: TypeScript.Node) {
   const position = sourceFile.getLineAndCharacterOfPosition(
     node.getStart(sourceFile),
   );
@@ -33,7 +35,7 @@ export function locationOf(sourceFile, node) {
 
 // Full source span (start + end, 1-based line/column) of a node, so the code map
 // can highlight exactly the chunk a finding maps to rather than the whole line.
-export function spanOf(sourceFile, node) {
+export function spanOf(sourceFile: TypeScript.SourceFile, node: TypeScript.Node) {
   const start = sourceFile.getLineAndCharacterOfPosition(
     node.getStart(sourceFile),
   );
@@ -51,7 +53,7 @@ export function spanOf(sourceFile, node) {
 // `graph.edges.filter(unknown).length` counts one physical unknown once per sink
 // that crosses it — overstating the real figure many-fold. The summary/dossier
 // must match the deduped report rows, so dedupe by source position + kind + label.
-export function countDistinctUnknownEdges(graph) {
+export function countDistinctUnknownEdges(graph: AnalysisGraph) {
   const nodes = new Map((graph.nodes ?? []).map((node) => [node.id, node]));
   const seen = new Set();
   for (const edge of graph.edges ?? []) {
