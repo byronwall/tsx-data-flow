@@ -70,6 +70,14 @@ const semanticMapTrajectorySchema = z.strictObject({
   areaIds: z.array(z.string()), terminal: mapLocationSchema,
   burden: z.number(), depth: z.number().int().nonnegative(), traceComplete: z.boolean(),
 });
+const componentMapNodeSchema = z.strictObject({
+  id: z.string(), name: z.string(), path: z.string(), line: z.number().int().nonnegative(),
+  incomingCount: z.number().int().nonnegative(), outgoingCount: z.number().int().nonnegative(),
+  useCount: z.number().int().nonnegative(), role: z.enum(["root", "branch", "leaf", "shared"]),
+});
+const componentMapEdgeSchema = z.strictObject({
+  id: z.string(), from: z.string(), to: z.string(), useCount: z.number().int().positive(),
+});
 const cleanupOpportunitySchema = z.strictObject({
   id: z.string(), label: z.string(), location: mapLocationSchema,
   burden: z.number(), sinkCount: z.number().int().positive(), fileCount: z.number().int().positive(),
@@ -80,6 +88,7 @@ const cleanupOpportunitySchema = z.strictObject({
 export const semanticMapSchema = z.strictObject({
   areas: z.array(semanticMapAreaSchema), edges: z.array(semanticMapEdgeSchema),
   trajectories: z.array(semanticMapTrajectorySchema), cleanup: z.array(cleanupOpportunitySchema),
+  components: z.strictObject({ nodes: z.array(componentMapNodeSchema), edges: z.array(componentMapEdgeSchema), totals: z.strictObject({ nodes: z.number().int().nonnegative(), edges: z.number().int().nonnegative() }) }),
   totals: z.strictObject({
     areas: z.number().int().nonnegative(), edges: z.number().int().nonnegative(),
     trajectories: z.number().int().nonnegative(), cleanupOpportunities: z.number().int().nonnegative(),

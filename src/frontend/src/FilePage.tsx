@@ -61,6 +61,7 @@ export function FilePage(props: { location: URL; navigate: Navigate }) {
       wide
     >
       <Show when={refreshError()}><p class="error" role="alert">{refreshError()}</p></Show>
+      <Show when={refreshing()}><LoadingStatus subject="file analysis" operation="refresh" /></Show>
       <Show when={relPath()} fallback={<p class="meta">Missing ?path.</p>}>
         <Show
           when={!fileData.error}

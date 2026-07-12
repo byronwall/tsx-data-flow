@@ -1,6 +1,7 @@
 import type * as TypeScript from "typescript";
 import path from "node:path";
 import { locationOf } from "./graph";
+import { enclosingFunctionName } from "./source-sinks";
 
 export function buildComponentRefs(ts: typeof TypeScript, checker: TypeScript.TypeChecker, sourceFiles: TypeScript.SourceFile[], root: string) {
   const byDef = new Map();
@@ -47,6 +48,8 @@ export function buildComponentRefs(ts: typeof TypeScript, checker: TypeScript.Ty
             rec.uses.push({
               file: fileRel,
               line: locationOf(sourceFile, node).line,
+              component: enclosingFunctionName(ts, node),
+              componentLine: enclosingFunctionLine(ts, sourceFile, node),
             });
           }
         }
@@ -58,6 +61,15 @@ export function buildComponentRefs(ts: typeof TypeScript, checker: TypeScript.Ty
   return [...byDef.values()]
     .filter((rec) => rec.useCount > 0)
     .sort((a, b) => b.useCount - a.useCount || a.name.localeCompare(b.name));
+}
+
+function enclosingFunctionLine(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, node: TypeScript.Node) {
+  let current: TypeScript.Node | undefined = node.parent;
+  while (current) {
+    if (ts.isFunctionLike(current)) return locationOf(sourceFile, current).line;
+    current = current.parent;
+  }
+  return null;
 }
 
 function relativePath(root: string, file: string) {

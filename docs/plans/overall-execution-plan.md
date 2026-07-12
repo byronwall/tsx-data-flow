@@ -126,6 +126,15 @@ Each evaluation note should capture:
   shared-cause cleanup queue from the cached workspace report. Area, value/type,
   trajectory, and source drill-down reuse Phase 1 identity/navigation. HN
   Offline, Logo Dodo, and Pluck gates passed with recorded scale measurements.
+- **Phase 2 orientation hardening is required before Phase 3.** Human review found
+  that a file-level source-to-terminal network does not reveal Solid component
+  composition: route shells, intermediate composers, terminal renderers, and
+  broadly reused UI components are indistinguishable. The world map must expose
+  the checker-backed JSX parent-to-child hierarchy as its default orientation
+  lens while retaining the value-flow network as a separate trajectory lens.
+  Selection must isolate a component's direct family so shared primitives do not
+  leave every high-volume edge visible at once. This is Phase 2 scope, not a
+  dependency on normalized shapes or field provenance.
 - **Phase 3 is next.** Resolving and navigating to a named TypeScript type
   declaration is identity evidence; it is not a normalized `ValueShape`, a
   `TransformationStep`, field provenance, or before/after shape analysis.
@@ -234,6 +243,13 @@ before waiting for the full transformation model.
   - visible incomplete/opaque boundaries;
   - overlays from existing defenses, relays, repeated forks, unknowns, fan-out,
     and representation metrics.
+- Provide two explicit projections of the same repository model:
+  - component structure, showing checker-resolved JSX parent-to-child calls and
+    distinguishing roots/route shells, composers, terminal renderers, and shared
+    components;
+  - traced data flow, showing source/value trajectories toward TSX terminals.
+  Keep common components bounded by default and reveal their full direct family
+  on selection instead of drawing every shared-primitive edge persistently.
 - Use progressive selection:
 
   ```text

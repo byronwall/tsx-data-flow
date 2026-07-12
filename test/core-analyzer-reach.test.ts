@@ -79,6 +79,8 @@ describe("render path data-flow analyzer", () => {
     // Both <Button/> sites resolve to the one definition (by symbol, not name).
     expect(button.useCount).toBe(2);
     expect(button.uses.every((u) => u.file === "src/Page.tsx")).toBe(true);
+    expect(button.uses.every((u) => u.component === "Page")).toBe(true);
+    expect(button.uses.every((u) => typeof u.componentLine === "number")).toBe(true);
 
     const markdown = renderReport(report, {
       ...project.args,

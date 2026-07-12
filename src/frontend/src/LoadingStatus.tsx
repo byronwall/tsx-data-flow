@@ -11,7 +11,7 @@ const STEPS = [
 type StepId = typeof STEPS[number]["id"];
 type ProgressUpdate = { operation?: string; phase?: string; step?: StepId; message?: string; completed?: number; total?: number; file?: string };
 
-export function LoadingStatus(props: { subject: string; operation: "workspace" | "file" | "report" }) {
+export function LoadingStatus(props: { subject: string; operation: "workspace" | "file" | "report" | "refresh" }) {
   const [elapsedSeconds, setElapsedSeconds] = createSignal(0);
   const [serverMessage, setServerMessage] = createSignal("");
   const [updates, setUpdates] = createSignal<Partial<Record<StepId, ProgressUpdate>>>({});

@@ -22,7 +22,7 @@ describe("API contracts", () => {
   });
 
   it("rejects malformed semantic-map caps and analyzer-only fields", () => {
-    const valid = { areas: [], edges: [], trajectories: [], cleanup: [], totals: { areas: 0, edges: 0, trajectories: 0, cleanupOpportunities: 0 }, caps: { areas: 80, edges: 160, trajectories: 40, cleanup: 40 } };
+    const valid = { areas: [], edges: [], trajectories: [], cleanup: [], components: { nodes: [], edges: [], totals: { nodes: 0, edges: 0 } }, totals: { areas: 0, edges: 0, trajectories: 0, cleanupOpportunities: 0 }, caps: { areas: 80, edges: 160, trajectories: 40, cleanup: 40 } };
     expect(semanticMapSchema.parse(valid)).toEqual(valid);
     expect(semanticMapSchema.safeParse({ ...valid, caps: { ...valid.caps, areas: 0 } }).success).toBe(false);
     expect(semanticMapSchema.safeParse({ ...valid, analyzerGraph: {} }).success).toBe(false);

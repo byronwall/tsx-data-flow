@@ -1,8 +1,10 @@
-import { For, Show, createMemo, createResource, createSignal, untrack } from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal, createUniqueId, onCleanup, onMount, untrack } from "solid-js";
+import { Portal } from "solid-js/web";
 import type { Workspace } from "../../../api/contracts";
 import { fetchFilePage } from "../api";
 import { WorldMapGraph } from "./WorldMapGraph";
 import { FolderScopeTree } from "./FolderScopeTree";
+import { ComponentStructureMap } from "./ComponentStructureMap";
 import { folderScopes, scopeWorldMap, worldMapLayout } from "./world-map-model";
 
 type MapData = Workspace["semanticMap"];
@@ -14,6 +16,9 @@ export function WorldMap(props: { map: MapData; initialSelectedAreaId?: string |
   const [selectedAreaId, setSelectedAreaId] = createSignal<string | null>(untrack(() => props.map.areas.some((area) => area.id === props.initialSelectedAreaId) ? props.initialSelectedAreaId! : null));
   const [selectedTrajectoryId, setSelectedTrajectoryId] = createSignal<string | null>(null);
   const [selectedValue, setSelectedValue] = createSignal<string | null>(null);
+  const [componentMapOpen, setComponentMapOpen] = createSignal(false);
+  let componentMapTrigger!: HTMLButtonElement;
+  let componentMapDialog!: HTMLDivElement;
   const scopes = createMemo(() => folderScopes(props.map));
   const scopedMap = createMemo(() => scopeWorldMap(props.map, selectedFolder()));
   const area = createMemo(() => scopedMap().areas.find((item) => item.id === selectedAreaId()) ?? null);
@@ -25,12 +30,25 @@ export function WorldMap(props: { map: MapData; initialSelectedAreaId?: string |
   const clearSelection = () => { setSelectedAreaId(null); setSelectedTrajectoryId(null); setSelectedValue(null); };
   const selectArea = (id: string) => { if (selectedAreaId() === id) { clearSelection(); return; } setSelectedAreaId(id); setSelectedTrajectoryId(null); setSelectedValue(null); };
   const selectFolder = (folder: string) => { setSelectedFolder(folder || null); clearSelection(); };
+  const openComponentMap = () => { setComponentMapOpen(true); queueMicrotask(() => componentMapDialog.querySelector<HTMLButtonElement>(".component-modal-close")?.focus()); };
+  const closeComponentMap = () => { setComponentMapOpen(false); queueMicrotask(() => componentMapTrigger.focus()); };
+  onMount(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && componentMapOpen()) closeComponentMap(); };
+    document.addEventListener("keydown", handleKeyDown);
+    createEffect(() => { document.body.style.overflow = componentMapOpen() ? "hidden" : previousOverflow; });
+    onCleanup(() => { document.removeEventListener("keydown", handleKeyDown); document.body.style.overflow = previousOverflow; });
+  });
   return <section class="world-map" aria-labelledby="world-map-title">
-    <header class="section-heading"><div><h2 id="world-map-title">Repository world map</h2><p class="meta">Project areas arranged by their role in source-to-TSX trajectories.</p></div><span class="meta">{props.map.areas.length} of {props.map.totals.areas} indexed areas · {props.map.edges.length} of {props.map.totals.edges} indexed connections</span></header>
-    <div class="world-map-scopebar"><span class="scopebar-label">Folder scope</span><FolderScopeTree scopes={scopes()} selected={selectedFolder()} total={props.map.areas.length} onSelect={selectFolder} /><Show when={selectedFolder()}>{(folder) => <span class="meta">{folder()} plus directly connected context · {scopedMap().areas.length} available</span>}</Show></div>
-    <div class="world-map-workspace">
+    <header class="section-heading"><div><h2 id="world-map-title">Repository world map</h2><p class="meta">Traced source-to-TSX data flow, with component hierarchy available as a full-screen map.</p></div><span class="meta">{props.map.components.totals.nodes} components · {props.map.areas.length} of {props.map.totals.areas} indexed files</span></header>
+    <div class="world-map-lenses" role="group" aria-label="World map view"><button ref={componentMapTrigger} type="button" aria-haspopup="dialog" onClick={openComponentMap}>Component structure</button><button type="button" aria-pressed="true">Data flow</button></div>
+    <div class="world-map-scopebar"><span class="scopebar-label">Folder scope</span><FolderScopeTree scopes={scopes()} selected={selectedFolder()} total={props.map.areas.length} onSelect={selectFolder} /><Show when={selectedFolder()}>{(folder) => <span class="meta">{folder()} plus directly connected context · {scopedMap().areas.length} available</span>}</Show></div><div class="world-map-workspace">
       <div class="world-map-canvas"><WorldMapGraph map={scopedMap()} selectedId={selectedAreaId()} onSelect={selectArea} onClear={clearSelection} /><Show when={props.map.totals.areas > props.map.areas.length}><p class="map-cap-note">The index contains the first {props.map.areas.length} of {props.map.totals.areas} analyzed areas. Use the complete file table below for paths outside this cap.</p></Show></div>
       <aside class="world-map-inspector" aria-label="Map selection inspector"><Show when={area()} fallback={<InspectorEmpty areaCount={scopedMap().areas.length} />} >{(selected) => <Inspector area={selected()} map={scopedMap()} visibleAreaIds={visibleAreaIds()} sourceLines={selectedSourceLines() ?? []} trajectories={visibleTrajectories()} selectedTrajectoryId={selectedTrajectoryId()} selectedValue={selectedValue()} onClear={clearSelection} onSelectArea={selectArea} onSelectTrajectory={setSelectedTrajectoryId} onSelectValue={setSelectedValue} trajectory={trajectory()} totalTrajectories={props.map.totals.trajectories} />}</Show></aside>
+    </div>
+    <div ref={componentMapDialog} class="component-modal" hidden={!componentMapOpen()} role="dialog" aria-modal="true" aria-labelledby="component-modal-title">
+      <header class="component-modal-header"><h2 id="component-modal-title">Component structure</h2><span>{props.map.components.nodes.length} of {props.map.components.totals.nodes} components · arranged by render depth</span><button type="button" class="component-modal-close" aria-label="Close component structure" onClick={closeComponentMap}>×</button></header>
+      <ComponentStructureMap components={props.map.components} active={componentMapOpen()} />
     </div>
   </section>;
 }
@@ -57,7 +75,32 @@ function AreaConnections(props: { map: MapData; area: Area; visibleAreaIds: Set<
 
 function LandmarkRow(props: { landmark: Area["landmarks"][number]; sourceLines: Array<{ number: number; text: string }> }) {
   const context = createMemo(() => { const line = props.landmark.location?.line; return line ? props.sourceLines.filter((item) => item.number >= line - 2 && item.number <= line + 2) : []; });
-  return <li><a class="landmark-row" href={props.landmark.location ? `/file?path=${encodeURIComponent(props.landmark.location.path)}#L${props.landmark.location.line}` : undefined}><span class={`type-tag tt-${props.landmark.kind}`}>{props.landmark.kind}</span><code>{props.landmark.label}</code></a><div class="landmark-source-card"><Show when={context().length} fallback={<p class="meta">Loading nearby source…</p>}><pre><For each={context()}>{(line) => <span classList={{ focus: line.number === props.landmark.location?.line }}><b>{line.number}</b><code>{line.text || " "}</code></span>}</For></pre></Show><span>{props.landmark.location ? `${fileName(props.landmark.location.path)}:${props.landmark.location.line}` : "No source location retained"}</span></div></li>;
+  const cardId = `landmark-source-${createUniqueId()}`;
+  const [active, setActive] = createSignal(false);
+  const [position, setPosition] = createSignal({ top: 0, left: 0, width: 0 });
+  let openTimer: ReturnType<typeof setTimeout> | undefined;
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearTimers = () => { if (openTimer) clearTimeout(openTimer); if (closeTimer) clearTimeout(closeTimer); };
+  const placeCard = (trigger: HTMLElement) => {
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    if (window.innerWidth <= 980) {
+      setPosition({ top: rect.bottom + 3, left: viewportPadding, width: Math.max(0, window.innerWidth - viewportPadding * 2) });
+      return;
+    }
+    const width = Math.min(560, Math.max(240, rect.left - viewportPadding * 2));
+    setPosition({ top: Math.max(viewportPadding, rect.top), left: Math.max(viewportPadding, rect.left - width - 8), width });
+  };
+  const showCard = (trigger: HTMLElement, delayed: boolean) => {
+    clearTimers();
+    placeCard(trigger);
+    if (delayed) openTimer = setTimeout(() => setActive(true), 450);
+    else setActive(true);
+  };
+  const keepCardOpen = () => { if (closeTimer) clearTimeout(closeTimer); };
+  const hideCard = () => { if (openTimer) clearTimeout(openTimer); closeTimer = setTimeout(() => setActive(false), 80); };
+  onCleanup(clearTimers);
+  return <li><a class="landmark-row" aria-describedby={cardId} href={props.landmark.location ? `/file?path=${encodeURIComponent(props.landmark.location.path)}#L${props.landmark.location.line}` : undefined} onPointerEnter={(event) => showCard(event.currentTarget, true)} onPointerLeave={hideCard} onFocus={(event) => showCard(event.currentTarget, false)} onBlur={hideCard}><span class={`type-tag tt-${props.landmark.kind}`}>{props.landmark.kind}</span><code>{props.landmark.label}</code></a><Portal><div id={cardId} role="tooltip" class="landmark-source-card" classList={{ active: active() }} style={{ top: `${position().top}px`, left: `${position().left}px`, width: `${position().width}px` }} onPointerEnter={keepCardOpen} onPointerLeave={hideCard}><Show when={context().length} fallback={<p class="meta">Loading nearby source…</p>}><pre><For each={context()}>{(line) => <span classList={{ focus: line.number === props.landmark.location?.line }}><b>{line.number}</b><code>{line.text || " "}</code></span>}</For></pre></Show><span>{props.landmark.location ? `${fileName(props.landmark.location.path)}:${props.landmark.location.line}` : "No source location retained"}</span></div></Portal></li>;
 }
 
 function ValueFilters(props: { trajectories: MapData["trajectories"]; selected: string | null; onSelect: (value: string | null) => void }) {

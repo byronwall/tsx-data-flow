@@ -86,13 +86,48 @@ export function buildSemanticMap(report: AnalysisReport, focusPath?: string) {
   const edges = selectRepresentativeEdges(allEdges, keptAreas.map((area) => area.id), CAPS.edges, focusId);
   const trajectories = selectRepresentativeTrajectories(allTrajectories, keptAreas.map((area) => area.id), CAPS.trajectories, focusId);
   const cleanup = (report.workUnits as WorkUnit[]).map(cleanupOf).slice(0, CAPS.cleanup);
+  const components = componentMapOf(report.componentRefs ?? []);
   return {
     areas: keptAreas,
     edges: edges.map((edge) => ({ ...edge, kinds: [...edge.kinds].sort(lexical) })),
     trajectories,
     cleanup,
+    components,
     totals: { areas: allAreas.length, edges: allEdges.length, trajectories: ranked.length, cleanupOpportunities: report.workUnits.length },
     caps: CAPS,
+  };
+}
+
+function componentMapOf(refs: Array<{ name: string; file: string; line: number; useCount: number; uses: Array<{ file: string; line: number; component?: string | null; componentLine?: number | null }> }>) {
+  const nodes = new Map<string, { id: string; name: string; path: string; line: number; useCount: number; incoming: Set<string>; outgoing: Set<string> }>();
+  const edges = new Map<string, { id: string; from: string; to: string; useCount: number }>();
+  const ensure = (name: string, path: string, line: number, useCount = 0) => {
+    const id = `component:${path}:${line}:${name}`;
+    if (!nodes.has(id)) nodes.set(id, { id, name, path, line, useCount, incoming: new Set(), outgoing: new Set() });
+    else nodes.get(id)!.useCount = Math.max(nodes.get(id)!.useCount, useCount);
+    return id;
+  };
+  for (const ref of refs) {
+    const to = ensure(ref.name, ref.file, ref.line, ref.useCount);
+    for (const use of ref.uses) {
+      if (!use.component || use.componentLine == null) continue;
+      const from = ensure(use.component, use.file, use.componentLine);
+      if (from === to) continue;
+      const key = `${from}->${to}`;
+      const edge = edges.get(key) ?? { id: `component-edge:${key}`, from, to, useCount: 0 };
+      edge.useCount += 1;
+      edges.set(key, edge);
+      nodes.get(from)!.outgoing.add(to);
+      nodes.get(to)!.incoming.add(from);
+    }
+  }
+  const ranked = [...nodes.values()].sort((a, b) => (b.incoming.size + b.outgoing.size) - (a.incoming.size + a.outgoing.size) || b.useCount - a.useCount || lexical(a.id, b.id));
+  const keptNodes = ranked.slice(0, 120);
+  const kept = new Set(keptNodes.map((node) => node.id));
+  return {
+    nodes: keptNodes.map((node) => ({ id: node.id, name: node.name, path: node.path, line: node.line, incomingCount: node.incoming.size, outgoingCount: node.outgoing.size, useCount: node.useCount, role: node.incoming.size >= 4 ? "shared" as const : node.incoming.size === 0 ? "root" as const : node.outgoing.size === 0 ? "leaf" as const : "branch" as const })),
+    edges: [...edges.values()].filter((edge) => kept.has(edge.from) && kept.has(edge.to)).sort((a, b) => b.useCount - a.useCount || lexical(a.id, b.id)).slice(0, 240),
+    totals: { nodes: nodes.size, edges: edges.size },
   };
 }
 
