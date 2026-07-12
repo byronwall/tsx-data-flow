@@ -2,6 +2,7 @@ import path from "node:path";
 import type { AnalysisReport, RootInfo, Sink } from "../../types";
 import { entryTypeCountsByFile } from "../../reports/overview-selectors";
 import { workspaceSchema, type Workspace } from "../contracts";
+import { buildSemanticMap } from "./semantic-map";
 
 export function buildWorkspaceDto(report: AnalysisReport): Workspace {
   const counts = entryTypeCountsByFile(report);
@@ -74,6 +75,7 @@ export function buildWorkspaceDto(report: AnalysisReport): Workspace {
       newTop: baseline.newTop ? { label: baseline.newTop.label, path: baseline.newTop.file, line: baseline.newTop.line } : null,
       metricDeltas: baseline.metricDeltas,
     } : null,
+    semanticMap: buildSemanticMap(report),
     files,
   });
 }

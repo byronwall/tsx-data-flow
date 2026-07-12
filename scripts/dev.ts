@@ -10,11 +10,15 @@ const packageManager = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 const children = [
   spawn(
-    process.execPath,
+    packageManager,
     [
-      "--watch-path=src",
-      "--import",
+      "exec",
       "tsx",
+      "watch",
+      "--include",
+      "src/**",
+      "--exclude",
+      "src/frontend/**",
       "src/server-cli.ts",
       "--port",
       "4318",

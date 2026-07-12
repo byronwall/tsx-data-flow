@@ -81,6 +81,8 @@ export function analyzeSourceFile(
           trace,
           sinkNode,
           args.root,
+          crossFile?.identityIndex,
+          graph,
         ),
       );
     }
@@ -113,6 +115,8 @@ function buildSinkRecord(
   trace: TraceResult,
   sinkNode: GraphNode,
   root: string,
+  identityIndex: CrossFileState["identityIndex"],
+  graph: AnalysisGraph,
 ) {
   const location = locationOf(sourceFile, node);
   // One physical guard reached via several render sub-paths is a single
@@ -123,9 +127,56 @@ function buildSinkRecord(
   const metrics = metricsFor(trace, distinctDefenses, distinctRepresentation);
   const sinkId = `RPF-${String(location.line).padStart(3, "0")}-${String(location.column).padStart(2, "0")}`;
   const confidence = confidenceFor(metrics, distinctDefenses);
+  const file = relativePath(root, sourceFile.fileName);
+  const terminalIdentityId = `terminal:${file}:${sinkExpression.expression.getStart(sourceFile)}:${sinkExpression.expression.getEnd()}`;
+  const identity = identityIndex?.evidenceFor(sinkExpression.expression, checker);
+  if (identity) {
+    identity.upstreamPath = trace.longestPath.map((step) => ({ ...step, detail: step.detail ?? null, file: step.file ?? null, line: step.line ?? null }));
+    identity.downstreamPath = [{ label: sinkExpression.label, kind: "jsx-sink", detail: "renders at this terminal sink", file, line: location.line }];
+    identity.terminalSinks = [{ id: terminalIdentityId, file, line: location.line, label: sinkExpression.label }];
+    identity.totalReach = metrics.reachableSinks;
+    identity.defenses = distinctDefenses.map((defense) => ({ ...defense, location: { ...defense.location, file: defense.location.file ?? file } }));
+    identity.representationSteps = distinctRepresentation;
+    identity.unknownBoundaries = trace.longestPath.filter((step) => step.kind.includes("unknown"));
+    identity.attachedFindingIds = [sinkId];
+    identity.graphNodeIds = [sinkNode.id];
+    identity.boundaryIds = boundaryIdsFor(trace.longestPath, graph);
+    sinkNode.identityId = identity.expressionId;
+    sinkNode.typeId = identity.typeId;
+    sinkNode.terminalId = terminalIdentityId;
+  }
+  const stepsByExpression = new Map<string, TraceResult["steps"]>();
+  for (const step of trace.steps) {
+    if (!step.expressionId || step.expressionId === identity?.expressionId) continue;
+    const steps = stepsByExpression.get(step.expressionId) ?? [];
+    steps.push(step); stepsByExpression.set(step.expressionId, steps);
+  }
+  const stepByNode = new Map(trace.steps.flatMap((step) => step.graphNodeId ? [[step.graphNodeId, step] as const] : []));
+  const traceIdentities = [...stepsByExpression.entries()].flatMap(([expressionId, matchingSteps]) => {
+    const step = matchingSteps[0];
+    const evidence = identityIndex?.evidenceForId(expressionId);
+    if (!evidence) return [];
+    const upstreamIds = step.graphNodeId ? pathToRoot(step.graphNodeId, graph) : [];
+    const downstreamIds = step.graphNodeId ? pathBetween(step.graphNodeId, sinkNode.id, graph) : [];
+    evidence.upstreamPath = upstreamIds.map((id) => stepByNode.get(id)).filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+    evidence.downstreamPath = [...downstreamIds.slice(1).map((id) => stepByNode.get(id)).filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate)), { label: sinkExpression.label, kind: "jsx-sink", detail: "renders at this terminal sink", file, line: location.line }];
+    evidence.terminalSinks = [{ id: terminalIdentityId, file, line: location.line, label: sinkExpression.label }];
+    evidence.totalReach = metrics.reachableSinks;
+    evidence.defenses = distinctDefenses.map((defense) => ({ ...defense, location: { ...defense.location, file: defense.location.file ?? file } }));
+    evidence.representationSteps = distinctRepresentation;
+    evidence.unknownBoundaries = trace.longestPath.filter((candidate) => candidate.kind.includes("unknown"));
+    evidence.attachedFindingIds = [sinkId];
+    evidence.graphNodeIds = matchingSteps.flatMap((candidate) => candidate.graphNodeId ? [candidate.graphNodeId] : []);
+    evidence.boundaryIds = boundaryIdsFor([...evidence.upstreamPath, ...evidence.downstreamPath], graph);
+    for (const graphNodeId of evidence.graphNodeIds) {
+      const graphNode = graph.nodeById.get(graphNodeId);
+      if (graphNode) { graphNode.identityId = evidence.expressionId; graphNode.typeId = evidence.typeId; }
+    }
+    return [evidence];
+  });
   return {
     id: sinkId,
-    file: relativePath(root, sourceFile.fileName),
+    file,
     line: location.line,
     column: location.column,
     // Exact source span of the rendered expression, so the code map can map the
@@ -170,7 +221,32 @@ function buildSinkRecord(
     confidenceReason: confidence.reason,
     confidenceRisk: confidence.risk,
     queue: queueFor(metrics, distinctDefenses),
+    identity,
+    traceIdentities,
+    terminalIdentityId,
   };
+}
+
+function pathBetween(from: string, to: string, graph: AnalysisGraph) {
+  return breadthFirstPath(from, (id) => id === to, (id) => graph.outgoing.get(id) ?? []);
+}
+function pathToRoot(from: string, graph: AnalysisGraph) {
+  return breadthFirstPath(from, (id) => (graph.incoming.get(id) ?? []).length === 0, (id) => graph.incoming.get(id) ?? []).reverse();
+}
+function breadthFirstPath(start: string, done: (id: string) => boolean, next: (id: string) => string[]) {
+  const queue: Array<{ id: string; path: string[] }> = [{ id: start, path: [start] }]; const seen = new Set([start]);
+  while (queue.length) { const current = queue.shift()!; if (done(current.id)) return current.path; for (const id of next(current.id)) if (!seen.has(id)) { seen.add(id); queue.push({ id, path: [...current.path, id] }); } }
+  return [start];
+}
+
+const BOUNDARY_STEP_KINDS = new Set(["call", "helper-enter", "helper-return", "import", "unknown", "unknown-source"]);
+function boundaryIdsFor(steps: TraceResult["longestPath"], graph: AnalysisGraph) {
+  return [...new Set(steps.filter((step) => BOUNDARY_STEP_KINDS.has(step.kind) && step.graphNodeId).map((step) => {
+    const id = `boundary:${step.graphNodeId}`;
+    const node = graph.nodeById.get(step.graphNodeId!);
+    if (node) node.boundaryId = id;
+    return id;
+  }))];
 }
 
 function metricsFor(

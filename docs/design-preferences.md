@@ -34,7 +34,9 @@ Use this brief when designing or revising the analyzer UI. It records the prefer
 - Use subtle alternating row backgrounds to separate grouped path entries.
 - Show one sequence number per displayed source line, not one visible number for every internal trace operation.
 - Shorten repeated locations to `filename:line`; retain the full path in a tooltip or link target.
-- Label recommendations explicitly. Suppress meaningless classification values such as `uncategorized`.
+- Keep recommendations as another row in the compact Burden/Confidence/Risk detail grid. Do not promote them into a separate colored callout.
+- Put score-breakdown terms directly to the right of the score value as lightly tinted pills. Do not repeat a breakdown heading or total that the row already provides.
+- Suppress meaningless classification values such as `uncategorized`.
 
 ## Tables and inventories
 
@@ -58,7 +60,7 @@ Use this brief when designing or revising the analyzer UI. It records the prefer
 - Render code identifiers, expressions, filenames, and code-oriented secondary labels in monospace.
 - Keep explanatory prose in the interface font so code and explanation are visually distinct.
 - Prefer short, direct labels. Avoid repeating long file paths or restating the same risk, title, or expression in nearby regions.
-- Use uppercase micro-labels sparingly for structural labels such as Type, Metric, Recommendation, or Actions.
+- Use uppercase micro-labels sparingly for structural labels such as Type, Metric, or Actions.
 
 ## Color and borders
 

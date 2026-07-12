@@ -18,6 +18,10 @@ export function installPopoverController(root: Document | HTMLElement): () => vo
       event.stopPropagation();
       return;
     }
+    if (event.target.closest("[data-popover] a[href]")) {
+      closeAll();
+      return;
+    }
     if (!event.target.closest("[data-popover]")) closeAll();
   };
 

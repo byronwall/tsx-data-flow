@@ -270,9 +270,14 @@ function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChec
     }
   }
   const localFunction = context.functions.get(callee);
+  let localFunctionSymbol: TypeScript.Symbol | undefined;
+  if (ts.isIdentifier(expression.expression)) {
+    try { localFunctionSymbol = checker.getSymbolAtLocation(expression.expression); } catch { localFunctionSymbol = undefined; }
+  }
   if (
     ts.isIdentifier(expression.expression) &&
     localFunction &&
+    (!localFunctionSymbol || !context.visitedFns.has(localFunctionSymbol)) &&
     identifierResolvesTo(
       ts,
       checker,
@@ -288,8 +293,17 @@ function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChec
       traceExpression(ts, checker, graph, argument, context),
     );
     if (returnExpression) {
+      const paramBindings = new Map();
+      localFunction.parameters.forEach((parameter, index: number) => {
+        const argumentTrace = traces[index];
+        if (ts.isIdentifier(parameter.name) && argumentTrace) paramBindings.set(parameter.name.text, argumentTrace);
+      });
       traces.push(
-        traceExpression(ts, checker, graph, returnExpression, context),
+        traceExpression(ts, checker, graph, returnExpression, {
+          ...context,
+          paramBindings,
+          visitedFns: localFunctionSymbol ? new Set([...context.visitedFns, localFunctionSymbol]) : context.visitedFns,
+        }),
       );
     }
     return addOperationTrace(ts, graph, "call", expression, traces, {

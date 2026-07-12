@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "repositories": [
+    {
+      "name": "HN Offline",
+      "root": "/Users/byronwall/Projects/hn-client",
+      "targets": ["AppDataContext", "story", "comment rendering"],
+      "legitimatePath": "server/store data through AppDataContext into story rendering",
+      "suspectedComplexityPath": "repeated resource/context defaulting before TSX"
+    },
+    {
+      "name": "Logo Dodo",
+      "root": "/Users/byronwall/Projects/ai-icon-kit",
+      "targets": ["Project", "Board", "Candidate", "workbench"],
+      "legitimatePath": "stored project and board data into the logo workbench",
+      "suspectedComplexityPath": "candidate/board derivative representations across storage and UI"
+    },
+    {
+      "name": "Visual Notes",
+      "root": "/Users/byronwall/Projects/visual-notes",
+      "targets": ["Markdown", "HTML", "editor", "UMAP", "canvas"],
+      "legitimatePath": "document Markdown/HTML/editor or embeddings-to-UMAP transformation",
+      "suspectedComplexityPath": "repeated document normalization around editor boundaries"
+    },
+    {
+      "name": "Pluck",
+      "root": "/Users/byronwall/Projects/pluck-ui",
+      "targets": ["capture", "annotation inventory", "viewer"],
+      "legitimatePath": "capture detail through inventory/viewer presentation",
+      "suspectedComplexityPath": "capture fragments reconstructed across inventory view models"
+    }
+  ]
+}

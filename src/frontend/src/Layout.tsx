@@ -1,4 +1,4 @@
-import { For, Show, onCleanup, onMount } from "solid-js";
+import { For, Show, createMemo, onCleanup, onMount } from "solid-js";
 import type { JSX } from "solid-js";
 import { REPORT_VIEWS, type ReportView } from "../../api/report-views";
 import { FILE_VIEWS, labelFor } from "./view-config";
@@ -6,6 +6,7 @@ import type { FileView } from "./view-config";
 
 export function Shell(props: {
   context?: string;
+  contextActions?: () => JSX.Element;
   actions?: () => JSX.Element;
   tabs?: () => JSX.Element;
   wide?: boolean;
@@ -43,10 +44,9 @@ export function Shell(props: {
               tsx-dataflow
             </a>
             <Show when={props.context}>
-              <span class="topbar-context" title={props.context}>
-                {props.context}
-              </span>
+              {(context) => <FileContext path={context()} />}
             </Show>
+            {props.contextActions?.()}
           </div>
           <Show when={props.actions}>
             <div class="topbar-actions">{props.actions?.()}</div>
@@ -59,6 +59,11 @@ export function Shell(props: {
       </div>
     </>
   );
+}
+
+function FileContext(props: { path: string }) {
+  const parts = createMemo(() => { const separator = props.path.lastIndexOf("/"); return { directory: separator >= 0 ? props.path.slice(0, separator + 1) : "", name: separator >= 0 ? props.path.slice(separator + 1) : props.path }; });
+  return <span class="topbar-context" title={props.path}><span class="topbar-directory">{parts().directory}</span><strong class="topbar-file">{parts().name}</strong></span>;
 }
 
 export function ReportTabs(props: { active: ReportView | null }) {

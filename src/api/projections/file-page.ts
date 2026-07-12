@@ -1,14 +1,31 @@
 import path from "node:path";
-import type { AnalysisReport, RootInfo, Sink } from "../../types";
+import type { AnalysisReport, ExpressionIdentityEvidence, RootInfo, Sink } from "../../types";
 import { fanOutEntriesForFile } from "../../reports/overview-selectors";
 import { REPORT_VIEWS, reportViewLabel } from "../report-views";
 import { filePageSchema, type FilePage, type InventoryEntry, type FindingDetail } from "../contracts";
+import { buildSemanticMap, semanticAreaId } from "./semantic-map";
 
 type ResolveSource = (path: string) => string | null;
 
-export function buildFilePageDto(report: AnalysisReport, fullReport: AnalysisReport, relPath: string, source: string, resolveSource: ResolveSource): FilePage {
+export function buildFilePageDto(report: AnalysisReport, fullReport: AnalysisReport, relPath: string, source: string, resolveSource: ResolveSource, fileIdentities: ExpressionIdentityEvidence[] = []): FilePage {
+  const semanticMap = buildSemanticMap(fullReport, relPath);
+  const focusAreaId = semanticAreaId(relPath);
+  const mapAreaById = new Map(semanticMap.areas.map((area) => [area.id, area]));
+  const focusArea = mapAreaById.get(focusAreaId) ?? { id: focusAreaId, label: path.basename(relPath), path: relPath, sourceCount: 0, sinkCount: 0, findingCount: 0, worstBurden: 0, boundaryCount: 0, unknownCount: 0, landmarks: [] };
+  const connection = (edge: typeof semanticMap.edges[number], otherId: string) => {
+    const graphKinds = edge.kinds.filter((kind) => kind !== "trajectory");
+    const relationship = edge.kinds.includes("trajectory") ? graphKinds.length ? "mixed" as const : "trajectory-contributor" as const : "traced-edge" as const;
+    const crossing = semanticMap.trajectories.find((trajectory) => trajectory.areaIds.includes(focusAreaId) && trajectory.areaIds.includes(otherId));
+    const fromIndex = crossing?.areaIds.indexOf(otherId) ?? -1; const toIndex = crossing?.areaIds.indexOf(focusAreaId) ?? -1;
+    const between = crossing && fromIndex >= 0 && toIndex >= 0 ? crossing.areaIds.slice(Math.min(fromIndex, toIndex) + 1, Math.max(fromIndex, toIndex)) : [];
+    return { path: mapAreaById.get(otherId)?.path ?? otherId.replace(/^area:/, ""), label: mapAreaById.get(otherId)?.label ?? path.basename(otherId), flowCount: edge.flowCount, incompleteCount: edge.unknownCount, relationship, via: between.map((id) => mapAreaById.get(id)?.label ?? id.replace(/^area:/, "")).slice(0, 4) };
+  };
+  const incoming = semanticMap.edges.filter((edge) => edge.to === focusAreaId).map((edge) => connection(edge, edge.from));
+  const outgoing = semanticMap.edges.filter((edge) => edge.from === focusAreaId).map((edge) => connection(edge, edge.to));
+  const crossingTrajectories = semanticMap.trajectories.filter((trajectory) => trajectory.areaIds.includes(focusAreaId));
   const sinks = report.rankings.all.filter((sink) => sink.file === relPath);
   const findingsById: Record<string, FindingDetail> = {};
+  const expressionsById: Record<string, FindingDetail["identity"]> = {};
   const inventory: InventoryEntry[] = [];
   for (const sink of sinks) {
     findingsById[sink.id] = findingDetail(sink, report, source, resolveSource);
@@ -50,6 +67,20 @@ export function buildFilePageDto(report: AnalysisReport, fullReport: AnalysisRep
   }
   inventory.sort((left, right) => right.sort.score - left.sort.score || left.sort.kindOrder - right.sort.kindOrder || left.sort.line - right.sort.line || lexical(left.id, right.id));
 
+  for (const evidence of fileIdentities) {
+    if (!evidence.symbolId || evidence.location.file !== relPath) continue;
+    expressionsById[evidence.expressionId] = identityEvidenceFor(evidence);
+  }
+  for (const sink of fullReport.rankings.all) {
+    for (const evidence of sink.traceIdentities ?? []) {
+      if (!evidence.symbolId || evidence.location.file !== relPath) continue;
+      const projected = identityEvidence(sink, evidence);
+      expressionsById[evidence.expressionId] = expressionsById[evidence.expressionId]
+        ? mergeExpressionEvidence(expressionsById[evidence.expressionId], projected)
+        : projected;
+    }
+  }
+
   const annotations = new Map<number, FilePage["file"]["lines"][number]["annotations"]>();
   const add = (line: number, annotation: FilePage["file"]["lines"][number]["annotations"][number]) => {
     const list = annotations.get(line) ?? []; list.push(annotation); annotations.set(line, list);
@@ -62,13 +93,22 @@ export function buildFilePageDto(report: AnalysisReport, fullReport: AnalysisRep
       burden: sink.scores.burden,
     });
   }
+  for (const expression of selectableExpressions(Object.values(expressionsById))) {
+    for (let line = expression.focusSpan.startLine; line <= expression.focusSpan.endLine; line += 1) add(line, {
+      kind: "expression", entityId: expression.expressionId,
+      startColumn: line === expression.focusSpan.startLine ? expression.focusSpan.startColumn : null,
+      endColumn: line === expression.focusSpan.endLine ? expression.focusSpan.endColumn : null,
+      burden: null,
+    });
+  }
   for (const item of inventory.filter((entry) => entry.kind !== "finding" && entry.line !== null)) add(item.line!, {
     kind: item.kind === "unknown-edge" ? "unknown-edge" : item.kind,
     entityId: item.id, startColumn: null, endColumn: null, burden: item.sort.score,
   });
   const lines = source.split("\n").map((text, index) => ({ number: index + 1, text, annotations: annotations.get(index + 1) ?? [] }));
   return filePageSchema.parse({
-    file: { path: relPath, language: languageOf(relPath), lines }, inventory, findingsById,
+    file: { path: relPath, language: languageOf(relPath), lines }, inventory, findingsById, expressionsById,
+    worldContext: { area: focusArea, incoming, outgoing, trajectories: crossingTrajectories, totals: { repositoryAreas: semanticMap.totals.areas, connectedAreas: new Set([...incoming.map((item) => item.path), ...outgoing.map((item) => item.path)]).size, crossingTrajectories: crossingTrajectories.length } },
     reportAvailability: REPORT_VIEWS.filter((view) => view !== "overview").map((view) => ({ view, label: reportViewLabel(view) })),
     debug: { scopePath: relPath, findingCount: sinks.length },
   });
@@ -84,6 +124,8 @@ function findingDetail(sink: Sink, report: AnalysisReport, source: string, resol
     context: { component: sink.renderContext.component ?? null, tag: sink.renderContext.tag ?? null, attribute: sink.renderContext.attribute ?? null },
     burden: sink.scores?.burden ?? 0, confidence: sink.confidence, confidenceReason: sink.confidenceReason,
     confidenceRisk: sink.confidenceRisk, queue: sink.queue, burdenBreakdown: sink.scores?.burdenBreakdown ?? null,
+    identity: identityEvidence(sink),
+    participants: findingParticipants(sink),
     roots,
     path: sink.representativeSteps.map((step) => ({ label: step.label, kind: step.kind, detail: step.detail,
       location: step.file && step.line ? point(step.file, step.line) : null, snippet: sourceLine(step.file, step.line) })),
@@ -98,6 +140,80 @@ function findingDetail(sink: Sink, report: AnalysisReport, source: string, resol
     graph: findingGraph(sink),
   };
   return { ...detail, debugText: debugText(detail, report.meta.root, source) };
+}
+
+function findingParticipants(sink: Sink): FindingDetail["participants"] {
+  const byFocus = new Map<string, NonNullable<Sink["traceIdentities"]>[number]>();
+  for (const evidence of sink.traceIdentities ?? []) {
+    if (!evidence.symbolId || evidence.location.file !== sink.file || !spanContains(sink.span, evidence.focusSpan)) continue;
+    const key = spanKey(evidence.focusSpan);
+    const current = byFocus.get(key);
+    if (!current || spanSize(evidence.span) > spanSize(current.span)) byFocus.set(key, evidence);
+  }
+  return [...byFocus.values()].sort((left, right) => left.focusSpan.startLine - right.focusSpan.startLine || left.focusSpan.startColumn - right.focusSpan.startColumn).map((evidence) => ({
+    expressionId: evidence.expressionId, expression: evidence.expression, focusText: evidence.focusText, symbolName: evidence.symbolName, typeText: evidence.typeText, role: expressionRole(evidence.expression, evidence.focusText, evidence.typeText),
+  }));
+}
+
+function selectableExpressions(expressions: FindingDetail["identity"][]) {
+  const byFocus = new Map<string, FindingDetail["identity"]>();
+  for (const expression of expressions) {
+    if (!expression.symbolId) continue;
+    const key = spanKey(expression.focusSpan); const current = byFocus.get(key);
+    if (!current || Number(expression.traceComplete) > Number(current.traceComplete) || (expression.traceComplete === current.traceComplete && spanSize(expression.span) > spanSize(current.span))) byFocus.set(key, expression);
+  }
+  return [...byFocus.values()];
+}
+function spanContains(outer: Sink["span"], inner: Sink["span"]) { return (inner.startLine > outer.startLine || inner.startLine === outer.startLine && inner.startColumn >= outer.startColumn) && (inner.endLine < outer.endLine || inner.endLine === outer.endLine && inner.endColumn <= outer.endColumn); }
+function spanKey(span: Sink["span"]) { return `${span.startLine}:${span.startColumn}:${span.endLine}:${span.endColumn}`; }
+function spanSize(span: Sink["span"]) { return (span.endLine - span.startLine) * 10000 + span.endColumn - span.startColumn; }
+function expressionRole(expression: string, focus: string, type: string): FindingDetail["participants"][number]["role"] { if (expression === focus && /^Accessor</.test(type)) return "accessor"; if (expression === focus) return "symbol"; if (expression.endsWith(focus)) return "property"; if (expression.includes("(")) return "call"; return "value"; }
+
+function identityEvidence(sink: Sink, identity = sink.identity): FindingDetail["identity"] {
+  if (!identity) return {
+    expressionId: `expression:${sink.file}:${sink.span.startLine}:${sink.span.startColumn}`,
+    expression: sink.expression, location: { path: sink.file, line: sink.line, column: sink.column }, span: sink.span, focusText: sink.expression, focusSpan: sink.span,
+    symbolId: null, symbolName: null, typeId: `type:unresolved:${sink.file}:${sink.line}:${sink.column}`, typeText: sink.type, typeDefinition: null, definition: null, usages: [], traceComplete: false,
+    traceCompletenessReason: "Identity evidence was not produced for this expression.", evidenceLevel: "trace-incomplete",
+    upstreamPath: [], downstreamPath: [], terminalSinks: [], totalReach: 0, defenses: [], representationSteps: [], unknownBoundaries: [], attachedFindingIds: [], graphNodeIds: [], boundaryIds: [],
+  };
+  return identityEvidenceFor(identity, sink.file);
+}
+
+function identityEvidenceFor(identity: ExpressionIdentityEvidence, fallbackFile?: string): FindingDetail["identity"] {
+  const point = (location: NonNullable<typeof identity.definition>) => ({ path: location.file, line: location.line, column: location.column });
+  const pathStep = (step: typeof identity.upstreamPath[number]) => ({ label: step.label, kind: step.kind, detail: step.detail, location: step.file && step.line ? { path: step.file, line: step.line } : null });
+  return {
+    expressionId: identity.expressionId, expression: identity.expression, location: point(identity.location), span: identity.span, focusText: identity.focusText, focusSpan: identity.focusSpan,
+    symbolId: identity.symbolId, symbolName: identity.symbolName, typeId: identity.typeId, typeText: identity.typeText,
+    typeDefinition: identity.typeDefinition ? point(identity.typeDefinition) : null,
+    externalOrigin: identity.externalOrigin ?? null,
+    definition: identity.definition ? point(identity.definition) : null, usages: identity.usages.map(point),
+    traceComplete: identity.traceComplete, traceCompletenessReason: identity.traceCompletenessReason, evidenceLevel: identity.evidenceLevel,
+    upstreamPath: identity.upstreamPath.map(pathStep), downstreamPath: identity.downstreamPath.map(pathStep),
+    terminalSinks: identity.terminalSinks.map((sink) => ({ id: sink.id, path: sink.file, line: sink.line, label: sink.label })), totalReach: identity.totalReach,
+    defenses: identity.defenses.map((defense) => ({ expression: defense.expression, verdict: defense.verdict, origin: defense.origin, type: defense.type ?? null, location: point({ file: defense.location.file ?? fallbackFile ?? identity.location.file, line: defense.location.line, column: defense.location.column }) })),
+    representationSteps: identity.representationSteps.map((step) => ({ kind: step.kind, label: step.label, location: { path: step.file, line: step.line } })),
+    unknownBoundaries: identity.unknownBoundaries.map(pathStep), attachedFindingIds: identity.attachedFindingIds, graphNodeIds: identity.graphNodeIds, boundaryIds: identity.boundaryIds,
+  };
+}
+
+function mergeExpressionEvidence(left: FindingDetail["identity"], right: FindingDetail["identity"]): FindingDetail["identity"] {
+  const uniqueBy = <T>(items: T[], key: (item: T) => string) => [...new Map(items.map((item) => [key(item), item])).values()];
+  const terminals = uniqueBy([...left.terminalSinks, ...right.terminalSinks], (item) => item.id);
+  return {
+    ...left,
+    upstreamPath: right.upstreamPath.length > left.upstreamPath.length ? right.upstreamPath : left.upstreamPath,
+    downstreamPath: right.downstreamPath.length > left.downstreamPath.length ? right.downstreamPath : left.downstreamPath,
+    terminalSinks: terminals,
+    totalReach: Math.max(left.totalReach, right.totalReach, terminals.length),
+    defenses: uniqueBy([...left.defenses, ...right.defenses], (item) => `${item.location.path}:${item.location.line}:${item.expression}`),
+    representationSteps: uniqueBy([...left.representationSteps, ...right.representationSteps], (item) => `${item.location.path}:${item.location.line}:${item.kind}:${item.label}`),
+    unknownBoundaries: uniqueBy([...left.unknownBoundaries, ...right.unknownBoundaries], (item) => `${item.location?.path}:${item.location?.line}:${item.kind}:${item.label}`),
+    attachedFindingIds: [...new Set([...left.attachedFindingIds, ...right.attachedFindingIds])],
+    graphNodeIds: [...new Set([...left.graphNodeIds, ...right.graphNodeIds])],
+    boundaryIds: [...new Set([...left.boundaryIds, ...right.boundaryIds])],
+  };
 }
 
 function debugText(detail: Omit<FindingDetail, "debugText">, root: string, source: string) {

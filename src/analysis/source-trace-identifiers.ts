@@ -34,7 +34,7 @@ export function traceIdentifier(ts: typeof TypeScript, checker: TypeScript.TypeC
   // Inside a helper body reached by cross-file descent, a parameter reference
   // resolves to the caller's argument trace, stitching the lineage across the
   // boundary. Checked first so it wins over the callee file's own bindings.
-  if (context.paramBindings && context.paramBindings.has(name)) {
+  if (context.paramBindings && context.paramBindings.has(name) && isParameterReference(ts, checker, expression)) {
     return context.paramBindings.get(name)!;
   }
   const accessor = context.accessors.get(name);
@@ -44,7 +44,7 @@ export function traceIdentifier(ts: typeof TypeScript, checker: TypeScript.TypeC
   )
     return traceAccessor(ts, checker, graph, expression, accessor, context, traceExpression);
 
-  const declaration = context.variables.get(name);
+  const declaration = resolvedVariableDeclaration(ts, checker, expression, context.variables.get(name));
   if (
     declaration?.initializer &&
     declaration.initializer !== expression &&
@@ -181,7 +181,11 @@ export function traceIdentifier(ts: typeof TypeScript, checker: TypeScript.TypeC
     }
   }
 
-  const isParameter = context.parameters.has(name);
+  // FileTraceContext keeps a fast name index, but parameter names are not
+  // unique across functions. Confirm the actual symbol here so a local
+  // `const color = ...` is never treated as some other function's `color`
+  // parameter and promoted to a bogus `color.hue` prop root.
+  const isParameter = isParameterReference(ts, checker, expression);
   const unknown = !isParameter && !declaration;
   // Track the root kind separately from the graph node kind: a bare parameter
   // object (e.g. `props`) is too coarse to be one fan-out "source", so we tag
@@ -199,6 +203,25 @@ export function traceIdentifier(ts: typeof TypeScript, checker: TypeScript.TypeC
     unknown,
     rootKind,
   );
+}
+
+function resolvedVariableDeclaration(ts: typeof TypeScript, checker: TypeScript.TypeChecker, expression: TypeScript.Identifier, indexed: TypeScript.VariableDeclaration | undefined) {
+  if (indexed && identifierResolvesTo(ts, checker, expression, indexed)) return indexed;
+  try {
+    const declaration = checker.getSymbolAtLocation(expression)?.valueDeclaration;
+    return declaration && ts.isVariableDeclaration(declaration) ? declaration : indexed;
+  } catch {
+    return indexed;
+  }
+}
+
+function isParameterReference(ts: typeof TypeScript, checker: TypeScript.TypeChecker, expression: TypeScript.Identifier) {
+  try {
+    const symbol = checker.getSymbolAtLocation(expression);
+    return Boolean(symbol?.declarations?.some((declaration: TypeScript.Declaration) => ts.isParameter(declaration)));
+  } catch {
+    return false;
+  }
 }
 
 export function traceAccessor(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Identifier, accessor: AccessorRecord, context: TraceContext, traceExpression: TraceExpressionFn) {

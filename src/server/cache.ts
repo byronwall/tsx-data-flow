@@ -2,8 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { createAnalyzer } from "../core";
 import type { AnalysisReport, AnalyzerArgs } from "../types";
+import type { AnalyzerProgressReporter } from "../analysis/progress";
 
-export function createAnalysisCache(args: AnalyzerArgs) {
+export function createAnalysisCache(args: AnalyzerArgs, reportProgress?: AnalyzerProgressReporter) {
   let analyzer: ReturnType<typeof createAnalyzer> | null = null;
   let full: AnalysisReport | null = null;
   let review: AnalysisReport | null = null;
@@ -13,7 +14,7 @@ export function createAnalysisCache(args: AnalyzerArgs) {
 
   const ensureBuilt = () => {
     if (!analyzer) {
-      analyzer = createAnalyzer({ ...args, file: [], scope: null });
+      analyzer = createAnalyzer({ ...args, file: [], scope: null }, reportProgress);
       full = analyzer.report();
       review = args.file.length || args.scope ? analyzer.report({ file: args.file, scope: args.scope }) : full;
       generation += 1;
@@ -46,6 +47,11 @@ export function createAnalysisCache(args: AnalyzerArgs) {
     source.set(relPath, text);
     return text;
   };
+
+  const identitiesForFile = (relPath: string) => {
+    ensureBuilt();
+    return analyzer!.identitiesForFile(relPath);
+  };
   const refresh = () => {
     analyzer = null;
     full = null;
@@ -54,7 +60,7 @@ export function createAnalysisCache(args: AnalyzerArgs) {
     source.clear();
     return ensureBuilt();
   };
-  return { ensureBuilt, reviewReport, reportForFile, sourceFor, refresh, generation: () => generation };
+  return { ensureBuilt, reviewReport, reportForFile, sourceFor, identitiesForFile, refresh, generation: () => generation };
 }
 
 export type AnalysisCache = ReturnType<typeof createAnalysisCache>;

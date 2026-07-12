@@ -2,16 +2,20 @@ import { For, Show } from "solid-js";
 import type { Workspace } from "../../../api/contracts";
 import { emptyEntryCounts, overviewHref, type EntryCounts, type OverviewRow, type OverviewSort, type OverviewState } from "../overview-model";
 import { TYPE_COLUMNS } from "./OverviewControls";
+import { CleanupQueue } from "./CleanupQueue";
+import { WorldMap } from "./WorldMap";
 
 export const PAGE_SIZE = 25;
 const SORT_HEADING: Record<OverviewSort, string> = { burden: "Files by burden", findings: "Files by finding count", depth: "Files by path depth", file: "Files by path" };
-export function OverviewResults(props: { report: Workspace; state: OverviewState; rows: OverviewRow[]; pageRows: OverviewRow[]; typeCounts: Map<string, EntryCounts> }) {
+export function OverviewResults(props: { report: Workspace; state: OverviewState; rows: OverviewRow[]; pageRows: OverviewRow[]; typeCounts: Map<string, EntryCounts>; selectedAreaId?: string | null }) {
   const totalPages = () => Math.max(1, Math.ceil(props.rows.length / PAGE_SIZE));
   const rangeStart = () => props.rows.length ? (props.state.page - 1) * PAGE_SIZE + 1 : 0;
   const rangeEnd = () => Math.min(props.rows.length, props.state.page * PAGE_SIZE);
   return <>
     <SummaryCards summary={props.report.summary} />
     <Show when={props.report.comparison}>{(comparison) => <section class="comparison-summary" aria-label="Baseline comparison"><strong>Compared with baseline</strong><span>{comparison().worsened} worsened</span><span>{comparison().improved} improved</span><span>{comparison().resolved.length} resolved</span><For each={Object.entries(comparison().metricDeltas)}>{([metric, delta]) => <span classList={{ regression: delta > 0, improvement: delta < 0 }}>{metric} {delta > 0 ? `+${delta}` : delta}</span>}</For><Show when={comparison().newTop}>{(finding) => <a href={`/file?path=${encodeURIComponent(finding().path)}#L${finding().line}`}>New top: {finding().label}</a>}</Show></section>}</Show>
+    <WorldMap map={props.report.semanticMap} initialSelectedAreaId={props.selectedAreaId} />
+    <CleanupQueue cleanup={props.report.semanticMap.cleanup} total={props.report.semanticMap.totals.cleanupOpportunities} />
     <h2>{SORT_HEADING[props.state.sort]}</h2>
     <Show when={props.report.concentration.fileCount > 0}><p class="meta">Top {Math.min(5, props.report.concentration.fileCount)} file(s) hold {Math.round(props.report.concentration.top5 * 100)}% of ranked burden · {props.report.concentration.fileCount} file(s) with ≥1 finding, {props.report.concentration.hot4Plus} with ≥4.</p></Show>
     <p class="meta">{props.rows.length ? `Showing ${rangeStart()}-${rangeEnd()} of ${props.rows.length} file${props.rows.length === 1 ? "" : "s"}` : "No matching files"}</p>

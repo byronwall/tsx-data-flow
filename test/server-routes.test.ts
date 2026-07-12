@@ -31,6 +31,11 @@ describe("createServer", () => {
 
     const workspace = workspaceResponseSchema.parse(JSON.parse((await call(handler, "/api/workspace")).body));
     expect(workspace.data.files.some((row) => row.path === "src/Card.tsx")).toBe(true);
+    expect(workspace.data.semanticMap.areas.some((area) => area.path === "src/Card.tsx")).toBe(true);
+    expect(workspace.data.semanticMap.trajectories.some((trajectory) => trajectory.terminal.path === "src/Card.tsx")).toBe(true);
+    expect(workspace.data.semanticMap.cleanup.length).toBeGreaterThan(0);
+    expect(workspace.data.semanticMap.areas.length).toBeLessThanOrEqual(workspace.data.semanticMap.caps.areas);
+    expect(workspace.data.semanticMap.edges.length).toBeLessThanOrEqual(workspace.data.semanticMap.caps.edges);
     const filePayload = filePageResponseSchema.parse(JSON.parse((await call(handler, "/api/file?path=src%2FCard.tsx")).body));
     expect(filePayload.data.file.lines.some((line) => line.text.includes("export function Card"))).toBe(true);
     expect(filePayload.data.inventory.some((entry) => entry.kind === "finding")).toBe(true);
@@ -246,6 +251,103 @@ describe("createServer", () => {
     const payload = filePageResponseSchema.parse(JSON.parse((await call(handler, "/api/file?path=src%2FForky.tsx")).body));
     expect(payload.data.inventory.some((entry) => entry.kind === "finding")).toBe(true);
     expect(payload.data.inventory.some((entry) => entry.kind === "fork")).toBe(true);
+    const finding = Object.values(payload.data.findingsById)[0];
+    expect(finding.identity.expressionId).toContain("src/Forky.tsx");
+    expect(finding.identity.traceCompletenessReason.length).toBeGreaterThan(0);
+    expect(finding.identity.upstreamPath.length).toBeGreaterThan(0);
+    expect(finding.identity.terminalSinks).toEqual([expect.objectContaining({ id: expect.stringMatching(/^terminal:/), path: "src/Forky.tsx" })]);
+    expect(finding.identity.totalReach).toBeGreaterThanOrEqual(1);
+    const expressions = Object.values(payload.data.expressionsById);
+    expect(expressions.length).toBeGreaterThan(0);
+    expect(expressions.some((expression) => expression.attachedFindingIds.includes(finding.id))).toBe(true);
+    expect(expressions.every((expression) => expression.span.startColumn > 0 && expression.expressionId.includes("expression:"))).toBe(true);
+    expect(expressions.some((expression) => expression.boundaryIds.length > 0)).toBe(true);
+    expect(expressions.every((expression) => expression.typeId.startsWith("type:") && expression.typeText.length > 0)).toBe(true);
+  });
+
+  it("separates a sink predicate from the selectable values inside it", async () => {
+    const project = await createFixtureProject({
+      "src/model.ts": `
+        export type SectionView = { sampleCount: number };
+        export const makeSection = (): SectionView => ({ sampleCount: 3 });
+      `,
+      "src/Page.tsx": `
+        import { makeSection } from "./model";
+        declare function Show(props: { when: boolean; children: unknown }): unknown;
+        export function Page() {
+          const section = () => makeSection();
+          return <Show when={section().sampleCount > 0}><span>samples</span></Show>;
+        }
+      `,
+    });
+    const { handler } = createServer(project.args);
+    const payload = filePageResponseSchema.parse(JSON.parse((await call(handler, "/api/file?path=src%2FPage.tsx")).body));
+    const finding = Object.values(payload.data.findingsById).find((item) => item.expression === "section().sampleCount > 0")!;
+    expect(finding.type).toBe("boolean");
+    expect(finding.participants).toEqual(expect.arrayContaining([
+      expect.objectContaining({ focusText: "sampleCount", expression: "section().sampleCount", typeText: "number", role: "property" }),
+      expect.objectContaining({ focusText: "section", expression: "section()", typeText: "SectionView", role: "call" }),
+    ]));
+    const sampleCount = Object.values(payload.data.expressionsById).find((item) => item.focusText === "sampleCount" && item.expression === "section().sampleCount")!;
+    expect(sampleCount.symbolName).toBe("sampleCount");
+    expect(sampleCount.typeText).toBe("number");
+    expect(sampleCount.definition?.path).toBe("src/model.ts");
+    const annotation = payload.data.file.lines.flatMap((line) => line.annotations).find((item) => item.entityId === sampleCount.expressionId);
+    expect(annotation?.kind).toBe("expression");
+    expect(annotation?.startColumn).toBe(sampleCount.focusSpan.startColumn);
+    expect(annotation?.endColumn).toBe(sampleCount.focusSpan.endColumn);
+  });
+
+  it("omits ambient platform identities from selectable expressions", async () => {
+    const project = await createFixtureProject({
+      "src/Page.tsx": `export function Page(props: { value: number }) { return <span>{Math.round(props.value)}</span>; }`,
+    });
+    const { handler } = createServer(project.args);
+    const payload = filePageResponseSchema.parse(JSON.parse((await call(handler, "/api/file?path=src%2FPage.tsx")).body));
+    const expressions = Object.values(payload.data.expressionsById);
+    expect(expressions.some((expression) => expression.symbolName === "Math" || expression.symbolName === "round")).toBe(false);
+    expect(expressions.some((expression) => expression.symbolName === "value")).toBe(true);
+    expect(payload.data.file.lines.flatMap((line) => line.annotations).filter((annotation) => annotation.kind === "expression").every((annotation) => {
+      const expression = payload.data.expressionsById[annotation.entityId];
+      return expression?.symbolName !== "Math" && expression?.symbolName !== "round";
+    })).toBe(true);
+  });
+
+  it("annotates project-local references outside render traces", async () => {
+    const project = await createFixtureProject({
+      "src/Page.tsx": `
+        type Filters = { labels: string[] };
+        const filters = (): Filters => ({ labels: [] });
+        const setPreviewLimit = (value: { width: number }) => value;
+        const updateLabels = (labels: string[]) => labels;
+        export function Page() {
+          setPreviewLimit({ width: 1 });
+          const selected = new Set(filters().labels);
+          updateLabels([...selected]);
+          return <span>ready</span>;
+        }
+      `,
+    });
+    const { handler } = createServer(project.args);
+    const payload = filePageResponseSchema.parse(JSON.parse((await call(handler, "/api/file?path=src%2FPage.tsx")).body));
+    const references = Object.values(payload.data.expressionsById).filter((expression) =>
+      ["setPreviewLimit", "filters", "updateLabels"].includes(expression.focusText) &&
+      expression.location.line >= 7,
+    );
+
+    expect(references.map((expression) => expression.focusText)).toEqual([
+      "setPreviewLimit",
+      "filters",
+      "updateLabels",
+    ]);
+    for (const expression of references) {
+      expect(expression.definition?.path).toBe("src/Page.tsx");
+      expect(expression.terminalSinks).toEqual([]);
+      expect(payload.data.file.lines.flatMap((line) => line.annotations)).toContainEqual(expect.objectContaining({
+        kind: "expression",
+        entityId: expression.expressionId,
+      }));
+    }
   });
 
   it("renders clickable sort headers with an active caret and a sort-aware heading", async () => {

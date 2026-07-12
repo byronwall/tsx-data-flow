@@ -16,6 +16,8 @@ import {
   modalValue,
 } from "./reports/overview-selectors";
 import { buildProgram } from "./project/typescript";
+import { buildIdentityIndex } from "./analysis/identity";
+import type { AnalyzerProgressReporter } from "./analysis/progress";
 
 export async function analyzeProject(args: AnalyzerArgs) {
   const { ts, modulePath, program, routing } = buildProgram(args);
@@ -27,14 +29,19 @@ export async function analyzeProject(args: AnalyzerArgs) {
 // time at startup and re-projects file-focused reports on demand (each `report()`
 // call is a fresh graph trace, but skips program construction). `overrides` is
 // merged onto the base args — typically `{ file: [path] }` or `{ scope }`.
-export function createAnalyzer(args: AnalyzerArgs) {
-  const { ts, modulePath, program, routing } = buildProgram(args);
+export function createAnalyzer(args: AnalyzerArgs, reportProgress?: AnalyzerProgressReporter) {
+  const { ts, modulePath, program, routing } = buildProgram(args, reportProgress);
+  // The identity index scans every owned source file. Keep it generation-local
+  // and reuse it for file/report projections instead of rebuilding the same
+  // workspace-wide symbol map on every navigation.
+  const identityIndex = buildIdentityIndex(ts, routing?.programs ?? [program], args.root, reportProgress);
   return {
     ts,
     program,
     args,
+    identitiesForFile: (file: string) => identityIndex.evidenceForFile(file),
     report: (overrides: Partial<AnalyzerArgs> = {}) =>
-      buildReport(ts, program, { ...args, ...overrides }, modulePath, routing),
+      buildReport(ts, program, { ...args, ...overrides }, modulePath, routing, identityIndex, reportProgress),
   };
 }
 

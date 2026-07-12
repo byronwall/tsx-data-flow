@@ -86,6 +86,13 @@ describe("JSON report projection", () => {
       selectViewPayload(report, { view: "fan-out", maxItems: 1 }).packGroups,
     ).toBeUndefined();
   });
+
+  it("keeps per-file trace identities out of bounded CLI sink rows", () => {
+    const report = baseReport({ rankings: { all: [{ id: "sink-1", traceIdentities: [{ expressionId: "large" }] }] } });
+    const sink = selectViewPayload(report, { view: "findings", maxItems: 1 }).sinks[0];
+    expect(sink).toEqual({ id: "sink-1", traceIdentityCount: 1 });
+    expect("traceIdentities" in sink).toBe(false);
+  });
 });
 
 function baseReport(overrides = {}) {

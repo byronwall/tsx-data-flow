@@ -2,9 +2,11 @@ import { Show, createMemo, createResource, createSignal } from "solid-js";
 import { fetchFilePage, fetchReport, refreshFailureMessage, refreshWorkspace } from "./api";
 import { CodeMap } from "./CodeMap";
 import { FileTabs, Shell } from "./Layout";
+import { LoadingStatus } from "./LoadingStatus";
 import { FILE_VIEWS, labelFor } from "./view-config";
 import type { FileView } from "./view-config";
 import { NativeReport } from "./ReportPage";
+import { FileWorldContext } from "./code-map/FileWorldContext";
 import type { Navigate } from "./router";
 
 export function FilePage(props: { location: URL; navigate: Navigate }) {
@@ -43,6 +45,7 @@ export function FilePage(props: { location: URL; navigate: Navigate }) {
   return (
     <Shell
       context={relPath()}
+      contextActions={() => <Show when={fileData()?.data.worldContext}>{(context) => <FileWorldContext context={context()} />}</Show>}
       actions={() =>
         <>
           <a
@@ -65,7 +68,7 @@ export function FilePage(props: { location: URL; navigate: Navigate }) {
         >
         <Show
           when={!fileData.loading}
-          fallback={<p class="meta">Loading file...</p>}
+          fallback={<LoadingStatus subject="file analysis" operation="file" />}
         >
           <Show
             when={activeView()}
@@ -75,7 +78,7 @@ export function FilePage(props: { location: URL; navigate: Navigate }) {
                   location={props.location}
                   data={fileData()!.data}
                   navigate={props.navigate}
-                  requestedId={props.location.searchParams.get("finding")}
+                  requestedId={props.location.searchParams.get("expression") ?? props.location.searchParams.get("finding")}
                 />
               </>
             }
@@ -83,7 +86,7 @@ export function FilePage(props: { location: URL; navigate: Navigate }) {
             <h2>{labelFor(activeView())}</h2>
             <Show
               when={!structuredReport.loading}
-              fallback={<p class="meta">Loading report...</p>}
+              fallback={<LoadingStatus subject="report" operation="report" />}
             >
               <Show when={structuredReport()?.data} fallback={<p class="meta">No report data.</p>}>
                 {(data) => <NativeReport data={data()} location={props.location} navigate={props.navigate} />}

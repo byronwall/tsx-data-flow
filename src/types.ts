@@ -1,7 +1,39 @@
 import type * as TypeScript from "typescript";
 import type { buildReport } from "./analysis/report-builder";
+import type { IdentityIndex } from "./analysis/identity";
 export interface SourceLocation { line: number; column: number; file?: string }
 export interface SourceSpan { startLine: number; startColumn: number; endLine: number; endColumn: number }
+export type EvidenceLevel = "proven-unnecessary" | "suspicious-transformation" | "trace-incomplete" | "fact";
+export interface EvidenceLocation extends SourceLocation { file: string }
+export interface ExpressionIdentityEvidence {
+  expressionId: string;
+  expression: string;
+  location: EvidenceLocation;
+  span: SourceSpan;
+  focusText: string;
+  focusSpan: SourceSpan;
+  symbolId: string | null;
+  symbolName: string | null;
+  typeId: string;
+  typeText: string;
+  typeDefinition: EvidenceLocation | null;
+  externalOrigin?: { module: string | null; package: string; declarationFile: string | null } | null;
+  definition: EvidenceLocation | null;
+  usages: EvidenceLocation[];
+  traceComplete: boolean;
+  traceCompletenessReason: string;
+  evidenceLevel: EvidenceLevel;
+  upstreamPath: TraceStep[];
+  downstreamPath: TraceStep[];
+  terminalSinks: Array<{ id: string; file: string; line: number; label: string }>;
+  totalReach: number;
+  defenses: DefenseRecord[];
+  representationSteps: RepresentationStep[];
+  unknownBoundaries: TraceStep[];
+  attachedFindingIds: string[];
+  graphNodeIds: string[];
+  boundaryIds: string[];
+}
 
 export interface AnalyzerArgs {
   root: string;
@@ -41,6 +73,10 @@ export interface GraphNode {
   file?: string;
   location?: SourceLocation | null;
   type?: string;
+  identityId?: string;
+  typeId?: string;
+  boundaryId?: string;
+  terminalId?: string;
 }
 export interface GraphEdge {
   id: string;
@@ -56,6 +92,9 @@ export interface AnalysisGraph {
   nextNodeId: number;
   nextEdgeId: number;
   root: string;
+  nodeById: Map<string, GraphNode>;
+  outgoing: Map<string, string[]>;
+  incoming: Map<string, string[]>;
 }
 export interface ReportGraph {
   nodes: GraphNode[];
@@ -68,7 +107,7 @@ export interface ProgramRouting {
 }
 
 export interface RootInfo { label: string; kind: string; def?: { file: string; line: number } }
-export interface TraceStep { label: string; kind: string; detail: string | null; file: string | null; line: number | null }
+export interface TraceStep { label: string; kind: string; detail: string | null; file: string | null; line: number | null; expressionId?: string; span?: SourceSpan; graphNodeId?: string }
 export interface DefenseRecord {
   key?: string;
   expression: string;
@@ -89,6 +128,7 @@ export interface TraceResult {
   defenses: DefenseRecord[];
   representationSteps: RepresentationStep[];
   longestPath: TraceStep[];
+  steps: TraceStep[];
   packs: Array<{ key: string; label: string }>;
   unknown?: boolean;
   headText: string;
@@ -121,6 +161,7 @@ export interface CrossFileState {
   catalog: Map<TypeScript.Symbol, CatalogFunction | null>;
   reached: Set<TypeScript.Symbol>;
   budget: number;
+  identityIndex?: IdentityIndex;
 }
 export interface TraceContext extends FileTraceContext {
   sourceFile: TypeScript.SourceFile;
@@ -161,6 +202,9 @@ export interface Sink {
   family?: string; tier?: string; packVerdicts?: string[];
   reachedVia?: Array<{ source: string; total?: number; sinks: ReachedSink[] }>;
   background?: { label: string; reason: string; penalty: number } | null;
+  identity?: ExpressionIdentityEvidence;
+  traceIdentities?: ExpressionIdentityEvidence[];
+  terminalIdentityId?: string;
   unit?: WorkUnitDetails;
   [key: string]: unknown;
 }

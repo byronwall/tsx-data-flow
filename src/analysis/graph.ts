@@ -1,13 +1,14 @@
 import type * as TypeScript from "typescript";
 import type { AnalysisGraph, GraphNode } from "../types";
 export function createGraph(root: string = process.cwd()): AnalysisGraph {
-  return { nodes: [], edges: [], nextNodeId: 1, nextEdgeId: 1, root };
+  return { nodes: [], edges: [], nextNodeId: 1, nextEdgeId: 1, root, nodeById: new Map(), outgoing: new Map(), incoming: new Map() };
 }
 
 export function addNode(graph: AnalysisGraph, node: Omit<GraphNode, "id">) {
   const record = { id: `n${graph.nextNodeId}`, ...node };
   graph.nextNodeId += 1;
   graph.nodes.push(record);
+  graph.nodeById.set(record.id, record);
   return record;
 }
 
@@ -23,6 +24,8 @@ export function addEdge(graph: AnalysisGraph, from: string, to: string, kind: st
   };
   graph.nextEdgeId += 1;
   graph.edges.push(record);
+  const outgoing = graph.outgoing.get(from) ?? []; outgoing.push(to); graph.outgoing.set(from, outgoing);
+  const incoming = graph.incoming.get(to) ?? []; incoming.push(from); graph.incoming.set(to, incoming);
   return record;
 }
 

@@ -6,7 +6,7 @@ export function selectViewPayload(report: AnalysisReport, args: AnalyzerArgs, ov
     generatedAt: report.generatedAt,
     summary: report.summary,
     view: args.view,
-    sinks: report.rankings.all.slice(0, args.maxItems),
+    sinks: report.rankings.all.slice(0, args.maxItems).map(compactSink),
     contextRelay:
       args.view === "context-relay"
         ? report.contextRelay.slice(0, args.maxItems)
@@ -34,6 +34,11 @@ export function selectViewPayload(report: AnalysisReport, args: AnalyzerArgs, ov
     graph: boundedGraph(report.graph, args.maxItems),
     baseline: report.baseline,
   };
+}
+
+function compactSink(sink: Sink) {
+  const { traceIdentities, ...projected } = sink;
+  return { ...projected, traceIdentityCount: traceIdentities?.length ?? 0 };
 }
 
 export function boundedGraph(graph: ReportGraph, maxItems: number) {

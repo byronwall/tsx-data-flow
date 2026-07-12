@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { shouldAnalyzeFile, walkFiles } from "./files";
 import { resolveProjectConfigs } from "./tsconfig";
 import type { TsconfigInfo } from "./tsconfig";
+import type { AnalyzerProgressReporter } from "../analysis/progress";
 
 const require = createRequire(import.meta.url);
 
@@ -84,7 +85,8 @@ export function collectSourceFiles(ts: typeof TypeScript, args: AnalyzerArgs) {
 // Load TypeScript, resolve the governing tsconfig(s) (throwing loudly if none
 // is valid), reflect the resolution onto `args` for downstream meta, and build
 // the program once. Shared by analyzeProject and createAnalyzer.
-export function buildProgram(args: AnalyzerArgs) {
+export function buildProgram(args: AnalyzerArgs, reportProgress?: AnalyzerProgressReporter) {
+  reportProgress?.({ step: "program", message: "Resolving TypeScript configuration" });
   const { ts, modulePath } = loadTypescript(args);
   const resolution = resolveProjectConfigs(ts, args);
   args.tsconfig = resolution.primary.file;
@@ -99,8 +101,10 @@ export function buildProgram(args: AnalyzerArgs) {
       if (shouldAnalyzeFile(sourceFile, args)) files.add(sourceFile);
     }
   }
+  reportProgress?.({ step: "program", message: `Building TypeScript program for ${files.size} files`, completed: 0, total: files.size });
   const program = ts.createProgram([...files], resolution.primary.options);
   const routing = buildProgramRouting(ts, resolution, args);
+  reportProgress?.({ step: "program", message: `TypeScript program ready (${files.size} files)`, completed: files.size, total: files.size });
   return { ts, modulePath, program, routing };
 }
 

@@ -1,7 +1,8 @@
 import type * as TypeScript from "typescript";
 import type { AnalysisGraph, DefenseRecord, RepresentationStep, RootInfo, TraceResult, TraceStep } from "../types";
 import path from "node:path";
-import { addEdge, addNode, locationOf } from "./graph";
+import { addEdge, addNode, locationOf, spanOf } from "./graph";
+import { expressionIdFor } from "./identity";
 import { safeTypeText } from "./source-defenses";
 import { collapse, focusSnippet, formatExpression } from "../reports/format-helpers";
 
@@ -12,7 +13,7 @@ import { collapse, focusSnippet, formatExpression } from "../reports/format-help
 const REPRESENTATION_KINDS = new Set(["alias", "object-pack", "object-spread"]);
 
 interface OperationTraceOptions { label?: string; detail?: string | null; type?: string; unknown?: boolean }
-export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, kind: string, expression: TypeScript.Node, traces: Array<TraceResult | null>, options: OperationTraceOptions = {}): TraceResult {
+export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, kind: string, expression: TypeScript.Expression, traces: Array<TraceResult | null>, options: OperationTraceOptions = {}): TraceResult {
   const explicit = options.label != null;
   const fullText = collapse(expression.getText());
   const nodeLabel = options.label ?? formatExpression(fullText);
@@ -36,6 +37,7 @@ export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, k
   const rootInfos: RootInfo[] = [];
   const defenses: DefenseRecord[] = [];
   const representationSteps: RepresentationStep[] = [];
+  const allSteps: TraceStep[] = [];
   // Packed objects the value flows through, so sinks sharing one packed object
   // (a createMemo/object literal) can be grouped and checked for over-packing
   // (Phase 3). Identity is the object literal's *source location*, NOT the graph
@@ -46,7 +48,9 @@ export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, k
   // path renderers can name the real operation (property-read, fallback, call,
   // object-pack, …) instead of a constant placeholder.
   let winnerChild: TraceResult | null = null;
-  let longest: TraceStep[] = [{ label: nodeLabel, kind, detail, file, line: location.line }];
+  const step = traceStep(graph, expression, node.id, nodeLabel, kind, detail);
+  allSteps.push(step);
+  let longest: TraceStep[] = [step];
   for (const trace of traces.filter((trace: TraceResult | null): trace is TraceResult => trace != null)) {
     addEdge(
       graph,
@@ -56,19 +60,18 @@ export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, k
       expression,
       options.unknown,
     );
-    edges.push(...trace.edges, kind);
-    rootInfos.push(
-      ...(trace.rootInfos ??
-        trace.roots.map((root: string) => ({ label: root, kind: "source" }))),
-    );
-    defenses.push(...trace.defenses);
-    representationSteps.push(...(trace.representationSteps ?? []));
-    packs.push(...(trace.packs ?? []));
+    for (const edge of trace.edges) edges.push(edge);
+    edges.push(kind);
+    for (const root of trace.rootInfos ?? trace.roots.map((label: string) => ({ label, kind: "source" }))) rootInfos.push(root);
+    for (const defense of trace.defenses) defenses.push(defense);
+    for (const representation of trace.representationSteps ?? []) representationSteps.push(representation);
+    for (const childStep of trace.steps ?? trace.longestPath) allSteps.push(childStep);
+    for (const pack of trace.packs ?? []) packs.push(pack);
     if (trace.longestPath.length + 1 > longest.length) {
       winnerChild = trace;
       longest = [
         ...trace.longestPath,
-        { label: nodeLabel, kind, detail, file, line: location.line },
+        step,
       ];
     }
   }
@@ -110,6 +113,7 @@ export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, k
     defenses,
     representationSteps,
     longestPath: longest,
+    steps: uniqueSteps(allSteps),
     packs: uniquePacks(packs),
     // The collapsed full text of this expression, so a parent operation can mark
     // exactly which sub-expression the traced value flowed in through.
@@ -175,7 +179,7 @@ export function definitionLocationOf(ts: typeof TypeScript, checker: TypeScript.
 
 export function sourceTrace(
   graph: AnalysisGraph,
-  expression: TypeScript.Node,
+  expression: TypeScript.Expression,
   kind: string,
   label: string,
   unknown: boolean,
@@ -199,11 +203,23 @@ export function sourceTrace(
     edges: [],
     defenses: [],
     representationSteps: [],
-    longestPath: [{ label, kind, detail: null, file, line: location.line }],
+    longestPath: [traceStep(graph, expression, node.id, label, kind, null)],
+    steps: [traceStep(graph, expression, node.id, label, kind, null)],
     packs: [],
     unknown,
     headText: collapse(expression.getText()),
   };
+}
+
+function uniqueSteps(steps: TraceStep[]) {
+  return [...new Map(steps.map((step) => [`${step.graphNodeId ?? ""}:${step.expressionId ?? ""}:${step.kind}`, step])).values()];
+}
+
+function traceStep(graph: AnalysisGraph, expression: TypeScript.Expression, graphNodeId: string, label: string, kind: string, detail: string | null): TraceStep {
+  const source = expression.getSourceFile();
+  const location = locationOf(source, expression);
+  const file = relativePath(graph.root, source.fileName);
+  return { label, kind, detail, file, line: location.line, span: spanOf(source, expression), graphNodeId, expressionId: expressionIdFor(graph.root, expression) };
 }
 
 function relativePath(root: string, file: string) {

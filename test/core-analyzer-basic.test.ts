@@ -136,6 +136,35 @@ describe("render path data-flow analyzer", () => {
     expect(path).not.toContain("0.75");
   });
 
+  it("does not promote fields of a derived local to independent prop roots", async () => {
+    const project = await createFixtureProject({
+      "src/derived-fields.tsx": `
+        type Candidate = { hex: string };
+        function unrelated(color: string) { return color.length; }
+        function oklchFromHex(hex: string) {
+          return { hue: hex.length * 10, chroma: hex.length / 100 };
+        }
+        function wheelPosition(color: { hue: number; chroma: number }) {
+          return color.hue + color.chroma;
+        }
+        function paletteWheelPointView(candidate: Candidate) {
+          const color = oklchFromHex(candidate.hex);
+          return { ariaDescription: \`hue \${color.hue}, chroma \${color.chroma}\`, position: wheelPosition(color) };
+        }
+        export function Wheel(props: { candidate: Candidate }) {
+          const point = paletteWheelPointView(props.candidate);
+          return <div aria-description={point.ariaDescription}>{unrelated("x")}</div>;
+        }
+      `,
+    });
+
+    const report = await analyzeProject(project.args);
+    const sink = report.sinks.find((candidate: Sink) => candidate.expression === "point.ariaDescription");
+    expect(sink).toBeTruthy();
+    expect(sink!.rootInfos.map((root) => `${root.kind}:${root.label}`)).toContain("prop-read:props.candidate");
+    expect(sink!.rootInfos.map((root) => root.label)).not.toEqual(expect.arrayContaining(["color.hue", "color.chroma"]));
+  });
+
   it("renders output views and graph dossier JSON", async () => {
     const project = await createFixtureProject({
       "src/metrics.tsx": `

@@ -52,6 +52,41 @@ export const workspaceFileRowSchema = z.strictObject({
   searchText: z.string(),
 });
 
+const mapLocationSchema = z.strictObject({ path: z.string(), line: z.number().int().nonnegative() });
+const semanticMapAreaSchema = z.strictObject({
+  id: z.string(), label: z.string(), path: z.string(),
+  sourceCount: z.number().int().nonnegative(), sinkCount: z.number().int().nonnegative(),
+  findingCount: z.number().int().nonnegative(), worstBurden: z.number(),
+  boundaryCount: z.number().int().nonnegative(), unknownCount: z.number().int().nonnegative(),
+  landmarks: z.array(z.strictObject({ kind: z.enum(["boundary", "context", "source", "terminal", "opaque"]), label: z.string(), location: mapLocationSchema.nullable() })),
+});
+const semanticMapEdgeSchema = z.strictObject({
+  id: z.string(), from: z.string(), to: z.string(),
+  flowCount: z.number().int().positive(), unknownCount: z.number().int().nonnegative(),
+  kinds: z.array(z.string()),
+});
+const semanticMapTrajectorySchema = z.strictObject({
+  id: z.string(), label: z.string(), sourceLabels: z.array(z.string()),
+  areaIds: z.array(z.string()), terminal: mapLocationSchema,
+  burden: z.number(), depth: z.number().int().nonnegative(), traceComplete: z.boolean(),
+});
+const cleanupOpportunitySchema = z.strictObject({
+  id: z.string(), label: z.string(), location: mapLocationSchema,
+  burden: z.number(), sinkCount: z.number().int().positive(), fileCount: z.number().int().positive(),
+  pivots: z.array(z.string()), causes: z.array(z.string()), shape: z.string(),
+  evidenceLevel: z.enum(["proven-unnecessary", "suspicious-transformation", "trace-incomplete", "fact"]),
+  recommendation: z.string(), memberLocations: z.array(mapLocationSchema),
+});
+export const semanticMapSchema = z.strictObject({
+  areas: z.array(semanticMapAreaSchema), edges: z.array(semanticMapEdgeSchema),
+  trajectories: z.array(semanticMapTrajectorySchema), cleanup: z.array(cleanupOpportunitySchema),
+  totals: z.strictObject({
+    areas: z.number().int().nonnegative(), edges: z.number().int().nonnegative(),
+    trajectories: z.number().int().nonnegative(), cleanupOpportunities: z.number().int().nonnegative(),
+  }),
+  caps: z.strictObject({ areas: z.number().int().positive(), edges: z.number().int().positive(), trajectories: z.number().int().positive(), cleanup: z.number().int().positive() }),
+});
+
 export const workspaceSchema = z.strictObject({
   workspace: z.strictObject({
     displayRoot: z.string(),
@@ -78,6 +113,7 @@ export const workspaceSchema = z.strictObject({
     currentWorst: z.number(), baselineWorst: z.number(), worsened: z.number().int(), improved: z.number().int(), resolved: z.array(z.string()), newTop: z.strictObject({ label: z.string(), path: z.string(), line: z.number().int() }).nullable(),
     metricDeltas: z.strictObject({ fallbacks: z.number().int(), hops: z.number().int(), transformations: z.number().int(), packing: z.number().int(), conditionals: z.number().int() }),
   }).nullable(),
+  semanticMap: semanticMapSchema,
   files: z.array(workspaceFileRowSchema),
 });
 
@@ -95,7 +131,7 @@ export const fileRequestSchema = z.strictObject({
 export const reportRequestSchema = z.strictObject({ view: z.enum(REPORT_VIEWS), path: z.string().trim().min(1).nullable() });
 
 const sourceAnnotationSchema = z.strictObject({
-  kind: z.enum(["finding", "fork", "boundary", "relay", "unknown-edge", "fan-out"]),
+  kind: z.enum(["finding", "expression", "fork", "boundary", "relay", "unknown-edge", "fan-out"]),
   entityId: z.string(),
   startColumn: z.number().int().nonnegative().nullable(),
   endColumn: z.number().int().nonnegative().nullable(),
@@ -116,6 +152,38 @@ export const inventoryEntrySchema = z.discriminatedUnion("kind", [
   z.strictObject({ ...inventoryBase, kind: z.literal("fan-out"), sinkCount: z.number().int().nonnegative(), fileCount: z.number().int().nonnegative() }),
 ]);
 const sourcePointSchema = z.strictObject({ path: z.string(), line: z.number().int().nonnegative(), column: z.number().int().nonnegative().optional() });
+const evidencePathStepSchema = z.strictObject({ label: z.string(), kind: z.string(), detail: z.string().nullable(), location: sourcePointSchema.nullable() });
+const evidenceDefenseSchema = z.strictObject({ expression: z.string(), verdict: z.string(), origin: z.string(), type: z.string().nullable(), location: sourcePointSchema });
+const evidenceRepresentationSchema = z.strictObject({ kind: z.string(), label: z.string(), location: sourcePointSchema });
+export const expressionEvidenceSchema = z.strictObject({
+  expressionId: z.string().min(1),
+  expression: z.string(),
+  location: sourcePointSchema,
+  span: z.strictObject({ startLine: z.number().int(), startColumn: z.number().int(), endLine: z.number().int(), endColumn: z.number().int() }),
+  focusText: z.string(),
+  focusSpan: z.strictObject({ startLine: z.number().int(), startColumn: z.number().int(), endLine: z.number().int(), endColumn: z.number().int() }),
+  symbolId: z.string().min(1).nullable(),
+  symbolName: z.string().nullable(),
+  typeId: z.string().min(1),
+  typeText: z.string(),
+  typeDefinition: sourcePointSchema.nullable(),
+  externalOrigin: z.strictObject({ module: z.string().nullable(), package: z.string(), declarationFile: z.string().nullable() }).nullable().optional(),
+  definition: sourcePointSchema.nullable(),
+  usages: z.array(sourcePointSchema),
+  traceComplete: z.boolean(),
+  traceCompletenessReason: z.string().min(1),
+  evidenceLevel: z.enum(["proven-unnecessary", "suspicious-transformation", "trace-incomplete", "fact"]),
+  upstreamPath: z.array(evidencePathStepSchema),
+  downstreamPath: z.array(evidencePathStepSchema),
+  terminalSinks: z.array(z.strictObject({ id: z.string(), path: z.string(), line: z.number().int().nonnegative(), label: z.string() })),
+  totalReach: z.number().int().nonnegative(),
+  defenses: z.array(evidenceDefenseSchema),
+  representationSteps: z.array(evidenceRepresentationSchema),
+  unknownBoundaries: z.array(evidencePathStepSchema),
+  attachedFindingIds: z.array(z.string()),
+  graphNodeIds: z.array(z.string()),
+  boundaryIds: z.array(z.string()),
+});
 const traceStepSchema = z.strictObject({ label: z.string(), kind: z.string(), detail: z.string().nullable(), location: sourcePointSchema.nullable(), snippet: z.string().nullable() });
 const defenseSchema = z.strictObject({ expression: z.string(), verdict: z.string(), origin: z.string(), type: z.string().nullable(), location: sourcePointSchema });
 export const findingDetailSchema = z.strictObject({
@@ -124,6 +192,10 @@ export const findingDetailSchema = z.strictObject({
   context: z.strictObject({ component: z.string().nullable(), tag: z.string().nullable(), attribute: z.string().nullable() }),
   burden: z.number(), confidence: z.number(), confidenceReason: z.string(), queue: z.string(),
   confidenceRisk: z.string(),
+  identity: expressionEvidenceSchema,
+  participants: z.array(z.strictObject({
+    expressionId: z.string(), expression: z.string(), focusText: z.string(), symbolName: z.string().nullable(), typeText: z.string(), role: z.enum(["accessor", "call", "property", "symbol", "value"]),
+  })),
   burdenBreakdown: z.strictObject({
     backgroundPenalty: z.number(), rawSum: z.number(), total: z.number(),
     terms: z.array(z.strictObject({ key: z.string(), label: z.string(), weight: z.number(), raw: z.number(), normalized: z.number(), contribution: z.number() })),
@@ -147,6 +219,14 @@ export const filePageSchema = z.strictObject({
   }),
   inventory: z.array(inventoryEntrySchema),
   findingsById: z.record(z.string(), findingDetailSchema),
+  expressionsById: z.record(z.string(), expressionEvidenceSchema),
+  worldContext: z.strictObject({
+    area: semanticMapAreaSchema,
+    incoming: z.array(z.strictObject({ path: z.string(), label: z.string(), flowCount: z.number().int().positive(), incompleteCount: z.number().int().nonnegative(), relationship: z.enum(["traced-edge", "trajectory-contributor", "mixed"]), via: z.array(z.string()) })),
+    outgoing: z.array(z.strictObject({ path: z.string(), label: z.string(), flowCount: z.number().int().positive(), incompleteCount: z.number().int().nonnegative(), relationship: z.enum(["traced-edge", "trajectory-contributor", "mixed"]), via: z.array(z.string()) })),
+    trajectories: z.array(semanticMapTrajectorySchema),
+    totals: z.strictObject({ repositoryAreas: z.number().int().nonnegative(), connectedAreas: z.number().int().nonnegative(), crossingTrajectories: z.number().int().nonnegative() }),
+  }),
   reportAvailability: z.array(z.strictObject({ view: z.enum(REPORT_VIEWS), label: z.string() })),
   debug: z.strictObject({ scopePath: z.string(), findingCount: z.number().int().nonnegative() }),
 });

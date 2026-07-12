@@ -12,6 +12,8 @@ import { analyzeSourceFile, buildHelperReport } from "./source-file";
 import { buildUnknownEdgeRows } from "./unknown-edges";
 import { computeConcentration, computeWorkUnits } from "./work-units";
 import { shouldAnalyzeFile } from "../project/files";
+import { buildIdentityIndex, type IdentityIndex } from "./identity";
+import type { AnalyzerProgressReporter } from "./progress";
 
 export function buildReport(
   ts: typeof TypeScript,
@@ -19,6 +21,8 @@ export function buildReport(
   args: AnalyzerArgs,
   typescriptModulePath: string | null = null,
   routing: ProgramRouting | null = null,
+  preparedIdentityIndex: IdentityIndex | null = null,
+  reportProgress?: AnalyzerProgressReporter,
 ) {
   const checker = program.getTypeChecker();
   const graph = createGraph(args.root);
@@ -39,9 +43,13 @@ export function buildReport(
     // Hard safety cap on total cross-file descents per report, so a pathological
     // call graph can't run the graph out of memory regardless of depth.
     budget: 20000,
+    identityIndex: preparedIdentityIndex ?? buildIdentityIndex(ts, routing?.programs ?? [program], args.root),
   };
 
   const forks: ReturnType<typeof analyzeSourceFile>["forks"] = [];
+  const traceCandidates = new Set(sourceFiles.map((sourceFile) => sourceFile.fileName));
+  if (routing) for (const file of routing.byFile.keys()) traceCandidates.add(file);
+  reportProgress?.({ step: "trace", message: `Tracing render paths in ${traceCandidates.size} files`, completed: 0, total: traceCandidates.size });
   // Trace each file exactly once. When a file is owned by an aliased config (see
   // buildProgramRouting), use that config's program/checker so its path-alias
   // imports resolve; otherwise use the primary program. Nodes and the checker
@@ -63,6 +71,7 @@ export function buildReport(
     );
     sinks.push(...analysis.sinks);
     forks.push(...analysis.forks);
+    reportProgress?.({ step: "trace", message: "Tracing render paths", completed: traced.size, total: traceCandidates.size, file: sourceFile.fileName });
   };
   if (routing) {
     for (const ownerProgram of routing.programs) {
@@ -78,12 +87,19 @@ export function buildReport(
     traceFile(sourceFile, checker);
   }
 
+  reportProgress?.({ step: "summarize", message: "Ranking findings and building cross-file summaries" });
+
   const fileMatch = makeFileMatcher(args.file);
   const scopedSinks = applyScope(sinks, args.scope);
   const filteredSinks = fileMatch
     ? scopedSinks.filter((sink: Sink) => fileMatch(sink.file))
     : scopedSinks;
   groundReachability(filteredSinks);
+  for (const sink of filteredSinks) {
+    for (const evidence of [sink.identity, ...(sink.traceIdentities ?? [])]) {
+      if (evidence) evidence.totalReach = sink.metrics.reachableSinks;
+    }
+  }
   const scopedRelay = applyContextRelayScope(
     analyzeContextRelay(ts, sourceFiles, args.root),
     args.scope,
@@ -101,6 +117,15 @@ export function buildReport(
       (sink: Sink) => sink.category !== "event-handler" && !isConstantSink(sink),
     ),
   );
+  for (const sink of rankings.all) {
+    for (const evidence of [sink.identity, ...(sink.traceIdentities ?? [])]) {
+      if (!evidence || !evidence.traceComplete) continue;
+      evidence.attachedFindingIds = sink.tier === "finding" ? [sink.id] : [];
+      evidence.evidenceLevel = sink.metrics.impossibleDefenseCount > 0
+        ? "proven-unnecessary"
+        : sink.tier === "finding" ? "suspicious-transformation" : "fact";
+    }
+  }
   // Shared-cause work units (Approach 3) and the concentration profile
   // (Approach 5) are pure roll-ups over the burden ranking; compute once so
   // every view projects from the same data.

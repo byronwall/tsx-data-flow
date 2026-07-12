@@ -14,10 +14,10 @@ exports[`golden output baseline > matches --view all markdown output for the exa
 | ------------------- | --------------------- | ----- | ------ | ------- | ---------------- | --------------------------------------- | --------------------- |
 | taskRowView()       | src/view-models.ts:21 | 3     | 6      | 1       | 10/7             | \`{ label: string; ownerLabel: string;…\` | messy internals       |
 | buildRouteModel()   | src/view-models.ts:6  | 1     | 6      | 1       | 8/3              | \`{ actor: User; visibleTasks: Task[];…\` | messy internals       |
-| activeSeries()      | src/Chart.tsx:36      | 0     | 7      | 1       | 7/0              | \`Series \\| number[]\`                     | messy internals       |
-| barSeries()         | src/Chart.tsx:33      | 0     | 4      | 2       | 5/0              | \`number[]\`                              | confluence / junction |
-| barData()           | src/Chart.tsx:32      | 0     | 3      | 2       | 3/0              | \`Series\`                                | confluence / junction |
-| lineSeries()        | src/Chart.tsx:34      | 0     | 3      | 2       | 3/0              | \`Series\`                                | confluence / junction |
+| activeSeries()      | src/Chart.tsx:36      | 0     | 6      | 1       | 8/0              | \`Series \\| number[]\`                     | messy internals       |
+| barSeries()         | src/Chart.tsx:33      | 0     | 3      | 2       | 6/0              | \`number[]\`                              | confluence / junction |
+| barData()           | src/Chart.tsx:32      | 0     | 2      | 2       | 4/0              | \`Series\`                                | clean pipe            |
+| lineSeries()        | src/Chart.tsx:34      | 0     | 2      | 2       | 4/0              | \`Series\`                                | clean pipe            |
 | groupBarSeries()    | src/Chart.tsx:12      | 1     | 2      | 1       | 2/0              | \`Series\`                                | clean pipe            |
 | rollingLineSeries() | src/Chart.tsx:19      | 1     | 2      | 1       | 2/0              | \`Series\`                                | clean pipe            |
 
@@ -25,9 +25,9 @@ exports[`golden output baseline > matches --view all markdown output for the exa
 
 - **taskRowView** (messy internals) — internal depth 10, churn 7, 3 defensive op(s) behind a narrow signature.
 - **buildRouteModel** (messy internals) — internal depth 8, churn 3, 3 defensive op(s) behind a narrow signature.
-- **activeSeries** (messy internals) — internal depth 7, churn 0, 0 defensive op(s) behind a narrow signature.
-- **barSeries** (confluence / junction) — 4 source lineages converge here and the result feeds 2 call sites — a load-bearing knot (see Junctions).
-- **barData** (confluence / junction) — 3 source lineages converge here and the result feeds 2 call sites — a load-bearing knot (see Junctions).
+- **activeSeries** (messy internals) — internal depth 8, churn 0, 0 defensive op(s) behind a narrow signature.
+- **barSeries** (confluence / junction) — 3 source lineages converge here and the result feeds 2 call sites — a load-bearing knot (see Junctions).
+- **barData** (clean pipe) — narrow signature, concrete return type — a healthy boundary; leave it.
 
 ---
 
@@ -233,7 +233,7 @@ _Focus on one file or region:_ append \`--file <path|glob>\` (repeatable) — e.
   - \`:52\` img / alt · depth 4
   - \`:55\` ThemeChip / actor · depth 2
 
-## TaskRow › props.task — 5 sinks · single-file (candidate split) · max depth 15
+## task — 5 sinks · single-file (candidate split) · max depth 15
 
 - **src/DashboardShell.tsx** (5)
   - \`:110\` strong · depth 15
@@ -291,7 +291,7 @@ row.label ?? "Untitled"
 **Source**
 
 \`\`\`
-props.task, props.actor, props.preferences
+task, props.actor, props.preferences
 \`\`\`
 
 **Metrics**
@@ -359,7 +359,7 @@ row.ownerLabel ?? "Unknown owner"
 **Source**
 
 \`\`\`
-props.task, props.actor, props.preferences
+task, props.actor, props.preferences
 \`\`\`
 
 **Metrics**
@@ -427,7 +427,7 @@ src/DashboardShell.tsx:107
 **Source**
 
 \`\`\`
-props.task, props.actor, props.preferences
+task, props.actor, props.preferences
 \`\`\`
 
 **Metrics**
@@ -610,7 +610,7 @@ row.priorityLabel
 **Source**
 
 \`\`\`
-props.task, props.actor, props.preferences
+task, props.actor, props.preferences
 \`\`\`
 
 **Metrics**
@@ -676,7 +676,7 @@ row.estimateLabel
 **Source**
 
 \`\`\`
-props.task, props.actor, props.preferences
+task, props.actor, props.preferences
 \`\`\`
 
 **Metrics**
@@ -885,37 +885,13 @@ Call-site samples (first 5, ±2 lines):
 
 \`\`\`
 as a step:   1 hop
-if inlined:  ~5 hop(s)   Δ depth +4, churn 0, defenses 0
+if inlined:  ~6 hop(s)   Δ depth +5, churn 0, defenses 0
 verdict: KEEP & FORMALIZE — 2 callers + real internal work; inlining would duplicate logic. Make it a typed boundary (see Junctions).
 \`\`\`
 
 Consumers (call sites):
 - \`src/Chart.tsx:37\`
 - \`src/Chart.tsx:46\`
-
-## barData  (src/Chart.tsx:32 · 2 caller(s) · confluence / junction)
-
-\`\`\`
-as a step:   1 hop
-if inlined:  ~3 hop(s)   Δ depth +2, churn 0, defenses 0
-verdict: KEEP & FORMALIZE — 2 callers + real internal work; inlining would duplicate logic. Make it a typed boundary (see Junctions).
-\`\`\`
-
-Consumers (call sites):
-- \`src/Chart.tsx:33\`
-- \`src/Chart.tsx:46\`
-
-## lineSeries  (src/Chart.tsx:34 · 2 caller(s) · confluence / junction)
-
-\`\`\`
-as a step:   1 hop
-if inlined:  ~3 hop(s)   Δ depth +2, churn 0, defenses 0
-verdict: KEEP & FORMALIZE — 2 callers + real internal work; inlining would duplicate logic. Make it a typed boundary (see Junctions).
-\`\`\`
-
-Consumers (call sites):
-- \`src/Chart.tsx:37\`
-- \`src/Chart.tsx:49\`
 
 ## taskRowView  (src/view-models.ts:21 · 1 caller(s) · messy internals)
 
@@ -943,12 +919,36 @@ Consumers (call sites):
 
 \`\`\`
 as a step:   1 hop
-if inlined:  ~7 hop(s)   Δ depth +6, churn 0, defenses 0
-verdict: KEEP — genuine transformation (1 callers, internal depth 7); inlining would relocate the mess, not remove it.
+if inlined:  ~8 hop(s)   Δ depth +7, churn 0, defenses 0
+verdict: KEEP — genuine transformation (1 callers, internal depth 8); inlining would relocate the mess, not remove it.
 \`\`\`
 
 Consumers (call sites):
 - \`src/Chart.tsx:43\`
+
+## barData  (src/Chart.tsx:32 · 2 caller(s) · clean pipe)
+
+\`\`\`
+as a step:   1 hop
+if inlined:  ~4 hop(s)   Δ depth +3, churn 0, defenses 0
+verdict: KEEP — genuine transformation (2 callers, internal depth 4); inlining would relocate the mess, not remove it.
+\`\`\`
+
+Consumers (call sites):
+- \`src/Chart.tsx:33\`
+- \`src/Chart.tsx:46\`
+
+## lineSeries  (src/Chart.tsx:34 · 2 caller(s) · clean pipe)
+
+\`\`\`
+as a step:   1 hop
+if inlined:  ~4 hop(s)   Δ depth +3, churn 0, defenses 0
+verdict: KEEP — genuine transformation (2 callers, internal depth 4); inlining would relocate the mess, not remove it.
+\`\`\`
+
+Consumers (call sites):
+- \`src/Chart.tsx:37\`
+- \`src/Chart.tsx:49\`
 
 ---
 
@@ -968,7 +968,7 @@ _Focus on one file or region:_ append \`--file <path|glob>\` (repeatable) — e.
 >
 > Functions where independent source lineages fork in (_tributaries_) and the result re-spreads to multiple call sites (_distributaries_) — the load-bearing knots. Ranked by in-sources × callers. These are the highest-leverage targets for either formalizing a typed boundary or splitting by consumer.
 
-## barSeries   src/Chart.tsx:33   score 8  (4 in × 2 out)
+## barSeries   src/Chart.tsx:33   score 6  (3 in × 2 out)
 
 \`\`\`
 tributaries (independent lineages flowing in)
@@ -976,32 +976,6 @@ tributaries (independent lineages flowing in)
 distributaries (where the result re-spreads)
   src/Chart.tsx:37
   src/Chart.tsx:46
-
-Read: 4 source families converge; the result feeds 2 call sites.
-Options: formalize as a typed module boundary, or split by distributary if consumers need different shapes.
-\`\`\`
-
-## barData   src/Chart.tsx:32   score 6  (3 in × 2 out)
-
-\`\`\`
-tributaries (independent lineages flowing in)
-  props.tasks
-distributaries (where the result re-spreads)
-  src/Chart.tsx:33
-  src/Chart.tsx:46
-
-Read: 3 source families converge; the result feeds 2 call sites.
-Options: formalize as a typed module boundary, or split by distributary if consumers need different shapes.
-\`\`\`
-
-## lineSeries   src/Chart.tsx:34   score 6  (3 in × 2 out)
-
-\`\`\`
-tributaries (independent lineages flowing in)
-  props.tasks
-distributaries (where the result re-spreads)
-  src/Chart.tsx:37
-  src/Chart.tsx:49
 
 Read: 3 source families converge; the result feeds 2 call sites.
 Options: formalize as a typed module boundary, or split by distributary if consumers need different shapes.
@@ -1009,9 +983,9 @@ Options: formalize as a typed module boundary, or split by distributary if consu
 
 ## Heavy confluences (many sources in, one consumer)
 
-- **activeSeries** (src/Chart.tsx:36) — 7 lineages → \`Series | number[]\`. Treat as a boundary to tighten, not a junction to split.
 - **taskRowView** (src/view-models.ts:21) — 6 lineages → \`{ label: string; ownerLabel: string;…\`. Treat as a boundary to tighten, not a junction to split.
 - **buildRouteModel** (src/view-models.ts:6) — 6 lineages → \`{ actor: User; visibleTasks: Task[];…\`. Treat as a boundary to tighten, not a junction to split.
+- **activeSeries** (src/Chart.tsx:36) — 6 lineages → \`Series | number[]\`. Treat as a boundary to tighten, not a junction to split.
 
 ---
 
@@ -1054,7 +1028,7 @@ Every analysis is emitted as its own markdown file. Start here, then open the on
 | Feature area       | Sinks | Files | Max depth | Wrapper steps | Suggested first cut       | Evidence                    |
 | ------------------ | ----- | ----- | --------- | ------------- | ------------------------- | --------------------------- |
 | DashboardShell.tsx | 38    | 1     | 15        | 115           | normalize at the boundary | no provider/context signals |
-| Chart.tsx          | 14    | 1     | 9         | 1             | local boundary cleanup    | no provider/context signals |
+| Chart.tsx          | 14    | 1     | 10        | 1             | local boundary cleanup    | no provider/context signals |
 
 **Coverage**
 
@@ -1125,9 +1099,9 @@ _Focus on one file or region:_ append \`--file <path|glob>\` (repeatable) — e.
 | ------------------------------------------------------------ | ----- | ----- | --------- |
 | \`shallow jsx-sink\`                                           | 10    | 10    | 3         |
 | \`medium object-pack -> conditional -> jsx-sink\`              | 1     | 1     | 5         |
-| \`deep call -> conditional -> jsx-sink\`                       | 1     | 1     | 9         |
+| \`deep call -> conditional -> jsx-sink\`                       | 1     | 1     | 10        |
 | \`shallow conditional -> jsx-sink\`                            | 3     | 3     | 3         |
-| \`medium call -> jsx-sink\`                                    | 3     | 3     | 6         |
+| \`medium call -> jsx-sink\`                                    | 3     | 3     | 7         |
 | \`shallow call -> jsx-sink\`                                   | 3     | 3     | 3         |
 | \`medium jsx-sink\`                                            | 2     | 2     | 4         |
 | \`deep object-pack -> call -> impossible-defense -> jsx-sink\` | 4     | 4     | 15        |
@@ -1166,26 +1140,28 @@ Deepest member: \`src/DashboardShell.tsx:84\`
 -> task  [iteration]
 \`\`\`
 
-### \`medium call -> jsx-sink\` — 3 sinks, max depth 6
+### \`medium call -> jsx-sink\` — 3 sinks, max depth 7
 
 Deepest member: \`src/Chart.tsx:46\`
 
 \`\`\`
 -> props  [source]
 -> tasks  [property-read]
+-> map  [call]
 -> groupBarSeries  [call]
 -> barData  [call]
 -> map  [call]
 -> barSeries  [call]
 \`\`\`
 
-### \`deep call -> conditional -> jsx-sink\` — 1 sink, max depth 9
+### \`deep call -> conditional -> jsx-sink\` — 1 sink, max depth 10
 
 Deepest member: \`src/Chart.tsx:43\`
 
 \`\`\`
 -> props  [source]
 -> tasks  [property-read]
+-> map  [call]
 -> groupBarSeries  [call]
 -> barData  [call]
 -> map  [call]
@@ -1352,7 +1328,7 @@ _Focus on one file or region:_ append \`--file <path|glob>\` (repeatable) — e.
 | Feature area       | Sinks | Files | Max depth | Wrapper steps | Suggested first cut       | Evidence                    |
 | ------------------ | ----- | ----- | --------- | ------------- | ------------------------- | --------------------------- |
 | DashboardShell.tsx | 38    | 1     | 15        | 115           | normalize at the boundary | no provider/context signals |
-| Chart.tsx          | 14    | 1     | 9         | 1             | local boundary cleanup    | no provider/context signals |
+| Chart.tsx          | 14    | 1     | 10        | 1             | local boundary cleanup    | no provider/context signals |
 
 ## Grouped Recommendations
 
@@ -1377,13 +1353,13 @@ This sink mixes defaulting and normalization and Solid optional prop defaults. A
 
 **Scope**
 
-| Metric          | Value                                        |
-| --------------- | -------------------------------------------- |
-| pivot           | \`props.task, props.actor, props.preferences\` |
-| files           | 1                                            |
-| source inputs   | 7                                            |
-| reachable sinks | 31                                           |
-| confidence      | 99%                                          |
+| Metric          | Value                                  |
+| --------------- | -------------------------------------- |
+| pivot           | \`task, props.actor, props.preferences\` |
+| files           | 1                                      |
+| source inputs   | 7                                      |
+| reachable sinks | 31                                     |
+| confidence      | 99%                                    |
 
 - confidence reason: Single file, direct JSX sink, all hops statically resolved.
 - risk: low; behavior-preserving extraction likely.
@@ -1436,7 +1412,7 @@ direction: this broad pack fans out through the feature; move ownership closer t
 
 \`\`\`
 proposed: function taskStrongText(
-  task: /* type */,   // ⟵ props.task
+  task: /* type */,   // ⟵ task  (src/view-models.ts:31)
   actor: /* type */,   // ⟵ props.actor
   preferences: /* type */   // ⟵ props.preferences
 ): string
@@ -1466,13 +1442,13 @@ This sink mixes defaulting and normalization and Solid optional prop defaults. A
 
 **Scope**
 
-| Metric          | Value                                        |
-| --------------- | -------------------------------------------- |
-| pivot           | \`props.task, props.actor, props.preferences\` |
-| files           | 1                                            |
-| source inputs   | 7                                            |
-| reachable sinks | 31                                           |
-| confidence      | 99%                                          |
+| Metric          | Value                                  |
+| --------------- | -------------------------------------- |
+| pivot           | \`task, props.actor, props.preferences\` |
+| files           | 1                                      |
+| source inputs   | 7                                      |
+| reachable sinks | 31                                     |
+| confidence      | 99%                                    |
 
 - confidence reason: Single file, direct JSX sink, all hops statically resolved.
 - risk: low; behavior-preserving extraction likely.
@@ -1525,7 +1501,7 @@ direction: this broad pack fans out through the feature; move ownership closer t
 
 \`\`\`
 proposed: function taskSmallText(
-  task: /* type */,   // ⟵ props.task
+  task: /* type */,   // ⟵ task  (src/view-models.ts:31)
   actor: /* type */,   // ⟵ props.actor
   preferences: /* type */   // ⟵ props.preferences
 ): string
@@ -1555,13 +1531,13 @@ This sink mixes class/style packing, defaulting and normalization, and Solid opt
 
 **Scope**
 
-| Metric          | Value                                        |
-| --------------- | -------------------------------------------- |
-| pivot           | \`props.task, props.actor, props.preferences\` |
-| files           | 1                                            |
-| source inputs   | 6                                            |
-| reachable sinks | 31                                           |
-| confidence      | 88%                                          |
+| Metric          | Value                                  |
+| --------------- | -------------------------------------- |
+| pivot           | \`task, props.actor, props.preferences\` |
+| files           | 1                                      |
+| source inputs   | 6                                      |
+| reachable sinks | 31                                     |
+| confidence      | 88%                                    |
 
 - confidence reason: All hops statically resolved within one file.
 - risk: low.
@@ -1615,7 +1591,7 @@ direction: this broad pack fans out through the feature; move ownership closer t
 
 \`\`\`
 proposed: function taskLiStyle(
-  task: /* type */,   // ⟵ props.task
+  task: /* type */,   // ⟵ task  (src/view-models.ts:31)
   actor: /* type */,   // ⟵ props.actor
   preferences: /* type */   // ⟵ props.preferences
 ): string
@@ -1803,13 +1779,13 @@ This sink mixes defaulting and normalization and Solid optional prop defaults. A
 
 **Scope**
 
-| Metric          | Value                                        |
-| --------------- | -------------------------------------------- |
-| pivot           | \`props.task, props.actor, props.preferences\` |
-| files           | 1                                            |
-| source inputs   | 6                                            |
-| reachable sinks | 31                                           |
-| confidence      | 88%                                          |
+| Metric          | Value                                  |
+| --------------- | -------------------------------------- |
+| pivot           | \`task, props.actor, props.preferences\` |
+| files           | 1                                      |
+| source inputs   | 6                                      |
+| reachable sinks | 31                                     |
+| confidence      | 88%                                    |
 
 - confidence reason: All hops statically resolved within one file.
 - risk: low.
@@ -1862,7 +1838,7 @@ direction: this broad pack fans out through the feature; move ownership closer t
 
 \`\`\`
 proposed: function taskSpanText(
-  task: /* type */,   // ⟵ props.task
+  task: /* type */,   // ⟵ task  (src/view-models.ts:31)
   actor: /* type */,   // ⟵ props.actor
   preferences: /* type */   // ⟵ props.preferences
 ): "low" | "normal" | "high"
@@ -1892,13 +1868,13 @@ This sink mixes defaulting and normalization and Solid optional prop defaults. A
 
 **Scope**
 
-| Metric          | Value                                        |
-| --------------- | -------------------------------------------- |
-| pivot           | \`props.task, props.actor, props.preferences\` |
-| files           | 1                                            |
-| source inputs   | 6                                            |
-| reachable sinks | 31                                           |
-| confidence      | 88%                                          |
+| Metric          | Value                                  |
+| --------------- | -------------------------------------- |
+| pivot           | \`task, props.actor, props.preferences\` |
+| files           | 1                                      |
+| source inputs   | 6                                      |
+| reachable sinks | 31                                     |
+| confidence      | 88%                                    |
 
 - confidence reason: All hops statically resolved within one file.
 - risk: low.
@@ -1951,7 +1927,7 @@ direction: this broad pack fans out through the feature; move ownership closer t
 
 \`\`\`
 proposed: function taskSpanText(
-  task: /* type */,   // ⟵ props.task
+  task: /* type */,   // ⟵ task  (src/view-models.ts:31)
   actor: /* type */,   // ⟵ props.actor
   preferences: /* type */   // ⟵ props.preferences
 ): string
