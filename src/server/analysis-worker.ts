@@ -1,8 +1,9 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { filePageResponseSchema, refreshResponseSchema, reportResponseSchema, workspaceResponseSchema } from "../api/contracts";
+import { filePageResponseSchema, refreshResponseSchema, reportResponseSchema, routeDataDetailResponseSchema, sourceExcerptResponseSchema, workspaceResponseSchema } from "../api/contracts";
 import { buildFilePageDto } from "../api/projections/file-page";
 import { buildReportDto } from "../api/projections/reports";
 import { buildWorkspaceDto } from "../api/projections/workspace";
+import { buildRouteDataDetail } from "../api/projections/route-data";
 import type { ReportView } from "../api/report-views";
 import { renderReport } from "../core";
 import { renderMarkdownView } from "../reports/markdown-views";
@@ -49,6 +50,24 @@ function perform(operation: AnalysisOperation, requestId: number) {
     const report = cache.reviewReport();
     port.postMessage({ kind: "progress", progress: { requestId, operation: operation.kind, phase: "projecting", step: "project", message: "Preparing workspace rows and semantic map" } });
     return workspaceResponseSchema.parse({ apiVersion: 1, analysisVersion: report.analysisVersion, generation: cache.generation(), generatedAt: report.generatedAt, data: buildWorkspaceDto(report) });
+  }
+  if (operation.kind === "route-data") {
+    const report = cache.ensureBuilt();
+    if (operation.generation !== undefined && operation.generation !== cache.generation()) return null;
+    const detail = buildRouteDataDetail(report, operation.route, operation.flow);
+    if (!detail) return null;
+    return routeDataDetailResponseSchema.parse({ apiVersion: 1, analysisVersion: report.analysisVersion, generation: cache.generation(), generatedAt: report.generatedAt, data: detail });
+  }
+  if (operation.kind === "source-excerpt") {
+    const report = cache.ensureBuilt();
+    const source = cache.sourceFor(operation.path);
+    if (source === null) return null;
+    const sourceLines = source.split(/\r?\n/);
+    const endLine = operation.endLine ?? operation.line;
+    const start = Math.max(1, operation.line - 5);
+    const end = Math.min(sourceLines.length, endLine + 5);
+    const lines = sourceLines.slice(start - 1, end).map((text, index) => ({ number: start + index, text, focus: start + index >= operation.line && start + index <= endLine }));
+    return sourceExcerptResponseSchema.parse({ apiVersion: 1, analysisVersion: report.analysisVersion, generation: cache.generation(), generatedAt: report.generatedAt, data: { path: operation.path, focus: { line: operation.line, column: operation.column, endLine, endColumn: operation.endColumn ?? operation.column }, lines } });
   }
   if (operation.kind === "file") {
     const source = cache.sourceFor(operation.path);

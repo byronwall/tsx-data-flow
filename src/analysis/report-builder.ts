@@ -14,6 +14,7 @@ import { computeConcentration, computeWorkUnits } from "./work-units";
 import { shouldAnalyzeFile } from "../project/files";
 import { buildIdentityIndex, type IdentityIndex } from "./identity";
 import type { AnalyzerProgressReporter } from "./progress";
+import { analyzeRouteData } from "./route-data";
 
 export function buildReport(
   ts: typeof TypeScript,
@@ -160,6 +161,7 @@ export function buildReport(
   const baseline = args.baseline
     ? compareBaseline(rankings, args.baseline)
     : null;
+  const routeData = analyzeRouteData(ts, program, args.root, filteredSinks);
 
   return {
     analysisVersion: 1,
@@ -189,6 +191,7 @@ export function buildReport(
     unknownEdges,
     componentRefs,
     repeatedForks,
+    routeData,
     baseline,
     summary: summarize(filteredSinks, graph, { familyRows, unique }),
   };

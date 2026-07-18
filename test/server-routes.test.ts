@@ -6,7 +6,7 @@ import { createServer } from "../src/server";
 import { createServerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
 import { call } from "./helpers/http";
 import { FIXTURE } from "./helpers/server-test-context";
-import { filePageResponseSchema, refreshResponseSchema, reportResponseSchema, workspaceResponseSchema } from "../src/api/contracts";
+import { filePageResponseSchema, refreshResponseSchema, reportResponseSchema, routeDataDetailResponseSchema, sourceExcerptResponseSchema, workspaceResponseSchema } from "../src/api/contracts";
 
 function expectSpaShell(response) {
   expect(response.status).toBe(200);
@@ -16,6 +16,30 @@ function expectSpaShell(response) {
 }
 
 describe("createServer", () => {
+  it("serves generation-aware route trajectory detail and contained source excerpts", async () => {
+    const project = await createFixtureProject({
+      "src/routes/items/[itemId].tsx": `
+        declare const prisma: { item: { findUnique(): Promise<{ name: string }> } };
+        declare function createResource<T>(fetcher: () => Promise<T>): [() => T | undefined];
+        async function loadItem() { return prisma.item.findUnique(); }
+        export default function ItemRoute() { const [item] = createResource(loadItem); return <h1 style={{ opacity: item() ? 1 : 0 }}>{item()?.name}</h1>; }
+      `,
+    });
+    const { handler } = createServer(project.args);
+    const workspace = workspaceResponseSchema.parse(JSON.parse((await call(handler, "/api/workspace")).body));
+    const route = workspace.data.routeData.routes.find((item) => item.pathPattern === "/items/[itemId]")!;
+    const flow = workspace.data.routeData.trajectories.find((item) => item.routeKey === route.key)!;
+    const detailResponse = await call(handler, `/api/route-data?route=${encodeURIComponent(route.key)}&flow=${encodeURIComponent(flow.key)}&generation=${workspace.generation}`);
+    const detail = routeDataDetailResponseSchema.parse(JSON.parse(detailResponse.body));
+    expect(detail.data.route.parameters).toEqual([{ name: "itemId", kind: "dynamic" }]);
+    expect(detail.data.operations.some((item) => item.semanticKind === "read")).toBe(true);
+    const evidence = detail.data.evidence[0];
+    const sourceResponse = await call(handler, `/api/route-data/source?path=${encodeURIComponent(evidence.file)}&line=${evidence.line}&column=${evidence.column}&endLine=${evidence.span.endLine}&endColumn=${evidence.span.endColumn}`);
+    const source = sourceExcerptResponseSchema.parse(JSON.parse(sourceResponse.body));
+    expect(source.data.lines.some((line) => line.focus && line.text.includes("prisma"))).toBe(true);
+    expect((await call(handler, `/api/route-data?route=${encodeURIComponent(route.key)}&flow=${encodeURIComponent(flow.key)}&generation=${workspace.generation + 1}`)).status).toBe(404);
+    expect((await call(handler, "/api/route-data/source?path=..%2Fpackage.json&line=1&column=1")).status).toBe(404);
+  });
   it("serves the Solid SPA shell and focused file data APIs", async () => {
     const project = await createFixtureProject(FIXTURE);
     const { handler } = createServer(project.args);

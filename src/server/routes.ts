@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
-import { fileRequestSchema, reportRequestSchema } from "../api/contracts";
+import { fileRequestSchema, reportRequestSchema, routeDataDetailRequestSchema, sourceExcerptRequestSchema } from "../api/contracts";
 import { REPORT_VIEWS } from "../cli/args";
 import type { AnalysisService } from "./analysis-service";
 import { send, sendError, sendFile, sendJson } from "./responses";
@@ -21,6 +21,16 @@ export function createRequestHandler(analysis: AnalysisService, frontendDist: st
       if (route === "/healthz") return send(res, 200, "ok");
       if (route === "/api/progress" && req.method === "GET") return serveProgress(req, res, analysis);
       if (route === "/api/workspace" && req.method === "GET") return void respond(res, analysis.request({ kind: "workspace" }));
+      if (route === "/api/route-data" && req.method === "GET") {
+        const parsed = routeDataDetailRequestSchema.safeParse({ route: url.searchParams.get("route"), flow: url.searchParams.get("flow"), generation: url.searchParams.get("generation") ?? undefined });
+        if (!parsed.success) return sendError(res, 400, "invalid_route_data_selection", "A route and trajectory key are required", parsed.error.issues);
+        return void respond(res, analysis.request({ kind: "route-data", ...parsed.data }), "Route data trajectory was not found or belongs to an older analysis generation.");
+      }
+      if (route === "/api/route-data/source" && req.method === "GET") {
+        const parsed = sourceExcerptRequestSchema.safeParse({ path: url.searchParams.get("path"), line: url.searchParams.get("line"), column: url.searchParams.get("column") ?? undefined, endLine: url.searchParams.get("endLine") ?? undefined, endColumn: url.searchParams.get("endColumn") ?? undefined });
+        if (!parsed.success) return sendError(res, 400, "invalid_source_span", "A contained source path and valid focus span are required", parsed.error.issues);
+        return void respond(res, analysis.request({ kind: "source-excerpt", ...parsed.data }), `File not found: ${parsed.data.path}`);
+      }
       if (route === "/api/file" && req.method === "GET") {
         const parsed = fileRequestSchema.safeParse({ path: url.searchParams.get("path") });
         if (!parsed.success) return sendError(res, 400, "invalid_path", "A workspace-relative path is required", parsed.error.issues);

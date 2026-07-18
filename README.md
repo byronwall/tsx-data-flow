@@ -13,6 +13,12 @@ TypeScript already proves that `value` cannot be nullish.
 > The tool is **advisory**. A high rank means "look here first," not "make this
 > edit blindly." Check the source before changing it.
 
+## Project notes
+
+- [TSX Data Flow project page](https://byroni.us/projects/tsx-data-flow)
+- [Rebuilding TSX Data Flow around TypeScript and SolidJS](https://byroni.us/blog/typescript-solid-client-server-migration)
+- [Making slow static analysis explain itself](https://byroni.us/blog/incremental-progress-for-static-analysis)
+
 ## Install
 
 Install globally:

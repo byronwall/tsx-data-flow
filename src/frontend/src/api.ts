@@ -1,5 +1,6 @@
 import type { z } from "zod";
-import { apiErrorSchema, filePageResponseSchema, refreshResponseSchema, reportResponseSchema, workspaceResponseSchema } from "../../api/contracts";
+import { apiErrorSchema, filePageResponseSchema, refreshResponseSchema, reportResponseSchema, routeDataDetailResponseSchema, sourceExcerptResponseSchema, workspaceResponseSchema } from "../../api/contracts";
+import type { RouteDataDetail } from "../../api/contracts";
 
 export class ApiClientError extends Error {
   constructor(public readonly code: string, message: string, public readonly status: number) { super(message); }
@@ -38,6 +39,8 @@ export const fetchWorkspace = () => fetchParsed("/api/workspace", workspaceRespo
 export const fetchFilePage = (path: string) => fetchParsed(`/api/file?path=${encodeURIComponent(path)}`, filePageResponseSchema);
 export const fetchReport = (view: string, path?: string) => fetchParsed(`/api/reports/${encodeURIComponent(view)}${path ? `?path=${encodeURIComponent(path)}` : ""}`, reportResponseSchema);
 export const refreshWorkspace = () => fetchParsed("/api/refresh", refreshResponseSchema, { method: "POST" });
+export const fetchRouteData = (route: string, flow: string, generation: number) => fetchParsed(`/api/route-data?route=${encodeURIComponent(route)}&flow=${encodeURIComponent(flow)}&generation=${generation}`, routeDataDetailResponseSchema);
+export const fetchSourceExcerpt = (evidence: RouteDataDetail["evidence"][number]) => fetchParsed(`/api/route-data/source?path=${encodeURIComponent(evidence.file)}&line=${evidence.line}&column=${evidence.column}&endLine=${evidence.span.endLine}&endColumn=${evidence.span.endColumn}`, sourceExcerptResponseSchema);
 export function refreshFailureMessage(error: unknown) { return `${error instanceof Error ? error.message : String(error)} Check the configured source and tsconfig paths, then try again.`; }
 
 export async function fetchText(url: string): Promise<string> {

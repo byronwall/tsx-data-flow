@@ -29,6 +29,7 @@ import {
   safeTypeText,
 } from "./source-defenses";
 import { traceExpression } from "./source-trace";
+import { formatExpression } from "../reports/format-helpers";
 export function analyzeSourceFile(
   ts: typeof TypeScript,
   checker: TypeScript.TypeChecker,
@@ -66,6 +67,7 @@ export function analyzeSourceFile(
       const sinkNode = addNode(graph, {
         kind: "jsx-sink",
         label: sinkExpression.label,
+        snippet: formatExpression(node.getText(sourceFile), 240),
         file: relativePath(args.root, sourceFile.fileName),
         location: locationOf(sourceFile, node),
         type: "DOM",

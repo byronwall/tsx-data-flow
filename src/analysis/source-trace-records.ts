@@ -29,6 +29,7 @@ export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, k
   const node = addNode(graph, {
     kind,
     label: nodeLabel,
+    snippet: formatExpression(fullText, 240),
     file,
     location,
     type: safeTypeText(options.type),
@@ -192,6 +193,7 @@ export function sourceTrace(
   const node = addNode(graph, {
     kind,
     label,
+    snippet: formatExpression(expression.getText(), 240),
     file,
     location,
     type: safeTypeText(),

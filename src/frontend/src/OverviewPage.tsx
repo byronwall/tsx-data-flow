@@ -17,6 +17,6 @@ export function OverviewPage(props: { location: URL; navigate: Navigate }) {
     <div class="toolbar"><h1 style={{ margin: "0" }}>Render-path overview</h1><button type="button" disabled={refreshing()} onClick={() => void refresh()}>{refreshing() ? "Analyzing…" : "↻ Re-analyze"}</button></div>
     <Show when={refreshError()}><p class="error" role="alert">{refreshError()}</p></Show>
     <Show when={refreshing()}><LoadingStatus subject="workspace analysis" operation="refresh" /></Show>
-    <Show when={report()}>{(workspace) => <><OverviewControls state={state()} navigate={props.navigate} /><OverviewResults report={workspace()} state={state()} rows={rows()} pageRows={pageRows()} typeCounts={entryTypeCountsByFile(workspace())} selectedAreaId={props.location.searchParams.get("area")} /></>}</Show>
+    <Show when={report()}>{(workspace) => <><OverviewControls state={state()} navigate={props.navigate} /><OverviewResults report={workspace()} generation={response()?.generation} initialSearch={props.location.search} state={state()} rows={rows()} pageRows={pageRows()} typeCounts={entryTypeCountsByFile(workspace())} selectedAreaId={props.location.searchParams.get("area")} /></>}</Show>
   </Show></Show></Shell>;
 }

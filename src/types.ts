@@ -70,6 +70,7 @@ export interface GraphNode {
   id: string;
   kind: string;
   label: string;
+  snippet?: string;
   file?: string;
   location?: SourceLocation | null;
   type?: string;

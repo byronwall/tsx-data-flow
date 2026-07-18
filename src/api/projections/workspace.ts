@@ -3,6 +3,7 @@ import type { AnalysisReport, RootInfo, Sink } from "../../types";
 import { entryTypeCountsByFile } from "../../reports/overview-selectors";
 import { workspaceSchema, type Workspace } from "../contracts";
 import { buildSemanticMap } from "./semantic-map";
+import { buildRouteDataInventory } from "./route-data";
 
 export function buildWorkspaceDto(report: AnalysisReport): Workspace {
   const counts = entryTypeCountsByFile(report);
@@ -76,6 +77,7 @@ export function buildWorkspaceDto(report: AnalysisReport): Workspace {
       metricDeltas: baseline.metricDeltas,
     } : null,
     semanticMap: buildSemanticMap(report),
+    routeData: buildRouteDataInventory(report),
     files,
   });
 }

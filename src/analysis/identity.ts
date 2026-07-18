@@ -191,6 +191,7 @@ function externalOriginFor(ts: typeof TypeScript, localSymbol: TypeScript.Symbol
   const importModule = moduleSpecifierFor(ts, localSymbol);
   const declaration = symbol.getDeclarations()?.[0];
   const declarationFile = declaration?.getSourceFile().fileName ?? null;
+  if (!importModule && declarationFile && /(?:^|[/\\])typescript[/\\]lib[/\\]lib\.[^/\\]+\.d\.ts$/.test(declarationFile)) return null;
   const packageName = importModule && !importModule.startsWith(".") ? packageFromModule(importModule) : declarationFile ? packageFromDeclaration(root, declarationFile) : null;
   if (!packageName) return null;
   return { module: importModule && !importModule.startsWith(".") ? importModule : null, package: packageName, declarationFile: declarationFile ? relative(root, declarationFile) : null };

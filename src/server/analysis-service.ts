@@ -24,6 +24,8 @@ export type AnalysisOperation =
   | { kind: "file"; path: string }
   | { kind: "report"; view: string; path: string | null }
   | { kind: "refresh" }
+  | { kind: "route-data"; route: string; flow: string; generation?: number }
+  | { kind: "source-excerpt"; path: string; line: number; column: number; endLine?: number; endColumn?: number }
   | { kind: "markdown"; view: string; path: string | null };
 
 export function createAnalysisService(args: AnalyzerArgs) {

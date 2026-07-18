@@ -18,6 +18,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify": "node scripts/verify.mjs",
     "dev": "node --import tsx scripts/dev.ts",
     "dev:server": "tsx watch --include 'src/**' --exclude 'src/frontend/**' src/server-cli.ts --port 4318",
     "dev:frontend": "vite --config vite.frontend.config.ts",
