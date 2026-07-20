@@ -2,6 +2,8 @@
 
 This document set turns the July 12, 2026 product transcript into an evidence-grounded product model and implementation sequence for `tsx-data-flow`.
 
+The current behavior contract for the implemented route-level explorer lives in [Data trajectory product intent](../data-trajectory-intent.md).
+
 The central conclusion is that the product needs one semantic evidence graph with several projections, not several unrelated visualizers. The same primitives should support repository orientation, route/request explanation, canonical data-shape tracing, interactive state explanation, render-variant inspection, and cleanup prioritization.
 
 ## Reading order

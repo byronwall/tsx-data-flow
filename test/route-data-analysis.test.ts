@@ -123,7 +123,7 @@ describe("route data trajectory analysis", () => {
     expect(detail.operations[0].sourceExpressionIds.every((id) => detail.evidence.some((item) => item.id === id))).toBe(true);
     expect(detail.context.nodes.find((item) => item.kind === "component")).toMatchObject({ label: "BoardRoute", role: "route", parentId: null });
     const sourceSummary = inventory.sources.find((item) => item.file === "src/store/boards.ts");
-    expect(sourceSummary?.routeKeys).toEqual(expect.arrayContaining(inventory.routes.filter((item) => item.pathPattern.startsWith("/boards")).map((item) => item.key)));
+    expect(sourceSummary?.routeKeys).toEqual([route.key]);
     expect(inventory.routes.find((item) => item.key === route.key)).toMatchObject({ routeKind: "page", unknownGapCount: 0 });
   });
 

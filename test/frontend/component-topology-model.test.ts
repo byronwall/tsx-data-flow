@@ -28,17 +28,14 @@ const detail = {
 } as unknown as RouteDataDetail;
 
 describe("component topology projection", () => {
-  it("collapses retained paths to components and adds sources and context hubs", () => {
+  it("collapses retained paths to components without inventing source or context fallbacks", () => {
     const topology = buildComponentTopology(detail);
-    expect(topology.nodes.map((node) => node.label)).toEqual(["domain rows", "RouteA", "Domain context", "DomainList"]);
+    expect(topology.nodes.map((node) => node.label)).toEqual(["RouteA", "DomainList"]);
     expect(topology.edges.map((edge) => `${edge.kind}:${edge.from}->${edge.to}`)).toEqual(expect.arrayContaining([
-      "consumes:context:domain->component:domainlist",
       "handoff:component:routea->component:domainlist",
-      "loads:source:source->component:routea",
-      "provides:component:routea->context:domain",
       "renders:component:routea->component:domainlist",
     ]));
-    expect(topology.totals).toEqual({ components: 2, contexts: 1, sources: 1, inferredEdges: 4 });
+    expect(topology.totals).toEqual({ components: 2, contexts: 0, sources: 0, inferredEdges: 0 });
   });
 
   it("produces deterministic finite positions", () => {
@@ -47,11 +44,15 @@ describe("component topology projection", () => {
     const second = layoutComponentTopology(topology);
     expect(first.nodes).toEqual(second.nodes);
     expect(first.nodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y))).toBe(true);
-    expect(first.nodes.find((node) => node.kind === "source")!.x).toBeLessThan(first.nodes.find((node) => node.routeEntry)!.x);
+    expect(first.nodes.find((node) => node.routeEntry)!.x).toBeLessThan(first.nodes.find((node) => node.label === "DomainList")!.x);
   });
 
   it("seeds sources at the top left and contexts above their consumers", () => {
-    const topology = buildComponentTopology(detail);
+    const topology: ComponentTopology = {
+      nodes: [topologyNode("source", "source", "Rows", false, 0), topologyNode("route", "component", "Route", true, 1), topologyNode("context", "context", "Domain context", false, 2), topologyNode("consumer", "component", "Consumer", false, 3)],
+      edges: [topologyEdge("loads", "source", "route", "loads"), topologyEdge("provides", "route", "context", "provides"), topologyEdge("consumes", "context", "consumer", "consumes")],
+      totals: { components: 2, contexts: 1, sources: 1, inferredEdges: 0 },
+    };
     const initial = layoutComponentTopology(topology, 1200, 760, { simulationTicks: 0 });
     const source = initial.nodes.find((node) => node.kind === "source")!;
     const context = initial.nodes.find((node) => node.kind === "context")!;
@@ -400,6 +401,7 @@ describe("component topology projection", () => {
       operations: [{
         key: "operation:summary", semanticKind: "boundary", label: "Load summary resource",
         sourceExpressionIds: ["evidence:summary"], boundary: { kind: "resource", label: "getInventorySummary" },
+        owner: { label: "RouteA", file: "src/routes/a.tsx", line: 2 },
       }],
       evidence: [{ id: "evidence:summary", file: "src/routes/a.tsx", line: 6 }],
     } as unknown as RouteDataDetail;
@@ -467,7 +469,7 @@ describe("component topology projection", () => {
       from: "component:inventoryrouteshell",
       to: "component:palette",
       kind: "handoff",
-      confidence: "inferred",
+      confidence: "proven",
       via: ["Suspense"],
     }));
     expect(topology.edges.some((edge) => edge.to === "component:suspense" || edge.from === "component:suspense")).toBe(false);
@@ -623,3 +625,6 @@ describe("component topology projection", () => {
     expect(visible.totals.components).toBe(1);
   });
 });
+
+function topologyNode(id: string, kind: ComponentTopology["nodes"][number]["kind"], label: string, routeEntry: boolean, depth: number) { return { id, kind, label, file: null, line: null, routeEntry, incomingCount: 1, outgoingCount: 1, depth }; }
+function topologyEdge(id: string, from: string, to: string, kind: ComponentTopology["edges"][number]["kind"]) { return { id, from, to, kind, confidence: "proven" as const, count: 1 }; }

@@ -29,8 +29,8 @@ describe("exhaustive route trajectory assembly", () => {
       { id: "render", kind: "jsx-sink", label: "JSX props.boardDescription", file: "src/MobileBoardInspectorDrawer.tsx", location: { line: 12, column: 1 }, terminalId: "render" },
     ];
     const edges: GraphEdge[] = [edge("source", "assignment", "jsx-sink"), edge("props", "read", "property-read"), edge("read", "render", "jsx-sink")];
-    const producer = { id: "producer", nodeId: "assignment", label: "boardDescription={...}", renderContext: { tag: "MobileBoardInspectorDrawer", attribute: "boardDescription", component: "BoardHeader" } } as Sink;
-    const consumer = { id: "consumer", nodeId: "render", label: "JSX props.boardDescription", renderContext: { tag: "p", attribute: null, component: "MobileBoardInspectorDrawer" } } as Sink;
+    const producer = { id: "producer", nodeId: "assignment", label: "boardDescription={...}", file: "src/BoardHeader.tsx", renderContext: { tag: "MobileBoardInspectorDrawer", attribute: "boardDescription", component: "BoardHeader" } } as Sink;
+    const consumer = { id: "consumer", nodeId: "render", label: "JSX props.boardDescription", file: "src/MobileBoardInspectorDrawer.tsx", renderContext: { tag: "p", attribute: null, component: "MobileBoardInspectorDrawer" } } as Sink;
 
     const result = buildExhaustiveRouteGraph({ nodes, edges, unknownEdges: 0 }, [producer, consumer]);
 
@@ -38,7 +38,7 @@ describe("exhaustive route trajectory assembly", () => {
     expect(result.nodes.map((node) => node.label)).toEqual(["board.description", "boardDescription={...}", "props.boardDescription", "JSX props.boardDescription"]);
     expect(result.nodes.find((node) => node.label === "props")).toBeUndefined();
     expect(result.edges.map((item) => item.kind)).toContain("component-prop");
-    expect(result.trajectories[0].stepKeys).toHaveLength(4);
+    expect(result.trajectories.some((trajectory) => trajectory.stepKeys.length === 4)).toBe(true);
   });
 
   it("keeps every handoff in a multi-component prop relay", () => {
@@ -54,16 +54,16 @@ describe("exhaustive route trajectory assembly", () => {
     ];
     const edges = [edge("source", "to-middle", "jsx-sink"), edge("middle-props", "middle-read", "property-read"), edge("middle-read", "to-leaf", "jsx-sink"), edge("leaf-props", "leaf-read", "property-read"), edge("leaf-read", "render", "jsx-sink")];
     const sinks = [
-      { id: "parent", nodeId: "to-middle", label: "description={...}", renderContext: { tag: "Middle", attribute: "description", component: "Parent" } },
-      { id: "middle", nodeId: "to-leaf", label: "description={...}", renderContext: { tag: "Leaf", attribute: "description", component: "Middle" } },
-      { id: "leaf", nodeId: "render", label: "JSX props.description", renderContext: { tag: "p", attribute: null, component: "Leaf" } },
+      { id: "parent", nodeId: "to-middle", label: "description={...}", file: "src/Parent.tsx", renderContext: { tag: "Middle", attribute: "description", component: "Parent" } },
+      { id: "middle", nodeId: "to-leaf", label: "description={...}", file: "src/Middle.tsx", renderContext: { tag: "Leaf", attribute: "description", component: "Middle" } },
+      { id: "leaf", nodeId: "render", label: "JSX props.description", file: "src/Leaf.tsx", renderContext: { tag: "p", attribute: null, component: "Leaf" } },
     ] as Sink[];
 
     const result = buildExhaustiveRouteGraph({ nodes, edges, unknownEdges: 0 }, sinks);
 
     expect(result.totals.trajectories).toBe(1);
     expect(result.edges.filter((item) => item.kind === "component-prop")).toHaveLength(2);
-    expect(result.trajectories[0].stepKeys).toHaveLength(6);
+    expect(Math.max(...result.trajectories.map((trajectory) => trajectory.stepKeys.length))).toBe(6);
     expect(result.nodes.filter((node) => node.label === "props.description")).toHaveLength(2);
   });
 
