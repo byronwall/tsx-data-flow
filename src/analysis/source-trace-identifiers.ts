@@ -2,8 +2,9 @@ import type * as TypeScript from "typescript";
 import type { AccessorRecord, AnalysisGraph, TraceContext, TraceExpressionFn } from "../types";
 import { isGlobalNamespaceName } from "./source-call-classification";
 import { arrayCallbackBinding, renderPropBinding } from "./source-sinks";
-import { getFunctionReturnExpression, identifierResolvesTo } from "./trace-support";
+import { getFunctionReturnExpressions, identifierResolvesTo } from "./trace-support";
 import { formatExpression } from "../reports/format-helpers";
+import { resourceBoundaryIdentity } from "./route-data-resource";
 import {
   addOperationTrace,
   definitionLocationOf,
@@ -237,20 +238,22 @@ export function traceAccessor(ts: typeof TypeScript, checker: TypeScript.TypeChe
   }
   if (accessor.kind === "memo") {
     const callback = call.arguments[0];
-    const body = callback && ts.isFunctionLike(callback)
-      ? getFunctionReturnExpression(ts, callback)
-      : null;
-    if (body) {
-      const trace = traceExpression(ts, checker, graph, body, context);
+    const returned = callback && ts.isFunctionLike(callback)
+      ? getFunctionReturnExpressions(ts, callback)
+      : [];
+    if (returned.length) {
+      const traces = returned.map((body) => traceExpression(ts, checker, graph, body, context));
       return addOperationTrace(
         ts,
         graph,
         "solid-accessor",
         expression,
-        [trace],
+        traces,
         {
           label: `${expression.text}() memo`,
-          detail: `= ${formatExpression(body.getText(), 52)}`,
+          detail: returned.length === 1
+            ? `= ${formatExpression(returned[0].getText(), 52)}`
+            : `${returned.length} return branches`,
         },
       );
     }
@@ -275,5 +278,8 @@ export function traceAccessor(ts: typeof TypeScript, checker: TypeScript.TypeChe
     "solid-accessor",
     `${expression.text}() resource`,
     true,
+    "solid-accessor",
+    null,
+    resourceBoundaryIdentity(graph.root, accessor.declaration),
   );
 }

@@ -12,7 +12,7 @@ import { collapse, focusSnippet, formatExpression } from "../reports/format-help
 // per render sub-path that crosses it.
 const REPRESENTATION_KINDS = new Set(["alias", "object-pack", "object-spread"]);
 
-interface OperationTraceOptions { label?: string; detail?: string | null; type?: string; unknown?: boolean }
+interface OperationTraceOptions { label?: string; detail?: string | null; type?: string; unknown?: boolean; boundaryId?: string; propName?: string }
 export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, kind: string, expression: TypeScript.Expression, traces: Array<TraceResult | null>, options: OperationTraceOptions = {}): TraceResult {
   const explicit = options.label != null;
   const fullText = collapse(expression.getText());
@@ -33,6 +33,8 @@ export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, k
     file,
     location,
     type: safeTypeText(options.type),
+    boundaryId: options.boundaryId,
+    propName: options.propName,
   });
   const edges: string[] = [];
   const rootInfos: RootInfo[] = [];
@@ -186,6 +188,7 @@ export function sourceTrace(
   unknown: boolean,
   rootKind: string = kind,
   def: { file: string; line: number } | null = null,
+  boundaryId?: string,
 ): TraceResult {
   const sourceFile = expression.getSourceFile();
   const file = relativePath(graph.root, sourceFile.fileName);
@@ -197,6 +200,7 @@ export function sourceTrace(
     file,
     location,
     type: safeTypeText(),
+    boundaryId,
   });
   return {
     lastNodeId: node.id,

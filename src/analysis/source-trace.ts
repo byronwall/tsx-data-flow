@@ -10,7 +10,7 @@ import { renderPropBinding } from "./source-sinks";
 import {
   getCallName,
   getFileContextCached,
-  getFunctionReturnExpression,
+  getFunctionReturnExpressions,
   identifierResolvesTo,
   resolveCatalogFn,
 } from "./trace-support";
@@ -173,7 +173,8 @@ function traceCrossFileCall(ts: typeof TypeScript, checker: TypeScript.TypeCheck
   if (context.crossDepth >= crossFile.args.maxHelperDepth) return null;
 
   const record = resolveCatalogFn(ts, checker, calleeIdent, crossFile);
-  if (!record || !record.returnExpr) return null;
+  const returned = record?.returnExprs ?? [];
+  if (!record || !returned.length) return null;
   if (context.visitedFns.has(record.symbol)) return null;
   if (crossFile.budget <= 0) return null;
   crossFile.budget -= 1;
@@ -199,21 +200,23 @@ function traceCrossFileCall(ts: typeof TypeScript, checker: TypeScript.TypeCheck
   });
 
   const defFile = record.fnNode.getSourceFile();
-  const bodyTrace = traceExpression(ts, checker, subGraph, record.returnExpr, {
-    ...getFileContextCached(ts, defFile, crossFile),
-    sourceFile: defFile,
-    root: context.root,
-    stack: new Set(),
-    crossFile,
-    crossDepth: context.crossDepth + 1,
-    visitedFns: new Set([...context.visitedFns, record.symbol]),
-    paramBindings,
-  });
+  const bodyTraces = returned.map((returnExpression) =>
+    traceExpression(ts, checker, subGraph, returnExpression, {
+      ...getFileContextCached(ts, defFile, crossFile),
+      sourceFile: defFile,
+      root: context.root,
+      stack: new Set(),
+      crossFile,
+      crossDepth: context.crossDepth + 1,
+      visitedFns: new Set([...context.visitedFns, record.symbol]),
+      paramBindings,
+    })
+  );
 
   // For a method call, the receiver object is part of the value's lineage
   // (`entityManager().getRelation(id)` flows from the manager too). Trace it so
   // its source is preserved alongside the descended body.
-  const children = [bodyTrace];
+  const children = [...bodyTraces];
   if (ts.isPropertyAccessExpression(expression.expression)) {
     children.push(
       traceExpression(
@@ -228,7 +231,9 @@ function traceCrossFileCall(ts: typeof TypeScript, checker: TypeScript.TypeCheck
 
   return addOperationTrace(ts, graph, "call", expression, children, {
     label: callee,
-    detail: `returns ${formatExpression(record.returnExpr.getText(), 52)}`,
+    detail: returned.length === 1
+      ? `returns ${formatExpression(returned[0].getText(), 52)}`
+      : `${returned.length} return branches`,
   });
 }
 
@@ -288,28 +293,30 @@ function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChec
     // Same-file helper: record that it was reached (for the boundary report) and
     // trace through its body inline, as before.
     markReached(ts, checker, expression.expression, context);
-    const returnExpression = getFunctionReturnExpression(ts, localFunction);
+    const returnExpressions = getFunctionReturnExpressions(ts, localFunction);
     const traces = expression.arguments.map((argument) =>
       traceExpression(ts, checker, graph, argument, context),
     );
-    if (returnExpression) {
+    if (returnExpressions.length) {
       const paramBindings = new Map();
       localFunction.parameters.forEach((parameter, index: number) => {
         const argumentTrace = traces[index];
         if (ts.isIdentifier(parameter.name) && argumentTrace) paramBindings.set(parameter.name.text, argumentTrace);
       });
-      traces.push(
+      traces.push(...returnExpressions.map((returnExpression) =>
         traceExpression(ts, checker, graph, returnExpression, {
           ...context,
           paramBindings,
           visitedFns: localFunctionSymbol ? new Set([...context.visitedFns, localFunctionSymbol]) : context.visitedFns,
-        }),
-      );
+        })
+      ));
     }
     return addOperationTrace(ts, graph, "call", expression, traces, {
       label: callee,
-      detail: returnExpression
-        ? `returns ${formatExpression(returnExpression.getText(), 52)}`
+      detail: returnExpressions.length === 1
+        ? `returns ${formatExpression(returnExpressions[0].getText(), 52)}`
+        : returnExpressions.length > 1
+          ? `${returnExpressions.length} return branches`
         : `${callee}(${expression.arguments.length ? "…" : ""})`,
     });
   }
@@ -384,10 +391,24 @@ function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChec
   return addOperationTrace(ts, graph, "call", expression, traces, {
     label: callee || "call",
     unknown,
+    propName: callableComponentProp(ts, checker, expression),
     // The full call expression as written — for a method (`x.toUpperCase()`) or
     // an imported helper, this is the only thing that conveys what it does.
     detail: formatExpression(expression.getText(), 60),
   });
+}
+
+function callableComponentProp(ts: typeof TypeScript, checker: TypeScript.TypeChecker, expression: TypeScript.CallExpression) {
+  if (!ts.isPropertyAccessExpression(expression.expression) || !ts.isIdentifier(expression.expression.expression)) return undefined;
+  const receiver = expression.expression.expression;
+  if (receiver.text !== "props") return undefined;
+  try {
+    const symbol = checker.getSymbolAtLocation(receiver);
+    if (!symbol?.declarations?.some((declaration) => ts.isParameter(declaration))) return undefined;
+  } catch {
+    return undefined;
+  }
+  return expression.expression.name.text;
 }
 
 function traceObjectLiteral(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.ObjectLiteralExpression, context: TraceContext): TraceResult {

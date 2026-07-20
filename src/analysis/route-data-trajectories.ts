@@ -5,7 +5,7 @@ export type ExhaustiveRouteGraph = ReturnType<typeof buildExhaustiveRouteGraph>;
 const PATH_BUDGET = 100_000;
 const DEPTH_BUDGET = 120;
 const UNOWNED_COMPONENT = "Unowned / external";
-type RetainedNode = { key: string; label: string; snippet: string | null; kind: string; file: string | null; line: number | null; pathCount: number; minimumDepth: number; componentCounts: Map<string, number> };
+type RetainedNode = { key: string; label: string; snippet: string | null; kind: string; file: string | null; line: number | null; column: number | null; boundaryId: string | null; pathCount: number; minimumDepth: number; componentCounts: Map<string, number> };
 type RawPath = { sink: Sink; graphNodeIds: string[]; pathEdges: GraphEdge[]; nodeComponents: string[] };
 
 export function buildExhaustiveRouteGraph(graph: ReportGraph, sinks: Sink[]) {
@@ -67,28 +67,41 @@ export function buildExhaustiveRouteGraph(graph: ReportGraph, sinks: Sink[]) {
 function stitchComponentProps(paths: RawPath[], nodes: Map<string, GraphNode>, onBudget: () => void) {
   const consumersByKey = new Map<string, number[]>();
   const producersByKey = new Map<string, number[]>();
+  const componentKeysByLabel = new Map<string, Set<string>>();
+  for (const path of paths) {
+    const label = componentFor(path.sink);
+    const key = componentKeyForSink(path.sink);
+    if (label === UNOWNED_COMPONENT || !key) continue;
+    const retained = componentKeysByLabel.get(label) ?? new Set<string>();
+    retained.add(key);
+    componentKeysByLabel.set(label, retained);
+  }
   paths.forEach((path, index) => {
-    const component = componentFor(path.sink);
+    const componentKey = componentKeyForSink(path.sink);
     const consumed = consumedProp(path, nodes);
-    if (consumed && component !== UNOWNED_COMPONENT) {
-      const key = `${component}:${consumed}`;
+    if (consumed && componentKey) {
+      const key = `${componentKey}:${consumed}`;
       consumersByKey.set(key, [...(consumersByKey.get(key) ?? []), index]);
     }
     const produced = producedProp(path.sink);
     if (produced) {
-      const key = `${produced.component}:${produced.prop}`;
+      const targetKeys = componentKeysByLabel.get(produced.component);
+      if (targetKeys?.size !== 1) return;
+      const key = `${[...targetKeys][0]}:${produced.prop}`;
       producersByKey.set(key, [...(producersByKey.get(key) ?? []), index]);
     }
   });
   const hasDownstream = paths.map((path) => {
     const produced = producedProp(path.sink);
-    return produced ? (consumersByKey.get(`${produced.component}:${produced.prop}`)?.length ?? 0) > 0 : false;
+    const targetKeys = produced ? componentKeysByLabel.get(produced.component) : null;
+    return produced && targetKeys?.size === 1 ? (consumersByKey.get(`${[...targetKeys][0]}:${produced.prop}`)?.length ?? 0) > 0 : false;
   });
   const result: RawPath[] = [];
   const expandUpstream = (consumerIndex: number, visited: Set<number>): RawPath[] => {
     const consumer = paths[consumerIndex];
     const consumed = consumedProp(consumer, nodes);
-    const key = consumed ? `${componentFor(consumer.sink)}:${consumed}` : null;
+    const componentKey = componentKeyForSink(consumer.sink);
+    const key = consumed && componentKey ? `${componentKey}:${consumed}` : null;
     const producers = key ? producersByKey.get(key) ?? [] : [];
     const eligible = producers.filter((index) => index !== consumerIndex && !visited.has(index));
     if (!eligible.length) return [consumer];
@@ -134,6 +147,10 @@ function consumedProp(path: RawPath, nodes: Map<string, GraphNode>) {
     const current = nodes.get(path.graphNodeIds[index]);
     const previous = index ? nodes.get(path.graphNodeIds[index - 1]) : null;
     if (previous?.label === "props" && current?.kind === "property-read") return current.label;
+    if (previous?.label === "props") {
+      const callable = callablePropName(current);
+      if (callable) return callable;
+    }
     if (current?.label.startsWith("props.")) return current.label.slice("props.".length).split(".")[0];
   }
   return null;
@@ -148,7 +165,9 @@ function compactBarePropRoot(path: RawPath, nodes: Map<string, GraphNode>) {
     const current = nodes.get(graphNodeIds[index]);
     const next = nodes.get(graphNodeIds[index + 1]);
     if (current?.label !== "props" || !/source|parameter/.test(current.kind)) continue;
-    if (next?.kind === "property-read") labelOverrides.set(graphNodeIds[index + 1], next.label.startsWith("props.") ? next.label : `props.${next.label}`);
+    const prop = next?.kind === "property-read" ? next.label : callablePropName(next);
+    if (!prop) continue;
+    labelOverrides.set(graphNodeIds[index + 1], prop.startsWith("props.") ? prop : `props.${prop}`);
     graphNodeIds.splice(index, 1);
     nodeComponents.splice(index, 1);
     if (index === 0) pathEdges.splice(0, Math.min(1, pathEdges.length));
@@ -162,14 +181,22 @@ function compactBarePropRoot(path: RawPath, nodes: Map<string, GraphNode>) {
   return { ...path, graphNodeIds, pathEdges, nodeComponents, labelOverrides };
 }
 
+function callablePropName(node: GraphNode | undefined) {
+  return node?.kind === "call" ? node.propName ?? null : null;
+}
+
 function componentPropEdge(from: string, to: string, prop: string): GraphEdge {
   return { id: `component-prop:${stableHash(`${from}:${to}:${prop}`)}`, from, to, kind: "component-prop", unknown: false, location: null };
 }
 function componentFor(sink: Sink) { return sink.renderContext?.component?.trim() || UNOWNED_COMPONENT; }
+function componentKeyForSink(sink: Sink) {
+  const component = sink.renderContext?.component?.trim();
+  return component && sink.file ? `${sink.file.replaceAll("\\", "/")}:${component}` : null;
+}
 function retainNode(node: GraphNode | undefined, fallbackId: string, depth: number, rows: Map<string, RetainedNode>, labelOverride?: string) {
-  const identity = node?.terminalId ?? node?.identityId ?? `${node?.file ?? ""}:${node?.location?.line ?? ""}:${node?.kind ?? "unknown"}:${node?.label ?? fallbackId}`;
+  const identity = node?.terminalId ?? node?.identityId ?? `${node?.file ?? ""}:${node?.location?.line ?? ""}:${node?.location?.column ?? ""}:${node?.kind ?? "unknown"}:${node?.label ?? fallbackId}`;
   const key = `flow-node:${stableHash(identity)}`;
-  const row = rows.get(key) ?? { key, label: labelOverride ?? node?.label ?? fallbackId, snippet: node?.snippet ?? null, kind: node?.kind ?? "unknown", file: node?.file ?? null, line: node?.location?.line ?? null, pathCount: 0, minimumDepth: depth, componentCounts: new Map<string, number>() };
+  const row = rows.get(key) ?? { key, label: labelOverride ?? node?.label ?? fallbackId, snippet: node?.snippet ?? null, kind: node?.kind ?? "unknown", file: node?.file ?? null, line: node?.location?.line ?? null, column: node?.location?.column ?? null, boundaryId: node?.boundaryId ?? null, pathCount: 0, minimumDepth: depth, componentCounts: new Map<string, number>() };
   if (labelOverride && row.label === node?.label) row.label = labelOverride;
   row.minimumDepth = Math.min(row.minimumDepth, depth); rows.set(key, row); return key;
 }

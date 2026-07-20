@@ -17,32 +17,52 @@ export function projectTrajectoryGraph(graph: Graph, trajectoryKey: string | nul
   if (!trajectoryKey) return graph;
   const trajectory = graph.trajectories.find((item) => item.key === trajectoryKey);
   if (!trajectory) return graph;
+  return projectGraph(graph, [trajectory]);
+}
+
+export function projectSourceGraph(graph: Graph, sourceMethodKey: string | null): Graph {
+  if (!sourceMethodKey) return graph;
+  const exact = graph.trajectories.filter((trajectory) => trajectory.sourceMethodKeys.includes(sourceMethodKey));
+  return projectGraph(graph, exact);
+}
+
+function projectGraph(graph: Graph, trajectories: Graph["trajectories"]): Graph {
   const depthByKey = new Map<string, number>();
-  const componentByKey = new Map<string, string>();
-  trajectory.stepKeys.forEach((key, index) => {
-    if (!depthByKey.has(key)) depthByKey.set(key, index);
-    if (!componentByKey.has(key)) componentByKey.set(key, trajectory.stepComponents[index]);
-  });
+  const pathCountByKey = new Map<string, number>();
+  const componentsByKey = new Map<string, Map<string, number>>();
+  const edgeCounts = new Map<string, number>();
+  for (const trajectory of trajectories) {
+    trajectory.stepKeys.forEach((key, index) => {
+      depthByKey.set(key, Math.min(depthByKey.get(key) ?? index, index));
+      pathCountByKey.set(key, (pathCountByKey.get(key) ?? 0) + 1);
+      const component = trajectory.stepComponents[index];
+      const counts = componentsByKey.get(key) ?? new Map<string, number>();
+      counts.set(component, (counts.get(component) ?? 0) + 1);
+      componentsByKey.set(key, counts);
+      const next = trajectory.stepKeys[index + 1];
+      if (next) edgeCounts.set(`${key}>${next}`, (edgeCounts.get(`${key}>${next}`) ?? 0) + 1);
+    });
+  }
   const nodes = graph.nodes
     .filter((node) => depthByKey.has(node.key))
     .map((node) => {
-      const component = componentByKey.get(node.key) || node.component;
-      return { ...node, minimumDepth: depthByKey.get(node.key)!, pathCount: 1, component, components: [component] };
+      const components = [...(componentsByKey.get(node.key) ?? [])].sort((left, right) => right[1] - left[1]).map(([component]) => component);
+      return { ...node, minimumDepth: depthByKey.get(node.key)!, pathCount: pathCountByKey.get(node.key)!, component: components[0] ?? node.component, components: components.length ? components : node.components };
     });
-  const pathPairs = new Set(trajectory.stepKeys.slice(0, -1).map((from, index) => `${from}>${trajectory.stepKeys[index + 1]}`));
-  const edges = graph.edges.filter((edge) => pathPairs.has(`${edge.from}>${edge.to}`)).map((edge) => ({ ...edge, pathCount: 1 }));
+  const edges = graph.edges.filter((edge) => edgeCounts.has(`${edge.from}>${edge.to}`)).map((edge) => ({ ...edge, pathCount: edgeCounts.get(`${edge.from}>${edge.to}`)! }));
   return {
     ...graph,
     nodes,
     edges,
-    trajectories: [trajectory],
+    trajectories,
     totals: {
       ...graph.totals,
-      trajectories: 1,
+      sinks: new Set(trajectories.map((trajectory) => trajectory.sinkId)).size,
+      trajectories: trajectories.length,
       nodes: nodes.length,
       edges: edges.length,
       components: new Set(nodes.flatMap((node) => node.components)).size,
-      unknownTrajectories: trajectory.completeness === "partial" ? 1 : 0,
+      unknownTrajectories: trajectories.filter((trajectory) => trajectory.completeness === "partial").length,
     },
   };
 }

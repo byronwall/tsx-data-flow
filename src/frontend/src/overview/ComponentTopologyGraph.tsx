@@ -1,10 +1,13 @@
-import { For, Index, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { RouteDataDetail } from "../../../api/contracts";
+import { ComponentTopologyHeader, ComponentTopologyLegend } from "./ComponentTopologyChrome";
 import { ComponentTopologyDebugControls } from "./ComponentTopologyDebugControls";
+import { ComponentTopologyInspector } from "./ComponentTopologyInspector";
 import { DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS, layoutComponentTopology, type ComponentTopologyForceVector, type ComponentTopologyLayoutSettings, type ComponentTopologyLayoutStep } from "./component-topology-layout";
 import { applyManualTopologyPositions, topologyPositionChanges, topologyPositionSnapshot, type ComponentTopologyPosition } from "./component-topology-manual-layout";
 import { buildComponentTopology, componentTopologySelectionFocus, projectVisibleComponentTopology, summarizeSharedComponentHubs, type ComponentTopologyEdge, type ComponentTopologyLayoutEdge, type ComponentTopologyLayoutNode } from "./component-topology-model";
 import { componentTopologySelectionCopyPayload } from "./component-topology-selection";
+import { buildTopologyNodeSourceTouches, buildTopologySourceLens } from "./topology-source-lens";
 
 type Camera = { x: number; y: number; scale: number };
 type Drag = {
@@ -21,8 +24,9 @@ const MIN_SCALE = .25;
 const MAX_SCALE = 4;
 const PAN_THRESHOLD = 4;
 
-export function ComponentTopologyGraph(props: { detail: RouteDataDetail; onShowPaths: () => void }) {
+export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceKey: string | null; onSource: (key: string | null) => void; onShowPaths: () => void }) {
   const topology = createMemo(() => buildComponentTopology(props.detail));
+  const sourceLens = createMemo(() => buildTopologySourceLens(props.detail, topology(), props.sourceKey));
   const sharedHubs = createMemo(() => summarizeSharedComponentHubs(topology()));
   const visibleTopology = createMemo(() => projectVisibleComponentTopology(topology(), sharedHubs().hiddenEdgeIds));
   const [layoutSettings, setLayoutSettings] = createSignal<ComponentTopologyLayoutSettings>({ ...DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS });
@@ -53,12 +57,14 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; onShowP
   const [camera, setCamera] = createSignal(DEFAULT_CAMERA);
   const [drag, setDrag] = createSignal<Drag | null>(null);
   const [selectedNodeId, setSelectedNodeId] = createSignal<string | null>(null);
+  const [debugVisible, setDebugVisible] = createSignal(false);
   const [forcesVisible, setForcesVisible] = createSignal(false);
   const [selectionCopied, setSelectionCopied] = createSignal(false);
   const [debugCopied, setDebugCopied] = createSignal(false);
   const [viewportSize, setViewportSize] = createSignal({ width: 0, height: 0 });
   const selectedNode = createMemo(() => topology().nodes.find((node) => node.id === selectedNodeId()) ?? null);
   const selectedLayoutNode = createMemo(() => layout().nodes.find((node) => node.id === selectedNodeId()) ?? null);
+  const allSourceTouches = createMemo(() => sourceLens().source ? [] : buildTopologyNodeSourceTouches(props.detail, topology(), selectedNodeId()));
   const selectedConnections = createMemo(() => {
     const id = selectedNodeId(); if (!id) return [];
     const nodeById = new Map(topology().nodes.map((node) => [node.id, node]));
@@ -70,6 +76,20 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; onShowP
     }).sort((left, right) => left.outgoing === right.outgoing ? lexical(left.neighbor.label, right.neighbor.label) : left.outgoing ? -1 : 1);
   });
   const selectedFocus = createMemo(() => componentTopologySelectionFocus(visibleTopology(), selectedNodeId()));
+  const selectNode = (id: string | null) => {
+    const node = topology().nodes.find((item) => item.id === id);
+    if (node?.kind === "source") {
+      const sourceLabel = node.label.replace(/\s+from Prisma$/i, "");
+      const sources = props.detail.sources.filter((item) => item.consumerLabel === node.label || item.label === sourceLabel);
+      if (sources.length === 1) {
+        props.onSource(sources[0].key);
+        return;
+      }
+    }
+    setSelectedNodeId(id);
+  };
+  const resetSelectionForSource = (_sourceKey: string | null) => setSelectedNodeId(null);
+  createEffect(() => resetSelectionForSource(sourceLens().source?.key ?? null));
   let copiedResetTimer: number | undefined;
   let debugCopiedResetTimer: number | undefined;
   const viewportScale = createMemo(() => {
@@ -89,6 +109,22 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; onShowP
     const observer = new ResizeObserver(updateViewportSize);
     observer.observe(svg);
     onCleanup(() => observer.disconnect());
+  });
+  onMount(() => {
+    const toggleDebug = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (event.key.toLowerCase() !== "d" || event.metaKey || event.ctrlKey || event.altKey || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target instanceof HTMLElement && target.isContentEditable) return;
+      event.preventDefault();
+      setDebugVisible((visible) => {
+        if (visible) {
+          setForcesVisible(false);
+          setEditingPositions(false);
+        }
+        return !visible;
+      });
+    };
+    document.addEventListener("keydown", toggleDebug);
+    onCleanup(() => document.removeEventListener("keydown", toggleDebug));
   });
   onCleanup(() => {
     if (copiedResetTimer !== undefined) window.clearTimeout(copiedResetTimer);
@@ -247,7 +283,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; onShowP
     const moved = active.moved || pointerMoved(active.startClient, event, PAN_THRESHOLD);
     if (svg?.hasPointerCapture?.(event.pointerId)) svg.releasePointerCapture(event.pointerId);
     setDrag(null);
-    if (selectDeadClick && !moved) setSelectedNodeId(active.nodeId);
+    if (selectDeadClick && !moved) selectNode(active.nodeId);
   };
   const onWheel = (event: WheelEvent) => {
     event.preventDefault();
@@ -255,49 +291,29 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; onShowP
     zoomAt(camera().scale * Math.exp(-normalizedDelta * .00065), pointerPoint(event));
   };
   return <section class="component-topology" aria-label="Route component topology">
-    <header class="component-topology-summary">
-      <div class="route-flow-mode-toolbar" role="group" aria-label="Route flow view">
-        <button type="button" aria-pressed="true">Topology</button>
-        <button type="button" aria-pressed="false" onClick={() => props.onShowPaths()}>Detailed paths</button>
-      </div>
-      <div><strong>{visibleTopology().totals.components.toLocaleString()} connected components</strong><span>{visibleTopology().totals.contexts.toLocaleString()} contexts · {visibleTopology().totals.sources.toLocaleString()} sources · {visibleTopology().edges.length.toLocaleString()} visible links</span></div>
-      <span class="component-topology-note">{displayedSummarizedReferenceCount() ? `${displayedSummarizedReferenceCount()} shared refs summarized` : "Dashed = inferred"}</span>
-      <div class="component-topology-camera" role="group" aria-label="Topology zoom">
-        <button type="button" aria-label="Zoom out topology" onClick={() => zoomAt(camera().scale / 1.25)}>−</button>
-        <button type="button" aria-label="Reset topology view" onClick={resetCamera}>{Math.round(camera().scale * 100)}%</button>
-        <button type="button" aria-label="Zoom in topology" onClick={() => zoomAt(camera().scale * 1.25)}>+</button>
-      </div>
-    </header>
+    <ComponentTopologyHeader lens={sourceLens()} summarizedReferenceCount={displayedSummarizedReferenceCount()} scale={camera().scale} onShowPaths={props.onShowPaths} onZoomOut={() => zoomAt(camera().scale / 1.25)} onResetCamera={resetCamera} onZoomIn={() => zoomAt(camera().scale * 1.25)} />
     <div class="component-topology-viewport">
-      <ComponentTopologyDebugControls
-        settings={layoutSettings()}
-        copied={debugCopied()}
-        forcesVisible={forcesVisible()}
-        editingPositions={editingPositions()}
-        manualMoveCount={manualChanges().length}
-        onSetting={updateLayoutSetting}
-        onTick={runLayoutTicks}
-        onSeparate={runSeparationPass}
-        onToggleForces={() => setForcesVisible((visible) => !visible)}
-        onToggleEditing={toggleEditingPositions}
-        onReset={resetLayoutDebug}
-        onCopy={() => void copyLayoutDebugState()}
-      />
-      <div class="component-topology-hub-legend" aria-label="Topology legend">
-        <strong>Nodes</strong>
-        <span><i class="component-topology-key component" aria-hidden="true" /><small>Component</small></span>
-        <span><i class="component-topology-key route" aria-hidden="true" /><small>Route</small></span>
-        <span><i class="component-topology-key source" aria-hidden="true" /><small>Source</small></span>
-        <span><i class="component-topology-key boundary" aria-hidden="true" /><small>Loader</small></span>
-        <span><i class="component-topology-key context" aria-hidden="true" /><small>Context</small></span>
-        <span><i class="component-topology-key terminal" aria-hidden="true" /><small>Terminal</small></span>
-        <span><i class="component-topology-key hub" aria-hidden="true" /><small>Hub</small></span>
-        <Show when={displayedHubs().length}>
-          <strong class="component-topology-legend-section">Rings</strong>
-          <For each={displayedHubs().slice(0, 8)}>{(hub) => <span><i style={{ background: hub.color }} /><code>{hub.label}</code><small>{hub.connectionCount} {hub.relationLabel}</small></span>}</For>
-          <Show when={displayedHubs().length > 8}><small>+{displayedHubs().length - 8} more hubs</small></Show>
-        </Show>
+      <button type="button" class="component-topology-source-clear" hidden={!sourceLens().source} title="Clear the selected data source filter" onClick={() => props.onSource(null)}>
+        <code>{sourceLens().source?.consumerLabel ?? sourceLens().source?.label ?? "Source"}</code>
+        <small>Click to clear</small>
+      </button>
+      <div class="component-topology-debug-overlay" hidden={!debugVisible()}>
+        <ComponentTopologyDebugControls
+          settings={layoutSettings()}
+          copied={debugCopied()}
+          forcesVisible={forcesVisible()}
+          editingPositions={editingPositions()}
+          manualMoveCount={manualChanges().length}
+          onSetting={updateLayoutSetting}
+          onTick={runLayoutTicks}
+          onSeparate={runSeparationPass}
+          onToggleForces={() => setForcesVisible((visible) => !visible)}
+          onToggleEditing={toggleEditingPositions}
+          onReset={resetLayoutDebug}
+          onCopy={() => void copyLayoutDebugState()}
+        />
       </div>
+      <ComponentTopologyLegend hubs={displayedHubs()} />
       <svg ref={svg} class="component-topology-svg" classList={{ dragging: Boolean(drag()), editing: editingPositions() }} viewBox={`0 0 ${layout().width} ${layout().height}`} role="img" aria-label={`${visibleTopology().totals.components} connected route-scoped components and ${visibleTopology().edges.length} visible directional connections`} preserveAspectRatio="xMidYMid meet"
         onPointerDown={(event) => startDrag(event)} onPointerMove={onPointerMove} onPointerUp={finishDrag} onPointerCancel={(event) => finishDrag(event, false)} onWheel={onWheel}>
         <defs>
@@ -307,18 +323,27 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; onShowP
         <g class="component-topology-camera-layer" transform={`translate(${camera().x} ${camera().y}) scale(${camera().scale})`}>
           <g class="component-topology-edges"><For each={layout().edges.filter((edge) => !sharedHubs().hiddenEdgeIds.has(edge.id))}>{(edge) => {
             const active = () => !selectedNodeId() || selectedFocus().edgeIds.has(edge.id);
-            return <path classList={{ inferred: edge.confidence === "inferred", [`kind-${edge.kind}`]: true, focused: Boolean(selectedNodeId()) && active(), dimmed: !active() }} d={edgePath(edge)} marker-end="url(#component-topology-arrow)"><title>{edgeLabel(edge)}</title></path>;
+            const sourceActive = () => sourceLens().componentIds.has(edge.from) && sourceLens().componentIds.has(edge.to);
+            const resourceActive = () => !sourceActive() && sourceLens().resourceParticipantIds.has(edge.from) && sourceLens().resourceParticipantIds.has(edge.to);
+            const sourceSelection = () => Boolean(sourceLens().pathCount || sourceLens().resources.length);
+            return <path classList={{ inferred: edge.confidence === "inferred", [`kind-${edge.kind}`]: true, focused: Boolean(selectedNodeId()) && active(), dimmed: !active(), "source-focused": sourceActive(), "source-resource-focused": resourceActive(), "source-dimmed": sourceSelection() && !sourceActive() && !resourceActive() }} d={edgePath(edge)} marker-end="url(#component-topology-arrow)"><title>{edgeLabel(edge)}</title></path>;
           }}</For></g>
           <g class="component-topology-nodes"><Index each={layout().nodes}>{(node) => {
             const current = () => node();
             const hub = () => sharedHubs().hubById.get(current().id);
             const rings = () => sharedHubs().ringsByNode.get(current().id) ?? [];
-            return <g class={`component-topology-node kind-${current().kind}`} classList={{ "route-entry": current().routeEntry, terminal: current().terminal, hub: isHub(current()), "shared-hub": Boolean(hub()), selected: selectedNodeId() === current().id, dimmed: Boolean(selectedNodeId()) && !selectedFocus().nodeIds.has(current().id) }} style={hub() ? { "--topology-hub-color": hub()!.color, "--topology-hub-fill": hub()!.fill } : undefined} transform={`translate(${current().x} ${current().y})`} data-node-id={current().id} role="button" tabindex="0" aria-label={`Inspect ${current().label}`} onPointerDown={(event) => { event.stopPropagation(); startDrag(event, current().id); }} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedNodeId(current().id); } }}>
+            const transforms = () => sourceLens().transformsByNodeId.get(current().id) ?? [];
+            const fields = () => sourceLens().fieldsByNodeId.get(current().id) ?? [];
+            const sourceParticipant = () => sourceLens().componentIds.has(current().id);
+            const resourceParticipant = () => sourceLens().resourceParticipantIds.has(current().id);
+            const sourceSelection = () => Boolean(sourceLens().pathCount || sourceLens().resources.length);
+            return <g class={`component-topology-node kind-${current().kind}`} classList={{ "route-entry": current().routeEntry, terminal: current().terminal, hub: isHub(current()), "shared-hub": Boolean(hub()), selected: selectedNodeId() === current().id, dimmed: Boolean(selectedNodeId()) && !selectedFocus().nodeIds.has(current().id), "source-path": sourceParticipant(), "source-resource-participation": resourceParticipant(), "source-transform-touch": Boolean(transforms().length), "source-dimmed": sourceSelection() && !sourceParticipant() && !resourceParticipant() }} style={hub() ? { "--topology-hub-color": hub()!.color, "--topology-hub-fill": hub()!.fill } : undefined} transform={`translate(${current().x} ${current().y})`} data-node-id={current().id} role="button" tabindex="0" aria-label={`${current().kind === "source" ? "Filter by" : "Inspect"} ${current().label}${resourceParticipant() ? ", proven resource participation" : ""}${fields().length ? `, source fields ${fields().map((field) => field.label).join(", ")}` : ""}${transforms().length ? `, ${transforms().length} transforms` : ""}`} onPointerDown={(event) => { event.stopPropagation(); if (current().kind === "source" && !editingPositions()) selectNode(current().id); else startDrag(event, current().id); }} onPointerUp={(event) => { event.stopPropagation(); finishDrag(event); }} on:click={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectNode(current().id); } }}>
             <For each={rings()}>{(ring, index) => <circle class="component-topology-hub-ring" r={current().radius + 2.2 + index() * 1.6} style={{ stroke: ring.color }}><title>Connects to shared hub {ring.label}</title></circle>}</For>
+            <Show when={transforms().length}><circle class="component-topology-transform-ring" r={current().radius + 4.5}><title>{transforms().length} retained transforms</title></circle></Show>
             <Show when={current().terminal} fallback={<Show when={current().kind === "context"} fallback={<circle class="component-topology-node-mark" r={current().radius} />}><rect class="component-topology-node-mark" x={-current().radius} y={-current().radius} width={current().radius * 2} height={current().radius * 2} rx="2" transform="rotate(45)" /></Show>}><rect class="component-topology-node-mark" x={-current().radius} y={-current().radius} width={current().radius * 2} height={current().radius * 2} rx="1" /></Show>
-            <Show when={showLabel(current(), visibleTopology().totals.components, selectedNodeId() === current().id)}>{(() => {
+            <Show when={showLabel(current(), visibleTopology().totals.components, selectedNodeId() === current().id || sourceParticipant() || resourceParticipant())}>{(() => {
               const placement = labelPlacement(current());
-              return <text x={placement.x * labelRenderScale()} y={placement.y * labelRenderScale()} text-anchor={placement.anchor} transform={`scale(${1 / labelRenderScale()})`}>{clip(current().label, 24)}</text>;
+              return <><text x={placement.x * labelRenderScale()} y={placement.y * labelRenderScale()} text-anchor={placement.anchor} transform={`scale(${1 / labelRenderScale()})`}>{clip(current().label, 24)}</text><Show when={fields().length}><text class="component-topology-field-label" x={placement.x * labelRenderScale()} y={(placement.y + 13) * labelRenderScale()} text-anchor={placement.anchor} transform={`scale(${1 / labelRenderScale()})`}>{fieldLabel(fields().map((field) => field.label))}</text></Show><Show when={transforms().length}><text class="component-topology-transform-label" x={placement.x * labelRenderScale()} y={(placement.y + (fields().length ? 26 : 13)) * labelRenderScale()} text-anchor={placement.anchor} transform={`scale(${1 / labelRenderScale()})`}>{transforms().length} {transforms().length === 1 ? "transform" : "transforms"}</text></Show></>;
             })()}</Show>
             <title>{nodeTitle(current())}</title>
           </g>;
@@ -331,26 +356,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; onShowP
           }}</For></g>
         </g>
       </svg>
-      <aside class="component-topology-inspector" aria-label="Topology selection inspector">
-        <strong>Selection</strong>
-        <Show when={selectedNode()} fallback={<p>Select any dot to see its name and connections.</p>}>{(node) => <>
-          <code class="component-topology-inspector-name">{node().label}</code>
-          <span>{selectedLayoutNode()?.terminal ? "Terminal component" : kindLabel(node().kind)} · {node().incomingCount} in · {node().outgoingCount} out</span>
-          <Show when={node().file}><code class="component-topology-inspector-location">{node().file}{node().line ? `:${node().line}` : ""}</code></Show>
-          <div class="component-topology-inspector-connections">
-            <strong>Connections</strong>
-            <Show when={selectedConnections().length} fallback={<span>No named connections</span>}>
-              <For each={selectedConnections()}>{(connection) => <button type="button" onClick={() => setSelectedNodeId(connection.neighbor.id)} title={edgeLabel(connection.edge)}>
-                <span>{connection.outgoing ? "→" : "←"}</span><code>{connection.neighbor.label}</code><small>{connection.edge.kind}{viaLabel(connection.edge)}</small>
-              </button>}</For>
-            </Show>
-          </div>
-          <footer class="component-topology-inspector-actions">
-            <span>Debug context</span>
-            <button type="button" onClick={() => void copySelection()}>{selectionCopied() ? "Copied JSON" : "Copy JSON"}</button>
-          </footer>
-        </>}</Show>
-      </aside>
+      <ComponentTopologyInspector lens={sourceLens()} selectedNode={selectedNode()} selectedLayoutNode={selectedLayoutNode()} allSourceTouches={allSourceTouches()} connections={selectedConnections()} selectionCopied={selectionCopied()} onSelect={selectNode} onSource={props.onSource} onCopy={() => void copySelection()} />
     </div>
   </section>;
 }
@@ -383,11 +389,15 @@ function labelPlacement(node: ComponentTopologyLayoutNode): { x: number; y: numb
   return { x: node.radius + 5, y: 3, anchor: "start" };
 }
 function clip(value: string, limit: number) { return value.length > limit ? `${value.slice(0, limit - 1)}…` : value; }
+function fieldLabel(fields: string[]) {
+  const visible = fields.slice(0, 3);
+  return `${visible.join(" · ")}${fields.length > visible.length ? ` · +${fields.length - visible.length}` : ""}`;
+}
 function viaLabel(edge: Pick<ComponentTopologyEdge, "via">) { return edge.via?.length ? ` via ${edge.via.join(" → ")}` : ""; }
 function edgeLabel(edge: ComponentTopologyEdge) { return `${edge.kind}${viaLabel(edge)} · ${edge.confidence}${edge.count > 1 ? ` · ${edge.count} retained paths` : ""}`; }
 function nodeTitle(node: ComponentTopologyLayoutNode) {
   const location = node.file ? `${node.file}${node.line ? `:${node.line}` : ""}` : "location unavailable";
-  return `${node.label} · ${node.terminal ? "terminal component" : node.kind}\n${node.incomingCount} incoming · ${node.outgoingCount} outgoing\n${location}`;
+  return `${node.label} · ${node.terminal ? "leaf in component view" : node.kind}\n${node.incomingCount} incoming · ${node.outgoingCount} outgoing\n${location}`;
 }
 function kindLabel(kind: ComponentTopologyLayoutNode["kind"]) { return kind === "source" ? "Data source / handler" : kind === "boundary" ? "Resource loader" : kind === "context" ? "Context" : "Component"; }
 function lexical(left: string, right: string) { return left < right ? -1 : left > right ? 1 : 0; }

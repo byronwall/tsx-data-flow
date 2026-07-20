@@ -1,5 +1,5 @@
 import type * as TypeScript from "typescript";
-import type { AnalysisGraph, AnalyzerArgs, CrossFileState, DefenseRecord, GraphNode, Sink, TraceResult } from "../types";
+import type { AnalysisGraph, AnalyzerArgs, CrossFileState, DefenseRecord, GraphNode, Sink, TraceContext, TraceResult } from "../types";
 import path from "node:path";
 import {
   addEdge,
@@ -29,6 +29,7 @@ import {
   safeTypeText,
 } from "./source-defenses";
 import { traceExpression } from "./source-trace";
+import { addOperationTrace } from "./source-trace-records";
 import { formatExpression } from "../reports/format-helpers";
 export function analyzeSourceFile(
   ts: typeof TypeScript,
@@ -46,12 +47,7 @@ export function analyzeSourceFile(
   const visit = (node: TypeScript.Node) => {
     const sinkExpression = getSinkExpression(ts, node);
     if (sinkExpression) {
-      const trace = traceExpression(
-        ts,
-        checker,
-        graph,
-        sinkExpression.expression,
-        {
+      const traceContext: TraceContext = {
           ...context,
           sourceFile,
           root: args.root,
@@ -62,8 +58,10 @@ export function analyzeSourceFile(
           crossDepth: 0,
           visitedFns: new Set(),
           paramBindings: null,
-        },
-      );
+        };
+      const trace = sinkExpression.category === "event-handler"
+        ? traceEventHandler(ts, checker, graph, sinkExpression.expression, traceContext)
+        : traceExpression(ts, checker, graph, sinkExpression.expression, traceContext);
       const sinkNode = addNode(graph, {
         kind: "jsx-sink",
         label: sinkExpression.label,
@@ -94,6 +92,47 @@ export function analyzeSourceFile(
   visit(sourceFile);
   const forks = detectRepeatedForks(ts, checker, sourceFile, args.root);
   return { sinks, forks };
+}
+
+function traceEventHandler(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  graph: AnalysisGraph,
+  expression: TypeScript.Expression,
+  context: Parameters<typeof traceExpression>[4],
+) {
+  if (!ts.isArrowFunction(expression) && !ts.isFunctionExpression(expression)) {
+    return traceExpression(ts, checker, graph, expression, context);
+  }
+  const bodies = callbackValueExpressions(ts, expression);
+  if (!bodies.length) return traceExpression(ts, checker, graph, expression, context);
+  const traces = bodies.map((body) => traceExpression(ts, checker, graph, body, context));
+  return addOperationTrace(ts, graph, "event-callback", expression, traces, {
+    label: "event callback",
+    detail: bodies.length === 1 ? formatExpression(bodies[0].getText(), 60) : `${bodies.length} callback operations`,
+  });
+}
+
+function callbackValueExpressions(
+  ts: typeof TypeScript,
+  callback: TypeScript.ArrowFunction | TypeScript.FunctionExpression,
+) {
+  if (!ts.isBlock(callback.body)) return [callback.body];
+  const expressions: TypeScript.Expression[] = [];
+  const visit = (node: TypeScript.Node) => {
+    if (node !== callback && ts.isFunctionLike(node)) return;
+    if (ts.isExpressionStatement(node)) {
+      expressions.push(node.expression);
+      return;
+    }
+    if (ts.isReturnStatement(node) && node.expression) {
+      expressions.push(node.expression);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(callback.body);
+  return expressions;
 }
 
 // --- Repeated fork/split detector (component-scoped branch inventory) ---------

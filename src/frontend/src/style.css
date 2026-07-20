@@ -165,6 +165,39 @@
 .route-atlas-footer { display: flex; gap: 18px; padding-top: 9px; color: var(--muted); font-size: .68rem; }
 .trajectory-view-toggle { display: flex; gap: 3px; margin-left: auto; }
 .trajectory-view-toggle button[aria-pressed="true"] { background: var(--accent-soft); }
+.trajectory-header-select { min-width: 0; display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 5px; }
+.trajectory-header-select > span { color: var(--muted); font-size: .6rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.trajectory-header-select select { min-width: 150px; max-width: 300px; }
+.trajectory-source-picker { min-width: 280px; position: relative; }
+.trajectory-source-picker > summary { min-height: 30px; display: grid; grid-template-columns: auto minmax(80px,auto) minmax(0,1fr) auto auto; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--panel); cursor: pointer; list-style: none; }
+.trajectory-source-picker > summary::-webkit-details-marker { display: none; }
+.trajectory-source-picker > summary::after { content: "▾"; color: var(--muted); font-size: .65rem; }
+.trajectory-source-picker[open] > summary { background: var(--accent-soft); }
+.trajectory-source-picker > summary > span { color: var(--muted); font-size: .57rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.trajectory-source-picker > summary > strong { overflow: hidden; font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.trajectory-source-picker > summary > code { overflow: hidden; color: var(--muted); font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
+.trajectory-source-picker > summary > small { color: var(--muted); font-size: .58rem; white-space: nowrap; }
+.trajectory-source-picker-popover { position: absolute; z-index: 20; top: calc(100% + 5px); left: 0; width: min(760px,calc(100vw - 24px)); max-height: min(620px,calc(100vh - 70px)); overflow: auto; padding: 8px; border: 1px solid color-mix(in srgb,var(--text) 18%,var(--border)); border-radius: 7px; background: var(--panel); box-shadow: 0 14px 36px rgb(20 28 45 / .24); }
+.trajectory-source-picker-popover > header { display: grid; gap: 2px; padding: 4px 6px 10px; }
+.trajectory-source-picker-popover > header > span { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.trajectory-source-picker-popover > header strong { color: var(--text); font-size: .78rem; }
+.trajectory-source-picker-popover > header small { color: var(--muted); font-size: .6rem; font-weight: 650; }
+.trajectory-source-picker-popover > header p,.trajectory-source-picker-popover > p { margin: 0; color: var(--muted); font-size: .64rem; }
+.trajectory-source-picker-popover > button { width: 100%; display: grid; grid-template-columns: 60px minmax(0,1fr) auto; align-items: center; gap: 5px 9px; padding: 8px 9px; border: 0; border-radius: 5px; background: color-mix(in srgb,var(--bg) 46%,var(--panel)); color: var(--text); text-align: left; }
+.trajectory-source-picker-popover > button + button { margin-top: 4px; }
+.trajectory-source-picker-popover > button:hover { background: color-mix(in srgb,var(--accent-soft) 68%,var(--panel)); }
+.trajectory-source-picker-popover > button.selected { background: color-mix(in srgb,var(--accent-soft) 88%,var(--panel)); }
+.trajectory-source-picker-popover > button.selected::after { content: "Selected"; grid-column: 3; grid-row: 1; color: var(--accent); font-size: .57rem; font-weight: 750; text-transform: uppercase; }
+.trajectory-source-kind { padding: 3px 5px; border-radius: 4px; background: color-mix(in srgb,var(--accent) 10%,var(--tag-bg,#e9ecf7)); color: var(--text); font-size: .56rem; font-weight: 750; text-align: center; text-transform: uppercase; }
+.trajectory-source-identity { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
+.trajectory-source-identity strong { flex: none; font-size: .7rem; }
+.trajectory-source-identity code { overflow: hidden; color: color-mix(in srgb,var(--text) 70%,var(--muted)); font-size: .6rem; text-overflow: ellipsis; white-space: nowrap; }
+.trajectory-source-count { grid-column: 3; color: var(--muted); font-size: .57rem; white-space: nowrap; }
+.trajectory-source-picker-popover > button.selected .trajectory-source-count { display: none; }
+.trajectory-source-type { grid-column: 2 / -1; min-width: 0; padding: 5px 7px; border-radius: 4px; background: color-mix(in srgb,var(--text) 5%,var(--panel)); color: var(--text); font-size: .62rem; line-height: 1.4; overflow-wrap: anywhere; white-space: normal; }
+.trajectory-source-fields { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 3px; }
+.trajectory-source-fields code { padding: 2px 4px; border-radius: 3px; background: var(--panel); color: color-mix(in srgb,var(--text) 82%,var(--muted)); font-size: .56rem; }
+.trajectory-source-fields small { color: var(--muted); font-size: .56rem; }
 .trajectory-restoration-notice { margin: 0; padding: 6px 14px; font-size: .78rem; background: var(--warning-bg, #fff7d6); }
 .route-trajectory-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 330px; position: relative; overflow: hidden; }
 .route-trajectory-workspace.route-flow-open { grid-template-columns: minmax(0, 1fr); }
@@ -186,7 +219,14 @@
 .component-topology-svg { display: block; width: 100%; height: 100%; min-height: 440px; cursor: grab; touch-action: none; user-select: none; }
 .component-topology-svg.dragging { cursor: grabbing; }
 .component-topology-svg.editing .component-topology-node { cursor: move; transition: opacity .12s ease; }
-.component-topology-debug { position: absolute; top: 10px; right: 260px; z-index: 3; width: 250px; display: grid; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: rgb(255 255 255 / .94); box-shadow: 0 4px 14px rgb(0 0 0 / .1); backdrop-filter: blur(5px); }
+.component-topology-source-clear { position: absolute; top: 8px; left: 8px; z-index: 3; max-width: min(230px,calc(100% - 280px)); min-height: 0; display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-color: color-mix(in srgb,var(--accent) 32%,var(--border)); background: rgb(255 255 255 / .9); box-shadow: 0 2px 8px rgb(0 0 0 / .06); backdrop-filter: blur(4px); text-align: left; }
+.component-topology-source-clear[hidden] { display: none; }
+.component-topology-source-clear code { overflow: hidden; color: var(--accent); font-size: .61rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.component-topology-source-clear small { flex: none; color: var(--muted); font-size: .55rem; }
+.component-topology-source-clear:hover small { color: var(--text); }
+.component-topology-debug-overlay { position: absolute; top: 10px; right: 260px; z-index: 3; }
+.component-topology-debug-overlay[hidden] { display: none; }
+.component-topology-debug { width: 250px; display: grid; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: rgb(255 255 255 / .94); box-shadow: 0 4px 14px rgb(0 0 0 / .1); backdrop-filter: blur(5px); }
 .component-topology-debug header,.component-topology-debug-actions { display: flex; align-items: center; gap: 4px; }
 .component-topology-debug header strong { margin-right: auto; font-size: .7rem; }
 .component-topology-debug button { min-height: 24px; padding: 2px 6px; font-size: .6rem; }
@@ -216,6 +256,9 @@
 .component-topology-edges path.kind-loads { stroke: #357b57; opacity: .66; }
 .component-topology-edges path.dimmed { opacity: .035; }
 .component-topology-edges path.focused { opacity: .92; stroke-width: 2; }
+.component-topology-edges path.source-dimmed { opacity: .055; }
+.component-topology-edges path.source-focused { stroke: #3f8f60; stroke-width: 1.8; opacity: .82; }
+.component-topology-edges path.source-resource-focused { stroke: #39739d; stroke-width: 1.8; stroke-dasharray: 4 2; opacity: .82; }
 .component-topology-forces { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
 .component-topology-forces.visible { opacity: .9; }
 .component-topology-forces line { stroke: #f04438; stroke-width: 2; vector-effect: non-scaling-stroke; }
@@ -229,6 +272,12 @@
 .component-topology-node.hub circle { fill: #fff2cd; stroke: #9a772d; }
 .component-topology-node.shared-hub .component-topology-node-mark { fill: var(--topology-hub-fill); stroke: var(--topology-hub-color); stroke-width: 1.35; }
 .component-topology-node .component-topology-hub-ring { fill: none; stroke-width: 1.05; opacity: .72; vector-effect: non-scaling-stroke; }
+.component-topology-node .component-topology-transform-ring { fill: none; stroke: #b87820; stroke-width: 2; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; }
+.component-topology-node.source-path .component-topology-node-mark { stroke: #3f8f60; stroke-width: 1.8; }
+.component-topology-node.source-resource-participation .component-topology-node-mark { stroke: #39739d; stroke-width: 1.8; stroke-dasharray: 3 2; }
+.component-topology-node.source-dimmed { opacity: .12; }
+.component-topology-node text.component-topology-field-label { fill: #28633d; font-size: 9px; font-weight: 750; stroke-width: 2.5px; }
+.component-topology-node text.component-topology-transform-label { fill: #9a5b0b; font-size: 9px; font-weight: 700; stroke-width: 2.5px; }
 .component-topology-node { cursor: pointer; outline: none; }
 .component-topology-node { transition: opacity .12s ease, transform .22s ease-out; }
 .component-topology-node.dimmed { opacity: .18; }
@@ -240,6 +289,46 @@
 .component-topology-inspector-name { overflow-wrap: anywhere; font-size: .8rem; font-weight: 700; }
 .component-topology-inspector > span { color: var(--muted); font-size: .65rem; }
 .component-topology-inspector-location { overflow-wrap: anywhere; color: var(--muted); font-size: .61rem; line-height: 1.35; }
+.component-topology-source-fields { display: grid; gap: 3px; margin-top: 4px; }
+.component-topology-source-fields > span { display: grid; grid-template-columns: minmax(70px,.7fr) minmax(0,1fr); gap: 5px; padding: 4px 5px; background: var(--bg); }
+.component-topology-source-fields code { overflow: hidden; font-size: .62rem; text-overflow: ellipsis; }
+.component-topology-source-fields small { overflow: hidden; color: var(--muted); font-size: .58rem; text-overflow: ellipsis; }
+.component-topology-node-sources { display: grid; gap: 4px; margin-top: 5px; }
+.component-topology-node-sources[hidden] { display: none; }
+.component-topology-node-sources > strong { color: var(--muted); font-size: .61rem; letter-spacing: .055em; text-transform: uppercase; }
+.component-topology-node-sources > small { color: var(--muted); font-size: .63rem; }
+.component-topology-node-sources > button { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 8px; padding: 6px; background: color-mix(in srgb,var(--accent-soft) 42%,var(--panel)); text-align: left; }
+.component-topology-node-sources > button:hover { background: color-mix(in srgb,var(--accent-soft) 72%,var(--panel)); }
+.component-topology-node-sources > button > span:first-child { min-width: 0; display: grid; gap: 1px; }
+.component-topology-node-sources > button b { overflow: hidden; font: 700 .66rem var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.component-topology-node-sources > button small { color: var(--muted); font-size: .57rem; font-style: normal; }
+.component-topology-node-sources > button em { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--accent); font-size: .58rem; font-style: normal; font-weight: 700; }
+.component-topology-node-source-fields { display: flex; flex-wrap: wrap; gap: 3px; }
+.component-topology-node-source-fields code { padding: 2px 4px; border-radius: 3px; background: var(--panel); color: #28633d; font-size: .57rem; }
+.component-topology-node-fields { display: grid; gap: 4px; margin-top: 5px; padding: 6px; border-radius: 4px; background: #edf7f0; }
+.component-topology-node-fields > strong { color: #28633d; font-size: .58rem; letter-spacing: .04em; text-transform: uppercase; }
+.component-topology-node-fields > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.component-topology-node-fields code { color: #28633d; font-size: .61rem; font-weight: 700; }
+.component-topology-node-fields small { color: var(--muted); font-size: .54rem; white-space: nowrap; }
+.component-topology-node-terminals { display: grid; gap: 6px; }
+.component-topology-node-terminals > small { color: var(--muted); line-height: 1.35; }
+.component-topology-node-terminals > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 5px 7px; border: 1px solid var(--border); border-radius: 5px; }
+.component-topology-node-terminals > span small { color: var(--muted); white-space: nowrap; }
+.component-topology-stage-inventory { display: grid; gap: 8px; margin-top: 5px; }
+.component-topology-stage-inventory > section { display: grid; gap: 3px; }
+.component-topology-stage-inventory > section > strong,.component-topology-node-transforms > strong { color: var(--muted); font-size: .58rem; letter-spacing: .04em; text-transform: uppercase; }
+.component-topology-stage-inventory button { min-width: 0; display: grid; grid-template-columns: auto minmax(0,1fr); align-items: start; gap: 5px; padding: 5px; border: 0; border-radius: 4px; background: var(--bg); color: var(--text); text-align: left; }
+.component-topology-stage-inventory button b { min-width: 48px; padding: 2px 4px; border-radius: 3px; background: #f7ead9; color: #8a540d; font-size: .53rem; text-align: center; text-transform: uppercase; }
+.component-topology-stage-inventory button > span { min-width: 0; display: grid; gap: 1px; }
+.component-topology-stage-inventory button code { overflow: hidden; font-size: .6rem; text-overflow: ellipsis; white-space: nowrap; }
+.component-topology-stage-inventory button small { overflow: hidden; color: var(--muted); font-size: .54rem; text-overflow: ellipsis; white-space: nowrap; }
+.component-topology-stage-inventory .resource-mark { color: #357b57; font-size: .9rem; line-height: .8rem; }
+.component-topology-node-transforms { display: grid; gap: 3px; margin-top: 5px; padding: 6px; border-radius: 4px; background: #fbf3e7; }
+.component-topology-node-transforms > span { display: grid; grid-template-columns: 52px minmax(0,1fr); gap: 3px 5px; align-items: baseline; }
+.component-topology-node-transforms b { color: #8a540d; font-size: .54rem; text-transform: uppercase; }
+.component-topology-node-transforms code { min-width: 0; overflow: hidden; font-size: .59rem; text-overflow: ellipsis; }
+.component-topology-node-transforms small { grid-column: 2; color: var(--muted); font-size: .53rem; }
+.component-topology-key.transform { border: 2px dashed #b87820; background: transparent; }
 .component-topology-inspector-connections { display: grid; gap: 4px; margin-top: 5px; }
 .component-topology-inspector-connections > span { color: var(--muted); font-size: .65rem; }
 .component-topology-inspector-connections button { min-width: 0; display: grid; grid-template-columns: 13px minmax(0,1fr) auto; align-items: center; gap: 4px; padding: 4px 5px; background: var(--panel); text-align: left; }
@@ -256,8 +345,9 @@
 .route-flow-toolbar span { color: var(--muted); font-size: .68rem; }
 .route-flow-toolbar .route-flow-warning { padding: 2px 5px; border-radius: 4px; background: var(--warning-bg,#fff1c8); color: var(--warning,#8b5100); }
 .route-flow-toolbar .route-flow-focus { padding: 2px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
-.route-flow-body { min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 310px; overflow: hidden; }
+.route-flow-body { min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 340px; overflow: hidden; }
 .route-flow-viewport { min-width: 0; min-height: 0; overflow: auto; background-color: #f8f9fc; background-image: linear-gradient(#e8eaf0 1px,transparent 1px),linear-gradient(90deg,#e8eaf0 1px,transparent 1px); background-size: 20px 20px; }
+.route-flow-viewport { position: relative; }
 .route-flow-svg { display: block; overflow: visible; }
 .route-flow-edges path { fill: none; stroke: #8892a8; opacity: .47; transition: opacity .12s ease; }
 .route-flow-edges path.unknown { stroke: #c46b18; stroke-dasharray: 5 4; opacity: .8; }
@@ -278,18 +368,36 @@
 .route-flow-node-popover text { fill: #fff; font: 600 10px ui-monospace,SFMono-Regular,Menlo,monospace; }
 .route-flow-node-popover .route-flow-popover-meta { fill: #cbd2df; font-size: 9px; font-weight: 400; }
 .route-flow-node-popover .route-flow-popover-code { fill: #e7edf8; font-size: 10px; font-weight: 500; }
-.route-flow-paths { min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr); border-left: 1px solid var(--border); background: var(--panel); }
-.route-flow-paths > header { display: grid; gap: 3px; padding: 9px; border-bottom: 1px solid var(--border); }
-.route-flow-paths > header span { color: var(--muted); font-size: .66rem; }
-.route-flow-paths > div { min-height: 0; overflow: auto; }
-.route-flow-paths button { width: 100%; display: grid; grid-template-columns: 36px minmax(0,1fr); gap: 6px; padding: 7px 8px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; text-align: left; }
-.route-flow-paths button:nth-child(even) { background: color-mix(in srgb,var(--bg) 56%,var(--panel)); }
-.route-flow-paths button.selected { background: var(--accent-soft); }
-.route-flow-paths button > b { color: var(--muted); font: 600 10px ui-monospace,SFMono-Regular,Menlo,monospace; }
-.route-flow-paths button > span { min-width: 0; display: grid; gap: 2px; }
-.route-flow-paths button strong,.route-flow-paths button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.route-flow-paths button strong { font-size: .7rem; }
-.route-flow-paths button small { color: var(--muted); font-size: .62rem; }
+.route-flow-empty { position: sticky; left: 50%; top: 40%; width: 360px; display: grid; gap: 6px; padding: 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); text-align: center; transform: translateX(-50%); }
+.route-flow-empty p { margin: 0; color: var(--muted); font-size: .75rem; }
+.route-flow-inspector { min-height: 0; overflow: auto; border-left: 1px solid var(--border); background: var(--panel); }
+.route-flow-inspector > header,.route-flow-inspector > section { display: grid; gap: 7px; padding: 10px 11px; border-bottom: 1px solid var(--border); }
+.route-flow-inspector h2 { margin: 0; overflow-wrap: anywhere; font-size: .94rem; }
+.route-flow-inspector h3 { margin: 0; color: var(--muted); font-size: .66rem; letter-spacing: .05em; text-transform: uppercase; }
+.route-flow-inspector p { margin: 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
+.route-flow-inspector .route-flow-match-note { padding: 6px; border-radius: 4px; background: var(--warning-bg,#fff7d6); color: var(--fg); }
+.route-flow-inspector dl { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 5px; margin: 2px 0 0; }
+.route-flow-inspector dl > div { min-width: 0; display: grid; gap: 2px; padding: 6px; border-radius: 4px; background: var(--bg); }
+.route-flow-inspector dt { color: var(--muted); font-size: .58rem; letter-spacing: .04em; text-transform: uppercase; }
+.route-flow-inspector dd { min-width: 0; margin: 0; overflow: hidden; font-size: .68rem; text-overflow: ellipsis; }
+.route-flow-inspector-code { display: block; max-height: 90px; overflow: auto; padding: 7px; border-radius: 4px; background: var(--code-bg,#f4f5f8); font-size: .68rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.route-flow-inspector table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: .66rem; }
+.route-flow-inspector th,.route-flow-inspector td { padding: 4px 5px; overflow: hidden; border-bottom: 1px solid var(--border); text-align: left; text-overflow: ellipsis; vertical-align: top; }
+.route-flow-inspector th:first-child { width: 38%; }
+.route-flow-inspector td code { font-size: .64rem; white-space: normal; overflow-wrap: anywhere; }
+.route-flow-type-pair { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 4px 6px; align-items: baseline; }
+.route-flow-type-pair span { color: var(--muted); font-size: .6rem; text-transform: uppercase; }
+.route-flow-type-pair code { min-width: 0; overflow-wrap: anywhere; font-size: .65rem; }
+.route-flow-field-effect { display: grid; grid-template-columns: 60px minmax(55px,.45fr) minmax(0,1fr); gap: 6px; align-items: baseline; padding: 5px; background: var(--bg); font-size: .65rem; }
+.route-flow-field-effect b { text-transform: uppercase; }
+.route-flow-inspector-paths button { width: 100%; display: grid; grid-template-columns: 22px minmax(0,1fr); gap: 5px; padding: 6px; border: 0; border-radius: 0; background: transparent; text-align: left; }
+.route-flow-inspector-paths button:nth-of-type(even) { background: color-mix(in srgb,var(--bg) 56%,var(--panel)); }
+.route-flow-inspector-paths button.selected { background: var(--accent-soft); }
+.route-flow-inspector-paths button > b { color: var(--muted); font: 600 9px var(--mono); }
+.route-flow-inspector-paths button > span { min-width: 0; display: grid; gap: 2px; }
+.route-flow-inspector-paths button strong,.route-flow-inspector-paths button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.route-flow-inspector-paths button strong { font-size: .68rem; }
+.route-flow-inspector-paths button small { color: var(--muted); font-size: .6rem; }
 .route-trajectory-workspace > main { width: 100%; max-width: none; min-width: 0; min-height: 0; position: relative; overflow: hidden; padding: 0; background: var(--bg); }
 .route-flow-components rect { fill: rgb(255 255 255 / .58); stroke: #c8ced9; stroke-width: 1.5px; }
 .route-flow-components .shared rect { fill: rgb(241 237 251 / .68); stroke: #a898ca; }

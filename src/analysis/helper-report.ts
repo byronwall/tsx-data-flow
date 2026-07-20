@@ -98,7 +98,7 @@ function enrichCatalogRecord(
     safeTypeText,
     traceExpression,
   } = dependencies;
-  const { fnNode, returnExpr, sourceFile } = record;
+  const { fnNode, returnExprs, sourceFile } = record;
   const recordChecker = record.checker ?? checker;
   let returnType = "unknown";
   try {
@@ -122,14 +122,10 @@ function enrichCatalogRecord(
   };
   let inSources = 0;
   let inRoots: string[] = [];
-  if (returnExpr) {
+  if (returnExprs.length) {
     const throwawayGraph = createGraph(args.root);
-    const bodyTrace = traceExpression(
-      ts,
-      recordChecker,
-      throwawayGraph,
-      returnExpr,
-      {
+    const bodyTraces = returnExprs.map((returnExpression) => traceExpression(
+      ts, recordChecker, throwawayGraph, returnExpression, {
         ...getFileContextCached(ts, sourceFile, crossFile),
         sourceFile,
         root: args.root,
@@ -139,15 +135,22 @@ function enrichCatalogRecord(
         visitedFns: new Set(),
         paramBindings: null,
       },
-    );
-    internal = metricsFor(bodyTrace);
-    inSources = bodyTrace.roots.length;
+    ));
+    const metrics = bodyTraces.map((trace) => metricsFor(trace));
+    internal = {
+      maximumPathDepth: Math.max(...metrics.map((item) => item.maximumPathDepth)),
+      representationChurn: Math.max(...metrics.map((item) => item.representationChurn)),
+      defensiveOperationCount: Math.max(...metrics.map((item) => item.defensiveOperationCount)),
+      impossibleDefenseCount: Math.max(...metrics.map((item) => item.impossibleDefenseCount)),
+    };
+    const roots = [...new Set(bodyTraces.flatMap((trace) => trace.roots))];
+    inSources = roots.length;
     inRoots = [
       ...new Set(
-        fanOutRootsFor({
-          rootInfos: bodyTrace.rootInfos,
-          roots: bodyTrace.roots,
-        }).map((info) => info.label),
+        bodyTraces.flatMap((trace) => fanOutRootsFor({
+          rootInfos: trace.rootInfos,
+          roots: trace.roots,
+        }).map((info) => info.label)),
       ),
     ];
   }
@@ -157,7 +160,7 @@ function enrichCatalogRecord(
     inRoots,
     inSources,
     inlineBodySnippet: functionSnippet(sourceFile, fnNode),
-    passThrough: returnExpr ? isPassThrough(ts, returnExpr, paramNames) : false,
+    passThrough: returnExprs.length > 0 && returnExprs.every((returnExpression) => isPassThrough(ts, returnExpression, paramNames)),
     typeLeak:
       isTypeLeak(returnType) ||
       record.params.some((parameter) => isTypeLeak(parameter.type)),

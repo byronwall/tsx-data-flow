@@ -9,10 +9,6 @@ import {
 } from "./component-topology-normalization";
 
 const UNOWNED_COMPONENT = "Unowned / external";
-const BUILT_IN_HOOKS = new Set([
-  "Callback", "Context", "Effect", "Id", "LayoutEffect", "Memo", "Navigate",
-  "Params", "Resource", "SearchParams", "Signal", "Transition",
-]);
 const SHARED_HUB_THRESHOLD = 5;
 const SHARED_HUB_COLORS = [
   { color: "#b84b65", fill: "#f8e4e9" },
@@ -255,7 +251,7 @@ export function buildComponentTopology(detail: RouteDataDetail): ComponentTopolo
   }
   for (const node of detail.exhaustiveGraph.nodes) {
     for (const component of node.components) {
-      if (!isTransparentSolidFlowLabel(component)) addComponent(component, node.file, node.line);
+      if (!isTransparentSolidFlowLabel(component)) addComponent(component);
     }
   }
   for (const trajectory of detail.exhaustiveGraph.trajectories) {
@@ -284,7 +280,7 @@ export function buildComponentTopology(detail: RouteDataDetail): ComponentTopolo
         addComponent(components[index].label),
         addComponent(components[index + 1].label),
         "handoff",
-        "inferred",
+        "proven",
         1,
         components[index + 1].via,
       );
@@ -292,49 +288,28 @@ export function buildComponentTopology(detail: RouteDataDetail): ComponentTopolo
   }
 
   const evidenceById = new Map((detail.evidence ?? []).map((item) => [item.id, item]));
-  const queryLocationByName = new Map((detail.operations ?? []).flatMap((operation) => {
-    if (operation.boundary?.kind !== "query") return [];
+  const queryLocationsByName = new Map<string, Array<RouteDataDetail["evidence"][number]>>();
+  for (const operation of detail.operations ?? []) {
+    if (operation.boundary?.kind !== "query") continue;
     const name = operation.label.match(/^Define (.+) query$/)?.[1];
     const evidence = evidenceById.get(operation.sourceExpressionIds[0]);
-    return name && evidence ? [[name, evidence] as const] : [];
-  }));
+    if (name && evidence) queryLocationsByName.set(name, [...(queryLocationsByName.get(name) ?? []), evidence]);
+  }
+  const queryLocationByName = new Map([...queryLocationsByName].flatMap(([name, locations]) => locations.length === 1 ? [[name, locations[0]] as const] : []));
   for (const operation of detail.operations ?? []) {
     if (operation.boundary?.kind !== "resource") continue;
     const evidence = evidenceById.get(operation.sourceExpressionIds[0]);
     const resourceId = addSpecial("boundary", operation.key, operation.label.replace(/^Load\s+/, ""), evidence?.file ?? null, evidence?.line ?? null);
     const handlerLabel = operation.boundary.label;
     if (handlerLabel !== "Solid createResource") {
-      const handlerEvidence = queryLocationByName.get(handlerLabel) ?? evidence;
+      const handlerEvidence = queryLocationByName.get(handlerLabel) ?? null;
       const handlerId = addSpecial("source", `handler:${cleanKey(handlerLabel)}`, handlerLabel, handlerEvidence?.file ?? null, handlerEvidence?.line ?? null);
       addEdge(handlerId, resourceId, "loads", "proven");
     }
-    const owner = owningComponent([...nodes.values()], evidence?.file ?? null, evidence?.line ?? null);
-    if (owner) addEdge(resourceId, owner.id, "loads", "inferred");
-  }
-
-  for (const node of detail.context.nodes.filter((item) => item.kind === "source")) {
-    const sourceId = addSpecial("source", node.id, node.label, node.file, node.line);
-    for (const edge of detail.context.edges.filter((item) => item.kind === "data" && item.from === node.id)) {
-      const target = contextNodeById.get(edge.to);
-      if (target?.kind !== "component") continue;
-      for (const resolved of resolveTransparentComponentTargets(target.id, contextNodeById, componentContextEdgesByFrom)) {
-        addEdge(sourceId, addContextComponent(resolved.node), "loads", "inferred", 1, resolved.via);
-      }
-    }
-  }
-
-  for (const node of detail.exhaustiveGraph.nodes) {
-    const text = `${node.label} ${node.snippet ?? ""}`;
-    const signals = contextSignals(text);
-    if (!signals.length) continue;
-    for (const component of node.components) {
-      if (isTransparentSolidFlowLabel(component)) continue;
-      const componentKey = addComponent(component, node.file, node.line);
-      for (const signal of signals) {
-        const contextKey = addSpecial("context", cleanKey(signal.name), `${signal.name} context`, node.file, node.line);
-        addEdge(signal.role === "provider" ? componentKey : contextKey, signal.role === "provider" ? contextKey : componentKey, signal.role === "provider" ? "provides" : "consumes", "inferred");
-      }
-    }
+    const owner = operation.owner
+      ? detail.context.nodes.find((node) => node.kind === "component" && node.label === operation.owner!.label && node.file === operation.owner!.file && node.line === operation.owner!.line)
+      : null;
+    if (owner) addEdge(resourceId, addContextComponent(owner), "loads", "proven");
   }
 
   const rankedNodes = applyCountsAndDepth([...nodes.values()], [...edges.values()], componentId(routeEntry));
@@ -351,13 +326,6 @@ export function buildComponentTopology(detail: RouteDataDetail): ComponentTopolo
 }
 
 type RouteContextNode = RouteDataDetail["context"]["nodes"][number];
-
-function owningComponent(nodes: ComponentTopologyNode[], file: string | null, line: number | null) {
-  if (!file) return null;
-  return nodes
-    .filter((node) => node.kind === "component" && node.file === file && (line === null || node.line === null || node.line <= line))
-    .sort((left, right) => (right.line ?? 0) - (left.line ?? 0))[0] ?? null;
-}
 
 function baseNode(id: string, kind: ComponentTopologyNode["kind"], label: string, file: string | null, line: number | null, routeEntry: boolean): ComponentTopologyNode {
   return { id, kind, label, file, line, routeEntry, incomingCount: 0, outgoingCount: 0, depth: 0 };
@@ -421,20 +389,6 @@ function assignDepth(nodes: ComponentTopologyNode[], edges: ComponentTopologyEdg
     .sort((left, right) => left.depth - right.depth || nodeKindRank(left.kind) - nodeKindRank(right.kind) || lexical(left.label, right.label));
 }
 
-function contextSignals(text: string) {
-  const signals: Array<{ name: string; role: "provider" | "consumer" }> = [];
-  for (const match of text.matchAll(/\b([A-Z][A-Za-z0-9]*?)(?:Context)?\.Provider\b/g)) signals.push({ name: match[1], role: "provider" });
-  for (const match of text.matchAll(/\b([A-Z][A-Za-z0-9]*?)Provider\b/g)) signals.push({ name: match[1], role: "provider" });
-  for (const match of text.matchAll(/\buseContext\s*\(\s*([A-Z][A-Za-z0-9]*?)(?:Context)?\b/g)) signals.push({ name: match[1], role: "consumer" });
-  for (const match of text.matchAll(/\buse([A-Z][A-Za-z0-9]*)\s*\(/g)) {
-    if (!BUILT_IN_HOOKS.has(match[1])) signals.push({ name: match[1].replace(/Context$/, ""), role: "consumer" });
-  }
-  return uniqueSignals(signals);
-}
-
-function uniqueSignals(signals: Array<{ name: string; role: "provider" | "consumer" }>) {
-  return [...new Map(signals.filter((signal) => signal.name).map((signal) => [`${signal.role}:${signal.name}`, signal])).values()];
-}
 function uniqueStrings(values: string[]) { return [...new Set(values)]; }
 
 function componentId(label: string) { return `component:${cleanKey(label || UNOWNED_COMPONENT)}`; }

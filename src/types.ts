@@ -77,6 +77,7 @@ export interface GraphNode {
   identityId?: string;
   typeId?: string;
   boundaryId?: string;
+  propName?: string;
   terminalId?: string;
 }
 export interface GraphEdge {
@@ -141,6 +142,7 @@ export interface CatalogFunction {
   arity: number; callerCount: number; callers: Array<{ file: string; line: number; snippet: SourceSnippet | null }>;
   fnNode: TypeScript.FunctionLikeDeclaration;
   returnExpr: TypeScript.Expression | null;
+  returnExprs: TypeScript.Expression[];
   sourceFile: TypeScript.SourceFile;
   checker?: TypeScript.TypeChecker;
   [key: string]: unknown;

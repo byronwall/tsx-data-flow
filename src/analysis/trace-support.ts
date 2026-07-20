@@ -133,17 +133,24 @@ export function resolveCatalogFn(ts: typeof TypeScript, checker: TypeScript.Type
   return record;
 }
 
-export function getFunctionReturnExpression(ts: typeof TypeScript, fn: TypeScript.FunctionLikeDeclaration): TypeScript.Expression | null {
-  if (!fn) return null;
-  if (ts.isArrowFunction(fn) && !ts.isBlock(fn.body)) return fn.body;
-  let found: TypeScript.Expression | null = null;
+export function getFunctionReturnExpressions(ts: typeof TypeScript, fn: TypeScript.FunctionLikeDeclaration): TypeScript.Expression[] {
+  if (!fn) return [];
+  if (ts.isArrowFunction(fn) && !ts.isBlock(fn.body)) return [fn.body];
+  const found: TypeScript.Expression[] = [];
   const visit = (node: TypeScript.Node) => {
-    if (!found && ts.isReturnStatement(node) && node.expression)
-      found = node.expression;
-    if (!found) ts.forEachChild(node, visit);
+    if (node !== fn && ts.isFunctionLike(node)) return;
+    if (ts.isReturnStatement(node) && node.expression) {
+      found.push(node.expression);
+      return;
+    }
+    ts.forEachChild(node, visit);
   };
   if (fn.body) visit(fn.body);
   return found;
+}
+
+export function getFunctionReturnExpression(ts: typeof TypeScript, fn: TypeScript.FunctionLikeDeclaration): TypeScript.Expression | null {
+  return getFunctionReturnExpressions(ts, fn)[0] ?? null;
 }
 
 export function getCallName(ts: typeof TypeScript, node: TypeScript.Node) {
@@ -175,8 +182,8 @@ function registerImports(ts: typeof TypeScript, node: TypeScript.ImportDeclarati
 function registerVariable(ts: typeof TypeScript, node: TypeScript.VariableDeclaration, variables: Map<string, TypeScript.VariableDeclaration>, accessors: Map<string, AccessorRecord>) {
   if (ts.isIdentifier(node.name)) {
     variables.set(node.name.text, node);
-    if (node.initializer && isCallNamed(ts, node.initializer, "createMemo")) {
-      accessors.set(node.name.text, { kind: "memo", declaration: node });
+    if (node.initializer && (isCallNamed(ts, node.initializer, "createMemo") || isCallNamed(ts, node.initializer, "createAsync"))) {
+      accessors.set(node.name.text, { kind: isCallNamed(ts, node.initializer, "createMemo") ? "memo" : "resource", declaration: node });
     }
     return;
   }
@@ -286,6 +293,7 @@ function makeCatalogRecord(ts: typeof TypeScript, found: { fnNode: TypeScript.Fu
     callers: [],
     fnNode,
     returnExpr: getFunctionReturnExpression(ts, fnNode),
+    returnExprs: getFunctionReturnExpressions(ts, fnNode),
     sourceFile,
   };
 }

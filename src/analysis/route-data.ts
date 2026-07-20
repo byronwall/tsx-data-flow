@@ -2,6 +2,13 @@ import path from "node:path";
 import type * as TypeScript from "typescript";
 import type { Sink, SourceSpan } from "../types";
 import { collectReachableFiles, discoverRoute, stableHash } from "./route-discovery";
+import {
+  declarationIdentity,
+  resolveResourceFetcher,
+  resolvedDeclarations,
+  resourceBoundaryIdentity,
+  returnedConsumerValue,
+} from "./route-data-resource";
 
 export type RouteEvidenceConfidence = "high" | "medium" | "low";
 export type RouteDataEffect = "preserve" | "project" | "augment" | "derive" | "select" | "group" | "normalize" | "opaque" | "render";
@@ -58,6 +65,7 @@ export interface RouteDataEvidence {
   unknownReason: string | null;
 }
 export interface RouteDataBoundary { kind: "query" | "resource" | "component" | "prop" | "context" | "call"; label: string }
+export interface RouteDataOperationOwner { label: string; file: string; line: number }
 export interface DataOperation {
   key: string;
   semanticKind: "read" | "parse" | "validate" | "map" | "project" | "augment" | "derive" | "select" | "group" | "normalize" | "boundary" | "render" | "opaque";
@@ -70,6 +78,9 @@ export interface DataOperation {
   fieldEffects: RouteDataFieldEffect[];
   sourceExpressionIds: string[];
   boundary: RouteDataBoundary | null;
+  boundaryId: string | null;
+  consumerHandoff: { kind: "return"; outputShapeId: string } | null;
+  owner: RouteDataOperationOwner | null;
   confidence: RouteEvidenceConfidence;
   completeness: "complete" | "partial" | "opaque";
   completenessReason: string;
@@ -110,10 +121,11 @@ type Candidate = {
   boundary: RouteDataBoundary | null;
   confidence: RouteEvidenceConfidence;
   fieldEffects: RouteDataFieldEffect[];
+  consumedByRoute: boolean;
+  consumerReturn: TypeScript.Expression | null;
 };
 
-const SHAPE_FIELD_CAP = 12;
-const TRAJECTORY_OPERATION_CAP = 15;
+const TRAJECTORY_OPERATION_CAP = 32;
 const ROUTE_TERMINAL_CAP = 4;
 
 export function analyzeRouteData(
@@ -137,10 +149,11 @@ export function analyzeRouteData(
     const routeFile = filesByName.get(path.normalize(path.resolve(root, route.file)));
     if (!routeFile) continue;
     const reachable = collectReachableFiles(ts, root, routeFile, filesByName);
-    const candidates = collectCandidates(ts, checker, program, root, reachable);
     const renderedComponents = collectRenderedComponents(ts, checker, root, routeFile, route);
     route.renderedComponents = renderedComponents.records;
     route.renderedComponentEdges = renderedComponents.edges;
+    const called = collectCalledDeclarations(ts, checker, program, root, routeFile, renderedComponents.records);
+    const candidates = collectCandidates(ts, checker, program, root, reachable, called.declarations, called.resourceOutputs);
     const routeSinks = sinks.filter((sink) => sinkBelongsToRenderedComponent(sink, route, renderedComponents.keys));
     // Finding IDs are intentionally human-readable line/column labels and can
     // repeat across files. Route membership must use the file-qualified key or
@@ -150,21 +163,21 @@ export function analyzeRouteData(
     const routeOperationKeys: string[] = [];
     const routeValueIds: string[] = [];
 
-    const candidateGroups = selected.reduce<Candidate[][]>((groups, candidate) => {
-      const previous = groups.at(-1);
-      if (candidate.kind === "read" && previous?.every((item) => item.kind === "read")) previous.push(candidate);
-      else groups.push([candidate]);
-      return groups;
-    }, []);
+    const candidateGroups = selected.map((candidate) => [candidate]);
     for (const group of candidateGroups) {
       const candidate = group[0];
       const sources = group.map((item) => evidenceFor(ts, checker, root, item));
       const source = sources[0];
       const outputType = safeTypeAt(checker, candidate.node);
-      const shape = shapeFor(checker, candidate.node, outputType);
-      const shapeId = `shape:${stableHash(`${route.key}:${candidate.kind}:${source.file}:${source.span.startLine}:${source.span.startColumn}:${outputType}`)}`;
-      const valueId = `value:${stableHash(`${route.key}:${candidate.label}:${source.file}:${source.line}:${source.column}`)}`;
-      const operationKey = `operation:${stableHash(`${route.key}:${candidate.kind}:${source.file}:${source.span.startLine}:${source.span.startColumn}:${source.compilerIdentity ?? ""}`)}`;
+      const shape = shapeFor(checker, candidate.node);
+      const consumerIdentity = candidate.boundary ? `${candidate.boundary.kind}:${candidate.boundary.label}` : "";
+      const shapeId = `shape:${stableHash(`${route.key}:${candidate.kind}:${source.file}:${source.span.startLine}:${source.span.startColumn}:${consumerIdentity}:${outputType}`)}`;
+      const consumerShape = candidate.consumerReturn ? shapeFor(checker, candidate.consumerReturn) : null;
+      const consumerShapeId = consumerShape
+        ? `shape:${stableHash(`${route.key}:${candidate.kind}:consumer-return:${source.file}:${source.span.startLine}:${source.span.startColumn}:${consumerIdentity}:${consumerShape.typeText}`)}`
+        : null;
+      const valueId = `value:${stableHash(`${route.key}:${candidate.label}:${source.file}:${source.line}:${source.column}:${consumerIdentity}`)}`;
+      const operationKey = `operation:${stableHash(`${route.key}:${candidate.kind}:${source.file}:${source.span.startLine}:${source.span.startColumn}:${source.compilerIdentity ?? ""}:${consumerIdentity}`)}`;
       const operation: DataOperation = {
         key: operationKey,
         semanticKind: candidate.kind,
@@ -177,6 +190,11 @@ export function analyzeRouteData(
         fieldEffects: candidate.fieldEffects.length ? candidate.fieldEffects : [{ kind: candidate.effect, field: null, detail: effectSummary(candidate.effect, shape) }],
         sourceExpressionIds: sources.map((item) => item.id),
         boundary: candidate.boundary,
+        boundaryId: candidate.boundary?.kind === "resource" && ts.isVariableDeclaration(candidate.node.parent)
+          ? resourceBoundaryIdentity(root, candidate.node.parent)
+          : null,
+        consumerHandoff: consumerShapeId ? { kind: "return", outputShapeId: consumerShapeId } : null,
+        owner: candidate.boundary?.kind === "resource" ? operationOwner(ts, root, candidate) : null,
         confidence: candidate.confidence,
         completeness: candidate.kind === "opaque" ? "opaque" : candidate.confidence === "low" ? "partial" : "complete",
         completenessReason: candidate.kind === "opaque" ? "The compiler could not prove the internal value transition across this call." : "Retained from a participating source expression and checker type.",
@@ -184,6 +202,7 @@ export function analyzeRouteData(
       operations.push(operation);
       values.push({ id: valueId, label: group.length > 1 ? "Saved persisted values" : valueLabel(candidate, outputType), shapeId, sourceOperationKey: operationKey });
       shapes.push({ ...shape, id: shapeId });
+      if (consumerShape && consumerShapeId) shapes.push({ ...consumerShape, id: consumerShapeId });
       evidence.push(...sources);
       routeOperationKeys.push(operationKey);
       routeValueIds.push(valueId);
@@ -203,7 +222,10 @@ export function analyzeRouteData(
         key: `trajectory:${stableHash(`${route.key}:${routeOperationKeys[0]}:${routeTerminals[0]?.id ?? routeOperationKeys.at(-1)}`)}`,
         routeKey: route.key,
         label: routeTerminals.length ? `${route.pathPattern} → ${routeTerminals.length} retained render ${routeTerminals.length === 1 ? "site" : "sites"}` : `${route.pathPattern} data path`,
-        sourceValueIds: routeValueIds[0] ? [routeValueIds[0]] : [],
+        sourceValueIds: routeValueIds.filter((id) => {
+          const value = values.find((item) => item.id === id);
+          return operations.find((item) => item.key === value?.sourceOperationKey)?.semanticKind === "read";
+        }),
         operationKeys: routeOperationKeys,
         terminalIds: routeTerminals.map((terminal) => terminal.id),
         supportingComponentIds: route.componentNames.map((name) => `component:${stableHash(`${route.file}:${name}`)}`),
@@ -223,7 +245,15 @@ export function routeSinkKey(sink: Pick<Sink, "file" | "id">) {
   return `${sink.file}:${sink.id}`;
 }
 
-function collectCandidates(ts: typeof TypeScript, checker: TypeScript.TypeChecker, program: TypeScript.Program, root: string, reachable: Set<string>) {
+function collectCandidates(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  program: TypeScript.Program,
+  root: string,
+  reachable: Set<string>,
+  calledDeclarations: Map<string, Set<string>>,
+  resourceOutputs: Map<string, TypeScript.Expression>,
+) {
   const candidates: Candidate[] = [];
   for (const absolute of reachable) {
     const sourceFile = program.getSourceFile(absolute);
@@ -239,7 +269,7 @@ function collectCandidates(ts: typeof TypeScript, checker: TypeScript.TypeChecke
         if (text === "JSON.parse" || text.endsWith(".JSON.parse")) candidates.push(candidate(1, "parse", "normalize", "Parse persisted JSON text", node, sourceFile, null, "high"));
         if (/\.parse$/.test(text) && text !== "JSON.parse" && (/(?:schema|Schema)\.parse$/.test(text) || full.includes("z."))) candidates.push(candidate(2, "validate", "normalize", `Validate ${humanize(text.replace(/\.parse$/, "").split(".").at(-1) ?? "schema")} shape`, node, sourceFile, null, "high"));
         if (text === "query" || text.endsWith(".query")) candidates.push(candidate(4, "boundary", "preserve", `Define ${queryName(ts, node)} query`, node, sourceFile, { kind: "query", label: "SolidStart query" }, "high"));
-        if (text === "createResource" || text.endsWith(".createResource")) candidates.push(candidate(5, "boundary", "preserve", `Load ${resourceName(ts, node)} resource`, node, sourceFile, { kind: "resource", label: resourceFetcherName(ts, node) ?? "Solid createResource" }, "high"));
+        if (["createResource", "createAsync"].includes(callExpressionName(ts, node))) candidates.push(candidate(5, "boundary", "preserve", `Load ${resourceName(ts, node)} resource`, node, sourceFile, { kind: "resource", label: resolveResourceFetcher(ts, checker, root, node)?.label ?? `Solid ${callExpressionName(ts, node)}` }, "high"));
         if (/\.(?:map|flatMap)$/.test(text)) candidates.push(candidate(3, "map", "project", `Map ${collectionName(text)} elements`, node, sourceFile, null, "medium"));
         if (/\.filter$/.test(text) && /\bday/i.test(full)) candidates.push(candidate(8, "group", "group", "Group values by day", node, sourceFile, null, "high"));
         else if (/\.(?:filter|find)$/.test(text) || /(?:select|resolve|loaded|visible)/i.test(text)) candidates.push(candidate(6, "select", "select", `Select ${humanize(callName(text))} value`, node, sourceFile, null, "medium"));
@@ -260,29 +290,52 @@ function collectCandidates(ts: typeof TypeScript, checker: TypeScript.TypeChecke
     };
     visit(sourceFile);
   }
-  return candidates;
+  return candidates.flatMap((item) => {
+    if (item.kind !== "read") return [item];
+    const owner = callableOwner(ts, item.node);
+    const resourceLabels = owner ? [...(calledDeclarations.get(declarationIdentity(owner)) ?? [])].sort(lexical) : [];
+    const queryOwnerLabel = owner && insideBoundaryCall(ts, item.node, "query") ? declarationName(ts, owner) : null;
+    const consumerLabels = resourceLabels.length ? resourceLabels : queryOwnerLabel ? [queryOwnerLabel] : [];
+    const sourceReturn = ts.isCallExpression(item.node) ? returnedConsumerValue(ts, checker, item.node) : null;
+    const shared = {
+      consumedByRoute: owner ? calledDeclarations.has(declarationIdentity(owner)) && !insideBoundaryCall(ts, item.node, "action") : false,
+      consumerReturn: sourceReturn,
+    };
+    if (!consumerLabels.length) return [{ ...item, ...shared }];
+    return consumerLabels.map((label): Candidate => ({
+      ...item,
+      ...shared,
+      boundary: { kind: insideBoundaryCall(ts, item.node, "query") ? "query" : "call", label },
+      consumerReturn: sourceReturn ? resourceOutputs.get(label) ?? sourceReturn : null,
+    }));
+  });
 }
 
 function chooseCandidates(ts: typeof TypeScript, candidates: Candidate[], sinks: Sink[], root: string, route: RouteRecord, filesByName: Map<string, TypeScript.SourceFile>) {
   const selected: Candidate[] = [];
   const hasPrismaRead = candidates.some((item) => item.kind === "read" && item.label.includes("Prisma"));
-  const selectionCap = hasPrismaRead ? TRAJECTORY_OPERATION_CAP : TRAJECTORY_OPERATION_CAP + 3;
+  const consumedReadCount = candidates.filter((item) => item.stage === 0 && item.consumedByRoute).length;
+  const selectionCap = (hasPrismaRead ? TRAJECTORY_OPERATION_CAP : TRAJECTORY_OPERATION_CAP + 3) + consumedReadCount * 2;
   const relevantCandidates = (hasPrismaRead ? candidates.filter((item) => item.kind !== "parse" && item.kind !== "validate") : candidates).filter((item) => item.kind !== "render" && item.boundary?.kind !== "component");
   const push = (items: Candidate[], max: number) => {
     for (const item of items.sort((left, right) => candidateRelevance(right, route) - candidateRelevance(left, route) || confidenceRank(right.confidence) - confidenceRank(left.confidence) || candidateSort(left, right))) {
       if (selected.length >= selectionCap || selected.filter((value) => value.stage === item.stage).length >= max) break;
-      const key = `${item.stage}:${item.label}`;
-      if (!selected.some((value) => `${value.stage}:${value.label}` === key)) selected.push(item);
+      const key = candidateSelectionIdentity(item);
+      if (!selected.some((value) => candidateSelectionIdentity(value) === key)) selected.push(item);
     }
   };
   const stageCaps: Array<[number, number]> = hasPrismaRead
-    ? [[0, 1], [1, 0], [2, 0], [3, 1], [4, 1], [5, 1], [6, 2], [7, 2], [8, 2], [9, 2], [9.5, 1], [10, 1]]
+    ? [[0, consumedReadCount], [1, 0], [2, 0], [3, 1], [4, 8], [5, 8], [6, 2], [7, 2], [8, 2], [9, 2], [9.5, 1], [10, 1]]
     : [[0, 4], [1, 1], [2, 1], [3, 1], [4, 1], [5, 3], [6, 2], [7, 1], [8, 0], [9, 0], [9.5, 1], [10, 1]];
   for (const [stage, max] of stageCaps) {
     const stageCandidates = relevantCandidates.filter((item) => item.stage === stage);
     if (stage !== 0) { push(stageCandidates, max); continue; }
-    const routeRelevantReads = stageCandidates.filter((item) => candidateRelevance(item, route) > 0);
-    push(routeRelevantReads.length ? routeRelevantReads : stageCandidates, max);
+    const consumedReads = stageCandidates.filter((item) => item.consumedByRoute);
+    push(consumedReads, max);
+  }
+  const sourceConsumers = new Set(selected.filter((item) => item.kind === "read").map((item) => item.boundary?.label).filter((label): label is string => Boolean(label)));
+  for (const resource of candidates.filter((item) => item.boundary?.kind === "resource" && sourceConsumers.has(item.boundary.label))) {
+    if (!selected.some((item) => item.sourceFile === resource.sourceFile && item.node === resource.node)) selected.push(resource);
   }
   const render = renderCandidateForSink(ts, root, route, sinks, filesByName);
   if (render) {
@@ -290,6 +343,11 @@ function chooseCandidates(ts: typeof TypeScript, candidates: Candidate[], sinks:
     else selected.push(render);
   }
   return selected.sort(candidateSort).slice(0, selectionCap);
+}
+
+function candidateSelectionIdentity(item: Candidate) {
+  if (item.kind !== "read") return `${item.stage}:${item.label}`;
+  return `${item.stage}:${item.sourceFile.fileName}:${item.node.getStart(item.sourceFile)}:${item.boundary?.kind ?? ""}:${item.boundary?.label ?? ""}`;
 }
 
 function renderCandidateForSink(ts: typeof TypeScript, root: string, route: RouteRecord, sinks: Sink[], filesByName: Map<string, TypeScript.SourceFile>) {
@@ -303,21 +361,116 @@ function renderCandidateForSink(ts: typeof TypeScript, root: string, route: Rout
   return candidate(10, "render", "render", `Render ${attribute} in ${target}`, node, sourceFile, null, sink.confidence >= .75 ? "high" : "medium");
 }
 
+function collectCalledDeclarations(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  program: TypeScript.Program,
+  root: string,
+  routeFile: TypeScript.SourceFile,
+  renderedComponents: RouteComponentRecord[],
+) {
+  const called = new Map<string, Set<string>>();
+  const resourceOutputs = new Map<string, TypeScript.Expression>();
+  const queue: Array<{ declaration: TypeScript.Node; resourceLabels: string[] }> = [];
+  const enqueue = (declaration: TypeScript.Declaration | TypeScript.SourceFile | null, resourceLabels: string[] = []) => {
+    if (!declaration || !inside(root, declaration.getSourceFile().fileName)) return;
+    const key = declarationIdentity(declaration);
+    const retained = called.get(key);
+    if (!retained) {
+      called.set(key, new Set(resourceLabels));
+      queue.push({ declaration, resourceLabels });
+      return;
+    }
+    const added = resourceLabels.filter((label) => !retained.has(label));
+    if (!added.length) return;
+    added.forEach((label) => retained.add(label));
+    queue.push({ declaration, resourceLabels: [...retained] });
+  };
+  for (const component of renderedComponents) {
+    const sourceFile = program.getSourceFile(path.normalize(path.resolve(root, component.file)));
+    enqueue(sourceFile ? namedDeclarationAt(ts, sourceFile, component.label, component.line) : null);
+  }
+  if (!queue.length) enqueue(routeFile);
+  while (queue.length && called.size < 10_000) {
+    const current = queue.shift()!;
+    const visit = (node: TypeScript.Node) => {
+      if (ts.isCallExpression(node)) {
+        for (const declaration of resolvedDeclarations(ts, checker, node.expression)) {
+          enqueue(declaration, current.resourceLabels);
+        }
+        if (["createResource", "createAsync"].includes(callExpressionName(ts, node))) {
+          const fetcher = resolveResourceFetcher(ts, checker, root, node);
+          if (fetcher) {
+            if (fetcher.output) resourceOutputs.set(fetcher.label, fetcher.output);
+            for (const declaration of fetcher.declarations) enqueue(declaration, [fetcher.label]);
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(current.declaration);
+  }
+  return { declarations: called, resourceOutputs };
+}
+
+function namedDeclarationAt(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, name: string, line: number) {
+  let sameLine: TypeScript.Declaration | null = null;
+  const visit = (node: TypeScript.Node) => {
+    if (declarationName(ts, node) === name) {
+      const declaration = node as TypeScript.Declaration;
+      const point = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+      if (point.line + 1 === line) sameLine = declaration;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return sameLine;
+}
+
+function callableOwner(ts: typeof TypeScript, node: TypeScript.Node): TypeScript.Declaration | null {
+  let current: TypeScript.Node | undefined = node.parent;
+  while (current) {
+    if (ts.isFunctionDeclaration(current) && current.name) return current;
+    if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) && ts.isVariableDeclaration(current.parent)) return current.parent;
+    if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) && ts.isCallExpression(current.parent)) {
+      const wrapper = current.parent;
+      if (["query", "action"].includes(callExpressionName(ts, wrapper)) && ts.isVariableDeclaration(wrapper.parent)) return wrapper.parent;
+    }
+    if (ts.isMethodDeclaration(current)) return current;
+    current = current.parent;
+  }
+  return null;
+}
+
+function insideBoundaryCall(ts: typeof TypeScript, node: TypeScript.Node, boundaryName: string) {
+  let current: TypeScript.Node | undefined = node.parent;
+  while (current) {
+    if (ts.isCallExpression(current) && callExpressionName(ts, current) === boundaryName) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+function callExpressionName(ts: typeof TypeScript, node: TypeScript.CallExpression) {
+  if (ts.isIdentifier(node.expression)) return node.expression.text;
+  if (ts.isPropertyAccessExpression(node.expression)) return node.expression.name.text;
+  return "";
+}
+
 function nodeForSpan(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, span: SourceSpan) {
   const start = sourceFile.getPositionOfLineAndCharacter(span.startLine - 1, span.startColumn - 1);
   const end = sourceFile.getPositionOfLineAndCharacter(span.endLine - 1, span.endColumn - 1);
   let best: TypeScript.Node = sourceFile;
-  const visit = (node: TypeScript.Node) => {
-    if (node.getStart(sourceFile) > start || node.getEnd() < end) return;
-    best = node;
-    ts.forEachChild(node, visit);
-  };
+  const visit = (node: TypeScript.Node) => { if (node.getStart(sourceFile) <= start && node.getEnd() >= end) { best = node; ts.forEachChild(node, visit); } };
   visit(sourceFile);
   return best;
 }
 
-function candidate(stage: number, kind: Candidate["kind"], effect: RouteDataEffect, label: string, node: TypeScript.Node, sourceFile: TypeScript.SourceFile, boundary: RouteDataBoundary | null, confidence: RouteEvidenceConfidence, fieldEffects: RouteDataFieldEffect[] = []): Candidate {
-  return { stage, kind, effect, label, node, sourceFile, boundary, confidence, fieldEffects };
+function candidate(stage: number, kind: Candidate["kind"], effect: RouteDataEffect, label: string, node: TypeScript.Node, sourceFile: TypeScript.SourceFile, boundary: RouteDataBoundary | null, confidence: RouteEvidenceConfidence, fieldEffects: RouteDataFieldEffect[] = []): Candidate { return { stage, kind, effect, label, node, sourceFile, boundary, confidence, fieldEffects, consumedByRoute: kind !== "read", consumerReturn: null }; }
+function operationOwner(ts: typeof TypeScript, root: string, candidate: Candidate): RouteDataOperationOwner | null {
+  const owner = callableOwner(ts, candidate.node); const label = owner ? declarationName(ts, owner) : null;
+  if (!owner || !label) return null; const sourceFile = owner.getSourceFile(); const point = sourceFile.getLineAndCharacterOfPosition(owner.getStart(sourceFile));
+  return { label, file: relative(root, sourceFile.fileName), line: point.line + 1 };
 }
 function candidateSort(a: Candidate, b: Candidate) { return a.stage - b.stage || lexical(a.sourceFile.fileName, b.sourceFile.fileName) || a.node.getStart(a.sourceFile) - b.node.getStart(b.sourceFile); }
 function candidateRelevance(candidate: Candidate, route: RouteRecord) { const tokens = route.pathPattern.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4); const dynamicStems = route.parameters.map((parameter) => parameter.name.replace(/Id$/, "").toLowerCase()).filter((token) => token.length >= 4); const haystack = `${candidate.sourceFile.fileName} ${candidate.label}`.toLowerCase(); const componentScore = route.componentNames.some((name) => path.basename(candidate.sourceFile.fileName).replace(/\.[^.]+$/, "") === name) ? 8 : 0; const directShellScore = candidate.boundary?.kind === "component" && route.componentNames.includes(candidate.boundary.label) && candidate.sourceFile.fileName.replaceAll(path.sep, "/").endsWith(route.file) ? 12 : 0; const mapperScore = candidate.label.startsWith("Map row to ") ? 10 : 0; const detailScore = dynamicStems.some((stem) => haystack.includes(`${stem}-detail`)) ? 6 : 0; const jsonBoundaryScore = ["parse", "validate"].includes(candidate.kind) && path.basename(candidate.sourceFile.fileName).replace(/\.[^.]+$/, "") === "json" ? 10 : 0; return componentScore + directShellScore + mapperScore + detailScore + jsonBoundaryScore + tokens.reduce((score, token) => score + (haystack.includes(token) || haystack.includes(token.replace(/s$/, "")) ? 4 : 0), 0) + (candidate.label.includes("rows") ? 2 : 0); }
@@ -332,19 +485,28 @@ function evidenceFor(ts: typeof TypeScript, checker: TypeScript.TypeChecker, roo
   return { id: `evidence:${stableHash(`${file}:${point.line + 1}:${point.character + 1}:${value.kind}`)}`, expression: value.node.getText(value.sourceFile).replace(/\s+/g, " ").slice(0, 320), operationKind: value.kind, file, line: point.line + 1, column: point.character + 1, span: spanFor(value.sourceFile, value.node), inputType: type, outputType: type, compilerIdentity: symbol ? checker.getFullyQualifiedName(symbol) : null, confidence: value.confidence, unknownReason: value.kind === "opaque" ? "Unresolved value transition" : null };
 }
 
-function shapeFor(checker: TypeScript.TypeChecker, node: TypeScript.Node, typeText: string): Omit<ValueShapeSummary, "id"> {
+function shapeFor(checker: TypeScript.TypeChecker, node: TypeScript.Node): Omit<ValueShapeSummary, "id"> {
   try {
     const type = checker.getTypeAtLocation(node);
-    const properties = type.getProperties();
-    const fields = properties.slice(0, SHAPE_FIELD_CAP).map((property) => {
+    const awaitedType = checker.getAwaitedType(type) ?? type;
+    const resolvedType = checker.getNonNullableType(awaitedType);
+    const collection = checker.isArrayType(resolvedType) || checker.isTupleType(resolvedType);
+    const elementType = collection && "getTypeArguments" in checker
+      ? checker.getTypeArguments(resolvedType as TypeScript.TypeReference)[0] ?? resolvedType
+      : resolvedType;
+    const properties = elementType.getProperties();
+    const fields = properties.map((property) => {
       const declaration = property.valueDeclaration ?? property.declarations?.[0];
-      const propertyType = declaration ? checker.getTypeOfSymbolAtLocation(property, declaration) : checker.getDeclaredTypeOfSymbol(property);
+      const propertySymbol = checker.getPropertyOfType(elementType, property.getName()) ?? property;
+      const propertyType = checker.getTypeOfSymbolAtLocation(propertySymbol, declaration ?? node);
       return { key: property.getName(), typeText: checker.typeToString(propertyType), optional: Boolean(property.flags & 16_777_216) };
     });
-    const collection = checker.isArrayType(type) || checker.isTupleType(type);
-    const primitive = /^(?:string|number|boolean|bigint|symbol|null|undefined|void)$/.test(typeText);
-    return { typeName: type.aliasSymbol?.getName() ?? type.getSymbol()?.getName() ?? null, typeText, kind: collection ? "collection" : primitive ? "primitive" : type.isUnion() ? "union" : properties.length ? "object" : typeText === "any" || typeText === "unknown" ? "opaque" : "object", fields, totalFields: properties.length, opacityReason: typeText === "any" || typeText === "unknown" ? `Checker type is ${typeText}.` : null };
-  } catch { return { typeName: null, typeText, kind: "opaque", fields: [], totalFields: 0, opacityReason: "Checker shape lookup failed." }; }
+    const coreTypeText = checker.typeToString(elementType, node, 1);
+    const primitive = /^(?:string|number|boolean|bigint|symbol|null|undefined|void)$/.test(coreTypeText);
+    const symbolName = elementType.aliasSymbol?.getName() ?? elementType.getSymbol()?.getName() ?? null;
+    const typeName = symbolName?.startsWith("__") ? null : symbolName;
+    return { typeName, typeText: coreTypeText, kind: collection ? "collection" : primitive ? "primitive" : elementType.isUnion() ? "union" : properties.length ? "object" : coreTypeText === "any" || coreTypeText === "unknown" ? "opaque" : "object", fields, totalFields: properties.length, opacityReason: coreTypeText === "any" || coreTypeText === "unknown" ? `Checker type is ${coreTypeText}.` : null };
+  } catch { return { typeName: null, typeText: safeTypeAt(checker, node), kind: "opaque", fields: [], totalFields: 0, opacityReason: "Checker shape lookup failed." }; }
 }
 
 function buildTerminals(route: RouteRecord, sinks: Sink[], operationKey: string | null): RouteDataTerminal[] {
@@ -358,24 +520,6 @@ function safeTypeAt(checker: TypeScript.TypeChecker, node: TypeScript.Node) { tr
 function returnTypeName(checker: TypeScript.TypeChecker, node: TypeScript.FunctionLikeDeclaration) { try { const signature = checker.getSignatureFromDeclaration(node); return signature ? checker.typeToString(checker.getReturnTypeOfSignature(signature)).replace(/^Promise<(.+)>$/, "$1") : "mapped value"; } catch { return "mapped value"; } }
 function resourceName(ts: typeof TypeScript, node: TypeScript.CallExpression) { const declaration = node.parent; if (ts.isVariableDeclaration(declaration)) { if (ts.isArrayBindingPattern(declaration.name)) { const first = declaration.name.elements[0]; return first && ts.isBindingElement(first) ? first.name.getText() : "data"; } return declaration.name.getText(); } return "data"; }
 function queryName(ts: typeof TypeScript, node: TypeScript.CallExpression) { return ts.isVariableDeclaration(node.parent) ? node.parent.name.getText() : "SolidStart"; }
-function resourceFetcherName(ts: typeof TypeScript, node: TypeScript.CallExpression) {
-  const fetcher = node.arguments.at(-1);
-  if (!fetcher) return null;
-  if (ts.isIdentifier(fetcher)) return fetcher.text;
-  if (ts.isPropertyAccessExpression(fetcher)) return fetcher.name.text;
-  const names: string[] = [];
-  const visit = (current: TypeScript.Node) => {
-    if (ts.isCallExpression(current)) {
-      const expression = current.expression;
-      const name = ts.isIdentifier(expression) ? expression.text : ts.isPropertyAccessExpression(expression) ? expression.name.text : null;
-      if (name && !["resolve", "reject"].includes(name)) names.push(name);
-    }
-    ts.forEachChild(current, visit);
-  };
-  visit(fetcher);
-  return names.sort((left, right) => resourceFetcherRank(right) - resourceFetcherRank(left))[0] ?? null;
-}
-function resourceFetcherRank(name: string) { return /^(?:get|load|fetch|read|request|query)[A-Z_]/.test(name) ? 2 : 1; }
 function collectionName(text: string) { return humanize(text.replace(/\.(?:map|flatMap)$/, "").split(".").at(-1) ?? "collection"); }
 function callName(text: string) { return text.split(".").at(-1)?.replace(/[^A-Za-z0-9_$]/g, "") || "value"; }
 function labelFromArgument(node: TypeScript.Expression | undefined, sourceFile: TypeScript.SourceFile) { return node?.getText(sourceFile).replace(/\(.*/, "").split(".").at(-1)?.replace(/["']/g, "") ?? ""; }
@@ -430,7 +574,7 @@ function collectRenderedComponents(ts: typeof TypeScript, checker: TypeScript.Ty
     try { if (symbol?.flags && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol); } catch { /* unresolved alias */ }
     return symbol?.valueDeclaration ?? symbol?.declarations?.find((declaration) => isComponentDeclaration(ts, declaration)) ?? null;
   };
-  const rootLabel = route.componentHierarchy.find((component) => component.parentId === null)?.label ?? route.componentNames[0];
+  const rootLabel = route.componentHierarchy.find((component) => component.parentId === null)?.label ?? null;
   let rootDeclaration: TypeScript.Node | null = null;
   const findRoot = (node: TypeScript.Node) => {
     if (rootDeclaration) return;
@@ -439,7 +583,7 @@ function collectRenderedComponents(ts: typeof TypeScript, checker: TypeScript.Ty
     ts.forEachChild(node, findRoot);
   };
   findRoot(routeFile);
-  if (rootDeclaration) enqueue(rootDeclaration, rootLabel);
+  if (rootDeclaration) enqueue(rootDeclaration, rootLabel ?? undefined);
   else if (rootLabel) keys.add(componentMembershipKey(route.file, rootLabel));
 
   while (queue.length && queued.size <= 5_000) {

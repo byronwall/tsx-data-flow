@@ -54,8 +54,9 @@ export function reconcileTrajectoryUrlState(state: TrajectoryUrlState, inventory
     route = [...inventory.routes].sort((left, right) => right.trajectoryCount - left.trajectoryCount || (left.pathPattern < right.pathPattern ? -1 : 1))[0] ?? null;
     if (state.route) notices.push("The restored route no longer exists; selected the nearest available route.");
   }
-  const source = inventory.sources.some((item) => item.key === state.source) ? state.source : null;
-  if (state.source && !source) notices.push("The restored source method no longer exists; the source filter was cleared.");
+  const routeSources = inventory.sources.filter((item) => route?.sourceMethodKeys.includes(item.key));
+  const source = state.source && routeSources.some((item) => item.key === state.source) ? state.source : null;
+  if (state.source && source !== state.source) notices.push("The restored source is not available on this route; returned to the full topology.");
   const routeFlows = inventory.trajectories.filter((item) => item.routeKey === route?.key);
   let flow = routeFlows.find((item) => item.key === state.flow) ?? null;
   if (!flow) {
