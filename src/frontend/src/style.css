@@ -247,13 +247,16 @@
 .component-topology-hub-legend .component-topology-key.context { border-color: #795fa8; border-radius: 1px; background: #eee9fa; transform: rotate(45deg) scale(.78); }
 .component-topology-hub-legend .component-topology-key.terminal { border-radius: 1px; }
 .component-topology-hub-legend .component-topology-key.hub { width: 10px; height: 10px; border-color: #9a772d; background: #fff2cd; box-shadow: 0 0 0 1px rgb(154 119 45 / .32); }
+.component-topology-hub-legend .component-topology-edge-key { width: 16px; height: 0; border-radius: 0; background: none; }
+.component-topology-hub-legend .component-topology-edge-key.resource-load { border-top: 2px dashed #39739d; }
+.component-topology-hub-legend .component-topology-edge-key.source-lineage { border-top: 2px solid #3f8f60; }
 .component-topology-hub-legend code { font-size: .65rem; }
 .component-topology-hub-legend small { color: var(--muted); font-size: .6rem; }
 .component-topology-edges path { fill: none; stroke: #7e899d; stroke-width: 1.15; opacity: .32; vector-effect: non-scaling-stroke; }
 .component-topology-edges marker path { fill: #7e899d; stroke: none; }
 .component-topology-edges path.inferred { stroke-dasharray: 4 4; opacity: .23; }
 .component-topology-edges path.kind-provides,.component-topology-edges path.kind-consumes { stroke: #7457a6; opacity: .62; }
-.component-topology-edges path.kind-loads { stroke: #357b57; opacity: .66; }
+.component-topology-edges path.kind-loads { stroke: #39739d; stroke-dasharray: 4 2; opacity: .66; }
 .component-topology-edges path.dimmed { opacity: .035; }
 .component-topology-edges path.focused { opacity: .92; stroke-width: 2; }
 .component-topology-edges path.source-dimmed { opacity: .055; }
@@ -299,6 +302,8 @@
 .component-topology-node-sources > small { color: var(--muted); font-size: .63rem; }
 .component-topology-node-sources > button { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 8px; padding: 6px; background: color-mix(in srgb,var(--accent-soft) 42%,var(--panel)); text-align: left; }
 .component-topology-node-sources > button:hover { background: color-mix(in srgb,var(--accent-soft) 72%,var(--panel)); }
+.component-topology-node-sources > button.resource-only { background: color-mix(in srgb,#e5f0fa 72%,var(--panel)); }
+.component-topology-node-sources > button.resource-only:hover { background: color-mix(in srgb,#d8e9f7 84%,var(--panel)); }
 .component-topology-node-sources > button > span:first-child { min-width: 0; display: grid; gap: 1px; }
 .component-topology-node-sources > button b { overflow: hidden; font: 700 .66rem var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .component-topology-node-sources > button small { color: var(--muted); font-size: .57rem; font-style: normal; }

@@ -134,6 +134,7 @@ function enrichCatalogRecord(
         crossDepth: 0,
         visitedFns: new Set(),
         paramBindings: null,
+        paramObjectBindings: null,
       },
     ));
     const metrics = bodyTraces.map((trace) => metricsFor(trace));

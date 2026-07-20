@@ -151,6 +151,14 @@ function annotateGraphSources(
     retained.add(operation.boundaryId);
     boundaryIdsByConsumer.set(operation.boundary.label, retained);
   }
+  const handoffSourceCountByConsumer = new Map<string, number>();
+  for (const source of sources) {
+    if (!source.handoffProven || !source.consumerLabel) continue;
+    handoffSourceCountByConsumer.set(
+      source.consumerLabel,
+      (handoffSourceCountByConsumer.get(source.consumerLabel) ?? 0) + 1,
+    );
+  }
   const trajectories = graph.trajectories.map((trajectory) => {
     const sourceMethodKeys = sources
       .filter((source) => trajectory.stepKeys.some((key) => {
@@ -158,6 +166,10 @@ function annotateGraphSources(
         const sourceEvidence = evidenceById.get(source.evidenceId);
         if (sourceEvidence && node?.file === sourceEvidence.file && node.line === sourceEvidence.line && node.column === sourceEvidence.column) return true;
         if (!source.handoffProven || !source.consumerLabel || !node?.boundaryId) return false;
+        // A resource boundary proves which consumer returned, but it cannot
+        // distinguish which persisted input supplied a downstream path when
+        // that consumer aggregates several sources.
+        if (handoffSourceCountByConsumer.get(source.consumerLabel) !== 1) return false;
         return boundaryIdsByConsumer.get(source.consumerLabel)?.has(node.boundaryId) ?? false;
       }))
       .map((source) => source.key);

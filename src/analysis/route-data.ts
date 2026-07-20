@@ -331,6 +331,8 @@ function chooseCandidates(ts: typeof TypeScript, candidates: Candidate[], sinks:
     const stageCandidates = relevantCandidates.filter((item) => item.stage === stage);
     if (stage !== 0) { push(stageCandidates, max); continue; }
     const consumedReads = stageCandidates.filter((item) => item.consumedByRoute);
+    const resourceConsumers = new Set(candidates.filter((item) => item.boundary?.kind === "resource").map((item) => item.boundary!.label)); const resourceReads = [...resourceConsumers].flatMap((consumer) => consumedReads.filter((item) => item.boundary?.label === consumer).sort(preferredSourceCandidate).slice(0, 1));
+    push(resourceReads, max);
     push(consumedReads, max);
   }
   const sourceConsumers = new Set(selected.filter((item) => item.kind === "read").map((item) => item.boundary?.label).filter((label): label is string => Boolean(label)));
@@ -372,19 +374,22 @@ function collectCalledDeclarations(
   const called = new Map<string, Set<string>>();
   const resourceOutputs = new Map<string, TypeScript.Expression>();
   const queue: Array<{ declaration: TypeScript.Node; resourceLabels: string[] }> = [];
-  const enqueue = (declaration: TypeScript.Declaration | TypeScript.SourceFile | null, resourceLabels: string[] = []) => {
+  const enqueueRecord = (entry: typeof queue[number], priority: boolean) => priority ? queue.unshift(entry) : queue.push(entry);
+  const enqueue = (declaration: TypeScript.Declaration | TypeScript.SourceFile | null, resourceLabels: string[] = [], priority = false) => {
     if (!declaration || !inside(root, declaration.getSourceFile().fileName)) return;
     const key = declarationIdentity(declaration);
     const retained = called.get(key);
     if (!retained) {
       called.set(key, new Set(resourceLabels));
-      queue.push({ declaration, resourceLabels });
+      const entry = { declaration, resourceLabels };
+      enqueueRecord(entry, priority);
       return;
     }
     const added = resourceLabels.filter((label) => !retained.has(label));
     if (!added.length) return;
     added.forEach((label) => retained.add(label));
-    queue.push({ declaration, resourceLabels: [...retained] });
+    const entry = { declaration, resourceLabels: [...retained] };
+    enqueueRecord(entry, priority);
   };
   for (const component of renderedComponents) {
     const sourceFile = program.getSourceFile(path.normalize(path.resolve(root, component.file)));
@@ -395,14 +400,17 @@ function collectCalledDeclarations(
     const current = queue.shift()!;
     const visit = (node: TypeScript.Node) => {
       if (ts.isCallExpression(node)) {
+        const returnedResourceLabels = returnedConsumerValue(ts, checker, node)
+          ? current.resourceLabels
+          : [];
         for (const declaration of resolvedDeclarations(ts, checker, node.expression)) {
-          enqueue(declaration, current.resourceLabels);
+          enqueue(declaration, returnedResourceLabels, returnedResourceLabels.length > 0);
         }
         if (["createResource", "createAsync"].includes(callExpressionName(ts, node))) {
           const fetcher = resolveResourceFetcher(ts, checker, root, node);
           if (fetcher) {
             if (fetcher.output) resourceOutputs.set(fetcher.label, fetcher.output);
-            for (const declaration of fetcher.declarations) enqueue(declaration, [fetcher.label]);
+            for (const declaration of fetcher.declarations) enqueue(declaration, [fetcher.label], true);
           }
         }
       }
@@ -474,6 +482,7 @@ function operationOwner(ts: typeof TypeScript, root: string, candidate: Candidat
 }
 function candidateSort(a: Candidate, b: Candidate) { return a.stage - b.stage || lexical(a.sourceFile.fileName, b.sourceFile.fileName) || a.node.getStart(a.sourceFile) - b.node.getStart(b.sourceFile); }
 function candidateRelevance(candidate: Candidate, route: RouteRecord) { const tokens = route.pathPattern.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4); const dynamicStems = route.parameters.map((parameter) => parameter.name.replace(/Id$/, "").toLowerCase()).filter((token) => token.length >= 4); const haystack = `${candidate.sourceFile.fileName} ${candidate.label}`.toLowerCase(); const componentScore = route.componentNames.some((name) => path.basename(candidate.sourceFile.fileName).replace(/\.[^.]+$/, "") === name) ? 8 : 0; const directShellScore = candidate.boundary?.kind === "component" && route.componentNames.includes(candidate.boundary.label) && candidate.sourceFile.fileName.replaceAll(path.sep, "/").endsWith(route.file) ? 12 : 0; const mapperScore = candidate.label.startsWith("Map row to ") ? 10 : 0; const detailScore = dynamicStems.some((stem) => haystack.includes(`${stem}-detail`)) ? 6 : 0; const jsonBoundaryScore = ["parse", "validate"].includes(candidate.kind) && path.basename(candidate.sourceFile.fileName).replace(/\.[^.]+$/, "") === "json" ? 10 : 0; return componentScore + directShellScore + mapperScore + detailScore + jsonBoundaryScore + tokens.reduce((score, token) => score + (haystack.includes(token) || haystack.includes(token.replace(/s$/, "")) ? 4 : 0), 0) + (candidate.label.includes("rows") ? 2 : 0); }
+function preferredSourceCandidate(left: Candidate, right: Candidate) { return Number(Boolean(right.consumerReturn)) - Number(Boolean(left.consumerReturn)) || Number(right.label.includes("validate")) - Number(left.label.includes("validate")) || candidateSort(left, right); }
 function confidenceRank(value: RouteEvidenceConfidence) { return value === "high" ? 2 : value === "medium" ? 1 : 0; }
 
 function evidenceFor(ts: typeof TypeScript, checker: TypeScript.TypeChecker, root: string, value: Candidate): RouteDataEvidence {

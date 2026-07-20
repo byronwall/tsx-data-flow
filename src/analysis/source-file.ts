@@ -58,6 +58,7 @@ export function analyzeSourceFile(
           crossDepth: 0,
           visitedFns: new Set(),
           paramBindings: null,
+          paramObjectBindings: null,
         };
       const trace = sinkExpression.category === "event-handler"
         ? traceEventHandler(ts, checker, graph, sinkExpression.expression, traceContext)

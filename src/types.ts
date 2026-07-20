@@ -174,6 +174,11 @@ export interface TraceContext extends FileTraceContext {
   crossDepth: number;
   visitedFns: Set<TypeScript.Symbol>;
   paramBindings: Map<string, TraceResult> | null;
+  paramObjectBindings: Map<string, ParamObjectBinding> | null;
+}
+export interface ParamObjectBinding {
+  expression: TypeScript.ObjectLiteralExpression;
+  callerContext: TraceContext;
 }
 export type TraceExpressionFn = (
   ts: typeof TypeScript,

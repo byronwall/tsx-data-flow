@@ -20,6 +20,7 @@ import {
   sourceTrace,
 } from "./source-trace-records";
 import { traceAccessor, traceIdentifier } from "./source-trace-identifiers";
+import { resolveBoundObjectProperty } from "./source-trace-object-bindings";
 
 export function traceExpression(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Expression, context: TraceContext): TraceResult {
   const text = expression.getText();
@@ -51,6 +52,21 @@ export function traceExpression(ts: typeof TypeScript, checker: TypeScript.TypeC
   }
   if (ts.isCallExpression(expression)) {
     return traceCallExpression(ts, checker, graph, expression, nextContext);
+  }
+  if (ts.isNewExpression(expression)) {
+    return addOperationTrace(
+      ts,
+      graph,
+      "call",
+      expression,
+      (expression.arguments ?? []).map((argument) =>
+        traceExpression(ts, checker, graph, argument, nextContext),
+      ),
+      {
+        label: `new ${formatExpression(expression.expression.getText(), 36)}`,
+        detail: formatExpression(expression.getText(), 60),
+      },
+    );
   }
   if (ts.isObjectLiteralExpression(expression)) {
     return traceObjectLiteral(ts, checker, graph, expression, nextContext);
@@ -104,13 +120,22 @@ export function traceExpression(ts: typeof TypeScript, checker: TypeScript.TypeC
 }
 
 function tracePropertyAccess(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.PropertyAccessExpression, context: TraceContext) {
-  const receiverTrace = traceExpression(
-    ts,
-    checker,
-    graph,
-    expression.expression,
-    context,
-  );
+  const boundProperty = resolveBoundObjectProperty(ts, expression, context);
+  const receiverTrace = boundProperty
+    ? traceExpression(
+        ts,
+        checker,
+        graph,
+        boundProperty.expression,
+        boundProperty.context,
+      )
+    : traceExpression(
+        ts,
+        checker,
+        graph,
+        expression.expression,
+        context,
+      );
   const kind = expression.questionDotToken ? "optional-read" : "property-read";
   const operation = addOperationTrace(
     ts,
@@ -189,13 +214,27 @@ function traceCrossFileCall(ts: typeof TypeScript, checker: TypeScript.TypeCheck
   // (summary/dossier) lose the descended interior, which is an acceptable trade.
   const subGraph = createGraph(context.root);
   const paramBindings = new Map();
+  const paramObjectBindings = new Map();
+  const resourceArgumentTraces: TraceResult[] = [];
   record.params.forEach((parameter, index: number) => {
     const argument = expression.arguments[index];
     if (argument) {
-      paramBindings.set(
-        parameter.name,
-        traceExpression(ts, checker, subGraph, argument, context),
-      );
+      // Binding one large options object to every `options.foo` read repeatedly
+      // copies the lineage of every sibling field and grows combinatorially.
+      // Keep object literals lazy so property reads trace only the supplied
+      // field they actually consume.
+      if (ts.isObjectLiteralExpression(argument)) {
+        paramObjectBindings.set(parameter.name, {
+          expression: argument,
+          callerContext: context,
+        });
+      } else {
+        const argumentTrace = traceExpression(ts, checker, subGraph, argument, context);
+        paramBindings.set(parameter.name, argumentTrace);
+        if (argumentTrace.steps.some((step) =>
+          step.graphNodeId && subGraph.nodeById.get(step.graphNodeId)?.boundaryId?.startsWith("resource:")
+        )) resourceArgumentTraces.push(traceExpression(ts, checker, graph, argument, context));
+      }
     }
   });
 
@@ -210,13 +249,14 @@ function traceCrossFileCall(ts: typeof TypeScript, checker: TypeScript.TypeCheck
       crossDepth: context.crossDepth + 1,
       visitedFns: new Set([...context.visitedFns, record.symbol]),
       paramBindings,
+      paramObjectBindings,
     })
   );
 
   // For a method call, the receiver object is part of the value's lineage
   // (`entityManager().getRelation(id)` flows from the manager too). Trace it so
   // its source is preserved alongside the descended body.
-  const children = [...bodyTraces];
+  const children = [...bodyTraces, ...resourceArgumentTraces];
   if (ts.isPropertyAccessExpression(expression.expression)) {
     children.push(
       traceExpression(
@@ -370,8 +410,14 @@ function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChec
     );
   }
   traces.push(
-    ...expression.arguments.map((argument) =>
-      traceExpression(ts, checker, graph, argument, context),
+    ...expression.arguments.map((argument, index) =>
+      index === 0
+        && ["map", "flatMap"].includes(callee)
+        && ts.isNewExpression(expression.parent)
+        && expression.parent.arguments?.includes(expression)
+        && (ts.isArrowFunction(argument) || ts.isFunctionExpression(argument))
+        ? traceProjectionCallback(ts, checker, graph, argument, context)
+        : traceExpression(ts, checker, graph, argument, context),
     ),
   );
   // Distinguish genuinely-unresolved helpers from boundaries that are opaque by
@@ -395,6 +441,37 @@ function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChec
     // The full call expression as written — for a method (`x.toUpperCase()`) or
     // an imported helper, this is the only thing that conveys what it does.
     detail: formatExpression(expression.getText(), 60),
+  });
+}
+
+function traceProjectionCallback(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  graph: AnalysisGraph,
+  expression: TypeScript.ArrowFunction | TypeScript.FunctionExpression,
+  context: TraceContext,
+) {
+  const returned = getFunctionReturnExpressions(ts, expression);
+  const traces = returned.map((returnedExpression) =>
+    ts.isArrayLiteralExpression(returnedExpression)
+      ? addOperationTrace(
+          ts,
+          graph,
+          "array-pack",
+          returnedExpression,
+          returnedExpression.elements.flatMap((element) =>
+            ts.isExpression(element)
+              ? [traceExpression(ts, checker, graph, element, context)]
+              : [],
+          ),
+        )
+      : traceExpression(ts, checker, graph, returnedExpression, context),
+  );
+  return addOperationTrace(ts, graph, "callback", expression, traces, {
+    label: "projection callback",
+    detail: returned.length === 1
+      ? `returns ${formatExpression(returned[0].getText(), 52)}`
+      : `${returned.length} return branches`,
   });
 }
 

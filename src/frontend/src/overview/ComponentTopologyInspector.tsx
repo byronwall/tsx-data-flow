@@ -29,17 +29,21 @@ export function ComponentTopologyInspector(props: {
       <span>{props.selectedLayoutNode?.terminal ? "Leaf in component view" : kindLabel(node().kind)} · {node().incomingCount} in · {node().outgoingCount} out</span>
       <Show when={node().file}><code class="component-topology-inspector-location">{node().file}{node().line ? `:${node().line}` : ""}</code></Show>
       <div class="component-topology-node-sources" hidden={Boolean(props.lens.source)}>
-        <strong>Sources through this node</strong>
+        <strong>Data evidence through this node</strong>
         <Show when={props.allSourceTouches.length} fallback={<small>No proven data path or resource consumption includes this node.</small>}>
-          <For each={props.allSourceTouches}>{(touch) => <button type="button" onClick={() => touch.source ? props.onSource(touch.source.key) : props.onSelect(touch.targetId)}>
+          <For each={props.allSourceTouches}>{(touch) => <button type="button" classList={{ "resource-only": !touch.source }} onClick={() => touch.source ? props.onSource(touch.source.key) : props.onSelect(touch.targetId)}>
             <span><b>{touch.label}</b><small>{touch.detail}</small></span>
             <span class="component-topology-node-source-fields">
-              <Show when={touch.fields.length} fallback={<small>{touch.mode === "path" ? "Proven data path; field identity not established" : "Proven resource consumption; returned value path not established"}</small>}>
+              <Show when={touch.fields.length} fallback={<small>{touch.source
+                ? touch.mode === "path"
+                  ? "Proven data path; field identity not established"
+                  : "Source available; only resource consumption is proven"
+                : "Resource load only; no persisted source is available to activate"}</small>}>
                 <small>{touch.fields.length} returned fields available at this resource owner</small>
                 <span><For each={touch.fields}>{(field) => <code>{field.key}</code>}</For></span>
               </Show>
             </span>
-            <em>{touch.source ? "Filter →" : "Inspect →"}</em>
+            <em>{touch.source ? "Activate source →" : "Inspect resource →"}</em>
           </button>}</For>
         </Show>
       </div>

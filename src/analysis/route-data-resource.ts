@@ -41,9 +41,13 @@ export function returnedConsumerValue(
   if (returnExpressions.some((expression) => containsNode(expression, source))) {
     return returnExpressions.find((expression) => containsNode(expression, source)) ?? null;
   }
+  const mutatedReturn = returnedMutationValue(ts, checker, source, owner, returnExpressions);
+  if (mutatedReturn) return mutatedReturn;
   const binding = constBindingFor(ts, source);
   if (!binding) return null;
-  return returnExpressions.find((expression) => referencesDeclaration(ts, checker, expression, binding)) ?? null;
+  return returnExpressions.find((expression) =>
+    expressionDependsOnDeclaration(ts, checker, expression, binding, new Set())
+  ) ?? null;
 }
 
 function resourceFetcherTargets(ts: typeof TypeScript, node: TypeScript.CallExpression) {
@@ -158,6 +162,14 @@ function constBindingFor(ts: typeof TypeScript, source: TypeScript.Expression) {
       ts.isConditionalExpression(current.parent)
       && (current.parent.whenTrue === current || current.parent.whenFalse === current)
     )
+    || (
+      ts.isBinaryExpression(current.parent)
+      && (
+        current.parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+        || current.parent.operatorToken.kind === ts.SyntaxKind.BarBarToken
+        || current.parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+      )
+    )
   ) {
     current = current.parent;
   }
@@ -167,27 +179,122 @@ function constBindingFor(ts: typeof TypeScript, source: TypeScript.Expression) {
   return ts.isVariableDeclarationList(list) && Boolean(list.flags & ts.NodeFlags.Const) ? declaration : null;
 }
 
-function referencesDeclaration(
+function expressionDependsOnDeclaration(
   ts: typeof TypeScript,
   checker: TypeScript.TypeChecker,
   expression: TypeScript.Expression,
-  declaration: TypeScript.VariableDeclaration,
+  target: TypeScript.VariableDeclaration,
+  visited: Set<TypeScript.VariableDeclaration>,
 ) {
   let found = false;
   const visit = (node: TypeScript.Node) => {
     if (found) return;
-    if (node !== expression && ts.isFunctionLike(node)) return;
     if (ts.isIdentifier(node)) {
       const symbol = checker.getSymbolAtLocation(node);
-      if (symbol?.valueDeclaration === declaration || symbol?.declarations?.includes(declaration)) {
+      if (symbol?.valueDeclaration === target || symbol?.declarations?.includes(target)) {
         found = true;
         return;
+      }
+      const declaration = symbol?.valueDeclaration;
+      if (
+        declaration
+        && ts.isVariableDeclaration(declaration)
+        && declaration.getSourceFile() === target.getSourceFile()
+        && !visited.has(declaration)
+      ) {
+        visited.add(declaration);
+        const dependencies = [
+          ...(declaration.initializer ? [declaration.initializer] : []),
+          ...iterationInputsFor(ts, declaration),
+          ...mutationInputsFor(ts, checker, declaration),
+        ];
+        if (dependencies.some((dependency) =>
+          expressionDependsOnDeclaration(ts, checker, dependency, target, visited)
+        )) {
+          found = true;
+          return;
+        }
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(expression);
   return found;
+}
+
+function returnedMutationValue(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  source: TypeScript.CallExpression,
+  owner: TypeScript.FunctionLikeDeclaration,
+  returnExpressions: TypeScript.Expression[],
+) {
+  let current: TypeScript.Node | undefined = source;
+  while (current && current !== owner) {
+    if (
+      ts.isCallExpression(current)
+      && current.arguments.some((argument) => containsNode(argument, source))
+      && ts.isPropertyAccessExpression(current.expression)
+      && ["push", "unshift", "splice", "set", "add"].includes(current.expression.name.text)
+      && ts.isIdentifier(current.expression.expression)
+    ) {
+      const declaration = variableDeclarationFor(ts, checker, current.expression.expression);
+      if (!declaration) return null;
+      return returnExpressions.find((expression) =>
+        expressionDependsOnDeclaration(ts, checker, expression, declaration, new Set())
+      ) ?? null;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+function iterationInputsFor(
+  ts: typeof TypeScript,
+  declaration: TypeScript.VariableDeclaration,
+) {
+  const list = declaration.parent;
+  const statement = ts.isVariableDeclarationList(list) ? list.parent : null;
+  return statement
+    && (ts.isForOfStatement(statement) || ts.isForInStatement(statement))
+    && statement.initializer === list
+    ? [statement.expression]
+    : [];
+}
+
+function mutationInputsFor(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  declaration: TypeScript.VariableDeclaration,
+) {
+  const owner = enclosingConsumer(ts, declaration);
+  if (!owner?.body) return [];
+  const inputs: TypeScript.Expression[] = [];
+  const visit = (node: TypeScript.Node) => {
+    if (node !== owner && ts.isFunctionLike(node)) return;
+    if (
+      ts.isCallExpression(node)
+      && ts.isPropertyAccessExpression(node.expression)
+      && ["push", "unshift", "splice", "set", "add"].includes(node.expression.name.text)
+      && ts.isIdentifier(node.expression.expression)
+      && variableDeclarationFor(ts, checker, node.expression.expression) === declaration
+    ) {
+      inputs.push(...node.arguments);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(owner.body);
+  return inputs;
+}
+
+function variableDeclarationFor(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  identifier: TypeScript.Identifier,
+) {
+  const declaration = checker.getSymbolAtLocation(identifier)?.valueDeclaration;
+  return declaration && ts.isVariableDeclaration(declaration) ? declaration : null;
 }
 
 function containsNode(container: TypeScript.Node, target: TypeScript.Node) {
