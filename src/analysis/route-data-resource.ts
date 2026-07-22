@@ -190,7 +190,9 @@ function expressionDependsOnDeclaration(
   const visit = (node: TypeScript.Node) => {
     if (found) return;
     if (ts.isIdentifier(node)) {
-      const symbol = checker.getSymbolAtLocation(node);
+      const symbol = ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node
+        ? checker.getShorthandAssignmentValueSymbol(node.parent) ?? checker.getSymbolAtLocation(node)
+        : checker.getSymbolAtLocation(node);
       if (symbol?.valueDeclaration === target || symbol?.declarations?.includes(target)) {
         found = true;
         return;

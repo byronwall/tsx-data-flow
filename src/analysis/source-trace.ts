@@ -21,6 +21,7 @@ import {
 } from "./source-trace-records";
 import { traceAccessor, traceIdentifier } from "./source-trace-identifiers";
 import { resolveBoundObjectProperty } from "./source-trace-object-bindings";
+import { materializeBoundaryRootTraces, traceBoundAccessorCall } from "./source-trace-bound-accessors";
 
 export function traceExpression(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Expression, context: TraceContext): TraceResult {
   const text = expression.getText();
@@ -213,6 +214,8 @@ function traceCrossFileCall(ts: typeof TypeScript, checker: TypeScript.TypeCheck
   // trace, independent of which graph held the nodes; only graph-wide counts
   // (summary/dossier) lose the descended interior, which is an acceptable trade.
   const subGraph = createGraph(context.root);
+  subGraph.nextNodeId = -1;
+  subGraph.nextEdgeId = -1;
   const paramBindings = new Map();
   const paramObjectBindings = new Map();
   const resourceArgumentTraces: TraceResult[] = [];
@@ -256,7 +259,10 @@ function traceCrossFileCall(ts: typeof TypeScript, checker: TypeScript.TypeCheck
   // For a method call, the receiver object is part of the value's lineage
   // (`entityManager().getRelation(id)` flows from the manager too). Trace it so
   // its source is preserved alongside the descended body.
-  const children = [...bodyTraces, ...resourceArgumentTraces];
+  const children = [
+    ...bodyTraces.flatMap((trace) => materializeBoundaryRootTraces(trace, graph)),
+    ...resourceArgumentTraces,
+  ];
   if (ts.isPropertyAccessExpression(expression.expression)) {
     children.push(
       traceExpression(
@@ -314,6 +320,8 @@ function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChec
       );
     }
   }
+  const boundAccessor = traceBoundAccessorCall(ts, checker, graph, expression, context, traceExpression);
+  if (boundAccessor) return boundAccessor;
   const localFunction = context.functions.get(callee);
   let localFunctionSymbol: TypeScript.Symbol | undefined;
   if (ts.isIdentifier(expression.expression)) {

@@ -32,7 +32,8 @@ export function buildExhaustiveRouteGraph(graph: ReportGraph, sinks: Sink[]) {
   };
   for (const sink of sinks) walk(sink, sink.nodeId, [], [], new Set());
 
-  const stitchedPaths = stitchComponentProps(rawPaths, sourceNodes, () => { truncated = true; });
+  const propStitchedPaths = stitchComponentProps(rawPaths, sourceNodes, () => { truncated = true; });
+  const stitchedPaths = stitchContextProviders(propStitchedPaths, sourceNodes, () => { truncated = true; });
   const nodes = new Map<string, RetainedNode>();
   const edges = new Map<string, { key: string; from: string; to: string; kind: string; unknown: boolean; pathCount: number }>();
   const trajectories: Array<{ key: string; sinkId: string; terminalLabel: string; stepKeys: string[]; stepComponents: string[]; substitutionStepCount: number; completeness: "complete-for-supported-scope" | "partial" }> = [];
@@ -125,14 +126,87 @@ function stitchComponentProps(paths: RawPath[], nodes: Map<string, GraphNode>, o
   return result.length ? result : paths;
 }
 
-function joinPaths(producer: RawPath, consumer: RawPath, prop: string): RawPath {
-  const bridge = componentPropEdge(producer.graphNodeIds.at(-1)!, consumer.graphNodeIds[0], prop);
+function stitchContextProviders(paths: RawPath[], nodes: Map<string, GraphNode>, onBudget: () => void) {
+  const consumersByChannel = new Map<string, number[]>();
+  const producersByChannel = new Map<string, number[]>();
+  const providerSitesByChannel = new Map<string, Set<string>>();
+  paths.forEach((path, index) => {
+    const consumed = consumedContext(path, nodes);
+    if (consumed) consumersByChannel.set(consumed, [...(consumersByChannel.get(consumed) ?? []), index]);
+    const produced = producedContext(path.sink);
+    if (!produced) return;
+    producersByChannel.set(produced.channel, [...(producersByChannel.get(produced.channel) ?? []), index]);
+    const sites = providerSitesByChannel.get(produced.channel) ?? new Set<string>();
+    sites.add(`${path.sink.file}:${path.sink.line}:${path.sink.column}`);
+    providerSitesByChannel.set(produced.channel, sites);
+  });
+  const unambiguousProducers = new Map([...producersByChannel].filter(([channel]) => providerSitesByChannel.get(channel)?.size === 1));
+  const hasDownstream = paths.map((path) => {
+    const produced = producedContext(path.sink);
+    return produced ? (consumersByChannel.get(produced.channel)?.length ?? 0) > 0 && unambiguousProducers.has(produced.channel) : false;
+  });
+  const result: RawPath[] = [];
+  const expandUpstream = (consumerIndex: number, visited: Set<number>): RawPath[] => {
+    const consumer = paths[consumerIndex];
+    const channel = consumedContext(consumer, nodes);
+    const producers = channel ? unambiguousProducers.get(channel) ?? [] : [];
+    const eligible = producers.filter((index) => index !== consumerIndex && !visited.has(index));
+    if (!eligible.length) return [consumer];
+    const expanded: RawPath[] = [];
+    for (const producerIndex of eligible) {
+      const nextVisited = new Set(visited); nextVisited.add(producerIndex);
+      for (const upstream of expandUpstream(producerIndex, nextVisited)) {
+        if (expanded.length + result.length >= PATH_BUDGET) { onBudget(); return expanded; }
+        expanded.push(joinPaths(upstream, consumer, channel!, "context"));
+      }
+    }
+    return expanded.length ? expanded : [consumer];
+  };
+  paths.forEach((path, index) => {
+    if (hasDownstream[index]) return;
+    for (const expanded of expandUpstream(index, new Set([index]))) {
+      if (result.length >= PATH_BUDGET) { onBudget(); return; }
+      result.push(expanded);
+    }
+  });
+  return result.length ? result : paths;
+}
+
+function joinPaths(producer: RawPath, consumer: RawPath, label: string, kind = "component-prop"): RawPath {
+  const bridge = handoffEdge(producer.graphNodeIds.at(-1)!, consumer.graphNodeIds[0], label, kind);
   return {
     sink: consumer.sink,
     graphNodeIds: [...producer.graphNodeIds, ...consumer.graphNodeIds],
     pathEdges: [...producer.pathEdges, bridge, ...consumer.pathEdges],
     nodeComponents: [...producer.nodeComponents, ...consumer.nodeComponents],
   };
+}
+
+function producedContext(sink: Sink) {
+  if (sink.renderContext?.attribute !== "value") return null;
+  const tag = sink.renderContext.tag?.trim();
+  if (!tag) return null;
+  const providerBase = tag.endsWith(".Provider")
+    ? tag.slice(0, -".Provider".length).split(".").at(-1) ?? ""
+    : tag.endsWith("Provider")
+      ? tag.slice(0, -"Provider".length)
+      : "";
+  const channel = normalizeContextChannel(providerBase);
+  return channel ? { channel } : null;
+}
+
+function consumedContext(path: RawPath, nodes: Map<string, GraphNode>) {
+  for (const id of path.graphNodeIds.slice(0, 6)) {
+    const node = nodes.get(id);
+    if (node?.kind !== "call" || !/^use[A-Z]/.test(node.label)) continue;
+    const channel = normalizeContextChannel(node.label.slice("use".length));
+    if (channel) return channel;
+  }
+  return null;
+}
+
+function normalizeContextChannel(value: string) {
+  return value.replace(/Context$/, "").replace(/[^A-Za-z0-9_$]/g, "").toLowerCase();
 }
 
 function producedProp(sink: Sink) {
@@ -186,7 +260,10 @@ function callablePropName(node: GraphNode | undefined) {
 }
 
 function componentPropEdge(from: string, to: string, prop: string): GraphEdge {
-  return { id: `component-prop:${stableHash(`${from}:${to}:${prop}`)}`, from, to, kind: "component-prop", unknown: false, location: null };
+  return handoffEdge(from, to, prop, "component-prop");
+}
+function handoffEdge(from: string, to: string, label: string, kind: string): GraphEdge {
+  return { id: `${kind}:${stableHash(`${from}:${to}:${label}`)}`, from, to, kind, unknown: false, location: null };
 }
 function componentFor(sink: Sink) { return sink.renderContext?.component?.trim() || UNOWNED_COMPONENT; }
 function componentKeyForSink(sink: Sink) {

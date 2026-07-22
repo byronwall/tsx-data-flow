@@ -212,6 +212,9 @@
 .component-topology-summary > div > strong { font-size: .78rem; }
 .component-topology-summary span { color: var(--muted); font-size: .62rem; }
 .component-topology-note { max-width: 360px; text-align: right; }
+.component-topology-isolation { min-height: 24px; padding: 2px 7px; white-space: nowrap; font-size: .62rem; }
+.component-topology-isolation[aria-pressed="true"] { border-color: color-mix(in srgb,var(--accent) 58%,var(--border)); background: color-mix(in srgb,var(--accent) 13%,var(--panel)); color: var(--accent); font-weight: 700; }
+.component-topology-isolation kbd { margin-left: 3px; font: 700 .58rem var(--mono); }
 .component-topology-summary .component-topology-camera { display: flex; align-items: center; gap: 3px; margin: 0; }
 .component-topology-camera button { min-width: 25px; min-height: 24px; padding: 2px 5px; font-size: .62rem; }
 .component-topology-camera button:nth-child(2) { min-width: 48px; font-family: var(--mono); }

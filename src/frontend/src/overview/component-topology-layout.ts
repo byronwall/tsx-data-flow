@@ -12,7 +12,6 @@ type SimulationLink = {
   from: SimulationNode;
   to: SimulationNode;
   terminalLeaf: boolean;
-  parentFanOut: number;
   subtreeCohesionWeight: number;
 };
 type FringeDesires = {
@@ -121,7 +120,7 @@ export function layoutComponentTopology(
       const consumerX = 64 + consumerDepth / maximumDepth * (width - 250);
       const spread = (ordinal - (contextIds.length - 1) / 2) * 84;
       return [node.id, {
-        x: clamp(consumerX + settings.targetLinkDistance * .7 + spread, 180, width - 220),
+        x: clamp(consumerX + DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS.targetLinkDistance * .7 + spread, 180, width - 220),
         y: 38 + (ordinal % 2) * 26 + Math.floor(ordinal / 4) * 48,
       }];
     }
@@ -156,25 +155,25 @@ export function layoutComponentTopology(
 
   let tickIndex = 0;
   for (; tickIndex < initialSimulationTicks; tickIndex += 1) {
-    runSimulationTick(positions, links, anchors, fringeDesires, tickIndex, width, height, showAllLabels, spacing, settings);
+    runSimulationTick(positions, links, anchors, fringeDesires, tickIndex, showAllLabels, spacing, settings);
   }
   for (let pass = 0; pass < initialSeparationPasses; pass += 1) {
-    runSeparationPass(positions, width, height, showAllLabels, spacing, settings);
+    runSeparationPass(positions, showAllLabels, spacing, settings);
   }
   for (const step of steps) {
     if (step === "tick") {
-      runSimulationTick(positions, links, anchors, fringeDesires, tickIndex, width, height, showAllLabels, spacing, settings);
+      runSimulationTick(positions, links, anchors, fringeDesires, tickIndex, showAllLabels, spacing, settings);
       tickIndex += 1;
     } else {
-      runSeparationPass(positions, width, height, showAllLabels, spacing, settings);
+      runSeparationPass(positions, showAllLabels, spacing, settings);
     }
   }
 
   const previewPositions = positions.map((node) => ({ ...node }));
   const previewById = new Map(previewPositions.map((node) => [node.id, node]));
   const previewLinks = buildSimulationLinks(topology.edges, previewById, visibleIncoming, visibleOutgoing, ownedSubtreeSizes);
-  runSimulationTick(previewPositions, previewLinks, anchors, fringeDesires, tickIndex, width, height, showAllLabels, spacing, settings);
-  const forces: ComponentTopologyForceVector[] = previewPositions.map((node) => ({
+  runSimulationTick(previewPositions, previewLinks, anchors, fringeDesires, tickIndex, showAllLabels, spacing, settings);
+  const rawForces: ComponentTopologyForceVector[] = previewPositions.map((node) => ({
     id: node.id,
     x: byId.get(node.id)?.x ?? node.x - node.lastDx,
     y: byId.get(node.id)?.y ?? node.y - node.lastDy,
@@ -182,16 +181,16 @@ export function layoutComponentTopology(
     dy: node.lastDy,
     magnitude: Math.hypot(node.lastDx, node.lastDy),
   }));
-  const laidOutNodes = positions.map(({ vx: _vx, vy: _vy, lastDx: _lastDx, lastDy: _lastDy, ...node }) => node);
+  const rawNodes = positions.map(({ vx: _vx, vy: _vy, lastDx: _lastDx, lastDy: _lastDy, ...node }) => node);
+  const fitted = fitLayoutToContents(rawNodes, width, height, showAllLabels);
+  const laidOutNodes = fitted.nodes;
+  const forces = rawForces.map((force) => ({ ...force, x: force.x + fitted.offsetX, y: force.y + fitted.offsetY }));
   const laidOutById = new Map(laidOutNodes.map((node) => [node.id, node]));
   const edges = topology.edges.flatMap((edge) => {
     const fromNode = laidOutById.get(edge.from); const toNode = laidOutById.get(edge.to);
     return fromNode && toNode ? [{ ...edge, fromNode, toNode }] : [];
   });
-  const rightLabelMargin = Math.max(0, ...laidOutNodes
-    .filter((node) => hasVisibleLabel(node, showAllLabels))
-    .map((node) => labelWidth(node))) + LABEL_GAP + 36;
-  return { nodes: laidOutNodes, edges, forces, width: width + rightLabelMargin, height };
+  return { nodes: laidOutNodes, edges, forces, width: fitted.width, height: fitted.height };
 }
 
 function runSimulationTick(
@@ -200,8 +199,6 @@ function runSimulationTick(
   anchors: Map<string, { x: number; y: number }>,
   fringeDesires: FringeDesires,
   tick: number,
-  width: number,
-  height: number,
   showAllLabels: boolean,
   spacing: number,
   settings: ComponentTopologyLayoutSettings,
@@ -227,12 +224,12 @@ function runSimulationTick(
     const { from, to, edge } = link;
     const dx = to.x - from.x; const dy = to.y - from.y;
     const distance = Math.max(1, Math.hypot(dx, dy));
-    const desired = desiredLinkDistance(link, settings.targetLinkDistance);
+    const desired = settings.targetLinkDistance;
     const terminalTetherWeight = link.terminalLeaf
       ? .03
       : to.terminal ? .012 * compaction : 0;
     const distanceError = distance - desired;
-    const force = distanceError * springWeight * cooling
+    const force = distanceError * springWeight * directionalCooling
       + Math.max(0, distanceError) * (terminalTetherWeight + link.subtreeCohesionWeight);
     const fx = dx / distance * force; const fy = dy / distance * force;
     from.vx += fx; from.vy += fy; to.vx -= fx; to.vy -= fy;
@@ -254,7 +251,7 @@ function runSimulationTick(
   for (const node of positions) {
     node.vx *= .78;
     node.vy *= .78;
-    moveNode(node, width, height, MAX_SIMULATION_STEP);
+    moveNode(node, MAX_SIMULATION_STEP);
   }
 }
 
@@ -286,18 +283,9 @@ function buildSimulationLinks(
       terminalLeaf: to.terminal
         && (incoming.get(to.id)?.size ?? 0) === 1
         && (outgoing.get(to.id)?.size ?? 0) === 0,
-      parentFanOut: outgoing.get(from.id)?.size ?? 0,
       subtreeCohesionWeight: cohesionForPair / (pairMultiplicity.get(pairKey) ?? 1),
     }];
   });
-}
-
-function desiredLinkDistance(link: SimulationLink, targetLinkDistance: number) {
-  const baseDistance = targetLinkDistance
-    + (link.edge.kind === "loads" ? 12 : link.edge.kind === "renders" ? -6 : 0);
-  if (!link.terminalLeaf) return baseDistance;
-  const fanOutAllowance = clamp((link.parentFanOut - 1) / 5, 0, 1) * .22;
-  return baseDistance * (.58 + fanOutAllowance);
 }
 
 function buildOwnedSubtreeSizes(
@@ -400,8 +388,10 @@ function applyFringeAvoidance(
     const fringe = desires.fringeById.get(node.id) ?? 0;
     if (fringe <= 0) continue;
     const graphNeighbors = desires.neighborsById.get(node.id) ?? new Set();
-    let avoidanceX = 0;
-    let avoidanceY = 0;
+    let centerX = 0;
+    let centerY = 0;
+    let repulsionX = 0;
+    let repulsionY = 0;
     let localPressure = 0;
     for (const other of positions) {
       if (other.id === node.id || graphNeighbors.has(other.id)) continue;
@@ -411,23 +401,32 @@ function applyFringeAvoidance(
       if (distance >= neighborhoodRadius) continue;
       const proximity = 1 - distance / neighborhoodRadius;
       const pressure = proximity * proximity * (.4 + (desires.massById.get(other.id) ?? .25) * 1.6);
-      avoidanceX += dx / distance * pressure;
-      avoidanceY += dy / distance * pressure;
+      centerX += other.x * pressure;
+      centerY += other.y * pressure;
+      repulsionX += dx / distance * pressure;
+      repulsionY += dy / distance * pressure;
       localPressure += pressure;
     }
-    let directionMagnitude = Math.hypot(avoidanceX, avoidanceY);
-    if (directionMagnitude < .01 && localPressure > 0) {
-      const angle = hashUnit(`fringe:${node.id}`) * Math.PI * 2;
-      avoidanceX = Math.cos(angle) * Math.min(.25, localPressure * .04);
-      avoidanceY = Math.sin(angle) * Math.min(.25, localPressure * .04);
-      directionMagnitude = Math.hypot(avoidanceX, avoidanceY);
-    }
-    if (directionMagnitude <= 0) continue;
-    const requestedForce = directionMagnitude * .72 * fringe * settings.fringeStrength * forceCooling;
+    if (localPressure <= 0) continue;
+    const outward = downstreamFringeDirection(
+      node.x - centerX / localPressure,
+      node.y - centerY / localPressure,
+      node.id,
+    );
+    const centerDistance = Math.hypot(outward.x, outward.y);
+    const repulsionMagnitude = Math.hypot(repulsionX, repulsionY);
+    const requestedForce = repulsionMagnitude * .72 * fringe * settings.fringeStrength * forceCooling;
     const force = Math.min(5, requestedForce);
-    node.vx += avoidanceX / directionMagnitude * force;
-    node.vy += avoidanceY / directionMagnitude * force;
+    node.vx += outward.x / centerDistance * force;
+    node.vy += outward.y / centerDistance * force;
   }
+}
+
+function downstreamFringeDirection(outwardX: number, outwardY: number, nodeId: string) {
+  const x = Math.max(0, outwardX);
+  const y = Math.max(0, outwardY);
+  if (x > 0 || y > 0) return { x, y };
+  return hashUnit(`fringe:${nodeId}`) < .5 ? { x: 1, y: 0 } : { x: 0, y: 1 };
 }
 
 function isFringeCandidate(node: ComponentTopologyNode) {
@@ -436,8 +435,6 @@ function isFringeCandidate(node: ComponentTopologyNode) {
 
 function runSeparationPass(
   positions: SimulationNode[],
-  width: number,
-  height: number,
   showAllLabels: boolean,
   spacing: number,
   settings: ComponentTopologyLayoutSettings,
@@ -450,13 +447,13 @@ function runSeparationPass(
   for (const node of positions) {
     node.vx *= .78;
     node.vy *= .78;
-    moveNode(node, width, height, MAX_SEPARATION_STEP);
+    moveNode(node, MAX_SEPARATION_STEP);
     node.vx = 0;
     node.vy = 0;
   }
 }
 
-function moveNode(node: SimulationNode, width: number, height: number, maximumStep: number) {
+function moveNode(node: SimulationNode, maximumStep: number) {
   const magnitude = Math.hypot(node.vx, node.vy);
   if (magnitude > maximumStep) {
     const scale = maximumStep / magnitude;
@@ -465,10 +462,41 @@ function moveNode(node: SimulationNode, width: number, height: number, maximumSt
   }
   const previousX = node.x;
   const previousY = node.y;
-  node.x = clamp(node.x + node.vx, 24, width - 24);
-  node.y = clamp(node.y + node.vy, 24, height - 24);
+  node.x += node.vx;
+  node.y += node.vy;
   node.lastDx = node.x - previousX;
   node.lastDy = node.y - previousY;
+}
+
+function fitLayoutToContents(
+  nodes: ComponentTopologyLayoutNode[],
+  minimumWidth: number,
+  minimumHeight: number,
+  showAllLabels: boolean,
+) {
+  const padding = 24;
+  const bounds = nodes.map((node) => {
+    const extent = markExtent(node);
+    return {
+      left: node.x - extent,
+      right: node.x + extent + (hasVisibleLabel(node, showAllLabels) ? LABEL_GAP + labelWidth(node) : 0),
+      top: node.y - Math.max(extent, 8),
+      bottom: node.y + Math.max(extent, 8),
+    };
+  });
+  const minimumX = Math.min(...bounds.map((bound) => bound.left));
+  const maximumX = Math.max(...bounds.map((bound) => bound.right));
+  const minimumY = Math.min(...bounds.map((bound) => bound.top));
+  const maximumY = Math.max(...bounds.map((bound) => bound.bottom));
+  const offsetX = padding - minimumX;
+  const offsetY = padding - minimumY;
+  return {
+    nodes: nodes.map((node) => ({ ...node, x: node.x + offsetX, y: node.y + offsetY })),
+    offsetX,
+    offsetY,
+    width: Math.max(minimumWidth, maximumX - minimumX + padding * 2),
+    height: Math.max(minimumHeight, maximumY - minimumY + padding * 2),
+  };
 }
 
 function applyCollisionForces(

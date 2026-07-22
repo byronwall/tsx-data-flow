@@ -6,7 +6,11 @@ export function ComponentTopologyHeader(props: {
   lens: TopologySourceLens;
   summarizedReferenceCount: number;
   scale: number;
+  isolated: boolean;
+  isolationNodeCount: number;
+  isolationAvailable: boolean;
   onShowPaths: () => void;
+  onToggleIsolation: () => void;
   onZoomOut: () => void;
   onResetCamera: () => void;
   onZoomIn: () => void;
@@ -24,6 +28,9 @@ export function ComponentTopologyHeader(props: {
       : props.summarizedReferenceCount
         ? `${props.summarizedReferenceCount} shared refs summarized · blue dashed edges are resource loads`
         : "Blue dashed edges are resource loads; gray edges are component relationships"}</span>
+    <button type="button" class="component-topology-isolation" disabled={!props.isolated && !props.isolationAvailable} aria-pressed={props.isolated} title={props.isolated ? "Show the full topology without clearing the current focus (I)" : "Relayout with only the currently emphasized nodes (I)"} onClick={() => props.onToggleIsolation()}>
+      {props.isolated ? `Isolated · ${props.isolationNodeCount} nodes` : "Isolate focus"} <kbd>I</kbd>
+    </button>
     <div class="component-topology-camera" role="group" aria-label="Topology zoom"><button type="button" aria-label="Zoom out topology" onClick={() => props.onZoomOut()}>−</button><button type="button" aria-label="Reset topology view" onClick={() => props.onResetCamera()}>{Math.round(props.scale * 100)}%</button><button type="button" aria-label="Zoom in topology" onClick={() => props.onZoomIn()}>+</button></div>
   </header>;
 }

@@ -55,14 +55,16 @@ export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, k
   allSteps.push(step);
   let longest: TraceStep[] = [step];
   for (const trace of traces.filter((trace: TraceResult | null): trace is TraceResult => trace != null)) {
-    addEdge(
-      graph,
-      trace.lastNodeId,
-      node.id,
-      kind,
-      expression,
-      options.unknown,
-    );
+    if (graph.nodeById.has(trace.lastNodeId)) {
+      addEdge(
+        graph,
+        trace.lastNodeId,
+        node.id,
+        kind,
+        expression,
+        options.unknown,
+      );
+    }
     for (const edge of trace.edges) edges.push(edge);
     edges.push(kind);
     for (const root of trace.rootInfos ?? trace.roots.map((label: string) => ({ label, kind: "source" }))) rootInfos.push(root);

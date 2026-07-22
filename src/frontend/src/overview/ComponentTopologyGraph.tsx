@@ -3,6 +3,7 @@ import type { RouteDataDetail } from "../../../api/contracts";
 import { ComponentTopologyHeader, ComponentTopologyLegend } from "./ComponentTopologyChrome";
 import { ComponentTopologyDebugControls } from "./ComponentTopologyDebugControls";
 import { ComponentTopologyInspector } from "./ComponentTopologyInspector";
+import { componentTopologyIsolation, projectIsolatedComponentTopology, type ComponentTopologyIsolation } from "./component-topology-isolation";
 import { DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS, layoutComponentTopology, type ComponentTopologyForceVector, type ComponentTopologyLayoutSettings, type ComponentTopologyLayoutStep } from "./component-topology-layout";
 import { applyManualTopologyPositions, topologyPositionChanges, topologyPositionSnapshot, type ComponentTopologyPosition } from "./component-topology-manual-layout";
 import { buildComponentTopology, componentTopologySelectionFocus, projectVisibleComponentTopology, summarizeSharedComponentHubs, type ComponentTopologyEdge, type ComponentTopologyLayoutEdge, type ComponentTopologyLayoutNode } from "./component-topology-model";
@@ -29,15 +30,17 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
   const sourceLens = createMemo(() => buildTopologySourceLens(props.detail, topology(), props.sourceKey));
   const sharedHubs = createMemo(() => summarizeSharedComponentHubs(topology()));
   const visibleTopology = createMemo(() => projectVisibleComponentTopology(topology(), sharedHubs().hiddenEdgeIds));
+  const [isolation, setIsolation] = createSignal<ComponentTopologyIsolation | null>(null);
+  const displayedTopology = createMemo(() => projectIsolatedComponentTopology(visibleTopology(), isolation()));
   const [layoutSettings, setLayoutSettings] = createSignal<ComponentTopologyLayoutSettings>({ ...DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS });
   const [layoutSteps, setLayoutSteps] = createSignal<ComponentTopologyLayoutStep[]>([]);
-  const simulatedLayout = createMemo(() => layoutComponentTopology(visibleTopology(), 1200, 760, layoutSettings(), layoutSteps()));
+  const simulatedLayout = createMemo(() => layoutComponentTopology(displayedTopology(), 1200, 760, layoutSettings(), layoutSteps()));
   const [editingPositions, setEditingPositions] = createSignal(false);
   const [manualPositions, setManualPositions] = createSignal(new Map<string, ComponentTopologyPosition>());
   const [manualEditStart, setManualEditStart] = createSignal<Map<string, ComponentTopologyPosition> | null>(null);
   const layout = createMemo(() => applyManualTopologyPositions(simulatedLayout(), manualPositions()));
   const manualChanges = createMemo(() => topologyPositionChanges(manualEditStart(), layout(), manualPositions()));
-  const visibleNodeIds = createMemo(() => new Set(visibleTopology().nodes.map((node) => node.id)));
+  const visibleNodeIds = createMemo(() => new Set(displayedTopology().nodes.map((node) => node.id)));
   const displayedHubs = createMemo(() => {
     const visible = visibleNodeIds();
     const ringEntries = [...sharedHubs().ringsByNode];
@@ -76,6 +79,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     }).sort((left, right) => left.outgoing === right.outgoing ? lexical(left.neighbor.label, right.neighbor.label) : left.outgoing ? -1 : 1);
   });
   const selectedFocus = createMemo(() => componentTopologySelectionFocus(visibleTopology(), selectedNodeId()));
+  const isolationCandidate = createMemo(() => componentTopologyIsolation(visibleTopology(), selectedFocus(), selectedNodeId(), sourceLens()));
   const selectNode = (id: string | null) => {
     const node = topology().nodes.find((item) => item.id === id);
     if (node?.kind === "source") {
@@ -88,7 +92,10 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     }
     setSelectedNodeId(id);
   };
-  const resetSelectionForSource = (_sourceKey: string | null) => setSelectedNodeId(null);
+  const resetSelectionForSource = (_sourceKey: string | null) => {
+    setSelectedNodeId(null);
+    setIsolation(null);
+  };
   createEffect(() => resetSelectionForSource(sourceLens().source?.key ?? null));
   let copiedResetTimer: number | undefined;
   let debugCopiedResetTimer: number | undefined;
@@ -98,6 +105,21 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     return Math.min(viewport.width / layout().width, viewport.height / layout().height) || 1;
   });
   const labelRenderScale = createMemo(() => camera().scale * viewportScale());
+  const toggleIsolation = () => {
+    if (isolation()) {
+      setIsolation(null);
+    } else {
+      const candidate = isolationCandidate();
+      if (!candidate) return;
+      setIsolation(candidate);
+    }
+    setCamera(DEFAULT_CAMERA);
+    setDrag(null);
+    setEditingPositions(false);
+    setForcesVisible(false);
+    setManualPositions(new Map());
+    setManualEditStart(null);
+  };
   let svg: SVGSVGElement | undefined;
   onMount(() => {
     const updateViewportSize = () => {
@@ -111,9 +133,17 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     onCleanup(() => observer.disconnect());
   });
   onMount(() => {
-    const toggleDebug = (event: KeyboardEvent) => {
+    const handleShortcut = (event: KeyboardEvent) => {
       const target = event.target;
-      if (event.key.toLowerCase() !== "d" || event.metaKey || event.ctrlKey || event.altKey || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target instanceof HTMLElement && target.isContentEditable) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.repeat || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target instanceof HTMLElement && target.isContentEditable) return;
+      const key = event.key.toLowerCase();
+      if (key === "i") {
+        if (!isolation() && !isolationCandidate()) return;
+        event.preventDefault();
+        toggleIsolation();
+        return;
+      }
+      if (key !== "d") return;
       event.preventDefault();
       setDebugVisible((visible) => {
         if (visible) {
@@ -123,8 +153,8 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
         return !visible;
       });
     };
-    document.addEventListener("keydown", toggleDebug);
-    onCleanup(() => document.removeEventListener("keydown", toggleDebug));
+    document.addEventListener("keydown", handleShortcut);
+    onCleanup(() => document.removeEventListener("keydown", handleShortcut));
   });
   onCleanup(() => {
     if (copiedResetTimer !== undefined) window.clearTimeout(copiedResetTimer);
@@ -136,7 +166,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     const payload = componentTopologySelectionCopyPayload({
       detail: props.detail,
       topology: topology(),
-      visibleTopology: visibleTopology(),
+      visibleTopology: displayedTopology(),
       selectedNodeId: id,
       focusedEdgeIds: selectedFocus().edgeIds,
       hiddenEdgeIds: sharedHubs().hiddenEdgeIds,
@@ -291,7 +321,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     zoomAt(camera().scale * Math.exp(-normalizedDelta * .00065), pointerPoint(event));
   };
   return <section class="component-topology" aria-label="Route component topology">
-    <ComponentTopologyHeader lens={sourceLens()} summarizedReferenceCount={displayedSummarizedReferenceCount()} scale={camera().scale} onShowPaths={props.onShowPaths} onZoomOut={() => zoomAt(camera().scale / 1.25)} onResetCamera={resetCamera} onZoomIn={() => zoomAt(camera().scale * 1.25)} />
+    <ComponentTopologyHeader lens={sourceLens()} summarizedReferenceCount={displayedSummarizedReferenceCount()} scale={camera().scale} isolated={Boolean(isolation())} isolationNodeCount={isolation()?.nodeIds.size ?? isolationCandidate()?.nodeIds.size ?? 0} isolationAvailable={Boolean(isolationCandidate())} onShowPaths={props.onShowPaths} onToggleIsolation={toggleIsolation} onZoomOut={() => zoomAt(camera().scale / 1.25)} onResetCamera={resetCamera} onZoomIn={() => zoomAt(camera().scale * 1.25)} />
     <div class="component-topology-viewport">
       <button type="button" class="component-topology-source-clear" hidden={!sourceLens().source} title="Clear the selected data source filter" onClick={() => props.onSource(null)}>
         <code>{sourceLens().source?.consumerLabel ?? sourceLens().source?.label ?? "Source"}</code>
@@ -313,8 +343,8 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
           onCopy={() => void copyLayoutDebugState()}
         />
       </div>
-      <ComponentTopologyLegend hubs={displayedHubs()} />
-      <svg ref={svg} class="component-topology-svg" classList={{ dragging: Boolean(drag()), editing: editingPositions() }} viewBox={`0 0 ${layout().width} ${layout().height}`} role="img" aria-label={`${visibleTopology().totals.components} connected route-scoped components and ${visibleTopology().edges.length} visible directional connections`} preserveAspectRatio="xMidYMid meet"
+      <ComponentTopologyLegend hubs={isolation() ? [] : displayedHubs()} />
+      <svg ref={svg} class="component-topology-svg" classList={{ dragging: Boolean(drag()), editing: editingPositions(), isolated: Boolean(isolation()) }} viewBox={`0 0 ${layout().width} ${layout().height}`} role="img" aria-label={`${displayedTopology().totals.components} connected route-scoped components and ${displayedTopology().edges.length} visible directional connections${isolation() ? ", isolated to the current focus" : ""}`} preserveAspectRatio="xMidYMid meet"
         onPointerDown={(event) => startDrag(event)} onPointerMove={onPointerMove} onPointerUp={finishDrag} onPointerCancel={(event) => finishDrag(event, false)} onWheel={onWheel}>
         <defs>
           <marker id="component-topology-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M 0 0 L 7 3.5 L 0 7 z" /></marker>
@@ -326,22 +356,22 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
             const sourceActive = () => sourceLens().componentIds.has(edge.from) && sourceLens().componentIds.has(edge.to);
             const resourceActive = () => !sourceActive() && sourceLens().resourceParticipantIds.has(edge.from) && sourceLens().resourceParticipantIds.has(edge.to);
             const sourceSelection = () => Boolean(sourceLens().pathCount || sourceLens().resources.length);
-            return <path classList={{ inferred: edge.confidence === "inferred", [`kind-${edge.kind}`]: true, focused: Boolean(selectedNodeId()) && active(), dimmed: !active(), "source-focused": sourceActive(), "source-resource-focused": resourceActive(), "source-dimmed": sourceSelection() && !sourceActive() && !resourceActive() }} d={edgePath(edge)} marker-end="url(#component-topology-arrow)"><title>{edgeLabel(edge)}</title></path>;
+            return <path classList={{ inferred: edge.confidence === "inferred", [`kind-${edge.kind}`]: true, focused: Boolean(selectedNodeId()) && active(), dimmed: !isolation() && !active(), "source-focused": sourceActive(), "source-resource-focused": resourceActive(), "source-dimmed": !isolation() && sourceSelection() && !sourceActive() && !resourceActive() }} d={edgePath(edge)} marker-end="url(#component-topology-arrow)"><title>{edgeLabel(edge)}</title></path>;
           }}</For></g>
           <g class="component-topology-nodes"><Index each={layout().nodes}>{(node) => {
             const current = () => node();
             const hub = () => sharedHubs().hubById.get(current().id);
-            const rings = () => sharedHubs().ringsByNode.get(current().id) ?? [];
+            const rings = () => isolation() ? [] : sharedHubs().ringsByNode.get(current().id) ?? [];
             const transforms = () => sourceLens().transformsByNodeId.get(current().id) ?? [];
             const fields = () => sourceLens().fieldsByNodeId.get(current().id) ?? [];
             const sourceParticipant = () => sourceLens().componentIds.has(current().id);
             const resourceParticipant = () => sourceLens().resourceParticipantIds.has(current().id);
             const sourceSelection = () => Boolean(sourceLens().pathCount || sourceLens().resources.length);
-            return <g class={`component-topology-node kind-${current().kind}`} classList={{ "route-entry": current().routeEntry, terminal: current().terminal, hub: isHub(current()), "shared-hub": Boolean(hub()), selected: selectedNodeId() === current().id, dimmed: Boolean(selectedNodeId()) && !selectedFocus().nodeIds.has(current().id), "source-path": sourceParticipant(), "source-resource-participation": resourceParticipant(), "source-transform-touch": Boolean(transforms().length), "source-dimmed": sourceSelection() && !sourceParticipant() && !resourceParticipant() }} style={hub() ? { "--topology-hub-color": hub()!.color, "--topology-hub-fill": hub()!.fill } : undefined} transform={`translate(${current().x} ${current().y})`} data-node-id={current().id} role="button" tabindex="0" aria-label={`${current().kind === "source" ? "Filter by" : "Inspect"} ${current().label}${resourceParticipant() ? ", proven resource participation" : ""}${fields().length ? `, source fields ${fields().map((field) => field.label).join(", ")}` : ""}${transforms().length ? `, ${transforms().length} transforms` : ""}`} onPointerDown={(event) => { event.stopPropagation(); if (current().kind === "source" && !editingPositions()) selectNode(current().id); else startDrag(event, current().id); }} onPointerUp={(event) => { event.stopPropagation(); finishDrag(event); }} on:click={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectNode(current().id); } }}>
+            return <g class={`component-topology-node kind-${current().kind}`} classList={{ "route-entry": current().routeEntry, terminal: current().terminal, hub: isHub(current()), "shared-hub": Boolean(hub()) && !isolation(), selected: selectedNodeId() === current().id, dimmed: !isolation() && Boolean(selectedNodeId()) && !selectedFocus().nodeIds.has(current().id), "source-path": sourceParticipant(), "source-resource-participation": resourceParticipant(), "source-transform-touch": Boolean(transforms().length), "source-dimmed": !isolation() && sourceSelection() && !sourceParticipant() && !resourceParticipant() }} style={hub() && !isolation() ? { "--topology-hub-color": hub()!.color, "--topology-hub-fill": hub()!.fill } : undefined} transform={`translate(${current().x} ${current().y})`} data-node-id={current().id} role="button" tabindex="0" aria-label={`${current().kind === "source" ? "Filter by" : "Inspect"} ${current().label}${resourceParticipant() ? ", proven resource participation" : ""}${fields().length ? `, source fields ${fields().map((field) => field.label).join(", ")}` : ""}${transforms().length ? `, ${transforms().length} transforms` : ""}`} onPointerDown={(event) => { event.stopPropagation(); if (current().kind === "source" && !editingPositions()) selectNode(current().id); else startDrag(event, current().id); }} onPointerUp={(event) => { event.stopPropagation(); finishDrag(event); }} on:click={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectNode(current().id); } }}>
             <For each={rings()}>{(ring, index) => <circle class="component-topology-hub-ring" r={current().radius + 2.2 + index() * 1.6} style={{ stroke: ring.color }}><title>Connects to shared hub {ring.label}</title></circle>}</For>
             <Show when={transforms().length}><circle class="component-topology-transform-ring" r={current().radius + 4.5}><title>{transforms().length} retained transforms</title></circle></Show>
             <Show when={current().terminal} fallback={<Show when={current().kind === "context"} fallback={<circle class="component-topology-node-mark" r={current().radius} />}><rect class="component-topology-node-mark" x={-current().radius} y={-current().radius} width={current().radius * 2} height={current().radius * 2} rx="2" transform="rotate(45)" /></Show>}><rect class="component-topology-node-mark" x={-current().radius} y={-current().radius} width={current().radius * 2} height={current().radius * 2} rx="1" /></Show>
-            <Show when={showLabel(current(), visibleTopology().totals.components, selectedNodeId() === current().id || sourceParticipant() || resourceParticipant())}>{(() => {
+            <Show when={showLabel(current(), displayedTopology().totals.components, selectedNodeId() === current().id || sourceParticipant() || resourceParticipant())}>{(() => {
               const placement = labelPlacement(current());
               return <><text x={placement.x * labelRenderScale()} y={placement.y * labelRenderScale()} text-anchor={placement.anchor} transform={`scale(${1 / labelRenderScale()})`}>{clip(current().label, 24)}</text><Show when={fields().length}><text class="component-topology-field-label" x={placement.x * labelRenderScale()} y={(placement.y + 13) * labelRenderScale()} text-anchor={placement.anchor} transform={`scale(${1 / labelRenderScale()})`}>{fieldLabel(fields().map((field) => field.label))}</text></Show><Show when={transforms().length}><text class="component-topology-transform-label" x={placement.x * labelRenderScale()} y={(placement.y + (fields().length ? 26 : 13)) * labelRenderScale()} text-anchor={placement.anchor} transform={`scale(${1 / labelRenderScale()})`}>{transforms().length} {transforms().length === 1 ? "transform" : "transforms"}</text></Show></>;
             })()}</Show>
