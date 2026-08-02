@@ -9,7 +9,7 @@ const INLINE_HELPER_BODY_LINE_LIMIT = 10;
 
 interface HelperDependencies {
   fanOutRootsFor: (sink: { rootInfos: RootInfo[]; roots: string[] }) => RootInfo[];
-  getFileContextCached: (ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, crossFile: CrossFileState) => FileTraceContext;
+  getFileContextCached: (ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, crossFile: CrossFileState, checker?: TypeScript.TypeChecker) => FileTraceContext;
   metricsFor: (trace: TraceResult) => SinkMetrics;
   resolveCatalogFn: (ts: typeof TypeScript, checker: TypeScript.TypeChecker, identifier: TypeScript.Identifier, crossFile: CrossFileState, args: AnalyzerArgs) => CatalogFunction | null;
   safeTypeText: (text?: string) => string;
@@ -126,7 +126,7 @@ function enrichCatalogRecord(
     const throwawayGraph = createGraph(args.root);
     const bodyTraces = returnExprs.map((returnExpression) => traceExpression(
       ts, recordChecker, throwawayGraph, returnExpression, {
-        ...getFileContextCached(ts, sourceFile, crossFile),
+        ...getFileContextCached(ts, sourceFile, crossFile, recordChecker),
         sourceFile,
         root: args.root,
         stack: new Set(),

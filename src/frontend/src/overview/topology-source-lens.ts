@@ -1,6 +1,6 @@
 import type { RouteDataDetail } from "../../../api/contracts";
 import type { ComponentTopology } from "./component-topology-model";
-import { projectSourceGraph } from "./route-flow-path-model";
+import { projectSourceGraph, projectSourceHandoffGraph } from "./route-flow-path-model";
 
 export type TopologyResourceStage = {
   id: string;
@@ -25,27 +25,73 @@ export type TopologyTransformStage = {
 export type TopologyFieldStage = { label: string; pathCount: number };
 export type TopologyTerminalStage = { label: string; pathCount: number };
 
+export function projectTopologySourceLens(lens: TopologySourceLens, originalToVisibleAncestorIds: ReadonlyMap<string, string[]>) {
+  if (!lens.source) return lens;
+  const componentIds = remapIds(lens.componentIds, originalToVisibleAncestorIds);
+  const handoffComponentIds = remapIds(lens.handoffComponentIds, originalToVisibleAncestorIds);
+  const resourceParticipantIds = remapIds(lens.resourceParticipantIds, originalToVisibleAncestorIds);
+  const transforms = lens.transforms.map((transform) => ({
+    ...transform,
+    nodeIds: [...remapIds(new Set(transform.nodeIds), originalToVisibleAncestorIds)],
+  }));
+  const transformsByNodeId = new Map<string, TopologyTransformStage[]>();
+  for (const transform of transforms) {
+    for (const nodeId of transform.nodeIds) transformsByNodeId.set(nodeId, [...(transformsByNodeId.get(nodeId) ?? []), transform]);
+  }
+  return {
+    ...lens,
+    componentIds,
+    handoffComponentIds,
+    resourceParticipantIds,
+    resources: lens.resources.map((resource) => ({
+      ...resource,
+      ownerId: resource.ownerId ? originalToVisibleAncestorIds.get(resource.ownerId)?.[0] ?? resource.ownerId : null,
+    })),
+    transforms,
+    transformsByNodeId,
+    fieldsByNodeId: remapStageMap(lens.fieldsByNodeId, originalToVisibleAncestorIds),
+    terminalsByNodeId: remapStageMap(lens.terminalsByNodeId, originalToVisibleAncestorIds),
+  };
+}
+
 export function buildTopologySourceLens(detail: RouteDataDetail, topology: ComponentTopology, sourceKey: string | null) {
   const source = sourceKey ? detail.sources.find((item) => item.key === sourceKey) ?? null : null;
   if (!source) return emptyLens();
-  const exactPathCount = detail.exhaustiveGraph.trajectories.filter((trajectory) => trajectory.sourceMethodKeys.includes(source.key)).length;
+  const exactTrajectories = detail.exhaustiveGraph.trajectories.filter((trajectory) => trajectory.sourceMethodKeys.includes(source.key));
+  const exactPathCount = exactTrajectories.length;
   const graph = projectSourceGraph(detail.exhaustiveGraph, source.key);
-  const componentLabels = new Set(graph.trajectories.flatMap((trajectory) => trajectory.stepComponents));
-  const componentIds = new Set<string>();
-  for (const node of topology.nodes) {
-    const sourceNode = node.kind === "source" && (node.label === source.label || node.label === source.consumerLabel);
-    if (componentLabels.has(node.label) || sourceNode) componentIds.add(node.id);
-  }
+  const provenHandoffGraph = projectSourceHandoffGraph(detail.exhaustiveGraph, source.key);
   const resources = topology.nodes.filter((node) => node.kind === "boundary").flatMap((node): TopologyResourceStage[] => {
     const handlerEdge = topology.edges.find((edge) => edge.to === node.id && edge.kind === "loads");
     const handler = topology.nodes.find((item) => item.id === handlerEdge?.from) ?? null;
-    if (source.consumerLabel && handler?.label !== source.consumerLabel) return [];
+    const operationKey = node.id.startsWith("boundary:") ? node.id.slice("boundary:".length) : null;
+    const operation = operationKey ? detail.operations.find((item) => item.key === operationKey) ?? null : null;
+    const bridgeId = operation?.transportBridge?.id ?? null;
+    if (source.transportBridgeIds?.length) {
+      if (!bridgeId || !source.transportBridgeIds.includes(bridgeId)) return [];
+    } else if (source.consumerLabel && handler?.label !== source.consumerLabel) return [];
     const ownerEdge = topology.edges.find((edge) => edge.from === node.id && edge.kind === "loads");
     if (!ownerEdge) return [];
     const owner = topology.nodes.find((item) => item.id === ownerEdge.to) ?? null;
     return [{ id: node.id, label: node.label, handler: handler?.label ?? null, handlerId: handler?.id ?? null, owner: owner?.label ?? null, ownerId: owner?.id ?? null, file: node.file, line: node.line }];
   });
   const resourceParticipantIds = new Set(resources.flatMap((resource) => [resource.id, resource.handlerId, resource.ownerId].filter((id): id is string => Boolean(id))));
+  for (const resource of resources) {
+    if (!resource.handlerId) continue;
+    for (const edge of topology.edges) {
+      if (edge.kind === "loads" && edge.to === resource.handlerId) resourceParticipantIds.add(edge.from);
+    }
+  }
+  const provenHandoffTrajectories = provenHandoffGraph.trajectories;
+  const handoffTrajectories = exactPathCount || !source.handoffProven
+    ? []
+    : provenHandoffTrajectories.length
+      ? provenHandoffTrajectories
+      : consumerHandoffTrajectories(detail, resources);
+  const exactComponentLabels = new Set(exactTrajectories.flatMap((trajectory) => trajectory.stepComponents));
+  const handoffComponentLabels = new Set(handoffTrajectories.flatMap((trajectory) => trajectory.stepComponents));
+  const componentIds = matchingComponentIds(topology, exactComponentLabels);
+  const handoffComponentIds = matchingComponentIds(topology, handoffComponentLabels);
   if (exactPathCount && source.handoffProven) {
     for (const id of resourceParticipantIds) componentIds.add(id);
   }
@@ -54,22 +100,58 @@ export function buildTopologySourceLens(detail: RouteDataDetail, topology: Compo
   for (const transform of transforms) {
     for (const id of transform.nodeIds) transformsByNodeId.set(id, [...(transformsByNodeId.get(id) ?? []), transform]);
   }
-  const fieldsByNodeId = detectedFields(graph, topology, source.fields.map((field) => field.key));
-  const terminalsByNodeId = detectedTerminals(graph.trajectories, topology);
+  const activeFieldGraph = exactPathCount ? graph : provenHandoffGraph;
+  const fieldNames = exactPathCount
+    ? source.fields.map((field) => field.key)
+    : source.handoffFields.map((field) => field.split(".")[0]).filter((field) => field && field !== "*");
+  const fieldsByNodeId = detectedFields(activeFieldGraph, topology, fieldNames);
+  const terminalsByNodeId = detectedTerminals(
+    exactPathCount ? graph.trajectories : provenHandoffTrajectories,
+    topology,
+  );
   return {
     source,
-    matchMode: exactPathCount ? "exact" as const : resources.length ? "resource" as const : "unavailable" as const,
+    matchMode: exactPathCount ? "exact" as const : handoffTrajectories.length ? "handoff" as const : resources.length ? "resource" as const : "unavailable" as const,
+    handoffFieldProven: provenHandoffTrajectories.length > 0,
     pathCount: graph.totals.trajectories,
+    handoffPathCount: handoffTrajectories.length,
     componentIds,
+    handoffComponentIds,
     resourceParticipantIds,
     resources,
     transforms,
     transformsByNodeId,
     fieldsByNodeId,
     terminalsByNodeId,
-    terminalCount: new Set(graph.trajectories.map((trajectory) => trajectory.sinkId)).size,
+    terminalCount: new Set((exactPathCount ? exactTrajectories : handoffTrajectories).map((trajectory) => trajectory.sinkId)).size,
     transformMatchMode: exactPathCount ? "source-path" as const : "unavailable" as const,
   };
+}
+
+function consumerHandoffTrajectories(
+  detail: RouteDataDetail,
+  resources: TopologyResourceStage[],
+) {
+  const resourceNodeIds = new Set(resources.map((resource) => resource.id));
+  const boundaryIds = new Set(detail.operations.flatMap((operation) =>
+    operation.boundaryId && resourceNodeIds.has(`boundary:${operation.key}`)
+      ? [operation.boundaryId]
+      : [],
+  ));
+  if (!boundaryIds.size) return [];
+  const nodeByKey = new Map(detail.exhaustiveGraph.nodes.map((node) => [node.key, node]));
+  return detail.exhaustiveGraph.trajectories.filter((trajectory) =>
+    trajectory.stepKeys.some((key) => {
+      const boundaryId = nodeByKey.get(key)?.boundaryId;
+      return boundaryId ? boundaryIds.has(boundaryId) : false;
+    }),
+  );
+}
+
+function matchingComponentIds(topology: ComponentTopology, labels: ReadonlySet<string>) {
+  return new Set(topology.nodes
+    .filter((node) => node.kind === "component" && labels.has(node.label))
+    .map((node) => node.id));
 }
 
 function detectedFields(
@@ -118,26 +200,42 @@ export type TopologyNodeSourceTouch = {
   source: RouteDataDetail["sources"][number] | null;
   label: string;
   detail: string;
-  mode: "path" | "resource";
+  mode: "path" | "handoff" | "resource";
   pathCount: number;
   targetId: string;
   fields: RouteDataDetail["sources"][number]["fields"];
 };
 
-export function buildTopologyNodeSourceTouches(detail: RouteDataDetail, topology: ComponentTopology, nodeId: string | null): TopologyNodeSourceTouch[] {
+export function buildTopologyNodeSourceTouches(detail: RouteDataDetail, topology: ComponentTopology, nodeId: string | null, originalToVisibleAncestorIds?: ReadonlyMap<string, string[]>): TopologyNodeSourceTouch[] {
   if (!nodeId) return [];
   const touches = detail.sources.flatMap((source): TopologyNodeSourceTouch[] => {
     const lens = buildTopologySourceLens(detail, topology, source.key);
-    if (!lens.pathCount || !lens.componentIds.has(nodeId)) return [];
-    const fields = source.handoffProven && lens.resources.some((resource) => resource.ownerId === nodeId)
+    const projectedLens = originalToVisibleAncestorIds ? projectTopologySourceLens(lens, originalToVisibleAncestorIds) : lens;
+    const exact = projectedLens.pathCount > 0 && projectedLens.componentIds.has(nodeId);
+    const handoff = projectedLens.handoffPathCount > 0 && projectedLens.handoffComponentIds.has(nodeId);
+    if (!exact && !handoff) return [];
+    const fields = source.handoffProven && projectedLens.resources.some((resource) => resource.ownerId === nodeId)
       ? source.fields
       : [];
-    return [{ key: `path:${source.key}`, source, label: source.consumerLabel ?? source.label, detail: `${source.label} · ${lens.pathCount.toLocaleString()} paths`, mode: "path", pathCount: lens.pathCount, targetId: nodeId, fields }];
+    const pathCount = exact ? projectedLens.pathCount : projectedLens.handoffPathCount;
+    return [{
+      key: `${exact ? "path" : "handoff"}:${source.key}`,
+      source,
+      label: source.consumerLabel ?? source.label,
+      detail: `${source.label} · ${pathCount.toLocaleString()} ${exact ? "exact" : "consumer handoff"} paths`,
+      mode: exact ? "path" : "handoff",
+      pathCount,
+      targetId: nodeId,
+      fields,
+    }];
   });
   const sourcesByConsumer = new Map<string, RouteDataDetail["sources"]>();
+  const sourcesByTransportBridge = new Map<string, RouteDataDetail["sources"]>();
   for (const source of detail.sources) {
-    if (!source.consumerLabel) continue;
-    sourcesByConsumer.set(source.consumerLabel, [...(sourcesByConsumer.get(source.consumerLabel) ?? []), source]);
+    if (source.consumerLabel) sourcesByConsumer.set(source.consumerLabel, [...(sourcesByConsumer.get(source.consumerLabel) ?? []), source]);
+    for (const bridgeId of source.transportBridgeIds ?? []) {
+      sourcesByTransportBridge.set(bridgeId, [...(sourcesByTransportBridge.get(bridgeId) ?? []), source]);
+    }
   }
   for (const edge of topology.edges.filter((item) => item.kind === "loads" && item.to === nodeId)) {
     const resource = topology.nodes.find((node) => node.id === edge.from && node.kind === "boundary");
@@ -145,7 +243,12 @@ export function buildTopologyNodeSourceTouches(detail: RouteDataDetail, topology
     const handlerEdge = topology.edges.find((item) => item.kind === "loads" && item.to === resource.id);
     const handler = topology.nodes.find((node) => node.id === handlerEdge?.from && node.kind === "source");
     if (!handler) continue;
-    const sources = sourcesByConsumer.get(handler.label) ?? [];
+    const operationKey = resource.id.startsWith("boundary:") ? resource.id.slice("boundary:".length) : null;
+    const operation = operationKey ? detail.operations.find((item) => item.key === operationKey) ?? null : null;
+    const bridgeId = operation?.transportBridge?.id ?? null;
+    const sources = bridgeId
+      ? sourcesByTransportBridge.get(bridgeId) ?? []
+      : sourcesByConsumer.get(handler.label) ?? [];
     if (sources.length) {
       for (const source of sources) {
         if (touches.some((touch) => touch.source?.key === source.key)) continue;
@@ -156,6 +259,29 @@ export function buildTopologyNodeSourceTouches(detail: RouteDataDetail, topology
     }
   }
   return touches.sort((left, right) => modeRank(left.mode) - modeRank(right.mode) || right.pathCount - left.pathCount || lexical(left.label, right.label) || lexical(left.key, right.key));
+}
+
+function remapIds(ids: ReadonlySet<string>, originalToVisibleAncestorIds: ReadonlyMap<string, string[]>) {
+  return new Set([...ids].flatMap((id) => originalToVisibleAncestorIds.get(id) ?? [id]));
+}
+
+function remapStageMap<T extends { label: string; pathCount: number }>(
+  stagesByNodeId: ReadonlyMap<string, T[]>,
+  originalToVisibleAncestorIds: ReadonlyMap<string, string[]>,
+) {
+  const remapped = new Map<string, T[]>();
+  for (const [nodeId, stages] of stagesByNodeId) {
+    for (const visibleNodeId of originalToVisibleAncestorIds.get(nodeId) ?? [nodeId]) {
+      const existing = remapped.get(visibleNodeId) ?? [];
+      for (const stage of stages) {
+        const duplicate = existing.find((item) => item.label === stage.label);
+        if (duplicate) duplicate.pathCount = Math.max(duplicate.pathCount, stage.pathCount);
+        else existing.push({ ...stage });
+      }
+      remapped.set(visibleNodeId, existing);
+    }
+  }
+  return remapped;
 }
 
 function detectedTransforms(nodes: RouteDataDetail["exhaustiveGraph"]["nodes"], topology: ComponentTopology) {
@@ -220,7 +346,10 @@ function emptyLens() {
     source: null,
     matchMode: "none" as const,
     pathCount: 0,
+    handoffPathCount: 0,
+    handoffFieldProven: false,
     componentIds: new Set<string>(),
+    handoffComponentIds: new Set<string>(),
     resourceParticipantIds: new Set<string>(),
     resources: [] as TopologyResourceStage[],
     transforms: [] as TopologyTransformStage[],
@@ -233,4 +362,4 @@ function emptyLens() {
 }
 
 function lexical(left: string, right: string) { return left < right ? -1 : left > right ? 1 : 0; }
-function modeRank(mode: TopologyNodeSourceTouch["mode"]) { return mode === "path" ? 0 : 1; }
+function modeRank(mode: TopologyNodeSourceTouch["mode"]) { return mode === "path" ? 0 : mode === "handoff" ? 1 : 2; }

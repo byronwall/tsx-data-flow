@@ -9,7 +9,7 @@ import { packetMarkdown, readPackets, writePackets, type TrajectoryPacket } from
 import { trajectoryShapeSummary } from "./trajectory-shape-label";
 import type { TrajectoryUrlState } from "./trajectory-url-state";
 
-export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; state: TrajectoryUrlState; onState: (patch: Partial<TrajectoryUrlState>, push?: boolean) => void; onCloseTransient: (active: boolean) => void }) {
+export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; generation: number; state: TrajectoryUrlState; onState: (patch: Partial<TrajectoryUrlState>, push?: boolean) => void; onCloseTransient: (active: boolean) => void }) {
   const [preview, setPreview] = createSignal<RouteDataDetail["operations"][number] | null>(null);
   const [sourceEvidenceId, setSourceEvidenceId] = createSignal<string | null>(null);
   const [packets, setPackets] = createSignal<TrajectoryPacket[]>([]);
@@ -50,7 +50,7 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; state
         <Show when={props.state.isolate && isolated().incomingStub}><div class="trajectory-boundary-stub incoming">← {isolated().incomingStub?.label}</div></Show>
         <DataTrajectoryCanvas detail={displayDetail()} selectedKey={props.state.item} expanded={expanded()} isolated={props.state.isolate} zoom={props.state.zoom ?? 1} onSelect={(item) => props.onState({ item })} onPreview={setPreview} onToggleExpand={toggleExpand} onOpenEvidence={openEvidence} onZoom={(zoom) => props.onState({ zoom })} />
         <Show when={props.state.isolate && isolated().outgoingStub}><div class="trajectory-boundary-stub outgoing">{isolated().outgoingStub?.label} →</div></Show>
-      </>}><RouteFlowGraph detail={props.detail} sourceKey={props.state.source} onSource={(source) => props.onState({ source, item: null, expand: [], isolate: false, pan: null, zoom: null }, true)} onOpenEvidence={openTrajectory} onOpenSource={openEvidence} /></Show>
+      </>}><RouteFlowGraph detail={props.detail} sourceKey={props.state.source} genericUiMode={props.state.genericUi} revealResetKey={`${props.state.open}:${props.generation}:${props.detail.route.key}:${props.detail.trajectory.key}`} onSource={(source) => props.onState({ source, item: null, expand: [], isolate: false, pan: null, zoom: null }, true)} onGenericUiMode={(genericUi) => props.onState({ genericUi })} onOpenEvidence={openTrajectory} onOpenSource={openEvidence} /></Show>
       <Show when={preview()}>{(item) => <div class="trajectory-preview" role="status"><strong>{item().label}</strong><span>{item().effect} · evidence {item().completeness}</span><span><b>Output</b> <code>{trajectoryShapeSummary(previewShape())}</code></span><p>{item().completenessReason}</p></div>}</Show>
     </main>
     <Show when={props.state.view === "trajectory"}><TrajectoryInspector detail={props.detail} selectedKey={props.state.item} contextNode={null} contextMode={false} onOpenTrajectory={openTrajectory} onSelect={(item) => props.onState({ item })} onOpenEvidence={openEvidence} isolated={props.state.isolate} onIsolate={() => props.onState({ isolate: !props.state.isolate })} onAddPacket={addPacket} /></Show>

@@ -79,6 +79,8 @@ export interface GraphNode {
   boundaryId?: string;
   propName?: string;
   terminalId?: string;
+  contextIdentity?: string;
+  contextMember?: string;
 }
 export interface GraphEdge {
   id: string;
@@ -110,6 +112,7 @@ export interface ProgramRouting {
 
 export interface RootInfo { label: string; kind: string; def?: { file: string; line: number } }
 export interface TraceStep { label: string; kind: string; detail: string | null; file: string | null; line: number | null; expressionId?: string; span?: SourceSpan; graphNodeId?: string }
+export interface ContextTraceLineage { identity: string; member: string | null }
 export interface DefenseRecord {
   key?: string;
   expression: string;
@@ -134,6 +137,7 @@ export interface TraceResult {
   packs: Array<{ key: string; label: string }>;
   unknown?: boolean;
   headText: string;
+  contextLineages?: ContextTraceLineage[];
 }
 
 export interface CatalogFunction {
@@ -150,13 +154,14 @@ export interface CatalogFunction {
 export interface FileTraceContext {
   variables: Map<string, TypeScript.VariableDeclaration>;
   functions: Map<string, TypeScript.FunctionLikeDeclaration>;
-  accessors: Map<string, AccessorRecord>;
+  accessors: Map<string, AccessorRecord[]>;
   parameters: Set<string>;
   imports: Set<string>;
 }
 export interface AccessorRecord {
-  kind: "memo" | "signal" | "resource";
+  kind: "memo" | "signal" | "resource" | "action";
   declaration: TypeScript.VariableDeclaration;
+  slot?: 0 | 1;
 }
 export interface CrossFileState {
   args: AnalyzerArgs;
@@ -213,6 +218,8 @@ export interface Sink {
   identity?: ExpressionIdentityEvidence;
   traceIdentities?: ExpressionIdentityEvidence[];
   terminalIdentityId?: string;
+  contextIdentity?: string | null;
+  contextMember?: string | null;
   unit?: WorkUnitDetails;
   [key: string]: unknown;
 }

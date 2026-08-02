@@ -31,6 +31,7 @@ import {
 import { traceExpression } from "./source-trace";
 import { addOperationTrace } from "./source-trace-records";
 import { formatExpression } from "../reports/format-helpers";
+import { contextProviderIdentityForNode } from "./semantic-context";
 export function analyzeSourceFile(
   ts: typeof TypeScript,
   checker: TypeScript.TypeChecker,
@@ -40,8 +41,8 @@ export function analyzeSourceFile(
   crossFile: CrossFileState | null,
 ) {
   const context = crossFile
-    ? getFileContextCached(ts, sourceFile, crossFile)
-    : buildFileContext(ts, sourceFile);
+    ? getFileContextCached(ts, sourceFile, crossFile, checker)
+    : buildFileContext(ts, sourceFile, checker);
   const sinks: Sink[] = [];
 
   const visit = (node: TypeScript.Node) => {
@@ -171,6 +172,7 @@ function buildSinkRecord(
   const confidence = confidenceFor(metrics, distinctDefenses);
   const file = relativePath(root, sourceFile.fileName);
   const terminalIdentityId = `terminal:${file}:${sinkExpression.expression.getStart(sourceFile)}:${sinkExpression.expression.getEnd()}`;
+  const contextIdentity = contextProviderIdentityForNode(ts, checker, root, node);
   const identity = identityIndex?.evidenceFor(sinkExpression.expression, checker);
   if (identity) {
     identity.upstreamPath = trace.longestPath.map((step) => ({ ...step, detail: step.detail ?? null, file: step.file ?? null, line: step.line ?? null }));
@@ -266,6 +268,8 @@ function buildSinkRecord(
     identity,
     traceIdentities,
     terminalIdentityId,
+    contextIdentity,
+    contextMember: trace.contextLineages?.length === 1 ? trace.contextLineages[0].member : null,
   };
 }
 

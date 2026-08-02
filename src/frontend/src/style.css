@@ -206,28 +206,33 @@
 .route-flow-mode-toolbar button { min-height: 23px; padding: 2px 7px; border-color: transparent; background: transparent; font-size: .65rem; }
 .route-flow-mode-toolbar button[aria-pressed="true"] { border-color: var(--border); background: var(--accent-soft); color: var(--accent); }
 .component-topology { min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr); overflow: hidden; background: #f7f8fb; }
-.component-topology-summary { min-height: 32px; display: flex; align-items: center; gap: 10px; padding: 3px 8px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.component-topology-summary { min-height: 32px; display: grid; grid-template-columns: auto auto minmax(240px,1fr) minmax(150px,.7fr) minmax(175px,.8fr) auto auto; align-items: center; gap: 8px; padding: 3px 8px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .component-topology-summary > div { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
-.component-topology-summary > div:nth-child(2) { margin-right: auto; }
+.component-topology-summary > div:nth-child(3) { min-width: 0; }
+.component-topology-summary > div:nth-child(3) > span { overflow: hidden; text-overflow: ellipsis; }
 .component-topology-summary > div > strong { font-size: .78rem; }
 .component-topology-summary span { color: var(--muted); font-size: .62rem; }
-.component-topology-note { max-width: 360px; text-align: right; }
+.component-topology-note { min-width: 0; max-width: none; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.component-topology-policy-toggle { flex: none; display: flex; align-items: center; gap: 2px; }
+.component-topology-policy-toggle button { min-height: 24px; padding: 2px 6px; border-color: transparent; background: transparent; color: var(--muted); font-size: .6rem; white-space: nowrap; }
+.component-topology-policy-toggle button[aria-pressed="true"] { border-color: color-mix(in srgb,#8a5cf6 42%,var(--border)); background: #eee8ff; color: #6740aa; font-weight: 700; }
+.component-topology-policy-summary { min-width: 0; max-width: none; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .component-topology-isolation { min-height: 24px; padding: 2px 7px; white-space: nowrap; font-size: .62rem; }
 .component-topology-isolation[aria-pressed="true"] { border-color: color-mix(in srgb,var(--accent) 58%,var(--border)); background: color-mix(in srgb,var(--accent) 13%,var(--panel)); color: var(--accent); font-weight: 700; }
 .component-topology-isolation kbd { margin-left: 3px; font: 700 .58rem var(--mono); }
 .component-topology-summary .component-topology-camera { display: flex; align-items: center; gap: 3px; margin: 0; }
 .component-topology-camera button { min-width: 25px; min-height: 24px; padding: 2px 5px; font-size: .62rem; }
 .component-topology-camera button:nth-child(2) { min-width: 48px; font-family: var(--mono); }
-.component-topology-viewport { min-width: 0; min-height: 0; position: relative; display: grid; grid-template-columns: minmax(0,1fr) 250px; overflow: hidden; background-color: #f8f9fc; background-image: linear-gradient(#e8eaf0 1px,transparent 1px),linear-gradient(90deg,#e8eaf0 1px,transparent 1px); background-size: 20px 20px; }
+.component-topology-viewport { min-width: 0; min-height: 0; position: relative; display: grid; grid-template-columns: minmax(0,1fr) 330px; overflow: hidden; background-color: #f8f9fc; background-image: linear-gradient(#e8eaf0 1px,transparent 1px),linear-gradient(90deg,#e8eaf0 1px,transparent 1px); background-size: 20px 20px; }
 .component-topology-svg { display: block; width: 100%; height: 100%; min-height: 440px; cursor: grab; touch-action: none; user-select: none; }
 .component-topology-svg.dragging { cursor: grabbing; }
 .component-topology-svg.editing .component-topology-node { cursor: move; transition: opacity .12s ease; }
-.component-topology-source-clear { position: absolute; top: 8px; left: 8px; z-index: 3; max-width: min(230px,calc(100% - 280px)); min-height: 0; display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-color: color-mix(in srgb,var(--accent) 32%,var(--border)); background: rgb(255 255 255 / .9); box-shadow: 0 2px 8px rgb(0 0 0 / .06); backdrop-filter: blur(4px); text-align: left; }
+.component-topology-source-clear { position: absolute; top: 8px; left: 8px; z-index: 3; max-width: min(230px,calc(100% - 360px)); min-height: 0; display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-color: color-mix(in srgb,var(--accent) 32%,var(--border)); background: rgb(255 255 255 / .9); box-shadow: 0 2px 8px rgb(0 0 0 / .06); backdrop-filter: blur(4px); text-align: left; }
 .component-topology-source-clear[hidden] { display: none; }
 .component-topology-source-clear code { overflow: hidden; color: var(--accent); font-size: .61rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .component-topology-source-clear small { flex: none; color: var(--muted); font-size: .55rem; }
 .component-topology-source-clear:hover small { color: var(--text); }
-.component-topology-debug-overlay { position: absolute; top: 10px; right: 260px; z-index: 3; }
+.component-topology-debug-overlay { position: absolute; top: 10px; right: 340px; z-index: 3; }
 .component-topology-debug-overlay[hidden] { display: none; }
 .component-topology-debug { width: 250px; display: grid; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: rgb(255 255 255 / .94); box-shadow: 0 4px 14px rgb(0 0 0 / .1); backdrop-filter: blur(5px); }
 .component-topology-debug header,.component-topology-debug-actions { display: flex; align-items: center; gap: 4px; }
@@ -243,6 +248,7 @@
 .component-topology-hub-legend > span { display: flex; align-items: center; gap: 4px; }
 .component-topology-hub-legend i { width: 8px; height: 8px; border-radius: 50%; }
 .component-topology-hub-legend .component-topology-legend-section { padding-left: 9px; border-left: 1px solid var(--border); }
+.component-topology-hub-legend .component-topology-legend-subsection { color: var(--muted); font-size: .58rem; letter-spacing: .04em; text-transform: uppercase; }
 .component-topology-hub-legend .component-topology-key { border: 1px solid #677286; background: #fff; }
 .component-topology-hub-legend .component-topology-key.route { border-color: #245fec; background: #dce9fc; }
 .component-topology-hub-legend .component-topology-key.source { border-color: #4f8b68; background: #e3f3e9; }
@@ -250,6 +256,7 @@
 .component-topology-hub-legend .component-topology-key.context { border-color: #795fa8; border-radius: 1px; background: #eee9fa; transform: rotate(45deg) scale(.78); }
 .component-topology-hub-legend .component-topology-key.terminal { border-radius: 1px; }
 .component-topology-hub-legend .component-topology-key.hub { width: 10px; height: 10px; border-color: #9a772d; background: #fff2cd; box-shadow: 0 0 0 1px rgb(154 119 45 / .32); }
+.component-topology-hub-legend .component-topology-policy-ring-key { border: 1px solid #8a5cf6; background: #eee8ff; box-shadow: 0 0 0 1px rgb(138 92 246 / .22); }
 .component-topology-hub-legend .component-topology-edge-key { width: 16px; height: 0; border-radius: 0; background: none; }
 .component-topology-hub-legend .component-topology-edge-key.resource-load { border-top: 2px dashed #39739d; }
 .component-topology-hub-legend .component-topology-edge-key.source-lineage { border-top: 2px solid #3f8f60; }
@@ -289,9 +296,14 @@
 .component-topology-node.dimmed { opacity: .18; }
 .component-topology-node:focus-visible .component-topology-node-mark { stroke: var(--accent); stroke-width: 1.45; }
 .component-topology-node.selected .component-topology-node-mark { stroke: var(--accent); stroke-width: 1.7; }
-.component-topology-inspector { min-width: 0; display: grid; align-content: start; gap: 6px; overflow: auto; padding: 10px; border-left: 1px solid var(--border); background: rgb(255 255 255 / .92); }
-.component-topology-inspector > strong,.component-topology-inspector-connections > strong { color: var(--muted); font-size: .61rem; letter-spacing: .055em; text-transform: uppercase; }
+.component-topology-inspector { min-width: 0; display: grid; align-content: start; gap: 6px; overflow: auto; padding: 8px; border-left: 1px solid var(--border); background: rgb(255 255 255 / .92); }
+.component-topology-inspector-tabs { position: sticky; top: -8px; z-index: 2; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 2px; margin: -8px -8px 1px; padding: 5px 8px; border-bottom: 1px solid var(--border); background: rgb(255 255 255 / .96); }
+.component-topology-inspector-tabs button { min-width: 0; overflow: hidden; padding: 4px 5px; border-color: transparent; background: transparent; color: var(--muted); font-size: .61rem; text-overflow: ellipsis; white-space: nowrap; }
+.component-topology-inspector-tabs button[aria-selected="true"] { border-color: var(--border); background: var(--accent-soft); color: var(--text); font-weight: 700; }
+.component-topology-inspector-selection { display: grid; align-content: start; gap: 6px; }
+.component-topology-inspector-selection > strong,.component-topology-inspector-connections > strong { color: var(--muted); font-size: .61rem; letter-spacing: .055em; text-transform: uppercase; }
 .component-topology-inspector > p { margin: 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
+.component-topology-inspector-selection > p { margin: 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
 .component-topology-inspector-name { overflow-wrap: anywhere; font-size: .8rem; font-weight: 700; }
 .component-topology-inspector > span { color: var(--muted); font-size: .65rem; }
 .component-topology-inspector-location { overflow-wrap: anywhere; color: var(--muted); font-size: .61rem; line-height: 1.35; }
@@ -345,6 +357,34 @@
 .component-topology-inspector-actions { display: flex; align-items: center; gap: 6px; margin-top: 5px; padding-top: 7px; border-top: 1px solid var(--border); }
 .component-topology-inspector-actions span { margin-right: auto; color: var(--muted); font-size: .58rem; letter-spacing: .045em; text-transform: uppercase; }
 .component-topology-inspector-actions button { min-height: 25px; padding: 3px 7px; font-size: .62rem; }
+.component-topology-hidden-pane { display: grid; align-content: start; gap: 7px; min-width: 0; }
+.component-topology-hidden-header { display: flex; align-items: start; gap: 7px; }
+.component-topology-hidden-header > div { min-width: 0; display: grid; gap: 2px; }
+.component-topology-hidden-header strong { font-size: .74rem; }
+.component-topology-hidden-header span { color: var(--muted); font-size: .59rem; }
+.component-topology-hidden-header button { flex: none; min-height: 24px; margin-left: auto; padding: 2px 6px; font-size: .59rem; }
+.component-topology-hidden-copy,.component-topology-hidden-empty { margin: 0; color: var(--muted); font-size: .64rem; line-height: 1.4; }
+.component-topology-hidden-facts { display: grid; gap: 1px; margin: 0; background: var(--border); }
+.component-topology-hidden-facts > div { display: grid; grid-template-columns: 48px minmax(0,1fr); gap: 5px; padding: 4px 5px; background: var(--bg); }
+.component-topology-hidden-facts dt { color: var(--muted); font-size: .55rem; text-transform: uppercase; }
+.component-topology-hidden-facts dd { min-width: 0; margin: 0; overflow: hidden; font-size: .57rem; text-overflow: ellipsis; white-space: nowrap; }
+.component-topology-hidden-facts code { font-size: .56rem; }
+.component-topology-hidden-groups { display: grid; gap: 10px; min-width: 0; overflow-x: auto; }
+.component-topology-hidden-groups > section > header { display: grid; gap: 2px; margin-bottom: 4px; }
+.component-topology-hidden-groups > section > header span { color: var(--muted); font-size: .55rem; letter-spacing: .04em; text-transform: uppercase; }
+.component-topology-hidden-groups > section > header strong { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.component-topology-hidden-groups > section > header code { overflow: hidden; font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
+.component-topology-hidden-groups > section > header small { overflow: hidden; color: var(--muted); font-size: .54rem; text-overflow: ellipsis; white-space: nowrap; }
+.component-topology-hidden-groups table { display: table; width: 100%; min-width: 0; margin: 0; overflow: visible; table-layout: fixed; border-collapse: collapse; font-size: .56rem; }
+.component-topology-hidden-groups th,.component-topology-hidden-groups td { padding: 4px 3px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.component-topology-hidden-groups th { color: var(--muted); font-size: .5rem; letter-spacing: .035em; text-transform: uppercase; }
+.component-topology-hidden-groups th:nth-child(1) { width: 24%; }.component-topology-hidden-groups th:nth-child(2) { width: 18%; }.component-topology-hidden-groups th:nth-child(3) { width: 24%; }.component-topology-hidden-groups th:nth-child(4) { width: 8%; }.component-topology-hidden-groups th:nth-child(5) { width: 12%; }.component-topology-hidden-groups th:nth-child(6) { width: 14%; }
+.component-topology-hidden-groups tbody tr:nth-child(even) { background: color-mix(in srgb,var(--bg) 70%,var(--panel)); }
+.component-topology-hidden-groups td code { display: block; overflow: hidden; font-size: .56rem; text-overflow: ellipsis; white-space: nowrap; }
+.component-topology-hidden-groups td button { min-height: 21px; padding: 2px 4px; font-size: .53rem; white-space: nowrap; }
+.component-topology-hidden-number { color: var(--muted); font: 650 .58rem var(--mono); text-align: right!important; }
+.component-topology-hidden-state { color: var(--muted); font-size: .53rem; white-space: nowrap; }
+.component-topology-hidden-state.revealed { color: #28633d; font-weight: 700; }
 .route-flow-graph { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr); overflow: hidden; background: #f7f8fb; }
 .route-flow-toolbar { display: flex; align-items: center; gap: 7px; min-height: 32px; padding: 3px 8px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .route-flow-toolbar > div { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }

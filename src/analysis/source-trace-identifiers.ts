@@ -2,7 +2,7 @@ import type * as TypeScript from "typescript";
 import type { AccessorRecord, AnalysisGraph, TraceContext, TraceExpressionFn } from "../types";
 import { isGlobalNamespaceName } from "./source-call-classification";
 import { arrayCallbackBinding, renderPropBinding } from "./source-sinks";
-import { getFunctionReturnExpressions, identifierResolvesTo } from "./trace-support";
+import { getFunctionReturnExpressions, identifierResolvesTo, resolvedAccessorFor } from "./trace-support";
 import { formatExpression } from "../reports/format-helpers";
 import { resourceBoundaryIdentity } from "./route-data-resource";
 import {
@@ -10,6 +10,7 @@ import {
   definitionLocationOf,
   sourceTrace,
 } from "./source-trace-records";
+import { contextDestructuredBinding } from "./semantic-context";
 
 export function traceIdentifier(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Identifier, context: TraceContext, traceExpression: TraceExpressionFn) {
   const name = expression.text;
@@ -38,12 +39,22 @@ export function traceIdentifier(ts: typeof TypeScript, checker: TypeScript.TypeC
   if (context.paramBindings && context.paramBindings.has(name) && isParameterReference(ts, checker, expression)) {
     return context.paramBindings.get(name)!;
   }
-  const accessor = context.accessors.get(name);
+  const accessor = resolvedAccessorFor(ts, checker, expression, context.accessors);
   if (
     accessor &&
     identifierResolvesTo(ts, checker, expression, accessor.declaration)
   )
     return traceAccessor(ts, checker, graph, expression, accessor, context, traceExpression);
+
+  const destructured = contextDestructuredBinding(ts, checker, context.root, expression);
+  if (destructured) {
+    const base = traceExpression(ts, checker, graph, destructured.declaration.initializer!, context);
+    return addOperationTrace(ts, graph, "context-destructure", expression, [base], {
+      label: name,
+      contextIdentity: destructured.identity,
+      contextMember: destructured.member,
+    });
+  }
 
   const declaration = resolvedVariableDeclaration(ts, checker, expression, context.variables.get(name));
   if (
@@ -226,6 +237,15 @@ function isParameterReference(ts: typeof TypeScript, checker: TypeScript.TypeChe
 }
 
 export function traceAccessor(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Identifier, accessor: AccessorRecord, context: TraceContext, traceExpression: TraceExpressionFn) {
+  if (accessor.kind === "action") {
+    return sourceTrace(
+      graph,
+      expression,
+      "solid-action",
+      `${expression.text}() action`,
+      false,
+    );
+  }
   const call = accessor.declaration.initializer;
   if (!call || !ts.isCallExpression(call)) {
     return sourceTrace(

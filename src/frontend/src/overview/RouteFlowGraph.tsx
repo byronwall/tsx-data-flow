@@ -3,12 +3,13 @@ import type { RouteDataDetail } from "../../../api/contracts";
 import { ComponentTopologyGraph } from "./ComponentTopologyGraph";
 import { layoutRouteFlowGraph } from "./route-flow-graph-model";
 import { projectSourceGraph, projectTrajectoryGraph, rankComplexTrajectories } from "./route-flow-path-model";
+import type { GenericUiMode } from "./trajectory-url-state";
 
-export function RouteFlowGraph(props: { detail: RouteDataDetail; sourceKey: string | null; onSource: (key: string | null) => void; onOpenEvidence: () => void; onOpenSource: (id: string) => void }) {
+export function RouteFlowGraph(props: { detail: RouteDataDetail; sourceKey: string | null; genericUiMode: GenericUiMode | null; revealResetKey: string; onSource: (key: string | null) => void; onGenericUiMode: (mode: GenericUiMode) => void; onOpenEvidence: () => void; onOpenSource: (id: string) => void }) {
   const [mode, setMode] = createSignal<"topology" | "paths">("topology");
   return <div class="route-flow-mode-shell">
     <Show when={mode() === "topology"} fallback={<DetailedRouteFlowGraph detail={props.detail} sourceKey={props.sourceKey} onOpenEvidence={props.onOpenEvidence} onOpenSource={props.onOpenSource} onShowTopology={() => setMode("topology")} />}>
-      <ComponentTopologyGraph detail={props.detail} sourceKey={props.sourceKey} onSource={props.onSource} onShowPaths={() => setMode("paths")} />
+      <ComponentTopologyGraph detail={props.detail} sourceKey={props.sourceKey} genericUiMode={props.genericUiMode} revealResetKey={props.revealResetKey} onSource={props.onSource} onGenericUiMode={props.onGenericUiMode} onShowPaths={() => setMode("paths")} />
     </Show>
   </div>;
 }

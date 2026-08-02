@@ -1,12 +1,12 @@
 import type { RouteDataDetail } from "../../../api/contracts";
 import {
-  componentOccurrenceId,
   contractTransparentComponentSteps,
   isTransparentSolidFlowComponent,
   isTransparentSolidFlowLabel,
   recursiveComponentOccurrenceIds,
   resolveTransparentComponentTargets,
 } from "./component-topology-normalization";
+import { normalizeResourceBoundaryLabel } from "./component-topology-resource-proof";
 
 const UNOWNED_COMPONENT = "Unowned / external";
 const SHARED_HUB_THRESHOLD = 5;
@@ -25,6 +25,8 @@ export type ComponentTopologyNode = {
   label: string;
   file: string | null;
   line: number | null;
+  /** Stable source-backed identity; null means a label-only graph step. */
+  sourceIdentity: string | null;
   routeEntry: boolean;
   incomingCount: number;
   outgoingCount: number;
@@ -52,10 +54,15 @@ export type ComponentTopologyLayoutEdge = ComponentTopologyEdge & { fromNode: Co
 export type SharedHub = { id: string; label: string; color: string; fill: string; connectionCount: number; kind: ComponentTopologyNode["kind"]; relationLabel: "callers" | "consumers" | "icons" };
 export type SharedHubRing = { hubId: string; label: string; color: string };
 
-export function componentTopologySelectionFocus(topology: ComponentTopology, selectedNodeId: string | null) {
+export function componentTopologySelectionFocus(
+  topology: ComponentTopology,
+  selectedNodeId: string | null,
+  downstreamProofEdgeIds: ReadonlySet<string> = new Set<string>(),
+) {
   const nodeIds = new Set<string>();
   const edgeIds = new Set<string>();
-  if (!selectedNodeId || !topology.nodes.some((node) => node.id === selectedNodeId)) return { nodeIds, edgeIds };
+  const selectedNode = topology.nodes.find((node) => node.id === selectedNodeId);
+  if (!selectedNodeId || !selectedNode) return { nodeIds, edgeIds };
   nodeIds.add(selectedNodeId);
   const incoming = new Map<string, ComponentTopologyEdge[]>();
   const outgoing = new Map<string, ComponentTopologyEdge[]>();
@@ -78,6 +85,21 @@ export function componentTopologySelectionFocus(topology: ComponentTopology, sel
   }
   for (const edge of outgoing.get(selectedNodeId) ?? []) {
     addFocusedEdge(edge);
+  }
+  if (selectedNode.kind === "boundary" && downstreamProofEdgeIds.size) {
+    const visitedDownstream = new Set<string>([selectedNodeId]);
+    const queue = (outgoing.get(selectedNodeId) ?? [])
+      .filter((edge) => edge.kind === "loads")
+      .map((edge) => edge.to);
+    while (queue.length) {
+      const current = queue.shift()!;
+      if (visitedDownstream.has(current)) continue;
+      visitedDownstream.add(current);
+      for (const edge of outgoing.get(current) ?? []) {
+        if (!downstreamProofEdgeIds.has(edge.id) || !addFocusedEdge(edge)) continue;
+        if (!visitedDownstream.has(edge.to)) queue.push(edge.to);
+      }
+    }
   }
   const visited = new Set<string>();
   const queue = (incoming.get(selectedNodeId) ?? []).map((edge) => edge.from);
@@ -192,15 +214,19 @@ export function projectVisibleComponentTopology(topology: ComponentTopology, hid
   const edges = topology.edges.filter((edge) => !hiddenEdgeIds.has(edge.id));
   const connectedNodeIds = new Set(edges.flatMap((edge) => [edge.from, edge.to]));
   const retainedNodes = topology.nodes.filter((node) => node.routeEntry || connectedNodeIds.has(node.id));
-  const routeEntryId = retainedNodes.find((node) => node.routeEntry)?.id ?? "";
-  const nodes = assignDepth(retainedNodes, edges, routeEntryId);
+  return rebuildComponentTopology(retainedNodes, edges);
+}
+
+export function rebuildComponentTopology(nodes: ComponentTopologyNode[], edges: ComponentTopologyEdge[]): ComponentTopology {
+  const routeEntryId = nodes.find((node) => node.routeEntry)?.id ?? "";
+  const rankedNodes = applyCountsAndDepth(nodes, edges, routeEntryId);
   return {
-    nodes,
-    edges,
+    nodes: rankedNodes,
+    edges: [...edges].sort(edgeSort),
     totals: {
-      components: nodes.filter((node) => node.kind === "component").length,
-      contexts: nodes.filter((node) => node.kind === "context").length,
-      sources: nodes.filter((node) => node.kind === "source").length,
+      components: rankedNodes.filter((node) => node.kind === "component").length,
+      contexts: rankedNodes.filter((node) => node.kind === "context").length,
+      sources: rankedNodes.filter((node) => node.kind === "source").length,
       inferredEdges: edges.filter((edge) => edge.confidence === "inferred").length,
     },
   };
@@ -212,22 +238,46 @@ export function buildComponentTopology(detail: RouteDataDetail): ComponentTopolo
   const contextNodeById = new Map(detail.context.nodes.map((node) => [node.id, node]));
   const componentContextEdges = detail.context.edges.filter((item) => item.kind === "component");
   const dedicatedComponentNodeIds = recursiveComponentOccurrenceIds(detail.context.nodes, componentContextEdges);
-  const routeEntry = detail.context.nodes.find((node) => node.kind === "component" && node.role === "route")?.label
+  const routeEntryNode = detail.context.nodes.find((node) => node.kind === "component" && node.role === "route") ?? null;
+  const routeEntry = routeEntryNode?.label
     ?? detail.route.componentNames[0]
     ?? "Route component";
+  const definitionsByLabel = new Map<string, RouteContextNode[]>();
+  for (const node of detail.context.nodes) {
+    if (node.kind !== "component" || !isResolvedComponentRecord(node)) continue;
+    definitionsByLabel.set(node.label, [...(definitionsByLabel.get(node.label) ?? []), node]);
+  }
 
-  const addComponent = (label: string, file: string | null = null, line: number | null = null, id = componentId(label)) => {
+  let routeEntryId = "";
+  const addComponent = (label: string, file: string | null = null, line: number | null = null, id = componentId(label), sourceIdentity: string | null = null) => {
     const existing = nodes.get(id);
-    if (!existing) nodes.set(id, baseNode(id, "component", label, file, line, id === componentId(routeEntry)));
-    else if (!existing.file && file) nodes.set(id, { ...existing, file, line });
+    if (!existing) nodes.set(id, baseNode(id, "component", label, file, line, id === routeEntryId, sourceIdentity));
+    else if ((!existing.file && file) || (!existing.sourceIdentity && sourceIdentity)) {
+      nodes.set(id, {
+        ...existing,
+        file: existing.file ?? file,
+        line: existing.line ?? line,
+        sourceIdentity: existing.sourceIdentity ?? sourceIdentity,
+      });
+    }
     return id;
   };
-  const addContextComponent = (node: RouteContextNode) => addComponent(
-    node.label,
-    node.file,
-    node.line,
-    dedicatedComponentNodeIds.has(node.id) ? componentOccurrenceId(node) : componentId(node.label),
-  );
+  const canonicalContextNode = (node: RouteContextNode) => {
+    if (isResolvedComponentRecord(node) || dedicatedComponentNodeIds.has(node.id) || node.role === "route") return node;
+    const definitions = definitionsByLabel.get(node.label) ?? [];
+    return definitions.length === 1 ? definitions[0] : node;
+  };
+  const addContextComponent = (node: RouteContextNode) => {
+    const canonical = canonicalContextNode(node);
+    const id = sourceComponentId(canonical.id);
+    return addComponent(canonical.label, canonical.file, canonical.line, id, canonical.id);
+  };
+  const componentIdForLabel = (label: string) => {
+    const candidates = [...nodes.values()].filter((node) => node.kind === "component" && node.label === label);
+    const routeCandidate = candidates.find((node) => node.routeEntry);
+    if (routeCandidate) return routeCandidate.id;
+    return candidates.length === 1 ? candidates[0].id : addComponent(label);
+  };
   const addSpecial = (kind: "context" | "source" | "boundary", key: string, label: string, file: string | null, line: number | null) => {
     const id = `${kind}:${key}`;
     if (!nodes.has(id)) nodes.set(id, baseNode(id, kind, label, file, line, false));
@@ -245,18 +295,20 @@ export function buildComponentTopology(detail: RouteDataDetail): ComponentTopolo
     }
   };
 
-  addComponent(routeEntry, detail.route.file, 1);
+  routeEntryId = routeEntryNode ? addContextComponent(routeEntryNode) : addComponent(routeEntry, detail.route.file, 1, componentId(routeEntry), `route:${detail.route.key}`);
+  const routeNode = nodes.get(routeEntryId);
+  if (routeNode && !routeNode.routeEntry) nodes.set(routeEntryId, { ...routeNode, routeEntry: true });
   for (const node of detail.context.nodes) {
     if (node.kind === "component" && !isTransparentSolidFlowComponent(node)) addContextComponent(node);
   }
   for (const node of detail.exhaustiveGraph.nodes) {
     for (const component of node.components) {
-      if (!isTransparentSolidFlowLabel(component)) addComponent(component);
+      if (!isTransparentSolidFlowLabel(component)) componentIdForLabel(component);
     }
   }
   for (const trajectory of detail.exhaustiveGraph.trajectories) {
     for (const component of trajectory.stepComponents) {
-      if (!isTransparentSolidFlowLabel(component)) addComponent(component);
+      if (!isTransparentSolidFlowLabel(component)) componentIdForLabel(component);
     }
   }
 
@@ -277,8 +329,8 @@ export function buildComponentTopology(detail: RouteDataDetail): ComponentTopolo
     const components = contractTransparentComponentSteps(trajectory.stepComponents);
     for (let index = 0; index < components.length - 1; index += 1) {
       addEdge(
-        addComponent(components[index].label),
-        addComponent(components[index + 1].label),
+        componentIdForLabel(components[index].label),
+        componentIdForLabel(components[index + 1].label),
         "handoff",
         "proven",
         1,
@@ -296,14 +348,30 @@ export function buildComponentTopology(detail: RouteDataDetail): ComponentTopolo
     if (name && evidence) queryLocationsByName.set(name, [...(queryLocationsByName.get(name) ?? []), evidence]);
   }
   const queryLocationByName = new Map([...queryLocationsByName].flatMap(([name, locations]) => locations.length === 1 ? [[name, locations[0]] as const] : []));
+  const persistedOperationsByBridge = new Map<string, RouteDataDetail["operations"]>();
+  for (const operation of detail.operations ?? []) {
+    if (operation.semanticKind !== "read" || !operation.transportBridge?.id) continue;
+    persistedOperationsByBridge.set(operation.transportBridge.id, [...(persistedOperationsByBridge.get(operation.transportBridge.id) ?? []), operation]);
+  }
   for (const operation of detail.operations ?? []) {
     if (operation.boundary?.kind !== "resource") continue;
     const evidence = evidenceById.get(operation.sourceExpressionIds[0]);
-    const resourceId = addSpecial("boundary", operation.key, operation.label.replace(/^Load\s+/, ""), evidence?.file ?? null, evidence?.line ?? null);
-    const handlerLabel = operation.boundary.label;
+    const resourceId = addSpecial("boundary", operation.key, normalizeResourceBoundaryLabel(operation.label), evidence?.file ?? null, evidence?.line ?? null);
+    const bridge = operation.transportBridge ?? null;
+    const handlerLabel = bridge ? `${bridge.method} ${bridge.path}` : operation.boundary.label;
     if (handlerLabel !== "Solid createResource") {
-      const handlerEvidence = queryLocationByName.get(handlerLabel) ?? null;
-      const handlerId = addSpecial("source", `handler:${cleanKey(handlerLabel)}`, handlerLabel, handlerEvidence?.file ?? null, handlerEvidence?.line ?? null);
+      const handlerEvidence = bridge
+        ? { file: bridge.handlerFile, line: bridge.handlerLine }
+        : queryLocationByName.get(handlerLabel) ?? null;
+      const handlerId = addSpecial("source", `handler:${bridge?.id ?? cleanKey(handlerLabel)}`, handlerLabel, handlerEvidence?.file ?? null, handlerEvidence?.line ?? null);
+      if (bridge) {
+        for (const sourceOperation of persistedOperationsByBridge.get(bridge.id) ?? []) {
+          const source = detail.sources.find((item) => item.evidenceId && sourceOperation.sourceExpressionIds.includes(item.evidenceId));
+          const sourceEvidence = evidenceById.get(sourceOperation.sourceExpressionIds[0]);
+          const sourceId = addSpecial("source", `persisted:${source?.key ?? sourceOperation.key}`, source?.label ?? sourceOperation.label, sourceEvidence?.file ?? null, sourceEvidence?.line ?? null);
+          addEdge(sourceId, handlerId, "loads", "proven");
+        }
+      }
       addEdge(handlerId, resourceId, "loads", "proven");
     }
     const owner = operation.owner
@@ -312,23 +380,13 @@ export function buildComponentTopology(detail: RouteDataDetail): ComponentTopolo
     if (owner) addEdge(resourceId, addContextComponent(owner), "loads", "proven");
   }
 
-  const rankedNodes = applyCountsAndDepth([...nodes.values()], [...edges.values()], componentId(routeEntry));
-  return {
-    nodes: rankedNodes,
-    edges: [...edges.values()].sort(edgeSort),
-    totals: {
-      components: rankedNodes.filter((node) => node.kind === "component").length,
-      contexts: rankedNodes.filter((node) => node.kind === "context").length,
-      sources: rankedNodes.filter((node) => node.kind === "source").length,
-      inferredEdges: [...edges.values()].filter((edge) => edge.confidence === "inferred").length,
-    },
-  };
+  return rebuildComponentTopology([...nodes.values()], [...edges.values()]);
 }
 
 type RouteContextNode = RouteDataDetail["context"]["nodes"][number];
 
-function baseNode(id: string, kind: ComponentTopologyNode["kind"], label: string, file: string | null, line: number | null, routeEntry: boolean): ComponentTopologyNode {
-  return { id, kind, label, file, line, routeEntry, incomingCount: 0, outgoingCount: 0, depth: 0 };
+function baseNode(id: string, kind: ComponentTopologyNode["kind"], label: string, file: string | null, line: number | null, routeEntry: boolean, sourceIdentity: string | null = null): ComponentTopologyNode {
+  return { id, kind, label, file, line, sourceIdentity, routeEntry, incomingCount: 0, outgoingCount: 0, depth: 0 };
 }
 
 function applyCountsAndDepth(nodes: ComponentTopologyNode[], edges: ComponentTopologyEdge[], routeEntryId: string) {
@@ -391,7 +449,11 @@ function assignDepth(nodes: ComponentTopologyNode[], edges: ComponentTopologyEdg
 
 function uniqueStrings(values: string[]) { return [...new Set(values)]; }
 
-function componentId(label: string) { return `component:${cleanKey(label || UNOWNED_COMPONENT)}`; }
+function componentId(label: string) { return `component:unresolved:${cleanKey(label || UNOWNED_COMPONENT)}`; }
+function sourceComponentId(sourceIdentity: string) { return `component-source:${sourceIdentity}`; }
+function isResolvedComponentRecord(node: RouteContextNode) {
+  return node.id.startsWith("rendered-component:") && !node.id.startsWith("rendered-component-occurrence:");
+}
 function cleanKey(value: string) { return value.trim().replace(/\s+/g, " ").toLowerCase(); }
 function nodeKindRank(kind: ComponentTopologyNode["kind"]) { return kind === "source" ? 0 : kind === "boundary" ? 1 : kind === "context" ? 2 : 3; }
 function edgeSort(left: ComponentTopologyEdge, right: ComponentTopologyEdge) { return lexical(left.from, right.from) || lexical(left.to, right.to) || lexical(left.kind, right.kind); }

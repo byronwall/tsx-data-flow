@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { AnalysisReport } from "../../types";
 import { routeDataDetailSchema, routeDataInventorySchema, type RouteDataDetail, type RouteDataInventory } from "../contracts";
 import { stableHash } from "../../analysis/route-discovery";
@@ -10,15 +11,24 @@ export function buildRouteDataInventory(report: AnalysisReport): RouteDataInvent
   for (const trajectory of report.routeData.trajectories) {
     if (!sourceKeysForTrajectory.has(trajectory.key)) sourceKeysForTrajectory.set(trajectory.key, []);
   }
-  const sources = [...sourceFacts.values()].map(({ routeKeys, ...source }) => ({ ...source, routeKeys: [...routeKeys].sort(lexical) })).sort((left, right) => lexical(left.label, right.label) || lexical(left.file, right.file));
+  const sources = [...sourceFacts.values()].map(({ routeKeys, consumerLabels, transportBridgeIds, ...source }) => ({
+    ...source,
+    routeKeys: [...routeKeys].sort(lexical),
+    consumerLabel: consumerLabels.size === 1 ? [...consumerLabels][0] : null,
+    consumerLabels: [...consumerLabels].sort(lexical),
+    transportBridgeIds: [...transportBridgeIds].sort(lexical),
+  })).sort((left, right) => lexical(left.label, right.label) || lexical(left.file, right.file));
   const routes = report.routeData.routes.map((route) => {
     const trajectories = report.routeData.trajectories.filter((trajectory) => trajectory.routeKey === route.key);
     const graph = routeGraph(report, route.key, route.sinkIds);
     const sourceMethodKeys = [...new Set(trajectories.flatMap((trajectory) => sourceKeysForTrajectory.get(trajectory.key) ?? []))];
+    const apiRouteKeys = [...new Set(trajectories.flatMap((trajectory) => trajectory.operationKeys
+      .map((key) => report.routeData.operations.find((operation) => operation.key === key)?.transportBridge?.apiRouteKey ?? null)
+      .filter((key): key is string => Boolean(key))))].sort(lexical);
     return {
       key: route.key, pathPattern: route.pathPattern, file: route.file, componentIdentityId: route.componentIdentityId,
       parameters: route.parameters, confidence: route.confidence, componentNames: route.componentNames,
-      routeKind: routeKind(route.file, route.pathPattern), sourceMethodKeys, apiRouteKeys: [],
+      routeKind: routeKind(route.file, route.pathPattern), sourceMethodKeys, apiRouteKeys,
       trajectoryCount: graph.totals.trajectories, completeTrajectoryCount: graph.totals.trajectories - graph.totals.unknownTrajectories,
       totalPathSteps: graph.trajectories.reduce((sum, item) => sum + item.stepKeys.length, 0), uniqueStepCount: graph.totals.nodes,
       substitutionStepCount: graph.trajectories.reduce((sum, item) => sum + item.substitutionStepCount, 0),
@@ -59,18 +69,11 @@ export function buildRouteDataDetail(report: AnalysisReport, routeKey: string, t
     const source = evidence.find((item) => item.id === operation?.sourceExpressionIds[0]);
     return { id, kind: "source" as const, label: value?.label ?? "Persisted value", file: source?.file ?? null, line: source?.line ?? null, group: "persistence" as const, parentId: null, role: "persistence" as const };
   });
-  const componentRecords = uniqueById([
-    ...analysisRoute.componentHierarchy.map((component) => ({ ...component, file: route.file })),
-    ...(analysisRoute.renderedComponents ?? []),
-  ]);
-  const componentNodes = componentRecords.map((component) => ({ id: component.id, kind: "component" as const, label: component.label, file: component.file, line: component.line, group: "route" as const, parentId: component.parentId, role: component.role }));
+  const componentContext = projectComponentContext(report, route.file, analysisRoute);
+  const componentNodes = componentContext.nodes;
   const terminalNodes = terminals.map((terminal) => ({ id: terminal.id, kind: "terminal" as const, label: terminal.label, file: terminal.file, line: terminal.line, group: "render" as const, parentId: null, role: "terminal" as const }));
   const nodes = [...sourceNodes, ...componentNodes, ...terminalNodes];
-  const hierarchyEdges = [
-    ...componentNodes.filter((node) => node.parentId).map((node) => ({ id: `context-edge:${node.id}`, from: node.parentId!, to: node.id, kind: "component" as const })),
-    ...(analysisRoute.renderedComponentEdges ?? []).map((edge) => ({ id: `rendered-component-edge:${edge.from}:${edge.to}`, from: edge.from, to: edge.to, kind: "component" as const })),
-  ];
-  const edges = hierarchyEdges;
+  const edges = componentContext.edges;
   const routeSources = inventory.sources.filter((source) => route.sourceMethodKeys.includes(source.key));
   const exhaustiveGraph = annotateGraphSources(
     routeGraph(report, analysisRoute.key, analysisRoute.sinkIds),
@@ -81,15 +84,108 @@ export function buildRouteDataDetail(report: AnalysisReport, routeKey: string, t
   return routeDataDetailSchema.parse({
     route, trajectory, operations, values, shapes: report.routeData.shapes.filter((shape) => shapeIds.has(shape.id)),
     evidence, terminals, sources: routeSources, context: { nodes, edges }, exhaustiveGraph,
+    hiddenComponentPolicy: report.meta.hiddenComponentPolicy,
   });
+}
+
+type ComponentContextOrigin = "hierarchy" | "rendered";
+type ComponentContextRecord = AnalysisReport["routeData"]["routes"][number]["componentHierarchy"][number] & { origin: ComponentContextOrigin };
+
+function projectComponentContext(
+  report: AnalysisReport,
+  routeFile: string,
+  route: AnalysisReport["routeData"]["routes"][number],
+) {
+  const hierarchyRecords: ComponentContextRecord[] = route.componentHierarchy.map((component) => ({
+    ...component,
+    file: routeFile,
+    origin: "hierarchy",
+  }));
+  const renderedRecords: ComponentContextRecord[] = (route.renderedComponents ?? []).map((component) => ({
+    ...component,
+    origin: "rendered",
+  }));
+  const records = [...hierarchyRecords, ...renderedRecords];
+  const canonicalIdByRecordId = new Map<string, string>();
+  const aliasesByCanonicalId = new Map<string, string[]>();
+  const routeDeclarationIds = new Map<string, string>();
+
+  for (const record of hierarchyRecords) {
+    if (record.role !== "route" || record.parentId !== null) continue;
+    routeDeclarationIds.set(componentDeclarationKey(report.meta.root, record), record.id);
+  }
+  for (const record of records) {
+    const canonicalId = record.origin === "rendered" && record.role === "route" && record.parentId === null
+      ? routeDeclarationIds.get(componentDeclarationKey(report.meta.root, record)) ?? record.id
+      : record.id;
+    canonicalIdByRecordId.set(record.id, canonicalId);
+    if (canonicalId !== record.id) {
+      aliasesByCanonicalId.set(canonicalId, [...(aliasesByCanonicalId.get(canonicalId) ?? []), record.id]);
+    }
+  }
+
+  const canonicalRecords = new Map<string, ComponentContextRecord>();
+  for (const record of records) {
+    const canonicalId = canonicalIdByRecordId.get(record.id) ?? record.id;
+    if (canonicalRecords.has(canonicalId)) continue;
+    canonicalRecords.set(canonicalId, record);
+  }
+  const nodes = [...canonicalRecords].map(([id, record]) => {
+    const aliases = aliasesByCanonicalId.get(id)?.sort(lexical) ?? [];
+    return {
+      id,
+      ...(aliases.length ? { aliases } : {}),
+      kind: "component" as const,
+      label: record.label,
+      file: record.file,
+      line: record.line,
+      group: "route" as const,
+      parentId: record.parentId ? canonicalIdByRecordId.get(record.parentId) ?? record.parentId : null,
+      role: record.role,
+    };
+  });
+
+  const edges = new Map<string, {
+    id: string;
+    from: string;
+    to: string;
+    kind: "component";
+    relationship: ComponentContextOrigin;
+  }>();
+  const addEdge = (fromId: string, toId: string, relationship: ComponentContextOrigin) => {
+    const from = canonicalIdByRecordId.get(fromId) ?? fromId;
+    const to = canonicalIdByRecordId.get(toId) ?? toId;
+    const key = `${relationship}:${from}:${to}`;
+    if (edges.has(key)) return;
+    edges.set(key, {
+      id: relationship === "hierarchy"
+        ? `context-edge:${to}`
+        : `rendered-component-edge:${from}:${to}`,
+      from,
+      to,
+      kind: "component",
+      relationship,
+    });
+  };
+  for (const record of hierarchyRecords) {
+    if (record.parentId) addEdge(record.parentId, record.id, "hierarchy");
+  }
+  for (const edge of route.renderedComponentEdges ?? []) addEdge(edge.from, edge.to, "rendered");
+  return { nodes, edges: [...edges.values()] };
+}
+
+function componentDeclarationKey(root: string, record: ComponentContextRecord) {
+  const file = path.relative(path.resolve(root), path.resolve(root, record.file)).replaceAll(path.sep, "/");
+  return `${file}:${record.line}:${record.label}`;
 }
 
 function collectSourceFacts(report: AnalysisReport) {
   const sourceFacts = new Map<string, {
     key: string; label: string; kind: "prisma" | "file" | "validated-json" | "other"; file: string; line: number;
-    consumerLabel: string | null; handoffProven: boolean;
+    consumerLabels: Set<string>; transportBridgeIds: Set<string>; handoffProven: boolean;
     typeName: string | null; typeText: string; shapeKind: "primitive" | "object" | "collection" | "union" | "opaque";
-    fields: Array<{ key: string; typeText: string; optional: boolean }>; totalFields: number; evidenceId: string; routeKeys: Set<string>;
+    fields: Array<{ key: string; typeText: string; optional: boolean }>; totalFields: number;
+    handoffFields: string[]; evidenceId: string; routeKeys: Set<string>;
   }>();
   const sourceKeysForTrajectory = new Map<string, string[]>();
   for (const trajectory of report.routeData.trajectories) {
@@ -99,34 +195,41 @@ function collectSourceFacts(report: AnalysisReport) {
       .filter((item): item is NonNullable<typeof item> => item?.semanticKind === "read");
     for (const operation of sourceOperations) {
       const sourceShape = report.routeData.shapes.find((item) => operation.outputShapeIds.includes(item.id));
-      const shape = operation.consumerHandoff
-        ? report.routeData.shapes.find((item) => item.id === operation.consumerHandoff?.outputShapeId) ?? sourceShape
-        : sourceShape;
       for (const evidenceId of operation.sourceExpressionIds) {
         const evidence = report.routeData.evidence.find((item) => item.id === evidenceId);
         if (!evidence) continue;
-        const identity = `${evidence.compilerIdentity ?? "source-call"}:${evidence.file}:${evidence.span.startLine}:${evidence.span.startColumn}:${evidence.span.endLine}:${evidence.span.endColumn}:${operation.boundary?.kind ?? ""}:${operation.boundary?.label ?? ""}`;
+        const identity = `${evidence.compilerIdentity ?? "source-call"}:${evidence.file}:${evidence.span.startLine}:${evidence.span.startColumn}:${evidence.span.endLine}:${evidence.span.endColumn}`;
         const key = `source-method:${stableHash(identity)}`;
         const expression = evidence.expression.toLowerCase();
         const kind = expression.includes("prisma.") ? "prisma" : expression.includes("readjsonfile") ? "validated-json" : /readfile/.test(expression) ? "file" : "other";
         const retained = sourceFacts.get(key);
         if (retained) {
           retained.routeKeys.add(trajectory.routeKey);
+          if (operation.boundary?.label) retained.consumerLabels.add(operation.boundary.label);
+          if (operation.transportBridge?.id) retained.transportBridgeIds.add(operation.transportBridge.id);
           retained.handoffProven ||= Boolean(operation.consumerHandoff);
-          if (retained.totalFields < (shape?.totalFields ?? 0)) {
-            retained.typeName = shape?.typeName ?? null;
-            retained.typeText = sourceDisplayType(shape, evidence.outputType);
-            retained.shapeKind = shape?.kind ?? "opaque";
-            retained.fields = shape?.fields ?? [];
-            retained.totalFields = shape?.totalFields ?? 0;
+          retained.handoffFields = [...new Set([
+            ...retained.handoffFields,
+            ...(operation.consumerHandoff?.fieldPaths ?? []),
+          ])].sort(lexical);
+          if (retained.totalFields < (sourceShape?.totalFields ?? 0)) {
+            retained.typeName = sourceShape?.typeName ?? null;
+            retained.typeText = sourceDisplayType(sourceShape, evidence.outputType);
+            retained.shapeKind = sourceShape?.kind ?? "opaque";
+            retained.fields = sourceShape?.fields ?? [];
+            retained.totalFields = sourceShape?.totalFields ?? 0;
             retained.evidenceId = evidence.id;
           }
         }
         else sourceFacts.set(key, {
           key, label: sourceLabel(evidence.compilerIdentity, operation.label), kind, file: evidence.file, line: evidence.line,
-          consumerLabel: operation.boundary?.label ?? null, handoffProven: Boolean(operation.consumerHandoff),
-          typeName: shape?.typeName ?? null, typeText: sourceDisplayType(shape, evidence.outputType), shapeKind: shape?.kind ?? "opaque",
-          fields: shape?.fields ?? [], totalFields: shape?.totalFields ?? 0, evidenceId: evidence.id, routeKeys: new Set([trajectory.routeKey]),
+          consumerLabels: new Set(operation.boundary?.label ? [operation.boundary.label] : []),
+          transportBridgeIds: new Set(operation.transportBridge?.id ? [operation.transportBridge.id] : []),
+          handoffProven: Boolean(operation.consumerHandoff),
+          typeName: sourceShape?.typeName ?? null, typeText: sourceDisplayType(sourceShape, evidence.outputType), shapeKind: sourceShape?.kind ?? "opaque",
+          fields: sourceShape?.fields ?? [], totalFields: sourceShape?.totalFields ?? 0,
+          handoffFields: operation.consumerHandoff?.fieldPaths ?? [],
+          evidenceId: evidence.id, routeKeys: new Set([trajectory.routeKey]),
         });
         keys.push(key);
       }
@@ -145,11 +248,17 @@ function annotateGraphSources(
   const nodes = new Map(graph.nodes.map((node) => [node.key, node]));
   const evidenceById = new Map(evidence.map((item) => [item.id, item]));
   const boundaryIdsByConsumer = new Map<string, Set<string>>();
+  const boundaryIdsByTransportBridge = new Map<string, Set<string>>();
   for (const operation of operations) {
     if (operation.boundary?.kind !== "resource" || !operation.boundaryId) continue;
     const retained = boundaryIdsByConsumer.get(operation.boundary.label) ?? new Set<string>();
     retained.add(operation.boundaryId);
     boundaryIdsByConsumer.set(operation.boundary.label, retained);
+    if (operation.transportBridge?.id) {
+      const bridgeBoundaries = boundaryIdsByTransportBridge.get(operation.transportBridge.id) ?? new Set<string>();
+      bridgeBoundaries.add(operation.boundaryId);
+      boundaryIdsByTransportBridge.set(operation.transportBridge.id, bridgeBoundaries);
+    }
   }
   const handoffSourceCountByConsumer = new Map<string, number>();
   for (const source of sources) {
@@ -164,18 +273,61 @@ function annotateGraphSources(
       .filter((source) => trajectory.stepKeys.some((key) => {
         const node = nodes.get(key);
         const sourceEvidence = evidenceById.get(source.evidenceId);
-        if (sourceEvidence && node?.file === sourceEvidence.file && node.line === sourceEvidence.line && node.column === sourceEvidence.column) return true;
-        if (!source.handoffProven || !source.consumerLabel || !node?.boundaryId) return false;
-        // A resource boundary proves which consumer returned, but it cannot
-        // distinguish which persisted input supplied a downstream path when
-        // that consumer aggregates several sources.
-        if (handoffSourceCountByConsumer.get(source.consumerLabel) !== 1) return false;
-        return boundaryIdsByConsumer.get(source.consumerLabel)?.has(node.boundaryId) ?? false;
+        return Boolean(
+          sourceEvidence
+          && node?.file === sourceEvidence.file
+          && node.line === sourceEvidence.line
+          && node.column === sourceEvidence.column
+        );
+      }) || (source.transportBridgeIds ?? []).some((bridgeId) => {
+        const boundaryIds = boundaryIdsByTransportBridge.get(bridgeId);
+        return Boolean(boundaryIds && trajectory.stepKeys.some((key) => {
+          const boundaryId = nodes.get(key)?.boundaryId;
+          return boundaryId ? boundaryIds.has(boundaryId) : false;
+        }));
       }))
       .map((source) => source.key);
-    return { ...trajectory, sourceMethodKeys };
+    const sourceHandoffKeys = sources
+      .filter((source) => {
+        if (!source.handoffProven) return false;
+        if ((source.transportBridgeIds ?? []).some((bridgeId) => {
+          const boundaryIds = boundaryIdsByTransportBridge.get(bridgeId);
+          return Boolean(boundaryIds && trajectory.stepKeys.some((key) => {
+            const boundaryId = nodes.get(key)?.boundaryId;
+            return boundaryId ? boundaryIds.has(boundaryId) : false;
+          }));
+        })) return true;
+        if (!source.consumerLabel) return false;
+        const consumerBoundaries = boundaryIdsByConsumer.get(source.consumerLabel);
+        if (!consumerBoundaries || !trajectory.stepKeys.some((key) => {
+          const boundaryId = nodes.get(key)?.boundaryId;
+          return boundaryId ? consumerBoundaries.has(boundaryId) : false;
+        })) return false;
+        const sourceCount = handoffSourceCountByConsumer.get(source.consumerLabel) ?? 0;
+        return sourceCount === 1 || handoffFieldsMatch(source.handoffFields, trajectory.stepKeys, nodes);
+      })
+      .map((source) => source.key);
+    return { ...trajectory, sourceMethodKeys, sourceHandoffKeys };
   });
   return { ...graph, trajectories };
+}
+
+function handoffFieldsMatch(
+  fieldPaths: string[],
+  stepKeys: string[],
+  nodes: Map<string, ReturnType<typeof buildExhaustiveRouteGraph>["nodes"][number]>,
+) {
+  const fields = new Set(fieldPaths.flatMap((field) => {
+    const topLevel = field.split(".")[0];
+    return topLevel && topLevel !== "*" ? [topLevel] : [];
+  }));
+  if (!fields.size) return false;
+  return stepKeys.some((key) => {
+    const node = nodes.get(key);
+    if (!node || !["property-read", "optional-read"].includes(node.kind)) return false;
+    const label = node.label.replace(/^props\./, "").split(".")[0];
+    return fields.has(label);
+  });
 }
 
 function lexical(left: string, right: string) { return left < right ? -1 : left > right ? 1 : 0; }

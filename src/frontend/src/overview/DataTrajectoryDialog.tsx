@@ -73,7 +73,7 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
       <span>{detail.loading ? displayedDetail() ? `Loading ${selectedRoute()?.pathPattern ?? "route"}… The current view remains available.` : `Loading ${selectedRoute()?.pathPattern ?? "selected route"} trajectory…` : displayedDetail() ? "Trajectory ready" : ""}</span>
     </div>
     <Show when={displayedDetail()} fallback={<Show when={!detail.loading} fallback={<div class="trajectory-loading"><strong>Loading trajectory</strong><p>Requesting route detail and assembling its ordered operations…</p></div>}><div class="trajectory-empty-state"><h3>No trajectory is available</h3><p>{selectedRoute()?.omissions.join(" ") || detail.error?.message || "Choose another route or inspect the route inventory."}</p><Show when={detail.error}><button type="button" onClick={() => void refetch()}>Try again</button></Show></div></Show>}>
-      {(data) => <RouteTrajectoryWorkspace detail={data()} state={state()} onState={update} onCloseTransient={setTransientOpen} />}
+      {(data) => <RouteTrajectoryWorkspace detail={data()} generation={props.generation} state={state()} onState={update} onCloseTransient={setTransientOpen} />}
     </Show>
     </Show>
   </div>;

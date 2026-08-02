@@ -13,15 +13,22 @@ import {
   getFunctionReturnExpressions,
   identifierResolvesTo,
   resolveCatalogFn,
+  resolvedAccessorFor,
 } from "./trace-support";
 import { formatExpression } from "../reports/format-helpers";
 import {
   addOperationTrace,
+  annotateTraceContext,
   sourceTrace,
 } from "./source-trace-records";
 import { traceAccessor, traceIdentifier } from "./source-trace-identifiers";
 import { resolveBoundObjectProperty } from "./source-trace-object-bindings";
 import { materializeBoundaryRootTraces, traceBoundAccessorCall } from "./source-trace-bound-accessors";
+import {
+  contextMemberName,
+  contextIdentityForHookCall,
+  contextProviderIdentityForObject,
+} from "./semantic-context";
 
 export function traceExpression(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.Expression, context: TraceContext): TraceResult {
   const text = expression.getText();
@@ -138,6 +145,8 @@ function tracePropertyAccess(ts: typeof TypeScript, checker: TypeScript.TypeChec
         context,
       );
   const kind = expression.questionDotToken ? "optional-read" : "property-read";
+  const resourceBoundaryId = resourceBoundaryForTrace(receiverTrace, graph);
+  const contextOptions = contextOptionsForTrace(receiverTrace, expression.name.text);
   const operation = addOperationTrace(
     ts,
     graph,
@@ -146,6 +155,8 @@ function tracePropertyAccess(ts: typeof TypeScript, checker: TypeScript.TypeChec
     [receiverTrace],
     {
       label: expression.name.text,
+      boundaryId: resourceBoundaryId ?? undefined,
+      ...contextOptions,
     },
   );
   // Refine the first concrete property read off a bare parameter into a
@@ -232,7 +243,20 @@ function traceCrossFileCall(ts: typeof TypeScript, checker: TypeScript.TypeCheck
           callerContext: context,
         });
       } else {
-        const argumentTrace = traceExpression(ts, checker, subGraph, argument, context);
+        const callbackReturns = (ts.isArrowFunction(argument) || ts.isFunctionExpression(argument))
+          && argument.parameters.length === 0
+          ? getFunctionReturnExpressions(ts, argument)
+          : [];
+        const argumentTrace = callbackReturns.length
+          ? addOperationTrace(
+              ts,
+              subGraph,
+              "solid-accessor",
+              argument,
+              callbackReturns.map((value) => traceExpression(ts, checker, subGraph, value, context)),
+              { label: `${parameter.name}() callback` },
+            )
+          : traceExpression(ts, checker, subGraph, argument, context);
         paramBindings.set(parameter.name, argumentTrace);
         if (argumentTrace.steps.some((step) =>
           step.graphNodeId && subGraph.nodeById.get(step.graphNodeId)?.boundaryId?.startsWith("resource:")
@@ -244,7 +268,7 @@ function traceCrossFileCall(ts: typeof TypeScript, checker: TypeScript.TypeCheck
   const defFile = record.fnNode.getSourceFile();
   const bodyTraces = returned.map((returnExpression) =>
     traceExpression(ts, checker, subGraph, returnExpression, {
-      ...getFileContextCached(ts, defFile, crossFile),
+        ...getFileContextCached(ts, defFile, crossFile, record.checker ?? checker),
       sourceFile: defFile,
       root: context.root,
       stack: new Set(),
@@ -285,6 +309,22 @@ function traceCrossFileCall(ts: typeof TypeScript, checker: TypeScript.TypeCheck
 
 function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.CallExpression, context: TraceContext): TraceResult {
   const callee = getCallName(ts, expression);
+  const contextIdentity = contextIdentityForHookCall(ts, checker, context.root, expression);
+  if (contextIdentity) {
+    return addOperationTrace(ts, graph, "call", expression, [], {
+      label: callee || "context hook",
+      contextIdentity,
+    });
+  }
+  const parameterBinding = ts.isIdentifier(expression.expression)
+    && context.parameters.has(callee)
+    ? context.paramBindings?.get(callee)
+    : null;
+  if (parameterBinding) {
+    return addOperationTrace(ts, graph, "solid-accessor", expression, [parameterBinding], {
+      label: `${callee}() bound accessor`,
+    });
+  }
   // A control-flow render callback may receive its data as an accessor that is
   // *invoked* in the body: `<Show when={x}>{(value) => <div>{value()}</div>}`
   // (keyed Show) or `<Index each={xs}>{(item) => item().id}`. Calling the
@@ -369,7 +409,9 @@ function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChec
     });
   }
 
-  const accessor = context.accessors.get(callee);
+  const accessor = ts.isIdentifier(expression.expression)
+    ? resolvedAccessorFor(ts, checker, expression.expression, context.accessors)
+    : null;
   if (
     ts.isIdentifier(expression.expression) &&
     accessor &&
@@ -406,16 +448,13 @@ function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChec
   if (crossFileTrace) return crossFileTrace;
 
   const traces: TraceResult[] = [];
+  let callContext: { contextIdentity?: string; contextMember?: string | null } = {};
+  let callBoundaryId: string | undefined;
   if (ts.isPropertyAccessExpression(expression.expression)) {
-    traces.push(
-      traceExpression(
-        ts,
-        checker,
-        graph,
-        expression.expression.expression,
-        context,
-      ),
-    );
+    const receiverTrace = traceExpression(ts, checker, graph, expression.expression.expression, context);
+    traces.push(receiverTrace);
+    callContext = contextOptionsForTrace(receiverTrace, expression.expression.name.text);
+    callBoundaryId = resourceBoundaryForTrace(receiverTrace, graph) ?? undefined;
   }
   traces.push(
     ...expression.arguments.map((argument, index) =>
@@ -446,6 +485,8 @@ function traceCallExpression(ts: typeof TypeScript, checker: TypeScript.TypeChec
     label: callee || "call",
     unknown,
     propName: callableComponentProp(ts, checker, expression),
+    boundaryId: callBoundaryId,
+    ...callContext,
     // The full call expression as written — for a method (`x.toUpperCase()`) or
     // an imported helper, this is the only thing that conveys what it does.
     detail: formatExpression(expression.getText(), 60),
@@ -498,20 +539,40 @@ function callableComponentProp(ts: typeof TypeScript, checker: TypeScript.TypeCh
 
 function traceObjectLiteral(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.ObjectLiteralExpression, context: TraceContext): TraceResult {
   const traces: TraceResult[] = [];
+  const providerIdentity = contextProviderIdentityForObject(ts, checker, context.root, expression);
   for (const property of expression.properties) {
+    const member = providerIdentity ? contextMemberName(ts, property) : null;
+    let trace: TraceResult | null = null;
     if (ts.isSpreadAssignment(property)) {
-      traces.push(
-        traceExpression(ts, checker, graph, property.expression, context),
-      );
+      trace = traceExpression(ts, checker, graph, property.expression, context);
     } else if (ts.isPropertyAssignment(property)) {
-      traces.push(
-        traceExpression(ts, checker, graph, property.initializer, context),
-      );
+      trace = traceObjectProperty(ts, checker, graph, property.initializer, context, member);
     } else if (ts.isShorthandPropertyAssignment(property)) {
-      traces.push(traceExpression(ts, checker, graph, property.name, context));
+      trace = traceExpression(ts, checker, graph, property.name, context);
     }
+    if (trace && providerIdentity && member) traces.push(annotateTraceContext(trace, graph, { identity: providerIdentity, member }));
+    else if (trace) traces.push(trace);
   }
   return addOperationTrace(ts, graph, "object-pack", expression, traces);
+}
+
+function traceObjectProperty(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  graph: AnalysisGraph,
+  expression: TypeScript.Expression,
+  context: TraceContext,
+  member: string | null,
+) {
+  if ((ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) && expression.parameters.length === 0) {
+    const returned = getFunctionReturnExpressions(ts, expression);
+    if (returned.length) {
+      return addOperationTrace(ts, graph, "solid-accessor", expression, returned.map((value) => traceExpression(ts, checker, graph, value, context)), {
+        label: `${member ?? "value"}() callback`,
+      });
+    }
+  }
+  return traceExpression(ts, checker, graph, expression, context);
 }
 
 function traceBinaryExpression(ts: typeof TypeScript, checker: TypeScript.TypeChecker, graph: AnalysisGraph, expression: TypeScript.BinaryExpression, context: TraceContext) {
@@ -531,4 +592,23 @@ function traceBinaryExpression(ts: typeof TypeScript, checker: TypeScript.TypeCh
     );
   }
   return trace;
+}
+
+function resourceBoundaryForTrace(trace: TraceResult, graph: AnalysisGraph) {
+  const ids = [...new Set(trace.steps
+    .map((step) => step.graphNodeId ? graph.nodeById.get(step.graphNodeId)?.boundaryId : undefined)
+    .filter((id): id is string => Boolean(id?.startsWith("resource:"))))];
+  return ids.length === 1 ? ids[0] : null;
+}
+
+function contextOptionsForTrace(trace: TraceResult, member: string) {
+  const lineages = trace.contextLineages ?? [];
+  const identities = [...new Set(lineages.map((lineage) => lineage.identity))];
+  if (identities.length !== 1) return {};
+  const members = [...new Set(lineages.filter((lineage) => lineage.identity === identities[0]).map((lineage) => lineage.member))];
+  if (members.length > 1) return {};
+  return {
+    contextIdentity: identities[0],
+    contextMember: members[0] ?? member,
+  };
 }

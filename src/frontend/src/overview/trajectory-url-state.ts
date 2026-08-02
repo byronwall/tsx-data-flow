@@ -2,12 +2,13 @@ import type { RouteDataInventory } from "../../../api/contracts";
 import type { RouteAtlasKind, RouteAtlasSort } from "./route-atlas-model";
 
 export type TrajectoryView = "context" | "trajectory";
+export type GenericUiMode = "hidden" | "all";
 export type TrajectoryUrlState = {
   open: boolean; route: string | null; flow: string | null; item: string | null; expand: string[]; isolate: boolean;
   mode: "atlas" | "detail"; kind: RouteAtlasKind; sort: RouteAtlasSort; source: string | null;
-  filter: string | null; view: TrajectoryView; pan: { x: number; y: number } | null; zoom: number | null; packet: string | null;
+  filter: string | null; view: TrajectoryView; genericUi: GenericUiMode | null; pan: { x: number; y: number } | null; zoom: number | null; packet: string | null;
 };
-export const EMPTY_TRAJECTORY_STATE: TrajectoryUrlState = { open: false, route: null, flow: null, item: null, expand: [], isolate: false, mode: "detail", kind: "pages", sort: "steps", source: null, filter: null, view: "context", pan: null, zoom: null, packet: null };
+export const EMPTY_TRAJECTORY_STATE: TrajectoryUrlState = { open: false, route: null, flow: null, item: null, expand: [], isolate: false, mode: "detail", kind: "pages", sort: "steps", source: null, filter: null, view: "context", genericUi: null, pan: null, zoom: null, packet: null };
 
 export function parseTrajectoryUrlState(search: string | URLSearchParams): TrajectoryUrlState {
   const params = typeof search === "string" ? new URLSearchParams(search) : search;
@@ -21,6 +22,7 @@ export function parseTrajectoryUrlState(search: string | URLSearchParams): Traje
     sort: (["paths", "unique", "substitutions", "gaps"].includes(params.get("routeSort") ?? "") ? params.get("routeSort") : "steps") as RouteAtlasSort,
     source: clean(params.get("sourceMethod")),
     filter: clean(params.get("filter")), view: params.get("view") === "trajectory" ? "trajectory" : "context",
+    genericUi: params.get("genericUi") === "hidden" || params.get("genericUi") === "all" ? params.get("genericUi") as GenericUiMode : null,
     pan: pan?.length === 2 && pan.every(Number.isFinite) ? { x: pan[0], y: pan[1] } : null,
     zoom: Number.isFinite(zoom) && zoom > 0 ? zoom : null, packet: clean(params.get("packet")),
   };
@@ -28,7 +30,7 @@ export function parseTrajectoryUrlState(search: string | URLSearchParams): Traje
 
 export function serializeTrajectoryUrlState(state: TrajectoryUrlState, current = "") {
   const params = new URLSearchParams(current);
-  for (const key of ["viz", "route", "flow", "item", "expand", "isolate", "trajectoryMode", "routeKind", "routeSort", "sourceMethod", "filter", "view", "pan", "zoom", "packet"]) params.delete(key);
+  for (const key of ["viz", "route", "flow", "item", "expand", "isolate", "trajectoryMode", "routeKind", "routeSort", "sourceMethod", "filter", "view", "genericUi", "pan", "zoom", "packet"]) params.delete(key);
   if (state.open) params.set("viz", "trajectory");
   if (state.route) params.set("route", state.route);
   if (state.flow) params.set("flow", state.flow);
@@ -41,6 +43,7 @@ export function serializeTrajectoryUrlState(state: TrajectoryUrlState, current =
   if (state.source) params.set("sourceMethod", state.source);
   if (state.filter) params.set("filter", state.filter);
   params.set("view", state.view);
+  if (state.genericUi) params.set("genericUi", state.genericUi);
   if (state.pan) params.set("pan", `${round(state.pan.x)},${round(state.pan.y)}`);
   if (state.zoom) params.set("zoom", String(round(state.zoom)));
   if (state.packet) params.set("packet", state.packet);

@@ -1,5 +1,6 @@
 import path from "node:path";
 import type * as TypeScript from "typescript";
+import { isCanonicalSolidCall } from "./solid-symbols";
 
 export function resourceBoundaryIdentity(root: string, declaration: TypeScript.VariableDeclaration) {
   const file = path.relative(path.resolve(root), path.resolve(declaration.getSourceFile().fileName)).replaceAll(path.sep, "/");
@@ -12,7 +13,7 @@ export function resolveResourceFetcher(
   root: string,
   node: TypeScript.CallExpression,
 ) {
-  const target = resourceFetcherTargets(ts, node).filter((expression) =>
+  const target = resourceFetcherTargets(ts, checker, node).filter((expression) =>
     resolvedDeclarations(ts, checker, expression).some((declaration) => firstParty(root, declaration)),
   );
   const declarations = new Map<string, TypeScript.Declaration>();
@@ -28,6 +29,14 @@ export function resolveResourceFetcher(
   const resolved = [...declarations.values()];
   const outputs = resolved.flatMap((declaration) => declarationReturnExpressions(ts, declaration));
   return label ? { label, declarations: resolved, output: outputs.length === 1 ? outputs[0] : null } : null;
+}
+
+export function isCanonicalCreateResourceCall(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  node: TypeScript.CallExpression,
+) {
+  return isCanonicalSolidCall(ts, checker, node, "createResource");
 }
 
 export function returnedConsumerValue(
@@ -50,8 +59,56 @@ export function returnedConsumerValue(
   ) ?? null;
 }
 
-function resourceFetcherTargets(ts: typeof TypeScript, node: TypeScript.CallExpression) {
-  const fetcher = callExpressionName(ts, node) === "createResource" && node.arguments.length >= 2 ? node.arguments[1] : node.arguments[0];
+export function returnedConsumerFieldPaths(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  source: TypeScript.CallExpression,
+  consumerReturn: TypeScript.Expression,
+) {
+  const binding = constBindingFor(ts, source);
+  const dependsOnSource = (expression: TypeScript.Expression) =>
+    containsNode(expression, source)
+    || Boolean(binding && expressionDependsOnDeclaration(
+      ts,
+      checker,
+      expression,
+      binding,
+      new Set(),
+    ));
+  const collect = (expression: TypeScript.Expression, prefix: string): string[] => {
+    const unwrapped = unwrapExpression(ts, expression);
+    if (!ts.isObjectLiteralExpression(unwrapped)) {
+      if (!dependsOnSource(unwrapped)) return [];
+      return [prefix || "*"];
+    }
+    return unwrapped.properties.flatMap((property): string[] => {
+      if (ts.isPropertyAssignment(property)) {
+        const name = propertyName(ts, property.name);
+        if (!name) return [];
+        const path = prefix ? `${prefix}.${name}` : name;
+        const nested = collect(property.initializer, path);
+        return nested.length ? nested : dependsOnSource(property.initializer) ? [path] : [];
+      }
+      if (ts.isShorthandPropertyAssignment(property)) {
+        const path = prefix ? `${prefix}.${property.name.text}` : property.name.text;
+        return dependsOnSource(property.name) ? [path] : [];
+      }
+      if (ts.isSpreadAssignment(property) && dependsOnSource(property.expression)) {
+        return prefix ? [`${prefix}.*`] : ["*"];
+      }
+      return [];
+    });
+  };
+  return [...new Set(collect(consumerReturn, ""))].sort();
+}
+
+function propertyName(ts: typeof TypeScript, name: TypeScript.PropertyName) {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  return null;
+}
+
+function resourceFetcherTargets(ts: typeof TypeScript, checker: TypeScript.TypeChecker, node: TypeScript.CallExpression) {
+  const fetcher = isCanonicalCreateResourceCall(ts, checker, node) && node.arguments.length >= 2 ? node.arguments[1] : node.arguments[0];
   if (!fetcher) return [];
   const returned = ts.isIdentifier(fetcher) || ts.isPropertyAccessExpression(fetcher)
     ? [fetcher]
@@ -170,6 +227,17 @@ function constBindingFor(ts: typeof TypeScript, source: TypeScript.Expression) {
         || current.parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
       )
     )
+    || (
+      ts.isPropertyAccessExpression(current.parent)
+      && current.parent.expression === current
+      && isValuePreservingPromiseMethod(current.parent.name.text)
+    )
+    || (
+      ts.isPropertyAccessExpression(current)
+      && isValuePreservingPromiseMethod(current.name.text)
+      && ts.isCallExpression(current.parent)
+      && current.parent.expression === current
+    )
   ) {
     current = current.parent;
   }
@@ -177,6 +245,10 @@ function constBindingFor(ts: typeof TypeScript, source: TypeScript.Expression) {
   if (!ts.isVariableDeclaration(declaration) || declaration.initializer !== current || !ts.isIdentifier(declaration.name)) return null;
   const list = declaration.parent;
   return ts.isVariableDeclarationList(list) && Boolean(list.flags & ts.NodeFlags.Const) ? declaration : null;
+}
+
+function isValuePreservingPromiseMethod(name: string) {
+  return name === "catch" || name === "finally";
 }
 
 function expressionDependsOnDeclaration(

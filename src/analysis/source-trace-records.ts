@@ -1,5 +1,5 @@
 import type * as TypeScript from "typescript";
-import type { AnalysisGraph, DefenseRecord, RepresentationStep, RootInfo, TraceResult, TraceStep } from "../types";
+import type { AnalysisGraph, ContextTraceLineage, DefenseRecord, RepresentationStep, RootInfo, TraceResult, TraceStep } from "../types";
 import path from "node:path";
 import { addEdge, addNode, locationOf, spanOf } from "./graph";
 import { expressionIdFor } from "./identity";
@@ -12,7 +12,7 @@ import { collapse, focusSnippet, formatExpression } from "../reports/format-help
 // per render sub-path that crosses it.
 const REPRESENTATION_KINDS = new Set(["alias", "object-pack", "object-spread"]);
 
-interface OperationTraceOptions { label?: string; detail?: string | null; type?: string; unknown?: boolean; boundaryId?: string; propName?: string }
+interface OperationTraceOptions { label?: string; detail?: string | null; type?: string; unknown?: boolean; boundaryId?: string; propName?: string; contextIdentity?: string; contextMember?: string | null }
 export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, kind: string, expression: TypeScript.Expression, traces: Array<TraceResult | null>, options: OperationTraceOptions = {}): TraceResult {
   const explicit = options.label != null;
   const fullText = collapse(expression.getText());
@@ -21,6 +21,11 @@ export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, k
   // ambiguous (a helper/method/memo/alias name says nothing about its body).
   // Defaults to the full expression text for calls; explicit callers override.
   const detail = options.detail ?? null;
+  const contextLineages = options.contextIdentity
+    ? [{ identity: options.contextIdentity, member: options.contextMember ?? null }]
+    : uniqueContextLineages(traces.flatMap((trace) => trace?.contextLineages ?? []));
+  const contextIdentities = [...new Set(contextLineages.map((lineage) => lineage.identity))];
+  const contextMember = contextLineages.length === 1 ? contextLineages[0].member : null;
   // File + line of this hop, threaded onto the step so the path can show where
   // each piece of logic lives (same file vs. scattered) and an agent can grep it.
   const sourceFile = expression.getSourceFile();
@@ -35,6 +40,8 @@ export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, k
     type: safeTypeText(options.type),
     boundaryId: options.boundaryId,
     propName: options.propName,
+    ...(contextIdentities.length === 1 ? { contextIdentity: contextIdentities[0] } : {}),
+    ...(contextMember ? { contextMember } : {}),
   });
   const edges: string[] = [];
   const rootInfos: RootInfo[] = [];
@@ -123,7 +130,25 @@ export function addOperationTrace(ts: typeof TypeScript, graph: AnalysisGraph, k
     // The collapsed full text of this expression, so a parent operation can mark
     // exactly which sub-expression the traced value flowed in through.
     headText: fullText,
+    contextLineages,
   };
+}
+
+export function annotateTraceContext(
+  trace: TraceResult,
+  graph: AnalysisGraph,
+  lineage: ContextTraceLineage,
+) {
+  const node = graph.nodeById.get(trace.lastNodeId);
+  if (node) {
+    node.contextIdentity = lineage.identity;
+    node.contextMember = lineage.member ?? undefined;
+  }
+  return { ...trace, contextLineages: [lineage] };
+}
+
+function uniqueContextLineages(lineages: ContextTraceLineage[]) {
+  return [...new Map(lineages.map((lineage) => [`${lineage.identity}:${lineage.member ?? ""}`, lineage])).values()];
 }
 
 // Deduplicate packs by their source-location key, keeping the first label seen.

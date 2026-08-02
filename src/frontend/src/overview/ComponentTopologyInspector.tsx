@@ -1,5 +1,8 @@
 import { For, Show } from "solid-js";
+import type { RouteDataDetail } from "../../../api/contracts";
+import { HiddenComponentsPane } from "./HiddenComponentsPane";
 import type { ComponentTopologyEdge, ComponentTopologyLayoutNode, ComponentTopologyNode } from "./component-topology-model";
+import type { HiddenComponentProjection } from "./hidden-component-projection";
 import type { TopologyNodeSourceTouch, TopologySourceLens } from "./topology-source-lens";
 
 type Connection = { edge: ComponentTopologyEdge; neighbor: ComponentTopologyNode; outgoing: boolean };
@@ -11,20 +14,40 @@ export function ComponentTopologyInspector(props: {
   allSourceTouches: TopologyNodeSourceTouch[];
   connections: Connection[];
   selectionCopied: boolean;
+  policy: RouteDataDetail["hiddenComponentPolicy"];
+  topology: Parameters<typeof HiddenComponentsPane>[0]["topology"];
+  hiddenProjection: HiddenComponentProjection;
+  allHiddenProjection: HiddenComponentProjection;
+  genericUiMode: "hidden" | "all";
+  revealedComponentIds: ReadonlySet<string>;
+  inspectorMode: "selection" | "hidden";
   onSelect: (id: string) => void;
   onSource: (key: string | null) => void;
   onCopy: () => void;
+  onInspectorMode: (mode: "selection" | "hidden") => void;
+  onReveal: (componentId: string) => void;
+  onHideAgain: (componentId: string) => void;
+  onShowAll: () => void;
 }) {
   return <aside class="component-topology-inspector" aria-label="Topology selection inspector">
-    <strong>{props.selectedNode ? "Selection" : "Selected data source"}</strong>
-    <Show when={props.selectedNode} fallback={<Show when={props.lens.source} fallback={<p>Select a data source to show its proven paths through the topology.</p>}>{(source) => <>
+    <nav class="component-topology-inspector-tabs" role="tablist" aria-label="Topology inspector mode">
+      <button type="button" role="tab" aria-selected={props.inspectorMode === "selection"} onClick={() => props.onInspectorMode("selection")}>Selection</button>
+      <button type="button" role="tab" aria-selected={props.inspectorMode === "hidden"} onClick={() => props.onInspectorMode("hidden")}>Hidden · {props.hiddenProjection.hidden.length}</button>
+    </nav>
+    <Show when={props.inspectorMode === "hidden"} fallback={<div class="component-topology-inspector-selection">
+      <strong>{props.selectedNode ? "Selection" : "Selected data source"}</strong>
+      <Show when={props.selectedNode} fallback={<Show when={props.lens.source} fallback={<p>Select a data source to show its proven paths through the topology.</p>}>{(source) => <>
       <code class="component-topology-inspector-name">{source().label}</code>
-      <span>{source().kind} · {source().totalFields} shape fields · {props.lens.pathCount} paths · {props.lens.resources.length} resources · {props.lens.transforms.length} retained source transforms</span>
+      <span>{source().kind} · {source().totalFields} shape fields · {props.lens.pathCount || props.lens.handoffPathCount} paths · {props.lens.resources.length} resources · {props.lens.transforms.length} retained source transforms</span>
       <code class="component-topology-inspector-location">{source().file}:{source().line}</code>
       <div class="component-topology-source-fields"><For each={source().fields}>{(field) => <span><code>{field.key}</code><small>{field.typeText}</small></span>}</For></div>
+      <Show when={source().handoffFields.length}><div class="component-topology-node-fields">
+        <strong>Consumer return fields influenced</strong>
+        <For each={source().handoffFields}>{(field) => <span><code>{field}</code></span>}</For>
+      </div></Show>
       <StageInventory lens={props.lens} onSelect={props.onSelect} />
-      <p>{props.lens.matchMode === "exact" ? "Highlighted components occur on paths rooted at this source." : props.lens.matchMode === "resource" ? "The exact fetcher and resource owner are highlighted; the returned render handoff is not proven." : "This source is consumed on the route, but no rendered handoff was proven."}</p>
-    </>}</Show>}>{(node) => <>
+      <p>{props.lens.matchMode === "exact" ? "Highlighted components occur on paths rooted at this source." : props.lens.matchMode === "handoff" ? props.lens.handoffFieldProven ? "The selected persisted source is proven into the labeled consumer return fields. Blue paths are limited to reads of those fields; later renames and derived context-model members still require their own lineage mapping." : "The persisted value is proven into this consumer. Blue paths continue from its resource return, but field-level ownership inside the aggregated result is not proven." : props.lens.matchMode === "resource" ? "The exact fetcher and resource owner are highlighted; the returned render handoff is not proven." : "This source is consumed on the route, but no rendered handoff was proven."}</p>
+      </>}</Show>}>{(node) => <>
       <code class="component-topology-inspector-name">{node().label}</code>
       <span>{props.selectedLayoutNode?.terminal ? "Leaf in component view" : kindLabel(node().kind)} · {node().incomingCount} in · {node().outgoingCount} out</span>
       <Show when={node().file}><code class="component-topology-inspector-location">{node().file}{node().line ? `:${node().line}` : ""}</code></Show>
@@ -37,9 +60,11 @@ export function ComponentTopologyInspector(props: {
               <Show when={touch.fields.length} fallback={<small>{touch.source
                 ? touch.mode === "path"
                   ? "Proven data path; field identity not established"
+                  : touch.mode === "handoff"
+                    ? "Proven into the resource consumer; downstream field identity is not established"
                   : "Source available; only resource consumption is proven"
                 : "Resource load only; no persisted source is available to activate"}</small>}>
-                <small>{touch.fields.length} returned fields available at this resource owner</small>
+                <small>{touch.fields.length} persisted source fields available before the consumer handoff</small>
                 <span><For each={touch.fields}>{(field) => <code>{field.key}</code>}</For></span>
               </Show>
             </span>
@@ -69,7 +94,20 @@ export function ComponentTopologyInspector(props: {
         <span>Debug context</span>
         <button type="button" onClick={props.onCopy}>{props.selectionCopied ? "Copied JSON" : "Copy JSON"}</button>
       </footer>
-    </>}</Show>
+      </>}</Show>
+    </div>}>
+      <HiddenComponentsPane
+        policy={props.policy}
+        topology={props.topology}
+        projection={props.hiddenProjection}
+        allMatches={props.allHiddenProjection}
+        mode={props.genericUiMode}
+        revealedComponentIds={props.revealedComponentIds}
+        onReveal={props.onReveal}
+        onHideAgain={props.onHideAgain}
+        onShowAll={props.onShowAll}
+      />
+    </Show>
   </aside>;
 }
 

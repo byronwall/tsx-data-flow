@@ -4,11 +4,14 @@ import type { Sink, SourceSpan } from "../types";
 import { collectReachableFiles, discoverRoute, stableHash } from "./route-discovery";
 import {
   declarationIdentity,
+  isCanonicalCreateResourceCall,
   resolveResourceFetcher,
-  resolvedDeclarations,
   resourceBoundaryIdentity,
+  returnedConsumerFieldPaths,
   returnedConsumerValue,
 } from "./route-data-resource";
+import { collectCalledDeclarations } from "./route-data-consumers";
+import { collectResourceHttpBridges, httpBridgeLabel, type RouteDataHttpBridge, type RouteDataHttpBridgeResolution } from "./route-data-http";
 
 export type RouteEvidenceConfidence = "high" | "medium" | "low";
 export type RouteDataEffect = "preserve" | "project" | "augment" | "derive" | "select" | "group" | "normalize" | "opaque" | "render";
@@ -79,7 +82,8 @@ export interface DataOperation {
   sourceExpressionIds: string[];
   boundary: RouteDataBoundary | null;
   boundaryId: string | null;
-  consumerHandoff: { kind: "return"; outputShapeId: string } | null;
+  transportBridge: RouteDataHttpBridge | null;
+  consumerHandoff: { kind: "return"; outputShapeId: string; fieldPaths: string[] } | null;
   owner: RouteDataOperationOwner | null;
   confidence: RouteEvidenceConfidence;
   completeness: "complete" | "partial" | "opaque";
@@ -123,6 +127,9 @@ type Candidate = {
   fieldEffects: RouteDataFieldEffect[];
   consumedByRoute: boolean;
   consumerReturn: TypeScript.Expression | null;
+  consumerFieldPaths: string[];
+  shapeNode: TypeScript.Node | null;
+  transportBridge: RouteDataHttpBridge | null;
 };
 
 const TRAJECTORY_OPERATION_CAP = 32;
@@ -153,7 +160,18 @@ export function analyzeRouteData(
     route.renderedComponents = renderedComponents.records;
     route.renderedComponentEdges = renderedComponents.edges;
     const called = collectCalledDeclarations(ts, checker, program, root, routeFile, renderedComponents.records);
-    const candidates = collectCandidates(ts, checker, program, root, reachable, called.declarations, called.resourceOutputs);
+    const httpBridges = collectResourceHttpBridges(ts, checker, program, root, reachable, routes, filesByName);
+    const candidates = collectCandidates(
+      ts,
+      checker,
+      program,
+      root,
+      reachable,
+      called.declarations,
+      called.resourceOutputs,
+      called.consumerFields,
+      httpBridges,
+    );
     const routeSinks = sinks.filter((sink) => sinkBelongsToRenderedComponent(sink, route, renderedComponents.keys));
     // Finding IDs are intentionally human-readable line/column labels and can
     // repeat across files. Route membership must use the file-qualified key or
@@ -168,8 +186,9 @@ export function analyzeRouteData(
       const candidate = group[0];
       const sources = group.map((item) => evidenceFor(ts, checker, root, item));
       const source = sources[0];
-      const outputType = safeTypeAt(checker, candidate.node);
-      const shape = shapeFor(checker, candidate.node);
+      const shapeNode = candidate.shapeNode ?? candidate.node;
+      const outputType = safeTypeAt(checker, shapeNode);
+      const shape = shapeFor(checker, shapeNode);
       const consumerIdentity = candidate.boundary ? `${candidate.boundary.kind}:${candidate.boundary.label}` : "";
       const shapeId = `shape:${stableHash(`${route.key}:${candidate.kind}:${source.file}:${source.span.startLine}:${source.span.startColumn}:${consumerIdentity}:${outputType}`)}`;
       const consumerShape = candidate.consumerReturn ? shapeFor(checker, candidate.consumerReturn) : null;
@@ -177,7 +196,7 @@ export function analyzeRouteData(
         ? `shape:${stableHash(`${route.key}:${candidate.kind}:consumer-return:${source.file}:${source.span.startLine}:${source.span.startColumn}:${consumerIdentity}:${consumerShape.typeText}`)}`
         : null;
       const valueId = `value:${stableHash(`${route.key}:${candidate.label}:${source.file}:${source.line}:${source.column}:${consumerIdentity}`)}`;
-      const operationKey = `operation:${stableHash(`${route.key}:${candidate.kind}:${source.file}:${source.span.startLine}:${source.span.startColumn}:${source.compilerIdentity ?? ""}:${consumerIdentity}`)}`;
+      const operationKey = `operation:${stableHash(`${route.key}:${candidate.kind}:${source.file}:${source.span.startLine}:${source.span.startColumn}:${source.compilerIdentity ?? ""}:${consumerIdentity}:${candidate.transportBridge?.id ?? ""}`)}`;
       const operation: DataOperation = {
         key: operationKey,
         semanticKind: candidate.kind,
@@ -193,7 +212,12 @@ export function analyzeRouteData(
         boundaryId: candidate.boundary?.kind === "resource" && ts.isVariableDeclaration(candidate.node.parent)
           ? resourceBoundaryIdentity(root, candidate.node.parent)
           : null,
-        consumerHandoff: consumerShapeId ? { kind: "return", outputShapeId: consumerShapeId } : null,
+        transportBridge: candidate.transportBridge,
+        consumerHandoff: consumerShapeId ? {
+          kind: "return",
+          outputShapeId: consumerShapeId,
+          fieldPaths: candidate.consumerFieldPaths,
+        } : null,
         owner: candidate.boundary?.kind === "resource" ? operationOwner(ts, root, candidate) : null,
         confidence: candidate.confidence,
         completeness: candidate.kind === "opaque" ? "opaque" : candidate.confidence === "low" ? "partial" : "complete",
@@ -253,6 +277,8 @@ function collectCandidates(
   reachable: Set<string>,
   calledDeclarations: Map<string, Set<string>>,
   resourceOutputs: Map<string, TypeScript.Expression>,
+  consumerFields: Map<string, Map<string, string[]>>,
+  httpBridges: Map<TypeScript.CallExpression, RouteDataHttpBridgeResolution>,
 ) {
   const candidates: Candidate[] = [];
   for (const absolute of reachable) {
@@ -269,7 +295,14 @@ function collectCandidates(
         if (text === "JSON.parse" || text.endsWith(".JSON.parse")) candidates.push(candidate(1, "parse", "normalize", "Parse persisted JSON text", node, sourceFile, null, "high"));
         if (/\.parse$/.test(text) && text !== "JSON.parse" && (/(?:schema|Schema)\.parse$/.test(text) || full.includes("z."))) candidates.push(candidate(2, "validate", "normalize", `Validate ${humanize(text.replace(/\.parse$/, "").split(".").at(-1) ?? "schema")} shape`, node, sourceFile, null, "high"));
         if (text === "query" || text.endsWith(".query")) candidates.push(candidate(4, "boundary", "preserve", `Define ${queryName(ts, node)} query`, node, sourceFile, { kind: "query", label: "SolidStart query" }, "high"));
-        if (["createResource", "createAsync"].includes(callExpressionName(ts, node))) candidates.push(candidate(5, "boundary", "preserve", `Load ${resourceName(ts, node)} resource`, node, sourceFile, { kind: "resource", label: resolveResourceFetcher(ts, checker, root, node)?.label ?? `Solid ${callExpressionName(ts, node)}` }, "high"));
+        if (isCanonicalCreateResourceCall(ts, checker, node) || callExpressionName(ts, node) === "createAsync") {
+          const bridge = httpBridges.get(node);
+          const resource = candidate(5, "boundary", "preserve", `Load ${resourceName(ts, node)} resource`, node, sourceFile, { kind: "resource", label: resolveResourceFetcher(ts, checker, root, node)?.label ?? `Solid ${callExpressionName(ts, node)}` }, "high");
+          resource.transportBridge = bridge?.bridge ?? null;
+          resource.consumerReturn = bridge?.resourceReturn ?? null;
+          resource.consumerFieldPaths = bridge?.resourceReturn ? ["*"] : [];
+          candidates.push(resource);
+        }
         if (/\.(?:map|flatMap)$/.test(text)) candidates.push(candidate(3, "map", "project", `Map ${collectionName(text)} elements`, node, sourceFile, null, "medium"));
         if (/\.filter$/.test(text) && /\bday/i.test(full)) candidates.push(candidate(8, "group", "group", "Group values by day", node, sourceFile, null, "high"));
         else if (/\.(?:filter|find)$/.test(text) || /(?:select|resolve|loaded|visible)/i.test(text)) candidates.push(candidate(6, "select", "select", `Select ${humanize(callName(text))} value`, node, sourceFile, null, "medium"));
@@ -290,10 +323,22 @@ function collectCandidates(
     };
     visit(sourceFile);
   }
+  for (const bridge of httpBridges.values()) {
+    for (const source of bridge.persistedSources) {
+      const sourceCandidate = candidate(0, "read", "preserve", "Read persisted source through API", source.call, source.call.getSourceFile(), { kind: "call", label: httpBridgeLabel(bridge.bridge) }, "high");
+      sourceCandidate.consumedByRoute = true;
+      sourceCandidate.consumerReturn = (source.shapeNode ?? source.call) as TypeScript.Expression;
+      sourceCandidate.consumerFieldPaths = ["*"];
+      sourceCandidate.shapeNode = source.shapeNode;
+      sourceCandidate.transportBridge = bridge.bridge;
+      candidates.push(sourceCandidate);
+    }
+  }
   return candidates.flatMap((item) => {
-    if (item.kind !== "read") return [item];
+    if (item.kind !== "read" || item.transportBridge) return [item];
     const owner = callableOwner(ts, item.node);
-    const resourceLabels = owner ? [...(calledDeclarations.get(declarationIdentity(owner)) ?? [])].sort(lexical) : [];
+    const ownerIdentity = owner ? declarationIdentity(owner) : null;
+    const resourceLabels = ownerIdentity ? [...(calledDeclarations.get(ownerIdentity) ?? [])].sort(lexical) : [];
     const queryOwnerLabel = owner && insideBoundaryCall(ts, item.node, "query") ? declarationName(ts, owner) : null;
     const consumerLabels = resourceLabels.length ? resourceLabels : queryOwnerLabel ? [queryOwnerLabel] : [];
     const sourceReturn = ts.isCallExpression(item.node) ? returnedConsumerValue(ts, checker, item.node) : null;
@@ -307,6 +352,12 @@ function collectCandidates(
       ...shared,
       boundary: { kind: insideBoundaryCall(ts, item.node, "query") ? "query" : "call", label },
       consumerReturn: sourceReturn ? resourceOutputs.get(label) ?? sourceReturn : null,
+      consumerFieldPaths: [
+        ...(ownerIdentity ? consumerFields.get(ownerIdentity)?.get(label) ?? [] : []),
+        ...(sourceReturn && ts.isCallExpression(item.node)
+          ? returnedConsumerFieldPaths(ts, checker, item.node, sourceReturn)
+          : []),
+      ].filter((field, index, all) => all.indexOf(field) === index).sort(lexical),
     }));
   });
 }
@@ -316,7 +367,14 @@ function chooseCandidates(ts: typeof TypeScript, candidates: Candidate[], sinks:
   const hasPrismaRead = candidates.some((item) => item.kind === "read" && item.label.includes("Prisma"));
   const consumedReadCount = candidates.filter((item) => item.stage === 0 && item.consumedByRoute).length;
   const selectionCap = (hasPrismaRead ? TRAJECTORY_OPERATION_CAP : TRAJECTORY_OPERATION_CAP + 3) + consumedReadCount * 2;
-  const relevantCandidates = (hasPrismaRead ? candidates.filter((item) => item.kind !== "parse" && item.kind !== "validate") : candidates).filter((item) => item.kind !== "render" && item.boundary?.kind !== "component");
+  const relevantCandidates = (hasPrismaRead
+    ? candidates.filter((item) => item.kind !== "parse" && item.kind !== "validate")
+    : candidates
+  ).filter((item) =>
+    item.kind !== "render"
+    && item.boundary?.kind !== "component"
+    && !dominatedRawRead(item, candidates)
+  );
   const push = (items: Candidate[], max: number) => {
     for (const item of items.sort((left, right) => candidateRelevance(right, route) - candidateRelevance(left, route) || confidenceRank(right.confidence) - confidenceRank(left.confidence) || candidateSort(left, right))) {
       if (selected.length >= selectionCap || selected.filter((value) => value.stage === item.stage).length >= max) break;
@@ -326,7 +384,7 @@ function chooseCandidates(ts: typeof TypeScript, candidates: Candidate[], sinks:
   };
   const stageCaps: Array<[number, number]> = hasPrismaRead
     ? [[0, consumedReadCount], [1, 0], [2, 0], [3, 1], [4, 8], [5, 8], [6, 2], [7, 2], [8, 2], [9, 2], [9.5, 1], [10, 1]]
-    : [[0, 4], [1, 1], [2, 1], [3, 1], [4, 1], [5, 3], [6, 2], [7, 1], [8, 0], [9, 0], [9.5, 1], [10, 1]];
+    : [[0, Math.max(4, consumedReadCount)], [1, 1], [2, 1], [3, 1], [4, 1], [5, 3], [6, 2], [7, 1], [8, 0], [9, 0], [9.5, 1], [10, 1]];
   for (const [stage, max] of stageCaps) {
     const stageCandidates = relevantCandidates.filter((item) => item.stage === stage);
     if (stage !== 0) { push(stageCandidates, max); continue; }
@@ -347,6 +405,19 @@ function chooseCandidates(ts: typeof TypeScript, candidates: Candidate[], sinks:
   return selected.sort(candidateSort).slice(0, selectionCap);
 }
 
+function dominatedRawRead(candidate: Candidate, candidates: Candidate[]) {
+  if (candidate.kind !== "read" || candidate.label !== "Read persisted file contents") return false;
+  const semanticReads = candidates.filter((item) =>
+    item.kind === "read"
+    && item.label.startsWith("Read and validate ")
+    && item.boundary?.label === candidate.boundary?.label
+  );
+  if (!semanticReads.length) return false;
+  return candidate.consumerFieldPaths.length === 0 || candidate.consumerFieldPaths.every((field) =>
+    semanticReads.some((item) => item.consumerFieldPaths.includes(field))
+  );
+}
+
 function candidateSelectionIdentity(item: Candidate) {
   if (item.kind !== "read") return `${item.stage}:${item.label}`;
   return `${item.stage}:${item.sourceFile.fileName}:${item.node.getStart(item.sourceFile)}:${item.boundary?.kind ?? ""}:${item.boundary?.label ?? ""}`;
@@ -361,78 +432,6 @@ function renderCandidateForSink(ts: typeof TypeScript, root: string, route: Rout
   const target = sink.renderContext.component ?? sink.renderContext.tag ?? "JSX";
   const attribute = sink.renderContext.attribute ?? sink.label;
   return candidate(10, "render", "render", `Render ${attribute} in ${target}`, node, sourceFile, null, sink.confidence >= .75 ? "high" : "medium");
-}
-
-function collectCalledDeclarations(
-  ts: typeof TypeScript,
-  checker: TypeScript.TypeChecker,
-  program: TypeScript.Program,
-  root: string,
-  routeFile: TypeScript.SourceFile,
-  renderedComponents: RouteComponentRecord[],
-) {
-  const called = new Map<string, Set<string>>();
-  const resourceOutputs = new Map<string, TypeScript.Expression>();
-  const queue: Array<{ declaration: TypeScript.Node; resourceLabels: string[] }> = [];
-  const enqueueRecord = (entry: typeof queue[number], priority: boolean) => priority ? queue.unshift(entry) : queue.push(entry);
-  const enqueue = (declaration: TypeScript.Declaration | TypeScript.SourceFile | null, resourceLabels: string[] = [], priority = false) => {
-    if (!declaration || !inside(root, declaration.getSourceFile().fileName)) return;
-    const key = declarationIdentity(declaration);
-    const retained = called.get(key);
-    if (!retained) {
-      called.set(key, new Set(resourceLabels));
-      const entry = { declaration, resourceLabels };
-      enqueueRecord(entry, priority);
-      return;
-    }
-    const added = resourceLabels.filter((label) => !retained.has(label));
-    if (!added.length) return;
-    added.forEach((label) => retained.add(label));
-    const entry = { declaration, resourceLabels: [...retained] };
-    enqueueRecord(entry, priority);
-  };
-  for (const component of renderedComponents) {
-    const sourceFile = program.getSourceFile(path.normalize(path.resolve(root, component.file)));
-    enqueue(sourceFile ? namedDeclarationAt(ts, sourceFile, component.label, component.line) : null);
-  }
-  if (!queue.length) enqueue(routeFile);
-  while (queue.length && called.size < 10_000) {
-    const current = queue.shift()!;
-    const visit = (node: TypeScript.Node) => {
-      if (ts.isCallExpression(node)) {
-        const returnedResourceLabels = returnedConsumerValue(ts, checker, node)
-          ? current.resourceLabels
-          : [];
-        for (const declaration of resolvedDeclarations(ts, checker, node.expression)) {
-          enqueue(declaration, returnedResourceLabels, returnedResourceLabels.length > 0);
-        }
-        if (["createResource", "createAsync"].includes(callExpressionName(ts, node))) {
-          const fetcher = resolveResourceFetcher(ts, checker, root, node);
-          if (fetcher) {
-            if (fetcher.output) resourceOutputs.set(fetcher.label, fetcher.output);
-            for (const declaration of fetcher.declarations) enqueue(declaration, [fetcher.label], true);
-          }
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(current.declaration);
-  }
-  return { declarations: called, resourceOutputs };
-}
-
-function namedDeclarationAt(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, name: string, line: number) {
-  let sameLine: TypeScript.Declaration | null = null;
-  const visit = (node: TypeScript.Node) => {
-    if (declarationName(ts, node) === name) {
-      const declaration = node as TypeScript.Declaration;
-      const point = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-      if (point.line + 1 === line) sameLine = declaration;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sourceFile);
-  return sameLine;
 }
 
 function callableOwner(ts: typeof TypeScript, node: TypeScript.Node): TypeScript.Declaration | null {
@@ -474,7 +473,7 @@ function nodeForSpan(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, s
   return best;
 }
 
-function candidate(stage: number, kind: Candidate["kind"], effect: RouteDataEffect, label: string, node: TypeScript.Node, sourceFile: TypeScript.SourceFile, boundary: RouteDataBoundary | null, confidence: RouteEvidenceConfidence, fieldEffects: RouteDataFieldEffect[] = []): Candidate { return { stage, kind, effect, label, node, sourceFile, boundary, confidence, fieldEffects, consumedByRoute: kind !== "read", consumerReturn: null }; }
+function candidate(stage: number, kind: Candidate["kind"], effect: RouteDataEffect, label: string, node: TypeScript.Node, sourceFile: TypeScript.SourceFile, boundary: RouteDataBoundary | null, confidence: RouteEvidenceConfidence, fieldEffects: RouteDataFieldEffect[] = []): Candidate { return { stage, kind, effect, label, node, sourceFile, boundary, confidence, fieldEffects, consumedByRoute: kind !== "read", consumerReturn: null, consumerFieldPaths: [], shapeNode: null, transportBridge: null }; }
 function operationOwner(ts: typeof TypeScript, root: string, candidate: Candidate): RouteDataOperationOwner | null {
   const owner = callableOwner(ts, candidate.node); const label = owner ? declarationName(ts, owner) : null;
   if (!owner || !label) return null; const sourceFile = owner.getSourceFile(); const point = sourceFile.getLineAndCharacterOfPosition(owner.getStart(sourceFile));

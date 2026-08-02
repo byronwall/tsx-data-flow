@@ -6,7 +6,13 @@ const PATH_BUDGET = 100_000;
 const DEPTH_BUDGET = 120;
 const UNOWNED_COMPONENT = "Unowned / external";
 type RetainedNode = { key: string; label: string; snippet: string | null; kind: string; file: string | null; line: number | null; column: number | null; boundaryId: string | null; pathCount: number; minimumDepth: number; componentCounts: Map<string, number> };
-type RawPath = { sink: Sink; graphNodeIds: string[]; pathEdges: GraphEdge[]; nodeComponents: string[] };
+type RawPath = {
+  sink: Sink;
+  graphNodeIds: string[];
+  pathEdges: GraphEdge[];
+  nodeComponents: string[];
+  lineageMember: string | null;
+};
 
 export function buildExhaustiveRouteGraph(graph: ReportGraph, sinks: Sink[]) {
   const sourceNodes = new Map(graph.nodes.map((node) => [node.id, node]));
@@ -19,7 +25,7 @@ export function buildExhaustiveRouteGraph(graph: ReportGraph, sinks: Sink[]) {
   const capturePath = (sink: Sink, graphNodeIds: string[], pathEdges: GraphEdge[]) => {
     if (rawPaths.length >= PATH_BUDGET) { truncated = true; return; }
     const component = componentFor(sink);
-    rawPaths.push({ sink, graphNodeIds, pathEdges, nodeComponents: graphNodeIds.map(() => component) });
+    rawPaths.push({ sink, graphNodeIds, pathEdges, nodeComponents: graphNodeIds.map(() => component), lineageMember: contextMemberForPath(sink, graphNodeIds, sourceNodes) });
   };
   const walk = (sink: Sink, current: string, reverseNodes: string[], reverseEdges: GraphEdge[], visited: Set<string>) => {
     if (rawPaths.length >= PATH_BUDGET) { truncated = true; return; }
@@ -127,29 +133,43 @@ function stitchComponentProps(paths: RawPath[], nodes: Map<string, GraphNode>, o
 }
 
 function stitchContextProviders(paths: RawPath[], nodes: Map<string, GraphNode>, onBudget: () => void) {
-  const consumersByChannel = new Map<string, number[]>();
-  const producersByChannel = new Map<string, number[]>();
+  const consumersByChannelMember = new Map<string, number[]>();
+  const producersByChannelMember = new Map<string, number[]>();
   const providerSitesByChannel = new Map<string, Set<string>>();
   paths.forEach((path, index) => {
-    const consumed = consumedContext(path, nodes);
-    if (consumed) consumersByChannel.set(consumed, [...(consumersByChannel.get(consumed) ?? []), index]);
     const produced = producedContext(path.sink);
+    const consumed = consumedContext(path, nodes);
+    const consumedMember = consumed ? consumedContextMember(path, nodes) : null;
+    if (consumed && consumedMember && !produced) {
+      const key = contextChannelMemberKey(consumed, consumedMember);
+      consumersByChannelMember.set(key, [...(consumersByChannelMember.get(key) ?? []), index]);
+    }
     if (!produced) return;
-    producersByChannel.set(produced.channel, [...(producersByChannel.get(produced.channel) ?? []), index]);
-    const sites = providerSitesByChannel.get(produced.channel) ?? new Set<string>();
+    if (!path.lineageMember) return;
+    const key = contextChannelMemberKey(produced.identity, path.lineageMember);
+    producersByChannelMember.set(key, [...(producersByChannelMember.get(key) ?? []), index]);
+    const sites = providerSitesByChannel.get(produced.identity) ?? new Set<string>();
     sites.add(`${path.sink.file}:${path.sink.line}:${path.sink.column}`);
-    providerSitesByChannel.set(produced.channel, sites);
+    providerSitesByChannel.set(produced.identity, sites);
   });
-  const unambiguousProducers = new Map([...producersByChannel].filter(([channel]) => providerSitesByChannel.get(channel)?.size === 1));
+  const unambiguousProducers = new Map([...producersByChannelMember].filter(([key]) => {
+    const identity = key.split("\u0000", 1)[0];
+    return providerSitesByChannel.get(identity)?.size === 1;
+  }));
   const hasDownstream = paths.map((path) => {
     const produced = producedContext(path.sink);
-    return produced ? (consumersByChannel.get(produced.channel)?.length ?? 0) > 0 && unambiguousProducers.has(produced.channel) : false;
+    const key = produced && path.lineageMember
+      ? contextChannelMemberKey(produced.identity, path.lineageMember)
+      : null;
+    return key ? (consumersByChannelMember.get(key)?.length ?? 0) > 0 && unambiguousProducers.has(key) : false;
   });
   const result: RawPath[] = [];
   const expandUpstream = (consumerIndex: number, visited: Set<number>): RawPath[] => {
     const consumer = paths[consumerIndex];
     const channel = consumedContext(consumer, nodes);
-    const producers = channel ? unambiguousProducers.get(channel) ?? [] : [];
+    const member = channel ? consumedContextMember(consumer, nodes) : null;
+    const key = channel && member ? contextChannelMemberKey(channel, member) : null;
+    const producers = key ? unambiguousProducers.get(key) ?? [] : [];
     const eligible = producers.filter((index) => index !== consumerIndex && !visited.has(index));
     if (!eligible.length) return [consumer];
     const expanded: RawPath[] = [];
@@ -157,6 +177,7 @@ function stitchContextProviders(paths: RawPath[], nodes: Map<string, GraphNode>,
       const nextVisited = new Set(visited); nextVisited.add(producerIndex);
       for (const upstream of expandUpstream(producerIndex, nextVisited)) {
         if (expanded.length + result.length >= PATH_BUDGET) { onBudget(); return expanded; }
+        if (!contextMemberMatches(upstream, consumer, nodes)) continue;
         expanded.push(joinPaths(upstream, consumer, channel!, "context"));
       }
     }
@@ -179,34 +200,60 @@ function joinPaths(producer: RawPath, consumer: RawPath, label: string, kind = "
     graphNodeIds: [...producer.graphNodeIds, ...consumer.graphNodeIds],
     pathEdges: [...producer.pathEdges, bridge, ...consumer.pathEdges],
     nodeComponents: [...producer.nodeComponents, ...consumer.nodeComponents],
+    lineageMember: producer.lineageMember
+      ?? consumer.lineageMember
+      ?? (kind === "component-prop" ? normalizeLineageMember(label) : null),
   };
 }
 
 function producedContext(sink: Sink) {
-  if (sink.renderContext?.attribute !== "value") return null;
-  const tag = sink.renderContext.tag?.trim();
-  if (!tag) return null;
-  const providerBase = tag.endsWith(".Provider")
-    ? tag.slice(0, -".Provider".length).split(".").at(-1) ?? ""
-    : tag.endsWith("Provider")
-      ? tag.slice(0, -"Provider".length)
-      : "";
-  const channel = normalizeContextChannel(providerBase);
-  return channel ? { channel } : null;
+  return sink.contextIdentity ? { identity: sink.contextIdentity } : null;
 }
 
 function consumedContext(path: RawPath, nodes: Map<string, GraphNode>) {
-  for (const id of path.graphNodeIds.slice(0, 6)) {
+  const identities = new Set<string>();
+  for (const id of path.graphNodeIds) {
     const node = nodes.get(id);
-    if (node?.kind !== "call" || !/^use[A-Z]/.test(node.label)) continue;
-    const channel = normalizeContextChannel(node.label.slice("use".length));
-    if (channel) return channel;
+    if (node?.contextIdentity) identities.add(node.contextIdentity);
   }
-  return null;
+  return identities.size === 1 ? [...identities][0] : null;
 }
 
-function normalizeContextChannel(value: string) {
-  return value.replace(/Context$/, "").replace(/[^A-Za-z0-9_$]/g, "").toLowerCase();
+function contextMemberMatches(
+  producer: RawPath,
+  consumer: RawPath,
+  nodes: Map<string, GraphNode>,
+) {
+  // A provider-to-provider hop relays the selected member into another context.
+  // Its downstream consumers perform the member-specific check.
+  if (!producer.lineageMember) return false;
+  if (producedContext(consumer.sink)) return true;
+  const members = consumedContextMembers(consumer, nodes);
+  return members.size === 1 && members.has(producer.lineageMember);
+}
+
+function consumedContextMembers(path: RawPath, nodes: Map<string, GraphNode>) {
+  const members = new Set<string>();
+  const identity = consumedContext(path, nodes);
+  if (!identity) return members;
+  for (const id of path.graphNodeIds) {
+    const node = nodes.get(id);
+    if (node?.contextIdentity === identity && node.contextMember) members.add(node.contextMember);
+  }
+  return members;
+}
+
+function consumedContextMember(path: RawPath, nodes: Map<string, GraphNode>) {
+  const members = consumedContextMembers(path, nodes);
+  return members.size === 1 ? [...members][0] : null;
+}
+
+function contextChannelMemberKey(identity: string, member: string) {
+  return `${identity}\u0000${member}`;
+}
+
+function normalizeLineageMember(value: string) {
+  return value.replace(/^props\./, "").split(".").at(-1) ?? value;
 }
 
 function producedProp(sink: Sink) {
@@ -257,6 +304,16 @@ function compactBarePropRoot(path: RawPath, nodes: Map<string, GraphNode>) {
 
 function callablePropName(node: GraphNode | undefined) {
   return node?.kind === "call" ? node.propName ?? null : null;
+}
+
+function contextMemberForPath(sink: Sink, graphNodeIds: string[], nodes: Map<string, GraphNode>) {
+  const identity = sink.contextIdentity;
+  if (!identity) return null;
+  const members = [...new Set(graphNodeIds
+    .map((id) => nodes.get(id))
+    .filter((node): node is GraphNode => Boolean(node?.contextIdentity === identity && node.contextMember))
+    .map((node) => node.contextMember!))];
+  return members.length === 1 ? members[0] : null;
 }
 
 function componentPropEdge(from: string, to: string, prop: string): GraphEdge {

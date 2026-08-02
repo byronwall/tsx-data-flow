@@ -26,6 +26,12 @@ export function projectSourceGraph(graph: Graph, sourceMethodKey: string | null)
   return projectGraph(graph, exact);
 }
 
+export function projectSourceHandoffGraph(graph: Graph, sourceMethodKey: string | null): Graph {
+  if (!sourceMethodKey) return graph;
+  const handoffs = graph.trajectories.filter((trajectory) => trajectory.sourceHandoffKeys.includes(sourceMethodKey));
+  return projectGraph(graph, handoffs);
+}
+
 function projectGraph(graph: Graph, trajectories: Graph["trajectories"]): Graph {
   const depthByKey = new Map<string, number>();
   const pathCountByKey = new Map<string, number>();

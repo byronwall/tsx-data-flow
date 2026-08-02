@@ -12,24 +12,25 @@ export function componentTopologyIsolation(
   selectedNodeId: string | null,
   lens: TopologySourceLens,
 ): ComponentTopologyIsolation | null {
-  const sourceActive = Boolean(lens.pathCount || lens.resources.length);
+  const sourceActive = Boolean(lens.pathCount || lens.handoffPathCount || lens.resources.length);
   if (!selectedNodeId && !sourceActive) return null;
 
-  const sourceNodeIds = new Set([...lens.componentIds, ...lens.resourceParticipantIds]);
+  const sourceNodeIds = new Set([...lens.componentIds, ...lens.handoffComponentIds, ...lens.resourceParticipantIds]);
   const nodeIds = new Set(topology.nodes
     .filter((node) => (!selectedNodeId || selection.nodeIds.has(node.id))
       && (!sourceActive || sourceNodeIds.has(node.id)))
     .map((node) => node.id));
   if (!nodeIds.size) return null;
 
+  const handoffIds = new Set([...lens.handoffComponentIds, ...lens.resourceParticipantIds]);
   const edgeIds = new Set(topology.edges
     .filter((edge) => {
       if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) return false;
       if (selectedNodeId && !selection.edgeIds.has(edge.id)) return false;
       if (!sourceActive) return true;
       const onSourcePath = lens.componentIds.has(edge.from) && lens.componentIds.has(edge.to);
-      const onResourcePath = lens.resourceParticipantIds.has(edge.from) && lens.resourceParticipantIds.has(edge.to);
-      return onSourcePath || onResourcePath;
+      const onConsumerHandoff = handoffIds.has(edge.from) && handoffIds.has(edge.to);
+      return onSourcePath || onConsumerHandoff;
     })
     .map((edge) => edge.id));
   return { nodeIds, edgeIds };

@@ -15,6 +15,7 @@ import { shouldAnalyzeFile } from "../project/files";
 import { buildIdentityIndex, type IdentityIndex } from "./identity";
 import type { AnalyzerProgressReporter } from "./progress";
 import { analyzeRouteData } from "./route-data";
+import { loadHiddenComponentPolicy } from "../project/hidden-component-config";
 
 export function buildReport(
   ts: typeof TypeScript,
@@ -26,6 +27,10 @@ export function buildReport(
   reportProgress?: AnalyzerProgressReporter,
 ) {
   const checker = program.getTypeChecker();
+  // Configuration is validated during analysis, but it only travels to the
+  // route-data DTO. The analyzer graph and every Markdown projection remain
+  // complete and policy-independent.
+  const hiddenComponentPolicy = loadHiddenComponentPolicy(args.root);
   const graph = createGraph(args.root);
   const sourceFiles = program
     .getSourceFiles()
@@ -175,6 +180,7 @@ export function buildReport(
       typescript: typescriptModulePath,
       scope: args.scope,
       file: args.file.length ? args.file : null,
+      hiddenComponentPolicy,
     },
     graph: {
       nodes: graph.nodes,

@@ -3,11 +3,12 @@ import type { AccessorRecord, AnalyzerArgs, CatalogFunction, CrossFileState } fr
 import path from "node:path";
 import { locationOf } from "./graph";
 import { collapse } from "../reports/format-helpers";
+import { isCanonicalCreateResourceCall } from "./route-data-resource";
 
-export function buildFileContext(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile) {
+export function buildFileContext(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, checker?: TypeScript.TypeChecker) {
   const variables = new Map<string, TypeScript.VariableDeclaration>();
   const functions = new Map<string, TypeScript.FunctionLikeDeclaration>();
-  const accessors = new Map<string, AccessorRecord>();
+  const accessors = new Map<string, AccessorRecord[]>();
   const parameters = new Set<string>();
   // Local names bound by an import. A value imported from another module is a
   // genuine source boundary (the value enters the component from outside), not
@@ -20,7 +21,7 @@ export function buildFileContext(ts: typeof TypeScript, sourceFile: TypeScript.S
       registerImports(ts, node, imports);
     }
     if (ts.isVariableDeclaration(node)) {
-      registerVariable(ts, node, variables, accessors);
+      registerVariable(ts, node, variables, accessors, checker);
     }
     if (ts.isFunctionDeclaration(node) && node.name) {
       functions.set(node.name.text, node);
@@ -50,10 +51,10 @@ export function buildFileContext(ts: typeof TypeScript, sourceFile: TypeScript.S
 
 // Per-file contexts are reused across every sink and every cross-file descent,
 // so build each at most once.
-export function getFileContextCached(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, crossFile: CrossFileState) {
+export function getFileContextCached(ts: typeof TypeScript, sourceFile: TypeScript.SourceFile, crossFile: CrossFileState, checker?: TypeScript.TypeChecker) {
   let context = crossFile.contextCache.get(sourceFile);
   if (!context) {
-    context = buildFileContext(ts, sourceFile);
+    context = buildFileContext(ts, sourceFile, checker);
     crossFile.contextCache.set(sourceFile, context);
   }
   return context;
@@ -179,29 +180,41 @@ function registerImports(ts: typeof TypeScript, node: TypeScript.ImportDeclarati
   }
 }
 
-function registerVariable(ts: typeof TypeScript, node: TypeScript.VariableDeclaration, variables: Map<string, TypeScript.VariableDeclaration>, accessors: Map<string, AccessorRecord>) {
+export function resolvedAccessorFor(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  identifier: TypeScript.Identifier,
+  accessors: Map<string, AccessorRecord[]>,
+) {
+  const symbol = checker.getSymbolAtLocation(identifier);
+  if (!symbol) return null;
+  return (accessors.get(identifier.text) ?? []).find((accessor) => identifierResolvesTo(ts, checker, identifier, accessor.declaration)) ?? null;
+}
+
+function registerVariable(ts: typeof TypeScript, node: TypeScript.VariableDeclaration, variables: Map<string, TypeScript.VariableDeclaration>, accessors: Map<string, AccessorRecord[]>, checker?: TypeScript.TypeChecker) {
   if (ts.isIdentifier(node.name)) {
     variables.set(node.name.text, node);
     if (node.initializer && (isCallNamed(ts, node.initializer, "createMemo") || isCallNamed(ts, node.initializer, "createAsync"))) {
-      accessors.set(node.name.text, { kind: isCallNamed(ts, node.initializer, "createMemo") ? "memo" : "resource", declaration: node });
+      addAccessor(accessors, node.name.text, { kind: isCallNamed(ts, node.initializer, "createMemo") ? "memo" : "resource", declaration: node });
     }
     return;
   }
 
   if (ts.isArrayBindingPattern(node.name) && node.initializer) {
     const callName = getCallName(ts, node.initializer);
+    const canonicalResource = checker && ts.isCallExpression(node.initializer) && isCanonicalCreateResourceCall(ts, checker, node.initializer);
     node.name.elements.forEach((element, index: number) => {
-      if (ts.isBindingElement(element) && ts.isIdentifier(element.name)) {
-        variables.set(element.name.text, node);
-        if (
-          index === 0 &&
-          ["createSignal", "createResource"].includes(callName)
-        ) {
-          accessors.set(element.name.text, {
-            kind: callName === "createSignal" ? "signal" : "resource",
-            declaration: node,
-          });
-        }
+      if (!ts.isBindingElement(element)) return;
+      const names = bindingIdentifiers(ts, element.name);
+      names.forEach((name) => variables.set(name.text, node));
+      if (index === 0 && ts.isIdentifier(element.name) && (callName === "createSignal" || canonicalResource)) {
+        addAccessor(accessors, element.name.text, {
+          kind: callName === "createSignal" ? "signal" : "resource",
+          declaration: node,
+          slot: 0,
+        });
+      } else if (index === 1 && canonicalResource) {
+        names.forEach((name) => addAccessor(accessors, name.text, { kind: "action", declaration: node, slot: 1 }));
       }
     });
     return;
@@ -209,11 +222,18 @@ function registerVariable(ts: typeof TypeScript, node: TypeScript.VariableDeclar
 
   if (ts.isObjectBindingPattern(node.name)) {
     node.name.elements.forEach((element) => {
-      if (ts.isBindingElement(element) && ts.isIdentifier(element.name)) {
-        variables.set(element.name.text, node);
-      }
+      if (ts.isBindingElement(element)) bindingIdentifiers(ts, element.name).forEach((name) => variables.set(name.text, node));
     });
   }
+}
+
+function addAccessor(accessors: Map<string, AccessorRecord[]>, name: string, accessor: AccessorRecord) {
+  accessors.set(name, [...(accessors.get(name) ?? []), accessor]);
+}
+
+function bindingIdentifiers(ts: typeof TypeScript, name: TypeScript.BindingName): TypeScript.Identifier[] {
+  if (ts.isIdentifier(name)) return [name];
+  return name.elements.flatMap((element) => ts.isBindingElement(element) ? bindingIdentifiers(ts, element.name) : []);
 }
 
 // Given a function/variable symbol, find a traceable declaration: a function
