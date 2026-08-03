@@ -9,6 +9,7 @@ import { applyManualTopologyPositions, topologyPositionChanges, topologyPosition
 import { buildComponentTopology, componentTopologySelectionFocus, projectVisibleComponentTopology, summarizeSharedComponentHubs, type ComponentTopologyEdge, type ComponentTopologyLayoutEdge, type ComponentTopologyLayoutNode } from "./component-topology-model";
 import { componentTopologyDownstreamProofEdgeIds } from "./component-topology-resource-proof";
 import { componentTopologySelectionCopyPayload } from "./component-topology-selection";
+import { selectVisibleTopologyLabelIds, topologyLabelBudget } from "./component-topology-labels";
 import { mergeTopologyRings, type ComponentTopologyRing } from "./hidden-component-projection";
 import { hiddenComponentReferenceCount } from "./hidden-components-pane-model";
 import { createComponentTopologyPolicy } from "./component-topology-policy";
@@ -40,9 +41,22 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
   const visibleTopology = createMemo(() => projectVisibleComponentTopology(hiddenProjection().topology, sharedHubs().hiddenEdgeIds));
   const [isolation, setIsolation] = createSignal<ComponentTopologyIsolation | null>(null);
   const displayedTopology = createMemo(() => projectIsolatedComponentTopology(visibleTopology(), isolation()));
+  const [selectedNodeId, setSelectedNodeId] = createSignal<string | null>(null);
+  const [camera, setCamera] = createSignal(DEFAULT_CAMERA);
+  const labelParticipantIds = createMemo(() => new Set([
+    ...projectedSourceLens().componentIds,
+    ...projectedSourceLens().handoffComponentIds,
+    ...projectedSourceLens().resourceParticipantIds,
+  ]));
+  const layoutLabelIds = createMemo(() => selectVisibleTopologyLabelIds(displayedTopology()));
+  const renderedLabelIds = createMemo(() => selectVisibleTopologyLabelIds(displayedTopology(), {
+    selectedNodeId: selectedNodeId(),
+    participantNodeIds: labelParticipantIds(),
+    limit: topologyLabelBudget(camera().scale, displayedTopology().nodes.length),
+  }));
   const [layoutSettings, setLayoutSettings] = createSignal<ComponentTopologyLayoutSettings>({ ...DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS });
   const [layoutSteps, setLayoutSteps] = createSignal<ComponentTopologyLayoutStep[]>([]);
-  const simulatedLayout = createMemo(() => layoutComponentTopology(displayedTopology(), 1200, 760, layoutSettings(), layoutSteps()));
+  const simulatedLayout = createMemo(() => layoutComponentTopology(displayedTopology(), 1200, 760, layoutSettings(), layoutSteps(), layoutLabelIds()));
   const [editingPositions, setEditingPositions] = createSignal(false);
   const [manualPositions, setManualPositions] = createSignal(new Map<string, ComponentTopologyPosition>());
   const [manualEditStart, setManualEditStart] = createSignal<Map<string, ComponentTopologyPosition> | null>(null);
@@ -66,9 +80,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     return sum + ringEntries.filter(([nodeId, rings]) => visible.has(nodeId) && rings.some((ring) => ring.hubId === hub.id)).length;
     }, 0);
   });
-  const [camera, setCamera] = createSignal(DEFAULT_CAMERA);
   const [drag, setDrag] = createSignal<Drag | null>(null);
-  const [selectedNodeId, setSelectedNodeId] = createSignal<string | null>(null);
   const [debugVisible, setDebugVisible] = createSignal(false);
   const [forcesVisible, setForcesVisible] = createSignal(false);
   const [selectionCopied, setSelectionCopied] = createSignal(false);
@@ -426,7 +438,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
             <For each={rings()}>{(ring, index) => <circle class="component-topology-hub-ring" r={current().radius + 2.2 + index() * 1.6} style={{ stroke: ring.color }}><title>{ringTitle(ring)}</title></circle>}</For>
             <Show when={transforms().length}><circle class="component-topology-transform-ring" r={current().radius + 4.5}><title>{transforms().length} retained transforms</title></circle></Show>
             <Show when={current().terminal} fallback={<Show when={current().kind === "context"} fallback={<circle class="component-topology-node-mark" r={current().radius} />}><rect class="component-topology-node-mark" x={-current().radius} y={-current().radius} width={current().radius * 2} height={current().radius * 2} rx="2" transform="rotate(45)" /></Show>}><rect class="component-topology-node-mark" x={-current().radius} y={-current().radius} width={current().radius * 2} height={current().radius * 2} rx="1" /></Show>
-            <Show when={showLabel(current(), displayedTopology().totals.components, selectedNodeId() === current().id || sourceParticipant() || handoffParticipant() || resourceParticipant())}>{(() => {
+            <Show when={renderedLabelIds().has(current().id)}>{(() => {
               const placement = labelPlacement(current());
               return <><text x={placement.x * labelRenderScale()} y={placement.y * labelRenderScale()} text-anchor={placement.anchor} transform={`scale(${1 / labelRenderScale()})`}>{clip(current().label, 24)}</text><Show when={fields().length}><text class="component-topology-field-label" x={placement.x * labelRenderScale()} y={(placement.y + 13) * labelRenderScale()} text-anchor={placement.anchor} transform={`scale(${1 / labelRenderScale()})`}>{fieldLabel(fields().map((field) => field.label))}</text></Show><Show when={transforms().length}><text class="component-topology-transform-label" x={placement.x * labelRenderScale()} y={(placement.y + (fields().length ? 26 : 13)) * labelRenderScale()} text-anchor={placement.anchor} transform={`scale(${1 / labelRenderScale()})`}>{transforms().length} {transforms().length === 1 ? "transform" : "transforms"}</text></Show></>;
             })()}</Show>
@@ -468,7 +480,6 @@ function forceVectorLine(force: ComponentTopologyForceVector) {
   };
 }
 
-function showLabel(node: ComponentTopologyLayoutNode, componentCount: number, selected: boolean) { return selected || componentCount <= 60 || node.routeEntry || node.kind !== "component" || node.incomingCount + node.outgoingCount >= 8; }
 function isHub(node: ComponentTopologyLayoutNode) { return node.incomingCount >= 3 || node.outgoingCount >= 4; }
 function labelPlacement(node: ComponentTopologyLayoutNode): { x: number; y: number; anchor: "start" | "middle" | "end" } {
   return { x: node.radius + 5, y: 3, anchor: "start" };

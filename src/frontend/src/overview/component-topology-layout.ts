@@ -5,6 +5,7 @@ import type {
   ComponentTopologyLayoutNode,
   ComponentTopologyNode,
 } from "./component-topology-model";
+import { selectVisibleTopologyLabelIds } from "./component-topology-labels";
 
 type SimulationNode = ComponentTopologyLayoutNode & { vx: number; vy: number; lastDx: number; lastDy: number };
 type SimulationLink = {
@@ -74,6 +75,7 @@ export function layoutComponentTopology(
   height = 760,
   options: Partial<ComponentTopologyLayoutSettings> = {},
   steps: readonly ComponentTopologyLayoutStep[] = [],
+  visibleLabelIds: ReadonlySet<string> = selectVisibleTopologyLabelIds(topology),
 ): ComponentTopologyLayout {
   if (!topology.nodes.length) return { nodes: [], edges: [], forces: [], width, height };
   const settings = { ...DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS, ...options };
@@ -84,7 +86,6 @@ export function layoutComponentTopology(
   const initialSimulationTicks = Math.max(0, simulationTicks - debugTickCount);
   const initialSeparationPasses = Math.max(0, separationPasses - debugSeparationCount);
   const spacing = clamp(Math.sqrt(topology.nodes.length / 100), 1, 1.8);
-  const showAllLabels = topology.nodes.length <= 60;
   width *= spacing;
   height *= spacing;
   const maximumDepth = Math.max(1, ...topology.nodes.map((node) => node.depth));
@@ -155,24 +156,24 @@ export function layoutComponentTopology(
 
   let tickIndex = 0;
   for (; tickIndex < initialSimulationTicks; tickIndex += 1) {
-    runSimulationTick(positions, links, anchors, fringeDesires, tickIndex, showAllLabels, spacing, settings);
+    runSimulationTick(positions, links, anchors, fringeDesires, tickIndex, visibleLabelIds, spacing, settings);
   }
   for (let pass = 0; pass < initialSeparationPasses; pass += 1) {
-    runSeparationPass(positions, showAllLabels, spacing, settings);
+    runSeparationPass(positions, visibleLabelIds, spacing, settings);
   }
   for (const step of steps) {
     if (step === "tick") {
-      runSimulationTick(positions, links, anchors, fringeDesires, tickIndex, showAllLabels, spacing, settings);
+      runSimulationTick(positions, links, anchors, fringeDesires, tickIndex, visibleLabelIds, spacing, settings);
       tickIndex += 1;
     } else {
-      runSeparationPass(positions, showAllLabels, spacing, settings);
+      runSeparationPass(positions, visibleLabelIds, spacing, settings);
     }
   }
 
   const previewPositions = positions.map((node) => ({ ...node }));
   const previewById = new Map(previewPositions.map((node) => [node.id, node]));
   const previewLinks = buildSimulationLinks(topology.edges, previewById, visibleIncoming, visibleOutgoing, ownedSubtreeSizes);
-  runSimulationTick(previewPositions, previewLinks, anchors, fringeDesires, tickIndex, showAllLabels, spacing, settings);
+  runSimulationTick(previewPositions, previewLinks, anchors, fringeDesires, tickIndex, visibleLabelIds, spacing, settings);
   const rawForces: ComponentTopologyForceVector[] = previewPositions.map((node) => ({
     id: node.id,
     x: byId.get(node.id)?.x ?? node.x - node.lastDx,
@@ -182,7 +183,7 @@ export function layoutComponentTopology(
     magnitude: Math.hypot(node.lastDx, node.lastDy),
   }));
   const rawNodes = positions.map(({ vx: _vx, vy: _vy, lastDx: _lastDx, lastDy: _lastDy, ...node }) => node);
-  const fitted = fitLayoutToContents(rawNodes, width, height, showAllLabels);
+  const fitted = fitLayoutToContents(rawNodes, width, height, visibleLabelIds);
   const laidOutNodes = fitted.nodes;
   const forces = rawForces.map((force) => ({ ...force, x: force.x + fitted.offsetX, y: force.y + fitted.offsetY }));
   const laidOutById = new Map(laidOutNodes.map((node) => [node.id, node]));
@@ -199,7 +200,7 @@ function runSimulationTick(
   anchors: Map<string, { x: number; y: number }>,
   fringeDesires: FringeDesires,
   tick: number,
-  showAllLabels: boolean,
+  visibleLabelIds: ReadonlySet<string>,
   spacing: number,
   settings: ComponentTopologyLayoutSettings,
 ) {
@@ -247,7 +248,7 @@ function runSimulationTick(
       applyMinimumHorizontalOffset(from, to, desired * .16, (.1 + compaction * .08) * directionalCooling);
     }
   }
-  applyCollisionForces(positions, showAllLabels, spacing, cooling, settings);
+  applyCollisionForces(positions, visibleLabelIds, spacing, cooling, settings);
   for (const node of positions) {
     node.vx *= .78;
     node.vy *= .78;
@@ -435,7 +436,7 @@ function isFringeCandidate(node: ComponentTopologyNode) {
 
 function runSeparationPass(
   positions: SimulationNode[],
-  showAllLabels: boolean,
+  visibleLabelIds: ReadonlySet<string>,
   spacing: number,
   settings: ComponentTopologyLayoutSettings,
 ) {
@@ -443,7 +444,7 @@ function runSeparationPass(
     node.vx = 0;
     node.vy = 0;
   }
-  applyCollisionForces(positions, showAllLabels, spacing, 1, settings, false);
+  applyCollisionForces(positions, visibleLabelIds, spacing, 1, settings, false);
   for (const node of positions) {
     node.vx *= .78;
     node.vy *= .78;
@@ -472,14 +473,14 @@ function fitLayoutToContents(
   nodes: ComponentTopologyLayoutNode[],
   minimumWidth: number,
   minimumHeight: number,
-  showAllLabels: boolean,
+  visibleLabelIds: ReadonlySet<string>,
 ) {
   const padding = 24;
   const bounds = nodes.map((node) => {
     const extent = markExtent(node);
     return {
       left: node.x - extent,
-      right: node.x + extent + (hasVisibleLabel(node, showAllLabels) ? LABEL_GAP + labelWidth(node) : 0),
+      right: node.x + extent + (visibleLabelIds.has(node.id) ? LABEL_GAP + labelWidth(node) : 0),
       top: node.y - Math.max(extent, 8),
       bottom: node.y + Math.max(extent, 8),
     };
@@ -501,7 +502,7 @@ function fitLayoutToContents(
 
 function applyCollisionForces(
   positions: SimulationNode[],
-  showAllLabels: boolean,
+  visibleLabelIds: ReadonlySet<string>,
   spacing: number,
   cooling: number,
   settings: ComponentTopologyLayoutSettings,
@@ -524,7 +525,7 @@ function applyCollisionForces(
         right.vx += markFx;
         right.vy += markFy;
       }
-      const collision = labelCollision(left, right, showAllLabels, spacing);
+      const collision = labelCollision(left, right, visibleLabelIds, spacing);
       const force = collision
         ? collision.force * cooling * (settings.collisionStrength / DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS.collisionStrength)
         : includeAmbientRepulsion ? Math.min(.24, 110 / distanceSquared) * cooling : 0;
@@ -572,18 +573,13 @@ function applyMaximumHorizontalOffset(from: SimulationNode, to: SimulationNode, 
   to.vx -= force;
 }
 
-function hasVisibleLabel(node: ComponentTopologyNode, showAllLabels: boolean) {
-  const degree = node.incomingCount + node.outgoingCount;
-  return showAllLabels || node.routeEntry || node.kind !== "component" || degree >= 8;
-}
-
 function labelWidth(node: ComponentTopologyNode) {
   return Math.min(LABEL_LIMIT, node.label.length) * LABEL_CHARACTER_WIDTH;
 }
 
-function collisionBox(node: SimulationNode, showAllLabels: boolean) {
+function collisionBox(node: SimulationNode, visibleLabelIds: ReadonlySet<string>) {
   const extent = markExtent(node);
-  const right = hasVisibleLabel(node, showAllLabels)
+  const right = visibleLabelIds.has(node.id)
     ? extent + LABEL_GAP + labelWidth(node)
     : extent;
   return {
@@ -597,9 +593,9 @@ function markExtent(node: ComponentTopologyLayoutNode) {
   return node.kind === "context" ? node.radius * Math.SQRT2 : node.radius;
 }
 
-function labelCollision(left: SimulationNode, right: SimulationNode, showAllLabels: boolean, spacing: number) {
-  const leftBox = collisionBox(left, showAllLabels);
-  const rightBox = collisionBox(right, showAllLabels);
+function labelCollision(left: SimulationNode, right: SimulationNode, visibleLabelIds: ReadonlySet<string>, spacing: number) {
+  const leftBox = collisionBox(left, visibleLabelIds);
+  const rightBox = collisionBox(right, visibleLabelIds);
   const dx = right.x + rightBox.centerX - (left.x + leftBox.centerX);
   const dy = right.y - left.y;
   const gap = 18 * spacing;
