@@ -1,0 +1,8 @@
+{
+  "name": "node-cli-record-report-example",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "record-report": "./src/cli.ts"
+  }
+}

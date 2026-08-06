@@ -1,12 +1,19 @@
 import path from "node:path";
 import type { AnalysisReport } from "../../types";
-import { routeDataDetailSchema, routeDataInventorySchema, type RouteDataDetail, type RouteDataInventory } from "../contracts";
+import { routeDataInventorySchema, type RouteDataDetail, type RouteDataInventory } from "../contracts";
 import { stableHash } from "../../analysis/route-discovery";
 import { buildExhaustiveRouteGraph } from "../../analysis/route-data-trajectories";
 import { routeSinkKey } from "../../analysis/route-data";
+import { routeTotalityForRoute } from "../../analysis/route-data-session";
+import { projectRouteTotality } from "./route-totality";
+import {
+  NO_ANALYSIS_CANCELLATION,
+  type AnalysisCancellationToken,
+} from "../../analysis/cancellation";
 const routeGraphCache = new WeakMap<object, Map<string, ReturnType<typeof buildExhaustiveRouteGraph>>>();
 
-export function buildRouteDataInventory(report: AnalysisReport): RouteDataInventory {
+export function buildRouteDataInventory(report: AnalysisReport, cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION): RouteDataInventory {
+  cancellation.throwIfCancelled();
   const { sourceFacts, sourceKeysForTrajectory } = collectSourceFacts(report);
   for (const trajectory of report.routeData.trajectories) {
     if (!sourceKeysForTrajectory.has(trajectory.key)) sourceKeysForTrajectory.set(trajectory.key, []);
@@ -19,6 +26,7 @@ export function buildRouteDataInventory(report: AnalysisReport): RouteDataInvent
     transportBridgeIds: [...transportBridgeIds].sort(lexical),
   })).sort((left, right) => lexical(left.label, right.label) || lexical(left.file, right.file));
   const routes = report.routeData.routes.map((route) => {
+    cancellation.throwIfCancelled();
     const trajectories = report.routeData.trajectories.filter((trajectory) => trajectory.routeKey === route.key);
     const graph = routeGraph(report, route.key, route.sinkIds);
     const sourceMethodKeys = [...new Set(trajectories.flatMap((trajectory) => sourceKeysForTrajectory.get(trajectory.key) ?? []))];
@@ -42,16 +50,20 @@ export function buildRouteDataInventory(report: AnalysisReport): RouteDataInvent
     substitutionStepCount: trajectory.operationKeys.map((key) => report.routeData.operations.find((operation) => operation.key === key)).filter((operation) => operation && isSubstitution(operation)).length,
     terminalCount: trajectory.terminalIds.length, routeReachableTerminalCount: trajectory.routeReachableTerminalCount, terminalSelectionLimit: trajectory.terminalSelectionLimit, ordering: trajectory.ordering, handoffsProven: trajectory.handoffsProven, completeness: trajectory.completeness, omissions: trajectory.omissions,
   }));
-  return routeDataInventorySchema.parse({ routes, sources, trajectories, totals: { routes: routes.length, sources: sources.length, trajectories: routes.reduce((sum, route) => sum + route.trajectoryCount, 0), complete: routes.reduce((sum, route) => sum + route.completeTrajectoryCount, 0) } });
+  cancellation.throwIfCancelled();
+  const inventory = routeDataInventorySchema.parse({ routes, sources, trajectories, totals: { routes: routes.length, sources: sources.length, trajectories: routes.reduce((sum, route) => sum + route.trajectoryCount, 0), complete: routes.reduce((sum, route) => sum + route.completeTrajectoryCount, 0) } });
+  cancellation.throwIfCancelled();
+  return inventory;
 }
 
-export function buildRouteDataDetail(report: AnalysisReport, routeKey: string, trajectoryKey: string): RouteDataDetail | null {
-  const inventory = buildRouteDataInventory(report);
+export function buildRouteDataDetail(report: AnalysisReport, routeKey: string, trajectoryKey: string, cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION): RouteDataDetail | null {
+  cancellation.throwIfCancelled();
+  const inventory = buildRouteDataInventory(report, cancellation);
+  cancellation.throwIfCancelled();
   const route = inventory.routes.find((item) => item.key === routeKey);
   const analysisRoute = report.routeData.routes.find((item) => item.key === routeKey);
   const trajectory = report.routeData.trajectories.find((item) => item.key === trajectoryKey && item.routeKey === routeKey);
   if (!route || !analysisRoute || !trajectory) return null;
-  const operationIds = new Set(trajectory.operationKeys);
   const operations = trajectory.operationKeys.map((key) => report.routeData.operations.find((operation) => operation.key === key)).filter((operation): operation is NonNullable<typeof operation> => Boolean(operation));
   const valueIds = new Set(operations.flatMap((operation) => [...operation.inputValueIds, ...operation.outputValueIds]));
   const values = report.routeData.values.filter((value) => valueIds.has(value.id));
@@ -81,11 +93,16 @@ export function buildRouteDataDetail(report: AnalysisReport, routeKey: string, t
     evidence,
     operations,
   );
-  return routeDataDetailSchema.parse({
+  const totality = projectRouteTotality(routeTotalityForRoute(report.routeData, routeKey, cancellation) ?? undefined, cancellation);
+  cancellation.throwIfCancelled();
+  const detail: RouteDataDetail = {
     route, trajectory, operations, values, shapes: report.routeData.shapes.filter((shape) => shapeIds.has(shape.id)),
     evidence, terminals, sources: routeSources, context: { nodes, edges }, exhaustiveGraph,
     hiddenComponentPolicy: report.meta.hiddenComponentPolicy,
-  });
+    totality,
+  };
+  cancellation.throwIfCancelled();
+  return detail;
 }
 
 type ComponentContextOrigin = "hierarchy" | "rendered";

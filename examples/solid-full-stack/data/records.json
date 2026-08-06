@@ -1,0 +1,23 @@
+[
+  {
+    "id": "rec-101",
+    "name": "Northwind",
+    "status": "ready",
+    "owner": "ops",
+    "internalNote": "Review before the next export."
+  },
+  {
+    "id": "rec-102",
+    "name": "Riverside",
+    "status": "paused",
+    "owner": "support",
+    "internalNote": "Waiting for an owner response."
+  },
+  {
+    "id": "rec-103",
+    "name": "Summit",
+    "status": "ready",
+    "owner": "sales",
+    "internalNote": "Keep this record in the daily review."
+  }
+]

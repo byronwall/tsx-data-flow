@@ -17,9 +17,9 @@ export function ReportPage(props: { location: URL; navigate: Navigate }) {
   return <Shell context="Workspace reports" tabs={() => <ReportTabs active={view()} />}>
     <div class="toolbar"><h1 style={{ margin: "0" }}>{labelFor(view())}</h1><a class="btn" href={`/api/report.${encodeURIComponent(view())}.md`}>Markdown</a><button type="button" disabled={refreshing()} onClick={() => void refresh()}>{refreshing() ? "Analyzing…" : "↻ Re-analyze"}</button></div>
     <Show when={refreshError()}><p class="error" role="alert">{refreshError()}</p></Show>
-    <Show when={refreshing()}><LoadingStatus subject="report analysis" operation="refresh" /></Show>
+    <Show when={refreshing()}><LoadingStatus subject="report analysis" operation="refresh" isPending={() => refreshing()} /></Show>
     <Show when={view() !== "overview"} fallback={<p><a href="/">Open the interactive overview.</a></p>}>
-      <Show when={!response.error} fallback={<p class="error" role="alert">{response.error?.message ?? "Unable to load report."}</p>}><Show when={!response.loading} fallback={<LoadingStatus subject="report" operation="report" />}>
+      <Show when={!response.error} fallback={<p class="error" role="alert">{response.error?.message ?? "Unable to load report."}</p>}><Show when={!response.loading} fallback={<LoadingStatus subject="report" operation="report" isPending={() => response.loading} />}>
         <Show when={response()?.data} fallback={<p class="error">Unable to load report.</p>}>{(data) => <NativeReport data={data()} location={props.location} navigate={props.navigate} />}</Show>
       </Show></Show>
     </Show>

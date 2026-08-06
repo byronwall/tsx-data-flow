@@ -1,5 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { filePageResponseSchema, refreshResponseSchema, reportResponseSchema, routeDataDetailResponseSchema, sourceExcerptResponseSchema, workspaceResponseSchema } from "../api/contracts";
+import { filePageResponseSchema, refreshResponseSchema, reportResponseSchema, routeDataDetailTransportResponseSchema, sourceExcerptResponseSchema, workspaceResponseSchema } from "../api/contracts";
 import { buildFilePageDto } from "../api/projections/file-page";
 import { buildReportDto } from "../api/projections/reports";
 import { buildWorkspaceDto } from "../api/projections/workspace";
@@ -9,8 +9,14 @@ import { renderReport } from "../core";
 import { renderMarkdownView } from "../reports/markdown-views";
 import type { AnalyzerArgs } from "../types";
 import type { AnalyzerProgressUpdate } from "../analysis/progress";
-import type { AnalysisOperation, AnalysisProgress } from "./analysis-service";
+import type { AnalysisOperation, AnalysisProgress, AnalysisWorkerRequest } from "./analysis-service";
 import { createAnalysisCache } from "./cache";
+import { buildSourceExcerpt } from "./source-excerpts";
+import {
+  createAnalysisCancellationToken,
+  isAnalysisCancelledError,
+  type AnalysisCancellationToken,
+} from "../analysis/cancellation";
 
 if (!parentPort) throw new Error("Analysis worker requires a parent port");
 const port = parentPort;
@@ -25,14 +31,23 @@ function progress(requestId: number, operation: string, phase: AnalysisProgress[
   port.postMessage({ kind: "progress", progress: { requestId, operation, phase, message } });
 }
 
-port.on("message", ({ requestId, operation }: { requestId: number; operation: AnalysisOperation }) => {
+port.on("message", ({ requestId, operation, cancellationBuffer }: AnalysisWorkerRequest) => {
+  const cancellationState = new Int32Array(cancellationBuffer);
+  const cancellation = createAnalysisCancellationToken(() => Atomics.load(cancellationState, 0) !== 0);
   try {
+    cancellation.throwIfCancelled();
     activeRequest = { requestId, operation: operation.kind };
     progress(requestId, operation.kind, "analyzing", "Building the TypeScript program and tracing render paths");
-    const value = perform(operation, requestId);
+    const value = perform(operation, requestId, cancellation);
+    cancellation.throwIfCancelled();
     progress(requestId, operation.kind, "complete", "Analysis complete");
+    cancellation.throwIfCancelled();
     port.postMessage({ kind: "result", requestId, value });
   } catch (error) {
+    if (isAnalysisCancelledError(error)) {
+      port.postMessage({ kind: "cancelled", requestId });
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     progress(requestId, operation.kind, "error", message);
     port.postMessage({ kind: "error", requestId, message });
@@ -41,7 +56,7 @@ port.on("message", ({ requestId, operation }: { requestId: number; operation: An
   }
 });
 
-function perform(operation: AnalysisOperation, requestId: number) {
+function perform(operation: AnalysisOperation, requestId: number, cancellation: AnalysisCancellationToken) {
   if (operation.kind === "refresh") {
     const report = cache.refresh();
     return refreshResponseSchema.parse({ apiVersion: 1, analysisVersion: report.analysisVersion, generation: cache.generation(), generatedAt: report.generatedAt, data: { refreshed: true } });
@@ -52,22 +67,25 @@ function perform(operation: AnalysisOperation, requestId: number) {
     return workspaceResponseSchema.parse({ apiVersion: 1, analysisVersion: report.analysisVersion, generation: cache.generation(), generatedAt: report.generatedAt, data: buildWorkspaceDto(report) });
   }
   if (operation.kind === "route-data") {
+    cancellation.throwIfCancelled();
     const report = cache.ensureBuilt();
+    cancellation.throwIfCancelled();
     if (operation.generation !== undefined && operation.generation !== cache.generation()) return null;
-    const detail = buildRouteDataDetail(report, operation.route, operation.flow);
+    const detail = buildRouteDataDetail(report, operation.route, operation.flow, cancellation);
+    cancellation.throwIfCancelled();
     if (!detail) return null;
-    return routeDataDetailResponseSchema.parse({ apiVersion: 1, analysisVersion: report.analysisVersion, generation: cache.generation(), generatedAt: report.generatedAt, data: detail });
+    const response = routeDataDetailTransportResponseSchema.parse({ apiVersion: 1, analysisVersion: report.analysisVersion, generation: cache.generation(), generatedAt: report.generatedAt, data: detail });
+    cancellation.throwIfCancelled();
+    return response;
   }
   if (operation.kind === "source-excerpt") {
     const report = cache.ensureBuilt();
+    if (operation.generation !== cache.generation()) return null;
     const source = cache.sourceFor(operation.path);
     if (source === null) return null;
-    const sourceLines = source.split(/\r?\n/);
-    const endLine = operation.endLine ?? operation.line;
-    const start = Math.max(1, operation.line - 5);
-    const end = Math.min(sourceLines.length, endLine + 5);
-    const lines = sourceLines.slice(start - 1, end).map((text, index) => ({ number: start + index, text, focus: start + index >= operation.line && start + index <= endLine }));
-    return sourceExcerptResponseSchema.parse({ apiVersion: 1, analysisVersion: report.analysisVersion, generation: cache.generation(), generatedAt: report.generatedAt, data: { path: operation.path, focus: { line: operation.line, column: operation.column, endLine, endColumn: operation.endColumn ?? operation.column }, lines } });
+    const data = buildSourceExcerpt(cache.typescript(), operation, source);
+    if (!data) return null;
+    return sourceExcerptResponseSchema.parse({ apiVersion: 1, analysisVersion: report.analysisVersion, generation: cache.generation(), generatedAt: report.generatedAt, data });
   }
   if (operation.kind === "file") {
     const source = cache.sourceFor(operation.path);

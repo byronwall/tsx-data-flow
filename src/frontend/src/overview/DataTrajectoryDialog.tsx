@@ -4,14 +4,18 @@ import { fetchRouteData } from "../api";
 import { RouteTrajectoryWorkspace } from "./RouteTrajectoryWorkspace";
 import { RouteAtlas } from "./RouteAtlas";
 import { TrajectorySourcePicker } from "./TrajectorySourcePicker";
-import { parseTrajectoryUrlState, reconcileTrajectoryUrlState, serializeTrajectoryUrlState, type TrajectoryUrlState } from "./trajectory-url-state";
+import { BROWSER_URL_CHANGE_EVENT, commitBrowserUrl, replaceBrowserUrlSilently } from "./trajectory-history";
+import { isTrajectoryCameraOnlyChange, normalizeTrajectoryUrlState, parseTrajectoryUrlState, reconcileTrajectoryDetailState, reconcileTrajectoryUrlState, sameTrajectoryUrlState, selectCheapestTrajectoryForRoute, serializeTrajectoryUrlState, type TrajectoryUrlState } from "./trajectory-url-state";
 
 export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; generation: number; open: boolean; initialSearch: string; onClose: () => void }) {
   const initial = untrack(() => reconcileTrajectoryUrlState(parseTrajectoryUrlState(props.initialSearch), props.inventory));
-  const initiallyOpen = untrack(() => props.open);
-  const [state, setState] = createSignal<TrajectoryUrlState>({ ...initial.state, open: initiallyOpen });
+  const initiallyOpen = untrack(() => props.open || initial.state.open);
+  const [state, setState] = createSignal<TrajectoryUrlState>(normalizeTrajectoryUrlState({ ...initial.state, open: initiallyOpen }));
   const [notice, setNotice] = createSignal(initial.notice);
   const [transientOpen, setTransientOpen] = createSignal(false);
+  let lastUrlOpen = initiallyOpen;
+  let seededSearch = props.initialSearch;
+  let detailController: AbortController | null = null;
   let dialog!: HTMLDivElement;
   const selectedRoute = createMemo(() => props.inventory.routes.find((route) => route.key === state().route) ?? null);
   const selectedRouteSources = createMemo(() => props.inventory.sources.filter((source) => selectedRoute()?.sourceMethodKeys.includes(source.key)));
@@ -22,32 +26,93 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
       : null;
   });
   const [detail, { refetch }] = createResource(detailSelection, (key) => {
+    detailController?.abort();
+    const controller = new AbortController();
+    detailController = controller;
     const [route, flow, generation] = JSON.parse(key) as [string, string, number];
-    return fetchRouteData(route, flow, generation);
+    return fetchRouteData(route, flow, generation, controller.signal).finally(() => {
+      if (detailController === controller) detailController = null;
+    });
   });
-  const displayedDetail = createMemo(() => detail.latest?.data ?? detail()?.data ?? null);
-  const update = (patch: Partial<TrajectoryUrlState>, push = false) => {
-    const next = { ...state(), ...patch };
-    setState(next);
-    if (typeof window !== "undefined") window.history[push ? "pushState" : "replaceState"]({}, "", `${window.location.pathname}${serializeTrajectoryUrlState(next, window.location.search)}`);
+  const resolvedDetail = createMemo(() => {
+    if (detail.error) return null;
+    const response = detail();
+    const current = state();
+    return response?.generation === props.generation && response.data.route.key === current.route && response.data.trajectory.key === current.flow ? response.data : null;
+  });
+  const displayedDetail = createMemo(() => {
+    const current = state();
+    if (detail.error || !current.open || current.mode !== "detail" || !current.route || !current.flow) return null;
+    return [detail(), detail.latest].find((response) =>
+      response?.generation === props.generation
+      && response.data.route.key === current.route
+      && response.data.trajectory.key === current.flow,
+    )?.data ?? null;
+  });
+  const visibleDetailError = createMemo(() => (detail.loading ? null : detail.error));
+  const applyState = (next: TrajectoryUrlState, push = false, writeHistory = true) => {
+    const normalized = normalizeTrajectoryUrlState(next);
+    const current = state();
+    const changed = !sameTrajectoryUrlState(current, normalized);
+    if (!changed) return;
+    const cameraOnly = isTrajectoryCameraOnlyChange(current, normalized);
+    lastUrlOpen = normalized.open;
+    setState(normalized);
+    if (writeHistory && typeof window !== "undefined") {
+      const search = serializeTrajectoryUrlState(normalized, window.location.search);
+      if (cameraOnly && !push) replaceBrowserUrlSilently(search);
+      else commitBrowserUrl(search, !push);
+    }
+  };
+  const update = (patch: Partial<TrajectoryUrlState>, push = false) => applyState({ ...state(), ...patch }, push);
+  const applyUrlState = (search: string) => {
+    const restored = reconcileTrajectoryUrlState(parseTrajectoryUrlState(search), props.inventory);
+    const next = normalizeTrajectoryUrlState(restored.state);
+    setNotice(restored.notice);
+    lastUrlOpen = next.open;
+    if (!sameTrajectoryUrlState(state(), next)) setState(next);
+    if (!sameTrajectoryUrlState(parseTrajectoryUrlState(search), next) && typeof window !== "undefined") commitBrowserUrl(serializeTrajectoryUrlState(next, search), true);
   };
   const selectRoute = (routeKey: string) => {
-    const route = props.inventory.routes.find((item) => item.key === routeKey);
-    const flow = props.inventory.trajectories.find((item) => item.routeKey === routeKey && item.completeness === "complete-for-supported-scope") ?? props.inventory.trajectories.find((item) => item.routeKey === routeKey);
-    update({ mode: "detail", route: routeKey, flow: flow?.key ?? null, source: null, item: null, expand: [], isolate: false, view: "context", pan: null, zoom: null }, true);
+    const flow = selectCheapestTrajectoryForRoute(props.inventory, routeKey);
+    update({ mode: "detail", route: routeKey, flow: flow?.key ?? null, source: null, item: null, expand: [], isolate: false, view: "context", pan: null, zoom: null, totalitySelection: null, graphCamera: null }, true);
   };
-  const selectSource = (source: string | null) => update({ source, item: null, expand: [], isolate: false, pan: null, zoom: null }, true);
+  const selectSource = (source: string | null) => update({ source, item: null, expand: [], isolate: false, pan: null, zoom: null, totalitySelection: null, graphCamera: null }, true);
   const close = () => { update({ open: false }); props.onClose(); };
-  createEffect(() => { if (props.open !== state().open) update({ open: props.open }); });
   createEffect(() => {
-    const data = displayedDetail(); if (!data) return;
-    const validOperations = new Set(data.operations.map((item) => item.key));
-    const invalidItem = state().item && !validOperations.has(state().item!);
-    const invalidExpand = state().expand.filter((item) => !validOperations.has(item));
-    if (invalidItem || invalidExpand.length) { update({ item: invalidItem ? null : state().item, expand: state().expand.filter((item) => validOperations.has(item)) }); setNotice("Some restored operation state no longer exists and was cleared."); }
+    const open = props.open;
+    if (open === state().open || open === lastUrlOpen) return;
+    lastUrlOpen = open;
+    setState(normalizeTrajectoryUrlState({ ...state(), open }));
+  });
+  createEffect(() => {
+    const inventory = props.inventory;
+    const restored = reconcileTrajectoryUrlState(state(), inventory);
+    const next = normalizeTrajectoryUrlState(restored.state);
+    if (restored.notice) setNotice(restored.notice);
+    if (sameTrajectoryUrlState(state(), next)) return;
+    applyState(next, false);
+  });
+  createEffect(() => {
+    const data = resolvedDetail(); if (!data) return;
+    const restored = reconcileTrajectoryDetailState(state(), data);
+    if (restored.notice) setNotice(restored.notice);
+    if (!sameTrajectoryUrlState(state(), restored.state)) applyState(restored.state, false);
+  });
+  createEffect(() => {
+    const search = props.initialSearch;
+    if (search === seededSearch) return;
+    seededSearch = search;
+    applyUrlState(search);
+  });
+  createEffect(() => {
+    if (detailSelection() !== null) return;
+    detailController?.abort();
+    detailController = null;
   });
   onMount(() => {
     const previousOverflow = document.body.style.overflow;
+    const syncUrl = () => { if (window.location.pathname === "/") applyUrlState(window.location.search); };
     const keydown = (event: KeyboardEvent) => {
       if (!state().open) return;
       if (event.key === "Tab" && !transientOpen()) {
@@ -60,19 +125,22 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
       if (event.key === "Escape") { event.preventDefault(); if (!transientOpen()) close(); }
     };
     document.addEventListener("keydown", keydown);
+    window.addEventListener("popstate", syncUrl);
+    window.addEventListener(BROWSER_URL_CHANGE_EVENT, syncUrl);
     createEffect(() => { document.body.style.overflow = state().open ? "hidden" : previousOverflow; if (state().open) queueMicrotask(() => dialog.querySelector<HTMLSelectElement>("select")?.focus()); });
-    onCleanup(() => { document.removeEventListener("keydown", keydown); document.body.style.overflow = previousOverflow; });
+    onCleanup(() => { document.removeEventListener("keydown", keydown); window.removeEventListener("popstate", syncUrl); window.removeEventListener(BROWSER_URL_CHANGE_EVENT, syncUrl); document.body.style.overflow = previousOverflow; detailController?.abort(); });
   });
   return <div ref={dialog} class="data-trajectory-modal" hidden={!state().open} role="dialog" aria-modal="true" aria-labelledby="data-trajectory-title">
-    <header class="data-trajectory-header"><div><h2 id="data-trajectory-title">Data trajectories</h2></div><Show when={state().mode === "detail"}><button type="button" class="route-atlas-back" onClick={() => update({ mode: "atlas", item: null, expand: [], isolate: false }, true)}>← Routes</button><label class="trajectory-header-select"><span>Route</span><select aria-label="Selected application route" value={state().route ?? ""} onChange={(event) => selectRoute(event.currentTarget.value)}><For each={props.inventory.routes}>{(route) => <option value={route.key}>{route.pathPattern} · {route.trajectoryCount.toLocaleString()} paths</option>}</For></select></label><TrajectorySourcePicker sources={selectedRouteSources()} selectedKey={state().source} onSelect={selectSource} /><div class="trajectory-view-toggle" role="group" aria-label="Trajectory view"><button type="button" aria-pressed={state().view === "context"} onClick={() => update({ view: "context" })}>All paths</button><button type="button" aria-pressed={state().view === "trajectory"} onClick={() => update({ view: "trajectory" })}>Evidence cards</button></div></Show><button type="button" class="component-modal-close" aria-label="Close data trajectories" onClick={close}>×</button></header>
+    <header class="data-trajectory-header"><div><h2 id="data-trajectory-title">Data trajectories</h2></div><Show when={state().mode === "detail"}><button type="button" class="route-atlas-back" onClick={() => update({ mode: "atlas", item: null, expand: [], isolate: false })}>← Routes</button><label class="trajectory-header-select"><span>Route</span><select aria-label="Selected application route" value={state().route ?? ""} onChange={(event) => selectRoute(event.currentTarget.value)}><For each={props.inventory.routes}>{(route) => <option value={route.key}>{route.pathPattern} · {route.trajectoryCount.toLocaleString()} paths</option>}</For></select></label><TrajectorySourcePicker sources={selectedRouteSources()} selectedKey={state().source} onSelect={selectSource} /><div class="trajectory-view-toggle" role="group" aria-label="Trajectory view"><button type="button" aria-pressed={state().view === "context"} onClick={() => update({ view: "context" })}>All paths</button><button type="button" aria-pressed={state().view === "trajectory"} onClick={() => update({ view: "trajectory" })}>Evidence cards</button></div></Show><button type="button" class="component-modal-close" aria-label="Close data trajectories" onClick={close}>×</button></header>
     <Show when={notice()}><p class="trajectory-restoration-notice" role="status">{notice()}</p></Show>
-    <Show when={state().mode === "atlas"}><RouteAtlas inventory={props.inventory} kind={state().kind} sort={state().sort} filter={state().filter} source={state().source} onKind={(kind) => update({ kind })} onSort={(sort) => update({ sort })} onFilter={(filter) => update({ filter })} onSource={(source) => update({ source })} onRoute={selectRoute} /></Show>
+    <Show when={state().mode === "atlas"}><RouteAtlas inventory={props.inventory} kind={state().kind} sort={state().sort} filter={state().filter} source={state().source} onKind={(kind) => update({ kind })} onSort={(sort) => update({ sort })} onFilter={(filter) => update({ filter })} onSource={selectSource} onRoute={selectRoute} /></Show>
     <Show when={state().mode === "detail"}>
     <div class="trajectory-load-status" role="status" aria-live="polite" classList={{ active: detail.loading }}>
       <Show when={detail.loading}><span class="trajectory-loading-dot" aria-hidden="true" /></Show>
       <span>{detail.loading ? displayedDetail() ? `Loading ${selectedRoute()?.pathPattern ?? "route"}… The current view remains available.` : `Loading ${selectedRoute()?.pathPattern ?? "selected route"} trajectory…` : displayedDetail() ? "Trajectory ready" : ""}</span>
     </div>
-    <Show when={displayedDetail()} fallback={<Show when={!detail.loading} fallback={<div class="trajectory-loading"><strong>Loading trajectory</strong><p>Requesting route detail and assembling its ordered operations…</p></div>}><div class="trajectory-empty-state"><h3>No trajectory is available</h3><p>{selectedRoute()?.omissions.join(" ") || detail.error?.message || "Choose another route or inspect the route inventory."}</p><Show when={detail.error}><button type="button" onClick={() => void refetch()}>Try again</button></Show></div></Show>}>
+    <Show when={visibleDetailError()}><p class="error" role="alert">{visibleDetailError()?.message ?? "Unable to load the selected trajectory."}</p></Show>
+    <Show when={displayedDetail()} fallback={<Show when={!detail.loading} fallback={<div class="trajectory-loading"><strong>Loading trajectory</strong><p>Requesting route detail and assembling its ordered operations…</p></div>}><div class="trajectory-empty-state"><h3>No trajectory is available</h3><p>{selectedRoute()?.omissions.join(" ") || "Choose another route or inspect the route inventory."}</p><Show when={visibleDetailError()}><button type="button" onClick={() => void refetch()}>Try again</button></Show></div></Show>}>
       {(data) => <RouteTrajectoryWorkspace detail={data()} generation={props.generation} state={state()} onState={update} onCloseTransient={setTransientOpen} />}
     </Show>
     </Show>

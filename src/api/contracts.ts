@@ -1,5 +1,14 @@
 import { z } from "zod";
 import { REPORT_VIEWS } from "./report-views";
+import { routeTotalitySchema, routeTotalityStructureSchema } from "./route-totality-contracts";
+import { validateNestedOccurrenceEvidence } from "./route-shadow-evidence-validation";
+import type {
+  RouteOccurrenceSurface as RouteOccurrenceSurfaceContract,
+  RouteTotality as RouteTotalityContract,
+} from "./route-totality-contracts";
+
+export type RouteOccurrenceSurface = RouteOccurrenceSurfaceContract;
+export type RouteTotality = RouteTotalityContract;
 
 export const comparisonStateSchema = z.enum(["new", "worsened", "resolved", "unchanged"]);
 export const reviewScopeSchema = z.discriminatedUnion("kind", [
@@ -97,6 +106,100 @@ export const semanticMapSchema = z.strictObject({
 });
 
 export const routeDataConfidenceSchema = z.enum(["high", "medium", "low"]);
+const routeShadowLocationSchema = z.strictObject({
+  file: z.string(), line: z.number().int().positive(), column: z.number().int().positive(),
+  span: z.strictObject({ startLine: z.number().int().positive(), startColumn: z.number().int().positive(), endLine: z.number().int().positive(), endColumn: z.number().int().positive() }),
+});
+const routeShadowProofSchema = z.strictObject({
+  kind: z.enum(["compiler-symbol", "return-expression", "argument-binding", "resource-result", "component-prop", "context-member", "property-read", "render-sink", "parent-occurrence", "transparent-wrapper-splice"]),
+  detail: z.string(), locations: z.array(routeShadowLocationSchema).min(1),
+});
+const routeShadowOccurrenceDefinitionSchema = z.strictObject({
+  id: z.string(), name: z.string(), compilerIdentity: z.string(), importModule: z.string().nullable(), declaration: routeShadowLocationSchema.nullable(),
+});
+const routeShadowOccurrenceSchema = z.strictObject({
+  id: z.string(), callSiteId: z.string(), definitionId: z.string(), definitionCompilerIdentity: z.string(), name: z.string(),
+  parentOccurrenceId: z.string().nullable(), callerOwnedChildOccurrenceIds: z.array(z.string()).max(96), scopeId: z.string(), callSite: routeShadowLocationSchema,
+  ownership: z.enum(["scope-entry", "caller-owned"]), repetition: z.literal("single"),
+});
+const routeShadowOccurrenceProjectionEdgeSchema = z.strictObject({
+  fromOccurrenceId: z.string(), toOccurrenceId: z.string(), kind: z.enum(["render", "transparent-splice"]), hiddenWrapperOccurrenceId: z.string().nullable(),
+  evidence: z.strictObject({ kind: z.enum(["parent-occurrence", "transparent-wrapper-splice"]), detail: z.string(), locations: z.array(routeShadowLocationSchema).min(1) }),
+});
+const routeShadowHiddenPathSchema = z.strictObject({
+  wrapperOccurrenceId: z.string(), definitionId: z.string(), parentOccurrenceId: z.string().nullable(), callerOwnedChildOccurrenceIds: z.array(z.string()).max(96),
+  sourcePathParticipates: z.boolean(), callSite: routeShadowLocationSchema,
+  hiddenEdges: z.array(z.strictObject({ fromOccurrenceId: z.string(), toOccurrenceId: z.string(), locations: z.array(routeShadowLocationSchema).min(1) })).max(128),
+});
+const routeShadowOccurrenceProjectionSchema = z.strictObject({
+  hiddenOccurrenceId: z.string(),
+  visibleEdges: z.array(routeShadowOccurrenceProjectionEdgeSchema).max(128),
+  hiddenPaths: z.array(routeShadowHiddenPathSchema).max(16),
+  reattachedChildOccurrenceIds: z.array(z.string()).max(96),
+});
+const routeShadowOccurrenceEvidenceSchema = z.strictObject({
+  status: z.enum(["proven", "partial", "unavailable"]), scopeId: z.string(), route: z.strictObject({ pathPattern: z.string(), entryFile: z.string() }),
+  component: z.strictObject({ definition: routeShadowOccurrenceDefinitionSchema, occurrence: routeShadowOccurrenceSchema }).nullable(),
+  terminal: routeShadowLocationSchema.nullable(),
+  definitions: z.array(routeShadowOccurrenceDefinitionSchema).max(24), occurrences: z.array(routeShadowOccurrenceSchema).max(96),
+  sourcePath: z.strictObject({
+    status: z.enum(["proven", "unavailable", "invalid"]), sourceOccurrenceId: z.string().nullable(), sourceCompilerIdentity: z.string().nullable(),
+    sourceLocation: routeShadowLocationSchema.nullable(), terminalLocation: routeShadowLocationSchema.nullable(), scopeId: z.string().nullable(),
+    occurrenceIds: z.array(z.string()).max(96), detail: z.string(),
+  }),
+  selectedWrapperOccurrenceId: z.string().nullable(), projection: routeShadowOccurrenceProjectionSchema.nullable(),
+  siblingIsolation: z.strictObject({
+    selectedWrapperOccurrenceId: z.string(), siblingWrapperOccurrenceId: z.string(), sameDefinition: z.boolean(),
+    selectedChildOccurrenceIds: z.array(z.string()).max(96), siblingChildOccurrenceIds: z.array(z.string()).max(96),
+    siblingReceivedSelectedChildren: z.boolean(), siblingInSourcePath: z.boolean(),
+  }).nullable(),
+  gaps: z.array(z.strictObject({ reason: z.enum(["unresolved-symbol", "identity-lost", "unsupported-syntax"]), label: z.string(), location: routeShadowLocationSchema.nullable() })).max(16),
+  truncation: z.strictObject({ definitions: z.boolean(), occurrences: z.boolean(), edges: z.boolean(), hiddenPaths: z.boolean(), gaps: z.boolean() }),
+});
+
+export type RouteShadowOccurrenceEvidenceContract = z.infer<typeof routeShadowOccurrenceEvidenceSchema>;
+export type RouteShadowOccurrenceContract = z.infer<typeof routeShadowOccurrenceSchema>;
+export type RouteShadowOccurrenceDefinitionContract = z.infer<typeof routeShadowOccurrenceDefinitionSchema>;
+export type RouteShadowOccurrenceLocationContract = z.infer<typeof routeShadowLocationSchema>;
+
+export const routeShadowEvidenceSchema = z.strictObject({
+  status: z.enum(["proven", "partial", "unavailable"]),
+  route: z.strictObject({ key: z.string(), pathPattern: z.string(), file: z.string() }),
+  origin: z.strictObject({
+    id: z.string(), kind: z.literal("filesystem"), label: z.string(),
+    definition: z.strictObject({ id: z.string(), name: z.string(), module: z.string().nullable(), compilerIdentity: z.string(), location: routeShadowLocationSchema.nullable() }),
+    occurrence: z.strictObject({ id: z.string(), expression: z.string(), compilerIdentity: z.string(), location: routeShadowLocationSchema }),
+  }).nullable(),
+  terminal: z.strictObject({ id: z.string(), kind: z.enum(["jsx-text", "dom-attribute", "style"]), label: z.string(), component: z.string().nullable(), location: routeShadowLocationSchema }).nullable(),
+  nodes: z.array(z.strictObject({ id: z.string(), role: z.enum(["origin", "handoff", "terminal"]), kind: z.string(), label: z.string(), location: routeShadowLocationSchema.nullable() })),
+  edges: z.array(z.strictObject({
+    id: z.string(), from: z.string(), to: z.string(),
+    kind: z.enum(["origin-read", "call-return", "resource-result", "component-prop", "context-member", "property-read", "render-terminal", "render-occurrence", "transparent-splice"]),
+    proof: routeShadowProofSchema,
+  })),
+  gaps: z.array(z.strictObject({
+    id: z.string(), from: z.string(), to: z.string().nullable(), label: z.string(),
+    reason: z.enum(["unsupported-syntax", "dynamic-dispatch", "external-code", "identity-lost", "unresolved-symbol"]),
+    location: routeShadowLocationSchema.nullable(),
+  })),
+  truncation: z.strictObject({ nodes: z.boolean(), edges: z.boolean(), gaps: z.boolean() }),
+  occurrenceEvidence: routeShadowOccurrenceEvidenceSchema.nullable(),
+}).superRefine((evidence, context) => {
+  const nodeIds = new Set(evidence.nodes.map((node) => node.id));
+  evidence.edges.forEach((edge, index) => {
+    if (!nodeIds.has(edge.from)) context.addIssue({ code: "custom", path: ["edges", index, "from"], message: `Edge source does not reference an emitted node: ${edge.from}` });
+    if (!nodeIds.has(edge.to)) context.addIssue({ code: "custom", path: ["edges", index, "to"], message: `Edge target does not reference an emitted node: ${edge.to}` });
+  });
+  evidence.gaps.forEach((gap, index) => {
+    if (!nodeIds.has(gap.from)) context.addIssue({ code: "custom", path: ["gaps", index, "from"], message: `Gap source does not reference an emitted node: ${gap.from}` });
+    if (gap.to && !nodeIds.has(gap.to)) context.addIssue({ code: "custom", path: ["gaps", index, "to"], message: `Gap target does not reference an emitted node: ${gap.to}` });
+  });
+  if (evidence.occurrenceEvidence) {
+    for (const issue of validateNestedOccurrenceEvidence(evidence.occurrenceEvidence)) {
+      context.addIssue({ code: "custom", path: ["occurrenceEvidence", ...issue.path], message: issue.message });
+    }
+  }
+});
 const routeParameterSchema = z.strictObject({ name: z.string(), kind: z.enum(["dynamic", "catch-all"]) });
 const routeDataEvidenceSchema = z.strictObject({
   id: z.string(), expression: z.string(), operationKind: z.string(), file: z.string(),
@@ -180,16 +283,86 @@ const exhaustiveRouteGraphSchema = z.strictObject({
   totals: z.strictObject({ sinks: z.number().int().nonnegative(), trajectories: z.number().int().nonnegative(), nodes: z.number().int().nonnegative(), edges: z.number().int().nonnegative(), components: z.number().int().nonnegative(), unknownTrajectories: z.number().int().nonnegative() }),
   truncated: z.boolean(), cycleCount: z.number().int().nonnegative(), pathBudget: z.number().int().positive(),
 });
-export const routeDataDetailSchema = z.strictObject({
+const routeDataDetailBaseShape = {
   route: routeSummarySchema, trajectory: routeDataTrajectorySchema, operations: z.array(routeDataOperationSchema), values: z.array(routeDataValueSchema), shapes: z.array(routeDataShapeSchema), evidence: z.array(routeDataEvidenceSchema), terminals: z.array(routeDataTerminalSchema),
   sources: z.array(sourceMethodSummarySchema),
   context: z.strictObject({ nodes: z.array(routeContextNodeSchema), edges: z.array(routeContextEdgeSchema) }), exhaustiveGraph: exhaustiveRouteGraphSchema,
-  hiddenComponentPolicy: hiddenComponentPolicySchema,
-});
+};
+export const routeDataDetailTransportSchema = z.strictObject({ ...routeDataDetailBaseShape, hiddenComponentPolicy: hiddenComponentPolicySchema, totality: routeTotalityStructureSchema.nullable(), shadowEvidence: routeShadowEvidenceSchema.nullable().optional() });
+export const routeDataDetailSchema = z.strictObject({ ...routeDataDetailBaseShape, hiddenComponentPolicy: hiddenComponentPolicySchema, totality: routeTotalitySchema.nullable(), shadowEvidence: routeShadowEvidenceSchema.nullable().optional() });
 export const routeDataDetailRequestSchema = z.strictObject({ route: z.string().trim().min(1), flow: z.string().trim().min(1), generation: z.coerce.number().int().nonnegative().optional() });
 export const routeDataDetailResponseSchema = apiMetadataSchema.extend({ data: routeDataDetailSchema });
-export const sourceExcerptRequestSchema = z.strictObject({ path: z.string().trim().min(1), line: z.coerce.number().int().positive(), column: z.coerce.number().int().positive().default(1), endLine: z.coerce.number().int().positive().optional(), endColumn: z.coerce.number().int().positive().optional() });
-export const sourceExcerptResponseSchema = apiMetadataSchema.extend({ data: z.strictObject({ path: z.string(), focus: z.strictObject({ line: z.number().int().positive(), column: z.number().int().positive(), endLine: z.number().int().positive(), endColumn: z.number().int().positive() }), lines: z.array(z.strictObject({ number: z.number().int().positive(), text: z.string(), focus: z.boolean() })) }) });
+export const routeDataDetailTransportResponseSchema = apiMetadataSchema.extend({ data: routeDataDetailTransportSchema });
+export const SOURCE_EXCERPT_MAX_PATH_LENGTH = 512;
+export const SOURCE_EXCERPT_DEFAULT_CONTEXT_LINES = 5;
+export const SOURCE_EXCERPT_MAX_CONTEXT_LINES = 40;
+export const SOURCE_EXCERPT_MAX_SPAN_LINES = 256;
+export const SOURCE_EXCERPT_MAX_LINES = SOURCE_EXCERPT_MAX_SPAN_LINES + SOURCE_EXCERPT_MAX_CONTEXT_LINES * 2;
+
+const sourceExcerptInteger = z.union([
+  z.number().int(),
+  z.string().trim().min(1).regex(/^\d+$/).transform(Number),
+]);
+const sourceExcerptPositiveInteger = sourceExcerptInteger.refine((value) => value > 0, "Must be a positive integer");
+const sourceExcerptNonnegativeInteger = sourceExcerptInteger.refine((value) => value >= 0, "Must be a non-negative integer");
+const sourceExcerptContextInteger = sourceExcerptInteger.pipe(z.number().int().nonnegative().max(SOURCE_EXCERPT_MAX_CONTEXT_LINES));
+const sourceExcerptPathSchema = z.string().trim().min(1).max(SOURCE_EXCERPT_MAX_PATH_LENGTH).refine((value) => !value.includes("\0"), "NUL bytes are not valid in source paths");
+export const sourceExcerptSpanSchema = z.strictObject({
+  startLine: sourceExcerptPositiveInteger,
+  startColumn: sourceExcerptPositiveInteger,
+  endLine: sourceExcerptPositiveInteger,
+  endColumn: sourceExcerptPositiveInteger,
+}).superRefine((span, context) => {
+  if (span.endLine < span.startLine) context.addIssue({ code: "custom", path: ["endLine"], message: "End line must not precede start line" });
+  if (span.endLine === span.startLine && span.endColumn < span.startColumn) context.addIssue({ code: "custom", path: ["endColumn"], message: "End column must not precede start column" });
+});
+
+const sourceExcerptRequestInputSchema = z.strictObject({
+  path: sourceExcerptPathSchema,
+  generation: sourceExcerptNonnegativeInteger,
+  span: sourceExcerptSpanSchema.optional(),
+  startLine: sourceExcerptPositiveInteger.optional(),
+  startColumn: sourceExcerptPositiveInteger.optional(),
+  line: sourceExcerptPositiveInteger.optional(),
+  column: sourceExcerptPositiveInteger.optional(),
+  endLine: sourceExcerptPositiveInteger.optional(),
+  endColumn: sourceExcerptPositiveInteger.optional(),
+  contextBefore: sourceExcerptContextInteger.default(SOURCE_EXCERPT_DEFAULT_CONTEXT_LINES),
+  contextAfter: sourceExcerptContextInteger.default(SOURCE_EXCERPT_DEFAULT_CONTEXT_LINES),
+});
+
+export const sourceExcerptRequestSchema = sourceExcerptRequestInputSchema.superRefine((input, context) => {
+  const startLine = input.span?.startLine ?? input.startLine ?? input.line;
+  const startColumn = input.span?.startColumn ?? input.startColumn ?? input.column ?? 1;
+  const endLine = input.span?.endLine ?? input.endLine ?? startLine;
+  const endColumn = input.span?.endColumn ?? input.endColumn ?? startColumn;
+  if (startLine === undefined) context.addIssue({ code: "custom", path: ["span", "startLine"], message: "A start line is required" });
+  if (endLine === undefined) context.addIssue({ code: "custom", path: ["span", "endLine"], message: "An end line is required" });
+  if (startLine !== undefined && endLine !== undefined && endLine - startLine + 1 > SOURCE_EXCERPT_MAX_SPAN_LINES) context.addIssue({ code: "custom", path: ["span"], message: `The selected span cannot exceed ${SOURCE_EXCERPT_MAX_SPAN_LINES} lines` });
+  if (startLine !== undefined && endLine !== undefined && endLine < startLine) context.addIssue({ code: "custom", path: ["span", "endLine"], message: "End line must not precede start line" });
+  if (startLine !== undefined && endLine !== undefined && endLine === startLine && endColumn < startColumn) context.addIssue({ code: "custom", path: ["span", "endColumn"], message: "End column must not precede start column" });
+}).transform((input) => {
+  const startLine = input.span?.startLine ?? input.startLine ?? input.line ?? 0;
+  const startColumn = input.span?.startColumn ?? input.startColumn ?? input.column ?? 1;
+  const endLine = input.span?.endLine ?? input.endLine ?? startLine;
+  const endColumn = input.span?.endColumn ?? input.endColumn ?? startColumn;
+  return {
+    path: input.path,
+    generation: input.generation,
+    span: { startLine, startColumn, endLine, endColumn },
+    contextBefore: input.contextBefore,
+    contextAfter: input.contextAfter,
+  };
+});
+
+const sourceExcerptFunctionSchema = z.strictObject({ label: z.string().min(1), kind: z.string().min(1), span: sourceExcerptSpanSchema });
+export const sourceExcerptResponseSchema = apiMetadataSchema.extend({ data: z.strictObject({
+  path: z.string(),
+  focus: z.strictObject({ line: z.number().int().positive(), column: z.number().int().positive(), endLine: z.number().int().positive(), endColumn: z.number().int().positive() }),
+  lines: z.array(z.strictObject({ number: z.number().int().positive(), text: z.string(), focus: z.boolean() })).max(SOURCE_EXCERPT_MAX_LINES),
+  containingFunction: sourceExcerptFunctionSchema.nullable(),
+  file: z.strictObject({ lineCount: z.number().int().positive() }),
+}) });
 
 export const workspaceSchema = z.strictObject({
   workspace: z.strictObject({
@@ -365,7 +538,11 @@ export type WorkspaceFileRow = z.infer<typeof workspaceFileRowSchema>;
 export type WorkspaceResponse = z.infer<typeof workspaceResponseSchema>;
 export type RouteDataInventory = z.infer<typeof routeDataInventorySchema>;
 export type RouteDataDetail = z.infer<typeof routeDataDetailSchema>;
+export type RouteShadowEvidence = z.infer<typeof routeShadowEvidenceSchema>;
 export type RouteDataDetailResponse = z.infer<typeof routeDataDetailResponseSchema>;
+export type SourceExcerptSpan = z.infer<typeof sourceExcerptSpanSchema>;
+export type SourceExcerptRequest = z.infer<typeof sourceExcerptRequestSchema>;
+export type SourceExcerptData = z.infer<typeof sourceExcerptResponseSchema>["data"];
 export type SourceExcerptResponse = z.infer<typeof sourceExcerptResponseSchema>;
 export type RefreshResponse = z.infer<typeof refreshResponseSchema>;
 export type FilePage = z.infer<typeof filePageSchema>;

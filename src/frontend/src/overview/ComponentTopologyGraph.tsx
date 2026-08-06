@@ -4,7 +4,7 @@ import { ComponentTopologyHeader, ComponentTopologyLegend } from "./ComponentTop
 import { ComponentTopologyDebugControls } from "./ComponentTopologyDebugControls";
 import { ComponentTopologyInspector } from "./ComponentTopologyInspector";
 import { componentTopologyIsolation, projectIsolatedComponentTopology, type ComponentTopologyIsolation } from "./component-topology-isolation";
-import { DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS, layoutComponentTopology, type ComponentTopologyForceVector, type ComponentTopologyLayoutSettings, type ComponentTopologyLayoutStep } from "./component-topology-layout";
+import { DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS, layoutComponentTopology, type ComponentTopologyForceVector } from "./component-topology-layout";
 import { applyManualTopologyPositions, topologyPositionChanges, topologyPositionSnapshot, type ComponentTopologyPosition } from "./component-topology-manual-layout";
 import { buildComponentTopology, componentTopologySelectionFocus, projectVisibleComponentTopology, summarizeSharedComponentHubs, type ComponentTopologyEdge, type ComponentTopologyLayoutEdge, type ComponentTopologyLayoutNode } from "./component-topology-model";
 import { componentTopologyDownstreamProofEdgeIds } from "./component-topology-resource-proof";
@@ -14,6 +14,7 @@ import { mergeTopologyRings, type ComponentTopologyRing } from "./hidden-compone
 import { hiddenComponentReferenceCount } from "./hidden-components-pane-model";
 import { createComponentTopologyPolicy } from "./component-topology-policy";
 import { buildTopologyNodeSourceTouches, buildTopologySourceLens, projectTopologySourceLens } from "./topology-source-lens";
+import { createTopologyLayoutDebug } from "./topology-layout-debug";
 import type { GenericUiMode } from "./trajectory-url-state";
 
 type Camera = { x: number; y: number; scale: number };
@@ -54,12 +55,19 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     participantNodeIds: labelParticipantIds(),
     limit: topologyLabelBudget(camera().scale, displayedTopology().nodes.length),
   }));
-  const [layoutSettings, setLayoutSettings] = createSignal<ComponentTopologyLayoutSettings>({ ...DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS });
-  const [layoutSteps, setLayoutSteps] = createSignal<ComponentTopologyLayoutStep[]>([]);
-  const simulatedLayout = createMemo(() => layoutComponentTopology(displayedTopology(), 1200, 760, layoutSettings(), layoutSteps(), layoutLabelIds()));
   const [editingPositions, setEditingPositions] = createSignal(false);
   const [manualPositions, setManualPositions] = createSignal(new Map<string, ComponentTopologyPosition>());
   const [manualEditStart, setManualEditStart] = createSignal<Map<string, ComponentTopologyPosition> | null>(null);
+  const layoutDebug = createTopologyLayoutDebug({
+    defaults: DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS,
+    onClose: () => setEditingPositions(false),
+    onReset: () => {
+      setEditingPositions(false);
+      setManualPositions(new Map());
+      setManualEditStart(null);
+    },
+  });
+  const simulatedLayout = createMemo(() => layoutComponentTopology(displayedTopology(), 1200, 760, layoutDebug.settings(), layoutDebug.steps(), layoutLabelIds()));
   const layout = createMemo(() => applyManualTopologyPositions(simulatedLayout(), manualPositions()));
   const manualChanges = createMemo(() => topologyPositionChanges(manualEditStart(), layout(), manualPositions()));
   const visibleNodeIds = createMemo(() => new Set(displayedTopology().nodes.map((node) => node.id)));
@@ -81,10 +89,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     }, 0);
   });
   const [drag, setDrag] = createSignal<Drag | null>(null);
-  const [debugVisible, setDebugVisible] = createSignal(false);
-  const [forcesVisible, setForcesVisible] = createSignal(false);
   const [selectionCopied, setSelectionCopied] = createSignal(false);
-  const [debugCopied, setDebugCopied] = createSignal(false);
   const [viewportSize, setViewportSize] = createSignal({ width: 0, height: 0 });
   const selectedNode = createMemo(() => topology().nodes.find((node) => node.id === selectedNodeId()) ?? null);
   const selectedLayoutNode = createMemo(() => layout().nodes.find((node) => node.id === selectedNodeId()) ?? null);
@@ -132,7 +137,6 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     }
   });
   let copiedResetTimer: number | undefined;
-  let debugCopiedResetTimer: number | undefined;
   const viewportScale = createMemo(() => {
     const viewport = viewportSize();
     if (!viewport.width || !viewport.height) return 1;
@@ -150,7 +154,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     setCamera(DEFAULT_CAMERA);
     setDrag(null);
     setEditingPositions(false);
-    setForcesVisible(false);
+    if (layoutDebug.forcesVisible()) layoutDebug.toggleForces();
     setManualPositions(new Map());
     setManualEditStart(null);
   };
@@ -159,10 +163,10 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     setCamera(DEFAULT_CAMERA);
     setDrag(null);
     setEditingPositions(false);
-    setForcesVisible(false);
+    if (layoutDebug.forcesVisible()) layoutDebug.toggleForces();
     setManualPositions(new Map());
     setManualEditStart(null);
-    setLayoutSteps([]);
+    layoutDebug.clearSteps();
   };
   createEffect(() => {
     effectiveGenericUiMode();
@@ -185,29 +189,15 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     const handleShortcut = (event: KeyboardEvent) => {
       const target = event.target;
       if (event.metaKey || event.ctrlKey || event.altKey || event.repeat || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target instanceof HTMLElement && target.isContentEditable) return;
-      const key = event.key.toLowerCase();
-      if (key === "i") {
-        if (!isolation() && !isolationCandidate()) return;
-        event.preventDefault();
-        toggleIsolation();
-        return;
-      }
-      if (key !== "d") return;
+      if (event.key.toLowerCase() !== "i" || !isolation() && !isolationCandidate()) return;
       event.preventDefault();
-      setDebugVisible((visible) => {
-        if (visible) {
-          setForcesVisible(false);
-          setEditingPositions(false);
-        }
-        return !visible;
-      });
+      toggleIsolation();
     };
     document.addEventListener("keydown", handleShortcut);
     onCleanup(() => document.removeEventListener("keydown", handleShortcut));
   });
   onCleanup(() => {
     if (copiedResetTimer !== undefined) window.clearTimeout(copiedResetTimer);
-    if (debugCopiedResetTimer !== undefined) window.clearTimeout(debugCopiedResetTimer);
   });
   const copySelection = async () => {
     const id = selectedNodeId();
@@ -234,24 +224,6 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     if (copiedResetTimer !== undefined) window.clearTimeout(copiedResetTimer);
     copiedResetTimer = window.setTimeout(() => setSelectionCopied(false), 1300);
   };
-  const updateLayoutSetting = (key: Exclude<keyof ComponentTopologyLayoutSettings, "separationPasses">, value: number) => {
-    if (key === "simulationTicks") {
-      setLayoutSteps([]);
-      setLayoutSettings((settings) => ({ ...settings, simulationTicks: value, separationPasses: 0 }));
-      return;
-    }
-    setLayoutSettings((settings) => ({ ...settings, [key]: value }));
-  };
-  const runLayoutTicks = (count: number) => {
-    const allowed = Math.min(count, 320 - layoutSettings().simulationTicks);
-    if (allowed <= 0) return;
-    setLayoutSteps((steps) => [...steps, ...Array<ComponentTopologyLayoutStep>(allowed).fill("tick")]);
-    setLayoutSettings((settings) => ({ ...settings, simulationTicks: settings.simulationTicks + allowed }));
-  };
-  const runSeparationPass = () => {
-    setLayoutSteps((steps) => [...steps, "separate"]);
-    setLayoutSettings((settings) => ({ ...settings, separationPasses: settings.separationPasses + 1 }));
-  };
   const toggleEditingPositions = () => {
     if (editingPositions()) {
       setEditingPositions(false);
@@ -259,21 +231,14 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     }
     setManualEditStart(topologyPositionSnapshot(layout()));
     setEditingPositions(true);
-    setForcesVisible(false);
-  };
-  const resetLayoutDebug = () => {
-    setLayoutSteps([]);
-    setLayoutSettings({ ...DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS });
-    setEditingPositions(false);
-    setManualPositions(new Map());
-    setManualEditStart(null);
+    if (layoutDebug.forcesVisible()) layoutDebug.toggleForces();
   };
   const copyLayoutDebugState = async () => {
     const currentLayout = layout();
     const payload = {
       kind: "component-topology-layout-debug",
-      settings: layoutSettings(),
-      steps: layoutSteps(),
+      settings: layoutDebug.settings(),
+      steps: layoutDebug.steps(),
       manualPositions: {
         editing: editingPositions(),
         movedNodeCount: manualChanges().length,
@@ -323,10 +288,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
         };
       }),
     };
-    await copyText(JSON.stringify(payload, null, 2));
-    setDebugCopied(true);
-    if (debugCopiedResetTimer !== undefined) window.clearTimeout(debugCopiedResetTimer);
-    debugCopiedResetTimer = window.setTimeout(() => setDebugCopied(false), 1300);
+    await layoutDebug.copy(payload);
   };
   const resetCamera = () => setCamera(DEFAULT_CAMERA);
   const zoomAt = (nextScale: number, anchor = { x: layout().width / 2, y: layout().height / 2 }) => {
@@ -390,19 +352,19 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
         <code>{sourceLens().source?.label ?? "Source"}</code>
         <small>{sourceLens().source?.consumerLabel ? `via ${sourceLens().source!.consumerLabel} · Click to clear` : "Click to clear"}</small>
       </button>
-      <div class="component-topology-debug-overlay" hidden={!debugVisible()}>
+      <div class="component-topology-debug-overlay" hidden={!layoutDebug.visible()}>
         <ComponentTopologyDebugControls
-          settings={layoutSettings()}
-          copied={debugCopied()}
-          forcesVisible={forcesVisible()}
+          settings={layoutDebug.settings()}
+          copied={layoutDebug.copied()}
+          forcesVisible={layoutDebug.forcesVisible()}
           editingPositions={editingPositions()}
           manualMoveCount={manualChanges().length}
-          onSetting={updateLayoutSetting}
-          onTick={runLayoutTicks}
-          onSeparate={runSeparationPass}
-          onToggleForces={() => setForcesVisible((visible) => !visible)}
+          onSetting={layoutDebug.updateSetting}
+          onTick={layoutDebug.runTicks}
+          onSeparate={layoutDebug.runSeparationPass}
+          onToggleForces={layoutDebug.toggleForces}
           onToggleEditing={toggleEditingPositions}
-          onReset={resetLayoutDebug}
+          onReset={layoutDebug.reset}
           onCopy={() => void copyLayoutDebugState()}
         />
       </div>
@@ -445,7 +407,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
             <title>{nodeTitle(current())}</title>
           </g>;
           }}</Index></g>
-          <g class="component-topology-forces" classList={{ visible: forcesVisible() }} aria-hidden={!forcesVisible()}><For each={layout().forces.filter((force) => force.magnitude > .01)}>{(force) => {
+          <g class="component-topology-forces" classList={{ visible: layoutDebug.forcesVisible() }} aria-hidden={!layoutDebug.forcesVisible()}><For each={layout().forces.filter((force) => force.magnitude > .01)}>{(force) => {
             const line = forceVectorLine(force);
             return <line data-node-id={force.id} x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2} marker-end="url(#component-topology-force-arrow)">
               <title>Next tick: Δx {round(force.dx)}, Δy {round(force.dy)}, magnitude {round(force.magnitude)}</title>

@@ -93,19 +93,23 @@ export function buildReport(
     traceFile(sourceFile, checker);
   }
 
-  reportProgress?.({ step: "summarize", message: "Ranking findings and building cross-file summaries" });
+  const summaryProgress = (message: string) => reportProgress?.({ step: "summarize", message });
+  summaryProgress("Ranking findings and building cross-file summaries");
 
   const fileMatch = makeFileMatcher(args.file);
   const scopedSinks = applyScope(sinks, args.scope);
   const filteredSinks = fileMatch
     ? scopedSinks.filter((sink: Sink) => fileMatch(sink.file))
     : scopedSinks;
+  summaryProgress("Grounding sink reachability");
   groundReachability(filteredSinks);
   for (const sink of filteredSinks) {
     for (const evidence of [sink.identity, ...(sink.traceIdentities ?? [])]) {
       if (evidence) evidence.totalReach = sink.metrics.reachableSinks;
     }
   }
+  summaryProgress("Sink reachability grounding complete");
+  summaryProgress("Analyzing context relay boundaries");
   const scopedRelay = applyContextRelayScope(
     analyzeContextRelay(ts, sourceFiles, args.root),
     args.scope,
@@ -116,8 +120,12 @@ export function buildReport(
           fileMatch(finding.parentFile) || fileMatch(finding.childFile),
       )
     : scopedRelay;
+  summaryProgress("Context relay boundary analysis complete");
+  summaryProgress("Computing pack groups and shared evidence");
   const packGroups = computePackGroups(filteredSinks);
   applyPackEvidence(filteredSinks, packGroups);
+  summaryProgress("Pack groups and shared evidence complete");
+  summaryProgress("Ranking findings");
   const rankings = rankSinks(
     filteredSinks.filter(
       (sink: Sink) => sink.category !== "event-handler" && !isConstantSink(sink),
@@ -135,8 +143,11 @@ export function buildReport(
   // Shared-cause work units (Approach 3) and the concentration profile
   // (Approach 5) are pure roll-ups over the burden ranking; compute once so
   // every view projects from the same data.
+  summaryProgress("Computing shared work units and concentration");
   const workUnits = computeWorkUnits(rankings.all);
   const concentration = computeConcentration(rankings.all);
+  summaryProgress("Shared work units and concentration complete");
+  summaryProgress("Building helper report");
   const allHelpers = buildHelperReport(
     ts,
     checker,
@@ -147,7 +158,11 @@ export function buildReport(
   const helpers = fileMatch
     ? allHelpers.filter((helper) => fileMatch(helper.file))
     : allHelpers;
+  summaryProgress("Helper report complete");
+  summaryProgress("Collecting unknown graph edges");
   const unknownEdges = buildUnknownEdgeRows(graph, filteredSinks);
+  summaryProgress("Unknown graph edge collection complete");
+  summaryProgress("Building component references");
   const allComponentRefs = buildComponentRefs(
     ts,
     checker,
@@ -159,18 +174,29 @@ export function buildReport(
         (ref) => fileMatch(ref.file) || ref.uses.some((u: { file: string }) => fileMatch(u.file)),
       )
     : allComponentRefs;
+  summaryProgress("Component reference analysis complete");
+  summaryProgress("Relating repeated render forks");
   const repeatedForks = relateForks(
     fileMatch ? forks.filter((fork) => fileMatch(fork.file)) : forks,
     filteredSinks,
   ).sort((left, right) => right.severity - left.severity);
+  summaryProgress("Repeated render fork analysis complete");
+  summaryProgress(args.baseline ? "Comparing the baseline report" : "Preparing report baseline");
   const baseline = args.baseline
     ? compareBaseline(rankings, args.baseline)
     : null;
-  const routeData = analyzeRouteData(ts, program, args.root, filteredSinks);
+  summaryProgress("Report baseline preparation complete");
+  summaryProgress("Building route-data graph and trajectories");
+  const routeData = analyzeRouteData(ts, program, args.root, filteredSinks, rankings.all);
+  summaryProgress("Route-data graph and trajectory construction complete");
+  const generatedAt = new Date().toISOString();
+  summaryProgress("Preparing final report summary");
+  const summary = summarize(filteredSinks, graph, { familyRows, unique });
+  summaryProgress("Final report summary complete");
 
   return {
     analysisVersion: 1,
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     meta: {
       root: args.root,
       source: args.source,
@@ -199,7 +225,7 @@ export function buildReport(
     repeatedForks,
     routeData,
     baseline,
-    summary: summarize(filteredSinks, graph, { familyRows, unique }),
+    summary,
   };
 }
 

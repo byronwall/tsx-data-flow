@@ -6,6 +6,7 @@ import { OverviewPage } from "./OverviewPage";
 import { currentLocation, type Navigate } from "./router";
 import { ReportPage } from "./ReportPage";
 import { installPopoverController } from "./popover-controller";
+import { BROWSER_URL_CHANGE_EVENT, notifyBrowserUrlChange } from "./overview/trajectory-history";
 import "./style.css";
 
 function App() {
@@ -16,14 +17,18 @@ function App() {
     if (replace) window.history.replaceState({}, "", next);
     else window.history.pushState({}, "", next);
     setLocation(currentLocation());
+    notifyBrowserUrlChange();
   };
 
   onMount(() => {
     const onPop = () => setLocation(currentLocation());
+    const onUrlChange = () => setLocation(currentLocation());
     window.addEventListener("popstate", onPop);
+    window.addEventListener(BROWSER_URL_CHANGE_EVENT, onUrlChange);
     const removePopoverController = installPopoverController(document);
     onCleanup(() => {
       window.removeEventListener("popstate", onPop);
+      window.removeEventListener(BROWSER_URL_CHANGE_EVENT, onUrlChange);
       removePopoverController();
     });
   });

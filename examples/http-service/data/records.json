@@ -1,0 +1,14 @@
+[
+  {
+    "id": "record-1",
+    "name": "Northwind",
+    "status": "open",
+    "ownerEmail": "ops@example.test"
+  },
+  {
+    "id": "record-2",
+    "name": "Southridge",
+    "status": "closed",
+    "ownerEmail": "support@example.test"
+  }
+]

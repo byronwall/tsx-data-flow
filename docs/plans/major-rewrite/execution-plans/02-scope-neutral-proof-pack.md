@@ -8,6 +8,179 @@ without creating one trajectory engine per adapter.
 This project uses small examples to force the core seam. It does not attempt to
 give every example the full route user experience.
 
+## Current execution status
+
+Status: Complete. Milestones 1–4 are complete. Project 3 is next.
+
+| Milestone | Status | Evidence or remaining work |
+| --- | --- | --- |
+| Milestone 1 — Implementation and independent verification | Complete | All five fixtures passed independent verification. Owners repaired Solid external-body overclaim/loading terminal, CLI citations/stderr/multiplicity, HTTP safe POST path/log terminal, shared field-role matrices, and the full-stack loading terminal. Fixture TypeScript/ESLint and safe commands passed. |
+| Milestone 2 — Scope and slice seam | Complete | Independent acceptance PASS. Solid is 344/658/6/35/2 with no truncation. Node CLI is 364/743/14/7/77 with no truncation. The indexed-facts/lazy-relation decision remains planned work before Pluck-scale use. |
+| Milestone 3 — CLI and service scopes | Complete | HTTP, serverless, Solid regression, and Node CLI final slices passed independent acceptance. |
+| Milestone 4 — Exact full-stack bridge | Complete | Final full-stack CLI slice passed independent acceptance. Project 3 is next. |
+
+### Active worker wave
+
+| Worker | Ownership | Role |
+| --- | --- | --- |
+| 🧭 17 | `examples/solid-route/**` | Fixture implementation |
+| 🧭 18 | `examples/node-cli/**` | Fixture implementation |
+| 🧭 19 | Shared seam | Read-only shared-seam study |
+| 🧭 29 | Milestone 2 independent verification | Acceptance PASS |
+| 🧭 30 | Eager/lazy performance spike | Decision complete |
+
+Project 1 remains complete. Its refresh restoration follow-up remains assigned
+to Project 4. No tests were run or changed.
+
+### Fixture implementation snapshot
+
+Implementation and independent verification are complete for all five fixtures.
+
+| Fixture | Implementation evidence | Current analyzer or verification note |
+| --- | --- | --- |
+| `examples/solid-route` | README, handwritten evidence ledger, repeatable command, and fixture-scoped static checks are present. | The current render result is useful. The initial worker reported 4 sinks. A later verifier observed 19 findings across route and component files with no unknown edges. |
+| `examples/solid-full-stack` | README, handwritten evidence ledger, repeatable command, and fixture-scoped static checks are present. | The analyzer reports 6 sources, 8 sinks, 29 nodes, 21 edges, 0 unknown edges, and 4 path families. The exact static `GET /api/records` bridge is in the ledger, but the current analyzer does not join HTTP boundaries. One unmatched telemetry request stays external. |
+| `examples/node-cli` | README, handwritten evidence ledger, repeatable command, and fixture-scoped static checks are present. | Run and smoke checks work. The current render analyzer result is empty because the analyzer is route/JSX-only. This is a documented limitation, not evidence-slice success. |
+| `examples/http-service` | README, handwritten evidence ledger, repeatable command, and fixture-scoped static checks are present. | Run and smoke checks work. The current render analyzer result is empty because the analyzer is route/JSX-only. This is a documented limitation, not evidence-slice success. |
+| `examples/serverless-handler` | README, handwritten evidence ledger, repeatable command, and fixture-scoped static checks are present. | Run and smoke checks work. The current render analyzer result is empty because the analyzer is route/JSX-only. This is a documented limitation, not evidence-slice success. |
+
+All five fixture verification results are PASS. No tests were run or changed.
+
+### Milestone 2 implementation snapshot
+
+The initial Solid route and Node CLI seam implementation is complete. The
+repaired implementation includes `program-evidence.ts` at 568 lines plus
+`program-evidence-support.ts`. It detects environment, argv, stdin, `exitCode`,
+stderr, file IO, and explicit external-response gaps.
+
+`evidence-slice.ts` is 466 lines. `evidence-slice-support.ts` is 512 lines and
+`evidence-slice-coverage.ts` is 134 lines. They provide exact parameter-role
+mapping, deterministic role-distance priority, and runtime gap preservation.
+
+Adapter-local defaults are bounded at `maxElements: 512` and
+`maxRelations: 1024`. Both bounded CLI smoke runs passed. Scoped TypeScript,
+ESLint, and diff checks passed in worker checks. Stderr is not stdout.
+
+Worker 🧭 29 completed independent Milestone 2 acceptance with PASS. Worker 🧭 30
+completed the eager/lazy performance decision. The indexed-facts/lazy-relation
+optimization remains planned work before Pluck-scale use.
+
+### Milestone 2 acceptance snapshot
+
+Status: Complete. Independent acceptance: PASS.
+
+Passed checks:
+
+- The schema has exactly six keys.
+- IDs are stable, source-based, and contain no route or scope tokens.
+- No duplicate IDs or invalid relation endpoints remain.
+- Stable IDs contain no route or scope IDs. Duplicate IDs: 0. Invalid relation
+  endpoints: 0. Invalid proof: 0.
+- Proof records have source backing.
+- No fetch or resource bridge is invented.
+- Adapters provide seeds only.
+- Direction, boundary, terminal, and budget diagnostics pass.
+- Required origin and terminal role distributions and policy checks pass.
+- `pnpm lint` and `pnpm typecheck` pass.
+
+The following table records the pre-repair acceptance baseline:
+
+| Scope | Elements | Relations | Origins | Terminals | Gaps | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Solid wide | 344 | 658 | 6 | 35 | 0 | Complete |
+| CLI wide | 361 | 736 | 2 | 6 | 77 | No truncation |
+| Solid default | 128 | 192 | 6 | 16 | 60 | Truncated |
+| CLI default | 128 | 256 | 1 | 2 | 90 | Truncated |
+
+Final repaired default results:
+
+| Scope | Elements | Relations | Origins | Terminals | Gaps | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Solid default | 344 | 658 | 6 (resource 2, fetch 2, network 2) | 35 (render 22, component 7) | 2 external-code | No truncation |
+| CLI default | 364 | 743 | 14 (argument 6, environment 4, filesystem 1, cwd 3) | 7 (stdout 1, file-write 1, exit 1, side-effect 4) | 77 honest | No truncation |
+
+The repair adds environment, argv, stdin, `exitCode`, stderr, file IO, and
+explicit external-response gaps. It adds exact parameter-role mapping,
+deterministic role-distance priority, and runtime gap preservation. Stderr is
+not stdout.
+
+The previous acceptance defects were repaired:
+
+- CLI lacks environment and exit roles.
+- Stderr is misclassified as stdout.
+- Solid lacks explicit runtime or external async gaps.
+- Default traversal reaches caps before required CLI terminals.
+
+The eager Pluck collection has not returned successfully. Read-only prep studies
+remain preparation only and do not start Milestones 3–4. Tests, build, and
+verify were not run.
+
+### Performance-spike decision
+
+Decision: use indexed facts with lazy relation expansion. Keep the current eager
+collector only as a small-fixture fallback. The current bounded query runs after
+full eager collection, so it does not solve Pluck scale.
+
+| Workload | Measurement |
+| --- | --- |
+| Five fixtures | 0.80–0.91s wall; 267–391 elements; 426–775 relations; about 318–340 MiB end RSS. |
+| Pluck TypeScript program load | 616 project files; 3,712 total files; 3.43s; about 1,010 MiB RSS. |
+| Full Pluck evidence collection | Did not finish within 150s and was stopped. |
+| Pluck store subset | 53 files; 25,036 elements; 48,851 relations; 68 gaps; 16.4s; about 1,660 MiB RSS. |
+| Pluck viewer subset | 127 files; 38,881 elements; 79,220 relations; 56 gaps; 68.5s; at least 1,647 MiB heap. |
+| Default bounded Solid and CLI slices | About 204–231KB and about 2ms after eager collection; both hit caps. |
+
+Next bounded optimization: keep compact declaration facts eager, then
+materialize `contains`, `references`, and other relations lazily from the
+selected seed. This optimization is planned, not implemented. It is required
+before Pluck-scale use. Project 2 is complete, but this optimization remains
+planned before Pluck-scale use.
+
+### Milestone 3 acceptance snapshot
+
+Status: Complete. Independent acceptance: PASS.
+
+| Scope | Elements | Relations | Origins | Terminals | Gaps | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| HTTP | 335 | 674 | 7 | 7 | 68 | No truncation or budget exhaustion |
+| Serverless | 164 | 322 | 2 | 7 | 26 | No truncation or budget exhaustion |
+| Solid regression | 344 | 658 | 6 | 35 | 2 | No truncation or budget exhaustion |
+| Node CLI | 364 | 743 | 14 | 7 | 77 | No truncation or budget exhaustion |
+
+The exact six-key schema, required origin and terminal role distributions,
+stable IDs, registration and nested-entry proofs, policy checks, adapter-only
+seeds and defaults, stderr separation, and honest gaps passed. The repaired
+serverless evidence ledger is recorded. The EOF whitespace follow-up is
+recorded, and EOF checks passed.
+
+`pnpm lint`, `pnpm typecheck`, and diff checks passed. Tests, builds, and verify
+were not run. Project 3 is next.
+
+### Milestone 4 acceptance snapshot
+
+Status: Complete. Independent acceptance: PASS.
+
+The final full-stack CLI slice contains 269 elements, 491 relations, 9 origins,
+23 terminals, and 1 gap. It uses the exact six-key schema with no truncation or
+budget exhaustion.
+
+The stable `RecordsPage` seed is `13zzlo3`, backed by
+`program-element:14lb9j5` through the `solid-full-stack` adapter. The matched
+records gap is removed. Telemetry remains the sole external gap.
+
+The accepted bridge is `program-relation:anvqd6`: `server.ts:30`
+`response.end(body)` (`HTTP-response`) connects to `client.tsx:20`
+`createResource` (`resource-input`). Its proof includes client fetch `:5`,
+server normalization `:35–38`, the GET/path guard `:40`, the resolved handler
+declaration/call `:24`/`:41`, response `:30`, and resource `:20`.
+
+A false-positive repair now requires the handler request-origin parameter. Eight
+negative variants returned zero bridges and honest external gaps.
+
+`pnpm lint`, `pnpm typecheck`, diff, and scoped whitespace/EOF checks passed.
+Tests, builds, and verify were not run. Unrelated pre-existing whitespace was
+outside the dirty acceptance scope.
+
 ## Milestone 1: Create the comparable example pack
 
 Add small applications under `examples/`. Each example should use the same
@@ -129,4 +302,3 @@ Proceed to full route totality only if all example forms share:
 - Full write reconciliation
 - Public fixture packages
 - Automated tests without separate approval
-

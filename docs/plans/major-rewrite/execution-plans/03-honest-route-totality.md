@@ -7,6 +7,127 @@ route without false joins or arbitrary branch removal.
 
 This project turns the single-path marshmallow into the holistic route view.
 
+## Current execution status
+
+Status: Complete. Backend Milestones 1–3 passed independent acceptance.
+Milestone 4 implementation, source-level UI gate, clean-room production
+browser gate, and the five-minute comprehension decision gate passed. Project
+4 is now in progress.
+
+| Workstream | Status | Evidence or remaining work |
+| --- | --- | --- |
+| Read-only kickoff audits | Complete | Project 1, local occurrence, and legacy route baselines are recorded below. |
+| Occurrence kernel | Complete / independent PASS | Solid route and Pluck occurrence totals passed with no omissions or truncation. |
+| Provider, query, and route integration | Complete / independent PASS | All five fixture slices, stable IDs, all 21 relation kinds, and the full-stack bridge passed. |
+| Strict route totality contract | Complete / independent PASS | Nullable, schema, coverage, mutation, and marker semantics passed. |
+| API projection | Complete / independent PASS | `route:1j5uvsv` returned a byte-stable partial projection with zero validator issues. |
+| Compact provider correctness/performance | Complete / independent PASS | The exact 17-file scan has zero lines `>=160/240`, largest 563, and collector facade 88. Scoped ESLint and server TypeScript checks passed. |
+| Milestone 4 frontend graph/model/UI | Complete / PASS | Workers 69–70 delivered the third Route totality renderer, deterministic model/layout, semantic graph, zoom-aware labels, pan/zoom/reset, inspector, omissions, and explicit null/unavailable/partial states. The source-level UI and clean-room production browser gates passed. |
+| Production snapshot build | Complete / PASS | Generation 1 runs on the fixed non-watch server at `127.0.0.1:4323`, PID `79352`. `/healthz` returned 200. |
+| Clean-room browser gate | Complete / PASS | Frozen non-watch server `http://127.0.0.1:4323`, generation 1. `/records` uses route `route:1j5uvsv` and trajectory `trajectory:49a871`. Totality is partial: occurrence `7/8/1/5/1/3/18/0` and evidence `344/658/6/35/2`. |
+| Project 3 comprehension decision gate | Complete / PASS | An unfamiliar browser reviewer used no source walkthrough and found no comprehension blocker. |
+| Project 4 — Route investigation workspace | In progress | Milestone 1 implementation is active. Milestones 2–5 remain. |
+
+### Kickoff audit baselines
+
+| Baseline | Snapshot | Boundary |
+| --- | --- | --- |
+| Project 1 final proof | 19 nodes / 18 proven edges / 0 gaps | The proven route slice is the baseline for totality. |
+| Local occurrence spike | 16 definitions / 54 occurrences | Occurrence identity is available for the kernel. |
+| Legacy route | 261 rendered records / 771 definition edges | The legacy route does not preserve occurrence identity. |
+
+The kickoff audit identified Milestone 1 gaps in the route-wide surface,
+repetition markers, slot ownership, framework boundaries, honest totals, and
+the static/runtime distinction.
+
+The performance prerequisite is a lazy `ProgramFactIndex` and
+`EvidenceRelationProvider` before Milestones 2 and 4. No full eager Pluck run
+was completed. Known closure probe counts are candidates only, not proven
+totals.
+
+### Backend acceptance snapshot
+
+The occurrence kernel passed independent acceptance. The Solid route has 7
+definitions, 8 occurrences, 1 repeated, 5 conditional, 1 collection, 3
+framework boundaries, 18 terminals, and 0 omissions. Pluck has 16 definitions
+and 54 occurrences with no truncation.
+
+Provider, query, and route integration passed for all five fixture slices. It
+returned stable IDs, all 21 relation kinds, and the full-stack bridge. The
+bounded query is provider-backed.
+
+The compact Pluck zero-frontier run took 13.273s in the provider, 14.763s
+wall-clock, and 1.774GB RSS. It produced 185,120 compact facts and hydrated
+zero facts. The first endpoint expansion took 2.090s and reached 1.855GB RSS.
+
+The strict route totality contract passed required nullable, exact six-key
+evidence slice, origin coverage, and cycles, references, totals, omissions,
+and proofs mutation cases. Proof-distinct records with the same endpoint and
+kind are valid. Repeated and conditional marker semantics passed after repair.
+
+The API projection passed for route `route:1j5uvsv` with status `partial`.
+Its occurrence totals are 7 definitions, 8 occurrences, 1 repeated, 5
+conditional, 1 collection, 3 framework boundaries, 18 terminals, and 0
+omissions. Its evidence totals are 344 elements, 658 relations, 6 origins,
+35 terminals, and 2 gaps. It returned 658 unique stable IDs, 6 origins, zero
+validator issues, and byte-stable output. Lint and TypeScript checks passed.
+
+The focused compact-provider readability re-gate passed. The exact 17-file
+scan has zero lines `>=160/240`, largest 563, and collector facade 88. Scoped
+ESLint and server TypeScript checks passed.
+
+Milestone 4 frontend totality graph/model/UI implementation is complete with
+workers 69–70. The independent source-level UI gate passed after repairs. The
+model layout is deterministic and byte-identical. It has 381 nodes: 6 origin,
+8 occurrence, 3 boundary, 18 terminal, 2 gap, and 344 evidence element. It has
+689 edges: 28 render, 658 data, and 3 boundary. It has 1 omission and 0
+unresolved items.
+
+All model, layout, and JSX files are below 400 lines. The third Route totality
+renderer, honest states, edge families, inspector, ledger, SSR safety,
+selected `aria-pressed`, monospace route labels, and CSS semantics passed.
+Writer lint, TypeScript, and the Impeccable detector passed.
+
+The production snapshot build passed. Generation 1 runs on the fixed
+non-watch server at `127.0.0.1:4323`, PID `79352`. `/healthz` returned 200.
+The `/records` route is `route:1j5uvsv` with trajectory `trajectory:49a871`.
+Totality is partial: occurrence `7/8/1/5/1/3/18/0` and evidence
+`344/658/6/35/2`.
+
+The clean-room production browser gate passed on frozen non-watch server
+`http://127.0.0.1:4323`, generation 1. It reported no console errors or
+warnings and no busy or stale-loading state. Visible navigation reached
+`/records`, and all three renderers activated. Route totality passed pointer
+and Enter activation with `aria-pressed=true`.
+
+The graph showed 381 marks and 689 edges: 28 render, 658 data, and 3
+boundary. Explicit partial coverage showed 6 origins, 8 occurrences, 3
+framework boundaries, 18 terminals, and 2 gaps, with a named omission and
+budget ledger.
+
+Zoom, reset, wheel, pan, pointer node and edge selection, keyboard node
+selection, inspectors, proof, and locations passed. Hard refresh reset to
+Current workspace as expected for Project 4 refresh restoration scope. The
+totality view recovered without error. At 900x700, controls, graph, inspector,
+legend, and ledger remained usable.
+
+The five-minute comprehension decision gate passed. An unfamiliar browser
+reviewer used no source walkthrough and identified the origins
+`loadRecords→records` and `loadViewer→viewer`.
+
+The reviewer estimated `/records` at 40 paths, 7 connected components, 18
+topology connections, 381 marks, and 689 edges. `RecordsRoute` was the hub
+that fed `RouteFrame`, then `ViewerCard`, `RecordTable`, `RecordSummary`,
+`MetricCard`, and `RecordRow` paths.
+
+The explicit partial state showed 6 origins (2 fetch, 2 network, 2 resource),
+3 named framework boundaries, 2 external-code gaps, an unknown `RecordRow`
+occurrence, partial evidence elements, and budget `1,316/1,536`. No
+comprehension blocker remains. Project 3 is complete.
+
+Project 4 is now in progress. Milestone 1 implementation is active. Milestones
+2–5 remain. Refresh restoration remains Project 4 work.
+
 ## Milestone 1: Build the complete occurrence surface
 
 Expand one selected route from one path to every proven static render
@@ -135,4 +256,3 @@ Proceed only if the developer can explain:
 - Automatic repeated-subtree consolidation
 - Whole-repository atlas
 - Automated tests without separate approval
-

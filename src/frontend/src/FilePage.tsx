@@ -61,7 +61,7 @@ export function FilePage(props: { location: URL; navigate: Navigate }) {
       wide
     >
       <Show when={refreshError()}><p class="error" role="alert">{refreshError()}</p></Show>
-      <Show when={refreshing()}><LoadingStatus subject="file analysis" operation="refresh" /></Show>
+      <Show when={refreshing()}><LoadingStatus subject="file analysis" operation="refresh" isPending={() => refreshing()} /></Show>
       <Show when={relPath()} fallback={<p class="meta">Missing ?path.</p>}>
         <Show
           when={!fileData.error}
@@ -69,7 +69,7 @@ export function FilePage(props: { location: URL; navigate: Navigate }) {
         >
         <Show
           when={!fileData.loading}
-          fallback={<LoadingStatus subject="file analysis" operation="file" />}
+          fallback={<LoadingStatus subject="file analysis" operation="file" isPending={() => fileData.loading} />}
         >
           <Show
             when={activeView()}
@@ -87,7 +87,7 @@ export function FilePage(props: { location: URL; navigate: Navigate }) {
             <h2>{labelFor(activeView())}</h2>
             <Show
               when={!structuredReport.loading}
-              fallback={<LoadingStatus subject="report" operation="report" />}
+              fallback={<LoadingStatus subject="report" operation="report" isPending={() => structuredReport.loading} />}
             >
               <Show when={structuredReport()?.data} fallback={<p class="meta">No report data.</p>}>
                 {(data) => <NativeReport data={data()} location={props.location} navigate={props.navigate} />}
