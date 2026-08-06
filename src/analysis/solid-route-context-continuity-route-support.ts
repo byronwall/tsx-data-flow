@@ -47,8 +47,31 @@ export function mergeStatus(left: ContextContinuityRecordStatus, right: ContextC
 
 export function memberStatusFor(read: ContextReadRecord, value: ContextProvidedValueRecord): "proven" | "partial" | "unsupported" {
   if (read.memberCertainty === "unknown" || value.memberCertainty === "unknown") return "partial";
-  if (read.members.length > 0 && !read.members.every((member) => value.memberNames.includes(member))) return "unsupported";
-  return "proven";
+  if (read.memberPaths.length === 0) return value.status === "proven" ? "proven" : "partial";
+  let partial = false;
+  for (const path of read.memberPaths) {
+    const exact = value.memberEvidence.find((member) => samePath(member.memberPath, path));
+    if (exact) {
+      if (exact.status === "unsupported") return "unsupported";
+      if (exact.status === "partial") partial = true;
+      continue;
+    }
+    const prefix = value.memberEvidence
+      .filter((member) => isPathPrefix(member.memberPath, path))
+      .sort((left, right) => right.memberPath.length - left.memberPath.length)[0];
+    if (!prefix) return "unsupported";
+    if (prefix.status === "unsupported") return "unsupported";
+    partial = true;
+  }
+  return partial ? "partial" : "proven";
+}
+
+function samePath(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((part, index) => part === right[index]);
+}
+
+function isPathPrefix(prefix: readonly string[], path: readonly string[]): boolean {
+  return prefix.length < path.length && prefix.every((part, index) => part === path[index]);
 }
 
 export function ancestryFor(surface: RouteOccurrenceSurface, ancestorId: string | null, descendantId: string): string[] {
@@ -288,9 +311,9 @@ function declarationDependsOnRead(
     return expressionDependsOnRead(ts, checker, declaration.initializer, call, symbols, visitedNodes, visitedSymbols);
   }
   if (ts.isBindingElement(declaration)) {
-    let parent: TypeScript.Node = declaration.parent;
+    let parent: TypeScript.Node | undefined = declaration.parent;
     while (parent && !ts.isVariableDeclaration(parent)) parent = parent.parent;
-    return ts.isVariableDeclaration(parent) && Boolean(parent.initializer && expressionDependsOnRead(ts, checker, parent.initializer, call, symbols, visitedNodes, visitedSymbols));
+    return Boolean(parent && ts.isVariableDeclaration(parent) && parent.initializer && expressionDependsOnRead(ts, checker, parent.initializer, call, symbols, visitedNodes, visitedSymbols));
   }
   if (ts.isFunctionDeclaration(declaration) || ts.isArrowFunction(declaration) || ts.isFunctionExpression(declaration)) {
     return Boolean(declaration.body && expressionDependsOnRead(ts, checker, declaration.body, call, symbols, visitedNodes, visitedSymbols));

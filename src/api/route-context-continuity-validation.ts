@@ -19,6 +19,7 @@ export function validateRouteContextContinuity(
   const reads = indexIds(context.reads, ["contextContinuity", "reads"], (item) => item.id, issues, cancellation);
   const consumers = indexIds(context.consumers, ["contextContinuity", "consumers"], (item) => item.id, issues, cancellation);
   indexIds(context.links, ["contextContinuity", "links"], (item) => item.id, issues, cancellation);
+  indexIds(context.relays, ["contextContinuity", "relays"], (item) => item.id, issues, cancellation);
   indexIds(context.gaps, ["contextContinuity", "gaps"], (item) => item.id, issues, cancellation);
   validateSortedIds(context, issues);
   const expectedCounts = {
@@ -28,6 +29,7 @@ export function validateRouteContextContinuity(
     reads: context.reads.length,
     consumers: context.consumers.length,
     links: context.links.length,
+    relays: context.relays.length,
     gaps: context.gaps.length,
   };
   for (const key of Object.keys(expectedCounts) as Array<keyof typeof expectedCounts>) {
@@ -57,6 +59,9 @@ export function validateRouteContextContinuity(
     if (value.sourceKind === "default" && value.providerOccurrenceId !== null) addIssue(issues, ["contextContinuity", "values", index, "providerOccurrenceId"], "default values cannot belong to Provider occurrences");
     if (value.sourceKind === "provider" && value.providerOccurrenceId === null) addIssue(issues, ["contextContinuity", "values", index, "providerOccurrenceId"], "Provider values require a Provider occurrence");
     if (value.memberNames.some((member, memberIndex) => value.memberNames.indexOf(member) !== memberIndex)) addIssue(issues, ["contextContinuity", "values", index, "memberNames"], "member names must be unique");
+    if (duplicatePaths(value.memberPaths)) addIssue(issues, ["contextContinuity", "values", index, "memberPaths"], "value member paths must be unique");
+    if (value.memberEvidence.some((member) => !value.memberPaths.some((path) => samePath(path, member.memberPath)))) addIssue(issues, ["contextContinuity", "values", index, "memberEvidence"], "member evidence must reference an enumerated value member path");
+    if (value.memberEvidence.some((member) => member.proof.length === 0)) addIssue(issues, ["contextContinuity", "values", index, "memberEvidence"], "value member evidence requires proof");
     if (value.sourceKind === "default") {
       const declaration = context.declarations.find((item) => item.id === value.contextDeclarationId);
       if (declaration && declaration.defaultValueId !== value.id) addIssue(issues, ["contextContinuity", "values", index, "id"], "static default value must be referenced by its declaration");
@@ -81,6 +86,8 @@ export function validateRouteContextContinuity(
     requireReference(read.contextDeclarationId, declarationIds, ["contextContinuity", "reads", index, "contextDeclarationId"], "contextDeclarationId", issues);
     requireReference(read.consumerOccurrenceId, consumerIds, ["contextContinuity", "reads", index, "consumerOccurrenceId"], "consumerOccurrenceId", issues);
     const consumer = context.consumers.find((item) => item.id === read.consumerOccurrenceId);
+    if (duplicatePaths(read.memberPaths)) addIssue(issues, ["contextContinuity", "reads", index, "memberPaths"], "read member paths must be unique");
+    if (JSON.stringify(read.members) !== JSON.stringify(read.memberPaths.map((path) => path.join(".")))) addIssue(issues, ["contextContinuity", "reads", index, "members"], "read members must preserve their exact member paths");
     if (consumer && (consumer.contextDeclarationId !== read.contextDeclarationId || !consumer.readIds.includes(read.id))) addIssue(issues, ["contextContinuity", "reads", index], "context read must point to a consumer that owns the read");
   });
 
@@ -129,8 +136,38 @@ export function validateRouteContextContinuity(
     if (link.sourceKind === "default" && link.nearestProvider) addIssue(issues, [...path, "nearestProvider"], "default continuity cannot claim a nearest Provider");
     if (link.sourceKind === "provider" && !link.nearestProvider) addIssue(issues, [...path, "nearestProvider"], "Provider continuity must identify the nearest Provider decision");
     if (read && (JSON.stringify(link.members) !== JSON.stringify(read.members) || link.memberCertainty !== read.memberCertainty)) addIssue(issues, [...path, "members"], "continuity member evidence must match its context read");
+    if (read && JSON.stringify(link.memberPaths) !== JSON.stringify(read.memberPaths)) addIssue(issues, [...path, "memberPaths"], "continuity member paths must match its context read");
     if (consumer && link.terminalIds.some((terminalId) => !consumer.terminalIds.includes(terminalId))) addIssue(issues, [...path, "terminalIds"], "continuity terminal must be owned by its consumer occurrence record");
-    if (link.status === "proven" && (read?.status !== "proven" || value?.status !== "proven" || provider?.status !== undefined && provider.status !== "proven" || link.memberCertainty !== "proven")) addIssue(issues, [...path, "status"], "proven context continuity requires proven read, value, Provider, and member evidence");
+    if (link.status === "proven" && (read?.status !== "proven" || provider?.status !== undefined && provider.status !== "proven" || link.memberCertainty !== "proven" || !value || memberEvidenceStatus(read, value) !== "proven")) addIssue(issues, [...path, "status"], "proven context continuity requires proven read, Provider, and exact member evidence");
+  });
+
+  context.relays.forEach((relay, index) => {
+    cancellation.throwIfCancelled();
+    const path = ["contextContinuity", "relays", index] as Array<string | number>;
+    requireReference(relay.sourceContextDeclarationId, declarationIds, [...path, "sourceContextDeclarationId"], "sourceContextDeclarationId", issues);
+    requireReference(relay.targetContextDeclarationId, declarationIds, [...path, "targetContextDeclarationId"], "targetContextDeclarationId", issues);
+    requireReference(relay.sourceReadId, readIds, [...path, "sourceReadId"], "sourceReadId", issues);
+    requireReference(relay.sourceConsumerOccurrenceId, consumerIds, [...path, "sourceConsumerOccurrenceId"], "sourceConsumerOccurrenceId", issues);
+    requireReference(relay.targetProviderOccurrenceId, providerIds, [...path, "targetProviderOccurrenceId"], "targetProviderOccurrenceId", issues);
+    requireReference(relay.targetProvidedValueId, valueIds, [...path, "targetProvidedValueId"], "targetProvidedValueId", issues);
+    requireReference(relay.targetReadId, readIds, [...path, "targetReadId"], "targetReadId", issues);
+    requireReference(relay.targetConsumerOccurrenceId, consumerIds, [...path, "targetConsumerOccurrenceId"], "targetConsumerOccurrenceId", issues);
+    const source = context.declarations.find((item) => item.id === relay.sourceContextDeclarationId);
+    const target = context.declarations.find((item) => item.id === relay.targetContextDeclarationId);
+    const sourceRead = context.reads.find((item) => item.id === relay.sourceReadId);
+    const sourceConsumer = context.consumers.find((item) => item.id === relay.sourceConsumerOccurrenceId);
+    const targetProvider = context.providers.find((item) => item.id === relay.targetProviderOccurrenceId);
+    const targetValue = context.values.find((item) => item.id === relay.targetProvidedValueId);
+    const targetRead = context.reads.find((item) => item.id === relay.targetReadId);
+    const targetConsumer = context.consumers.find((item) => item.id === relay.targetConsumerOccurrenceId);
+    if (relay.sourceContextDeclarationId === relay.targetContextDeclarationId) addIssue(issues, [...path, "targetContextDeclarationId"], "a context relay must keep source and target context identities separate");
+    if (sourceRead && sourceRead.contextDeclarationId !== relay.sourceContextDeclarationId) addIssue(issues, [...path, "sourceReadId"], "relay source read must belong to the source context declaration");
+    if (sourceConsumer && (sourceConsumer.contextDeclarationId !== relay.sourceContextDeclarationId || sourceConsumer.id !== sourceRead?.consumerOccurrenceId)) addIssue(issues, [...path, "sourceConsumerOccurrenceId"], "relay source consumer must own the source read");
+    if (targetProvider && targetProvider.contextDeclarationId !== relay.targetContextDeclarationId) addIssue(issues, [...path, "targetProviderOccurrenceId"], "relay target Provider must belong to the target context declaration");
+    if (targetValue && (targetValue.contextDeclarationId !== relay.targetContextDeclarationId || targetValue.providerOccurrenceId !== relay.targetProviderOccurrenceId)) addIssue(issues, [...path, "targetProvidedValueId"], "relay target value must be owned by the selected target Provider");
+    if (targetRead && (targetRead.contextDeclarationId !== relay.targetContextDeclarationId || targetRead.consumerOccurrenceId !== relay.targetConsumerOccurrenceId)) addIssue(issues, [...path, "targetReadId"], "relay target read must belong to the target consumer");
+    if (targetConsumer && targetConsumer.contextDeclarationId !== relay.targetContextDeclarationId) addIssue(issues, [...path, "targetConsumerOccurrenceId"], "relay target consumer must belong to the target context declaration");
+    if (relay.status === "proven" && (source?.status !== "proven" || target?.status !== "proven" || sourceRead?.status !== "proven" || targetRead?.status !== "proven" || targetProvider?.status === "unsupported" || targetValue === undefined || targetValue.status === "unsupported" || targetValue.memberEvidence.every((member) => !samePath(member.memberPath, relay.factoryMemberPath) || member.status !== "proven") || relay.gaps.length > 0 || relay.proof.length === 0)) addIssue(issues, [...path, "status"], "proven context relays require proven source and target records, exact factory evidence, and no gaps");
   });
 
   context.gaps.forEach((gap, index) => {
@@ -143,8 +180,8 @@ export function validateRouteContextContinuity(
   });
 
   if (context.status === "complete" && context.gaps.length > 0) addIssue(issues, ["contextContinuity", "status"], "complete context continuity cannot contain gaps");
-  if (context.status === "complete" && [...context.declarations, ...context.providers, ...context.values, ...context.reads, ...context.consumers, ...context.links].some((item) => item.status !== "proven")) addIssue(issues, ["contextContinuity", "status"], "complete context continuity requires proven context records");
-  if (context.status === "unavailable" && (context.declarations.length > 0 || context.providers.length > 0 || context.values.length > 0 || context.reads.length > 0 || context.consumers.length > 0 || context.links.length > 0)) addIssue(issues, ["contextContinuity", "status"], "unavailable context continuity cannot contain route records");
+  if (context.status === "complete" && [...context.declarations, ...context.providers, ...context.values, ...context.reads, ...context.consumers, ...context.links, ...context.relays].some((item) => item.status !== "proven")) addIssue(issues, ["contextContinuity", "status"], "complete context continuity requires proven context records");
+  if (context.status === "unavailable" && (context.declarations.length > 0 || context.providers.length > 0 || context.values.length > 0 || context.reads.length > 0 || context.consumers.length > 0 || context.links.length > 0 || context.relays.length > 0)) addIssue(issues, ["contextContinuity", "status"], "unavailable context continuity cannot contain route records");
   if (surfaceUnavailable && context.status !== "unavailable") addIssue(issues, ["contextContinuity", "status"], "unavailable occurrence surface requires unavailable context continuity");
   return issues;
 }
@@ -185,6 +222,7 @@ function validateSortedIds(context: ContextContinuity, issues: ValidationIssue[]
     ["reads", context.reads],
     ["consumers", context.consumers],
     ["links", context.links],
+    ["relays", context.relays],
     ["gaps", context.gaps],
   ];
   for (const [name, values] of collections) {
@@ -192,4 +230,32 @@ function validateSortedIds(context: ContextContinuity, issues: ValidationIssue[]
       if (values[index - 1].id.localeCompare(values[index].id) > 0) addIssue(issues, ["contextContinuity", name, index], "context records must be sorted by stable id");
     }
   }
+}
+
+function duplicatePaths(paths: readonly string[][]): boolean {
+  return paths.some((path, index) => paths.findIndex((candidate) => samePath(candidate, path)) !== index);
+}
+
+function samePath(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((part, index) => part === right[index]);
+}
+
+function memberEvidenceStatus(
+  read: ContextContinuity["reads"][number],
+  value: ContextContinuity["values"][number],
+): "proven" | "partial" | "unsupported" {
+  if (read.memberPaths.length === 0) return value.status === "proven" ? "proven" : "partial";
+  let partial = false;
+  for (const path of read.memberPaths) {
+    const exact = value.memberEvidence.find((member) => samePath(member.memberPath, path));
+    if (exact) {
+      if (exact.status === "unsupported") return "unsupported";
+      if (exact.status === "partial") partial = true;
+      continue;
+    }
+    const prefix = value.memberEvidence.find((member) => member.memberPath.length < path.length && member.memberPath.every((part, index) => part === path[index]));
+    if (!prefix || prefix.status === "unsupported") return "unsupported";
+    partial = true;
+  }
+  return partial ? "partial" : "proven";
 }

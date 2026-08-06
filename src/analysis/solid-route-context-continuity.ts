@@ -1,5 +1,6 @@
 import * as TypeScript from "typescript";
 import type { AnalysisCancellationToken } from "./cancellation";
+import { ProgramValueSummaryAnalyzer } from "./program-value-summary";
 import {
   type ContextContinuityGap,
   type RouteContextContinuity,
@@ -38,6 +39,11 @@ import {
   type ProviderSite,
 } from "./solid-route-context-continuity-record-support";
 import {
+  buildContextRelays,
+  collectRelayReadOwners,
+  collectRelayReadSyntaxes,
+} from "./solid-route-context-continuity-relay-support";
+import {
   buildContextReadsAndLinks,
   type ContextReadSyntax,
   type UnresolvedProviderSite,
@@ -62,9 +68,11 @@ class SolidRouteContextCompiler {
   private readonly providerSyntaxes: SolidProviderSyntax[] = [];
   private readonly unresolvedProviderNodes: Array<{ node: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement; opening: TypeScript.JsxOpeningLikeElement }> = [];
   private readonly readSyntaxes: ContextReadSyntax[] = [];
+  private readonly unownedReadSyntaxes: ContextReadSyntax[] = [];
   private readonly handledReadCalls = new Set<string>();
   private readonly gaps: ContextContinuityGap[] = [];
   private readonly gapKeys = new Set<string>();
+  private readonly valueAnalyzer: ProgramValueSummaryAnalyzer;
 
   constructor(
     private readonly ts: typeof TypeScript,
@@ -74,6 +82,7 @@ class SolidRouteContextCompiler {
     private readonly cancellation: AnalysisCancellationToken,
   ) {
     this.checker = program.getTypeChecker();
+    this.valueAnalyzer = new ProgramValueSummaryAnalyzer(ts, program, root);
     this.files = program.getSourceFiles()
       .filter((file) => !file.isDeclarationFile && inside(root, file.fileName))
       .sort((left, right) => left.fileName.localeCompare(right.fileName));
@@ -85,22 +94,49 @@ class SolidRouteContextCompiler {
       ...this.providerSyntaxes.map((syntax) => syntax.context.compilerIdentity),
       ...this.readSyntaxes.map((syntax) => syntax.context.compilerIdentity),
     ]);
-    const declarations = buildContextDeclarations(
+    let declarations = buildContextDeclarations(
       this.ts,
       this.checker,
       this.root,
       new Map([...this.declarations].filter(([identity]) => relevantContextIdentities.has(identity))),
+      this.valueAnalyzer,
     );
-    const providers = buildProviderSites(
+    let providers = buildProviderSites(
       this.ts,
       this.checker,
       this.root,
       this.providerSyntaxes,
       declarations,
+      this.valueAnalyzer,
       this.cancellation,
       (node) => this.occurrencesForNode(node),
       (context, node, label) => this.addOwnershipGap(context, node, label),
     );
+    const relayReadSyntaxes = collectRelayReadSyntaxes(this.ts, this.checker, this.root, this.unownedReadSyntaxes, providers);
+    for (const syntax of relayReadSyntaxes) {
+      this.declarations.set(syntax.context.compilerIdentity, syntax.context);
+      relevantContextIdentities.add(syntax.context.compilerIdentity);
+    }
+    declarations = buildContextDeclarations(
+      this.ts,
+      this.checker,
+      this.root,
+      new Map([...this.declarations].filter(([identity]) => relevantContextIdentities.has(identity))),
+      this.valueAnalyzer,
+    );
+    providers = buildProviderSites(
+      this.ts,
+      this.checker,
+      this.root,
+      this.providerSyntaxes,
+      declarations,
+      this.valueAnalyzer,
+      this.cancellation,
+      (node) => this.occurrencesForNode(node),
+      (context, node, label) => this.addOwnershipGap(context, node, label),
+    );
+    const relayReadOwners = collectRelayReadOwners(this.ts, this.checker, this.root, providers);
+    const allReadSyntaxes = [...this.readSyntaxes, ...relayReadSyntaxes];
     const unresolvedProviders = this.unresolvedProviderNodes.flatMap(({ node, opening }) => this.occurrencesForNode(node).map((host): UnresolvedProviderSite => ({
       host,
       openingLocation: locationForContextNode(this.root, opening),
@@ -111,16 +147,26 @@ class SolidRouteContextCompiler {
       this.checker,
       this.root,
       this.surface,
-      this.readSyntaxes,
+      allReadSyntaxes,
       declarations,
       providers,
       unresolvedProviders,
       this.cancellation,
-      (node) => this.occurrencesForNode(node),
+      (node) => this.occurrencesForNode(node).length > 0 ? this.occurrencesForNode(node) : relayReadOwners.get(nodeKey(node)) ?? [],
       (provider, consumerId) => this.providerReachesConsumer(provider, consumerId),
       (provider, consumerId) => this.providerBranchReachesConsumer(provider, consumerId),
       (provider, consumerId) => unsupportedBoundaryBetween(this.surface, provider.host.id, consumerId, provider.elementLocation)?.location ?? null,
       (gap) => this.addGap(gap),
+    );
+    const relays = buildContextRelays(
+      this.ts,
+      this.checker,
+      this.root,
+      providers,
+      reads,
+      consumers,
+      links,
+      this.surface,
     );
     const records = [
       ...declarations.map((item) => item.record),
@@ -129,6 +175,7 @@ class SolidRouteContextCompiler {
       ...reads,
       ...consumers,
       ...links,
+      ...relays,
     ];
     const status = this.gaps.length > 0 || this.surface.status !== "complete" || records.some((record) => record.status !== "proven")
       ? "partial"
@@ -142,6 +189,7 @@ class SolidRouteContextCompiler {
     const sortedReads = reads.sort(compareById);
     const sortedConsumers = consumers.sort(compareById);
     const sortedLinks = links.sort(compareById);
+    const sortedRelays = relays.sort(compareById);
     const sortedGaps = [...this.gaps].sort(compareById);
     return {
       status,
@@ -152,6 +200,7 @@ class SolidRouteContextCompiler {
         reads: sortedReads.length,
         consumers: sortedConsumers.length,
         links: sortedLinks.length,
+        relays: sortedRelays.length,
         gaps: sortedGaps.length,
       },
       declarations: sortedDeclarations,
@@ -160,6 +209,7 @@ class SolidRouteContextCompiler {
       reads: sortedReads,
       consumers: sortedConsumers,
       links: sortedLinks,
+      relays: sortedRelays,
       gaps: sortedGaps,
     };
   }
@@ -191,7 +241,7 @@ class SolidRouteContextCompiler {
 
   private scanProvider(node: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement): void {
     if (!this.hasRouteDefinitionForNode(node)) return;
-    const tag = providerTagFor(this.ts, this.checker, this.root, node);
+    const tag = providerTagFor(this.ts, this.checker, this.root, node, this.valueAnalyzer);
     if (!tag) {
       this.scanUnsupportedProviderWrapper(node);
       return;
@@ -252,7 +302,7 @@ class SolidRouteContextCompiler {
 
   private scanContextRead(node: TypeScript.CallExpression): void {
     if (this.handledReadCalls.has(nodeKey(node))) return;
-    if (!this.hasRouteDefinitionForNode(node)) return;
+    const routeOwned = this.hasRouteDefinitionForNode(node);
     if (isCanonicalSolidCall(this.ts, this.checker, node, "useContext")) {
       if (node.arguments.length !== 1) {
         this.addDynamicReadGap(node, "useContext requires one compiler-resolved context argument.");
@@ -264,7 +314,8 @@ class SolidRouteContextCompiler {
         return;
       }
       this.declarations.set(context.compilerIdentity, context);
-      this.readSyntaxes.push({ context, call: node, underlyingCalls: [node], wrapper: false });
+      const syntax = { context, call: node, underlyingCalls: [node], wrapper: false };
+      (routeOwned ? this.readSyntaxes : this.unownedReadSyntaxes).push(syntax);
       return;
     }
     const wrapper = contextWrapperForCall(this.ts, this.checker, this.root, node);
@@ -286,7 +337,8 @@ class SolidRouteContextCompiler {
     if (!wrapper) return;
     for (const underlying of wrapper.underlyingCalls) this.handledReadCalls.add(nodeKey(underlying));
     this.declarations.set(wrapper.context.compilerIdentity, wrapper.context);
-    this.readSyntaxes.push({ context: wrapper.context, call: node, underlyingCalls: wrapper.underlyingCalls, wrapper: true });
+    const syntax = { context: wrapper.context, call: node, underlyingCalls: wrapper.underlyingCalls, wrapper: true };
+    (routeOwned ? this.readSyntaxes : this.unownedReadSyntaxes).push(syntax);
   }
 
   private addDynamicReadGap(node: TypeScript.CallExpression, detail: string): void {

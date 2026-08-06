@@ -18,6 +18,8 @@ import type {
 } from "./route-totality-finding-model";
 import type { RouteTotalityLedgerSection } from "./route-totality-graph-state";
 import { RouteTotalityOverview } from "./RouteTotalityOverview";
+import type { RouteContextContinuityUiState } from "./route-context-continuity-state";
+import { RouteContextContinuityPanel } from "./RouteContextContinuityPanel";
 
 export function RouteTotalityInspector(props: {
   totality: RouteTotality | null;
@@ -42,9 +44,11 @@ export function RouteTotalityInspector(props: {
   findings: RouteTotalityFindingSummary;
   onSelectStart: () => void;
   onToggleEvidence: () => void;
+  contextUi: RouteContextContinuityUiState;
 }) {
   return <aside class="route-totality-inspector" aria-label="Route totality proof inspector">
     <div class="route-totality-inspector-scroll">
+      <RouteContextContinuityPanel state={props.contextUi} />
       <Show when={props.selected()} fallback={<RouteTotalityOverview totality={props.totality} summary={props.summary} counts={props.counts} evidenceVisible={props.evidenceVisible} evidenceDetailEnabled={props.evidenceDetailEnabled} evidenceNodeCount={props.evidenceNodeCount} ledgerItems={props.ledgerItems} startSelectionAvailable={props.startSelectionAvailable} onSelectStart={props.onSelectStart} onToggleEvidence={props.onToggleEvidence} />}>
         {(record) => <>
           <header class="route-totality-inspector-header">

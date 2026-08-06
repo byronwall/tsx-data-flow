@@ -102,7 +102,7 @@ export function buildContextReadsAndLinks(
       const consumerId = stableId("context-consumer", [contextId, host.id]);
       const readId = stableId("context-read", [contextId, host.id, locationKey(locationForContextNode(root, syntax.call))]);
       const shape = contextReadShape(ts, checker, syntax.call);
-      const readStatus = syntax.wrapper || shape.memberCertainty === "unknown" ? "partial" : "proven";
+      const readStatus = shape.memberCertainty === "unknown" ? "partial" : "proven";
       const read: ContextReadRecord = {
         id: readId,
         contextDeclarationId: contextId,
@@ -110,6 +110,7 @@ export function buildContextReadsAndLinks(
         expression: syntax.call.getText(syntax.call.getSourceFile()),
         location: locationForContextNode(root, syntax.call),
         members: shape.members,
+        memberPaths: shape.memberPaths,
         memberCertainty: shape.memberCertainty,
         status: readStatus,
         proof: proof(
@@ -206,7 +207,7 @@ export function buildContextReadsAndLinks(
       addBoundaryGap(addGap, site, provider, boundaryLocation);
       continue;
     }
-    if (provider.occurrence.status !== "proven" || provider.value.status !== "proven") {
+    if (provider.occurrence.status === "unsupported" || provider.value.status === "unsupported") {
       addProviderBarrierGap(addGap, site, provider);
       continue;
     }
@@ -216,7 +217,7 @@ export function buildContextReadsAndLinks(
       continue;
     }
     const ancestry = ancestryFor(surface, provider.host.id, site.host.id);
-    const status = mergeStatus(mergeStatus(provider.occurrence.status, site.read.status), memberStatus === "partial" ? "partial" : "proven");
+    const status = mergeStatus(mergeStatus(provider.occurrence.status, site.read.status), memberStatus === "partial" || provider.value.status === "partial" ? "partial" : "proven");
     links.push({
       id: stableId("context-continuity", [declaration.record.id, provider.occurrence.id, site.read.id]),
       contextDeclarationId: declaration.record.id,
@@ -226,6 +227,7 @@ export function buildContextReadsAndLinks(
       consumerOccurrenceId: site.consumer.id,
       terminalIds: site.terminalIds,
       members: site.read.members,
+      memberPaths: site.read.memberPaths,
       memberCertainty: site.read.memberCertainty,
       sourceKind: "provider",
       renderAncestry: ancestry,
@@ -249,6 +251,7 @@ function defaultLink(surface: RouteOccurrenceSurface, site: ContextReadSite, val
     consumerOccurrenceId: site.consumer.id,
     terminalIds: site.terminalIds,
     members: site.read.members,
+    memberPaths: site.read.memberPaths,
     memberCertainty: site.read.memberCertainty,
     sourceKind: "default",
     renderAncestry: ancestryFor(surface, null, site.host.id),

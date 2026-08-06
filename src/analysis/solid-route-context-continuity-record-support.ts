@@ -1,10 +1,13 @@
 import * as TypeScript from "typescript";
 import type { AnalysisCancellationToken } from "./cancellation";
 import type {
+  ContextMemberEvidence,
   ContextDeclarationRecord,
   ContextProvidedValueRecord,
   ContextProviderOccurrenceRecord,
 } from "./context-continuity";
+import type { ProgramValueSummary } from "./program-value-summary-types";
+import type { ProgramValueSummaryAnalyzer } from "./program-value-summary";
 import type { RouteRenderOccurrence } from "./route-occurrence-surface";
 import type { SourceLocation } from "./scope-seam";
 import {
@@ -19,6 +22,7 @@ import {
   locationKey,
   staticValueShape,
   type SolidContextDeclaration,
+  type SolidContextValueShape,
   type SolidProviderSyntax,
 } from "./solid-route-context-continuity-support";
 
@@ -34,6 +38,9 @@ export type ProviderSite = {
   host: RouteRenderOccurrence;
   occurrence: ContextProviderOccurrenceRecord;
   value: ContextProvidedValueRecord;
+  valueShape: SolidContextValueShape;
+  valueSummary: ProgramValueSummary | null;
+  factoryCall: TypeScript.CallExpression | null;
   elementLocation: SourceLocation;
   nestingDepth: number;
 };
@@ -43,11 +50,12 @@ export function buildContextDeclarations(
   checker: TypeScript.TypeChecker,
   root: string,
   declarations: ReadonlyMap<string, SolidContextDeclaration>,
+  valueAnalyzer?: ProgramValueSummaryAnalyzer,
 ): ContextDeclarationBuild[] {
   return [...declarations.values()]
     .sort((left, right) => left.compilerIdentity.localeCompare(right.compilerIdentity))
     .map((syntax) => {
-      const defaultValue = staticDefaultValue(ts, checker, root, syntax);
+      const defaultValue = staticDefaultValue(ts, checker, root, syntax, valueAnalyzer);
       const record: ContextDeclarationRecord = {
         id: contextDeclarationId(syntax),
         compilerIdentity: syntax.compilerIdentity,
@@ -73,6 +81,7 @@ export function buildProviderSites(
   root: string,
   providerSyntaxes: readonly SolidProviderSyntax[],
   declarations: readonly ContextDeclarationBuild[],
+  valueAnalyzer: ProgramValueSummaryAnalyzer,
   cancellation: AnalysisCancellationToken,
   occurrencesForNode: (node: TypeScript.Node) => RouteRenderOccurrence[],
   addOwnershipGap: (context: SolidContextDeclaration, node: TypeScript.Node, label: string) => void,
@@ -95,7 +104,7 @@ export function buildProviderSites(
       const openingLocation = sourceLocationForContextNode(root, syntax.opening);
       const providerId = stableId("context-provider", [contextId, host.id, locationKey(openingLocation)]);
       const valueId = stableId("context-value", [providerId, locationKey(sourceLocationForContextNode(root, syntax.valueExpression ?? syntax.opening))]);
-      const shape = staticValueShape(ts, checker, syntax.valueExpression);
+      const shape = staticValueShape(ts, checker, syntax.valueExpression, valueAnalyzer);
       const valueLocation = sourceLocationForContextNode(root, syntax.valueExpression ?? syntax.opening);
       const value: ContextProvidedValueRecord = {
         id: valueId,
@@ -105,6 +114,8 @@ export function buildProviderSites(
         expression: syntax.valueExpression?.getText(syntax.valueExpression.getSourceFile()) ?? "<missing value>",
         location: valueLocation,
         memberNames: shape.memberNames,
+        memberPaths: shape.memberPaths,
+        memberEvidence: memberEvidenceForShape(shape, valueLocation),
         memberCertainty: shape.memberCertainty,
         status: syntax.valueExpression ? shape.status : "unsupported",
         proof: syntax.valueExpression
@@ -143,6 +154,9 @@ export function buildProviderSites(
         host,
         occurrence,
         value,
+        valueShape: shape,
+        valueSummary: shape.summary,
+        factoryCall: factoryCallForShape(ts, shape),
         elementLocation: sourceLocationForContextNode(root, syntax.node),
         nestingDepth: jsxAncestorDepth(ts, syntax.node),
       });
@@ -156,10 +170,11 @@ function staticDefaultValue(
   checker: TypeScript.TypeChecker,
   root: string,
   context: SolidContextDeclaration,
+  valueAnalyzer?: ProgramValueSummaryAnalyzer,
 ): ContextProvidedValueRecord | null {
   if (!context.defaultExpression) return null;
-  const shape = staticValueShape(ts, checker, context.defaultExpression);
-  if (shape.status !== "proven") return null;
+  const shape = staticValueShape(ts, checker, context.defaultExpression, valueAnalyzer);
+  if (shape.status === "unsupported") return null;
   const contextId = contextDeclarationId(context);
   const location = sourceLocationForContextNode(root, context.defaultExpression);
   return {
@@ -170,6 +185,8 @@ function staticDefaultValue(
     expression: context.defaultExpression.getText(context.defaultExpression.getSourceFile()),
     location,
     memberNames: shape.memberNames,
+    memberPaths: shape.memberPaths,
+    memberEvidence: memberEvidenceForShape(shape, location),
     memberCertainty: shape.memberCertainty,
     status: shape.status,
     proof: proof(
@@ -179,4 +196,30 @@ function staticDefaultValue(
       shape.status,
     ),
   };
+}
+
+function memberEvidenceForShape(shape: SolidContextValueShape, fallback: SourceLocation): ContextMemberEvidence[] {
+  return shape.memberEvidence.map((member) => {
+    const summaryMember = shape.summary?.members.find((candidate) => JSON.stringify(candidate.memberPath) === JSON.stringify(member.memberPath));
+    const proofLocations = summaryMember?.proof.flatMap((item) => item.locations) ?? member.proofNodes.map((node) => sourceLocationForContextNode(fallback.file, node));
+    const locations = proofLocations.length > 0 ? proofLocations : [fallback];
+    const proofStatus = member.status;
+    return {
+      memberPath: [...member.memberPath],
+      sourceExpression: member.sourceExpression,
+      location: member.location ?? fallback,
+      status: proofStatus,
+      proof: [{
+        kind: "program-value-member",
+        detail: `The bounded compiler value summary retains member ${member.memberPath.join(".") || "<value>"} with this source evidence.`,
+        locations,
+        status: proofStatus,
+      }],
+    };
+  });
+}
+
+function factoryCallForShape(ts: typeof TypeScript, shape: SolidContextValueShape): TypeScript.CallExpression | null {
+  const expression = shape.summary?.resolution.resolvedExpression?.node;
+  return expression && ts.isCallExpression(expression) && shape.summary?.callTarget ? expression : null;
 }

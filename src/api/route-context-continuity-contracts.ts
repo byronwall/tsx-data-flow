@@ -19,11 +19,19 @@ const contextMemberCertaintySchema = z.enum(["proven", "unknown"]);
 const contextRepetitionSchema = z.enum(["single", "conditional", "collection", "unknown"]);
 const occurrenceOwnershipSchema = z.enum(["scope-entry", "caller-owned", "definition-owned"]);
 const evidenceStatusSchema = z.enum(["proven", "partial", "unsupported"]);
+const contextMemberPathSchema = z.array(nonEmptyStringSchema).min(1);
 const evidenceProofSchema = z.strictObject({
   kind: nonEmptyStringSchema,
   detail: nonEmptyStringSchema,
   locations: z.array(sourceLocationSchema).min(1),
   status: evidenceStatusSchema,
+});
+const contextMemberEvidenceSchema = z.strictObject({
+  memberPath: contextMemberPathSchema,
+  sourceExpression: nonEmptyStringSchema.nullable(),
+  location: sourceLocationSchema.nullable(),
+  status: contextRecordStatusSchema,
+  proof: z.array(evidenceProofSchema).min(1),
 });
 
 const contextDeclarationSchema = z.strictObject({
@@ -45,6 +53,8 @@ const contextProvidedValueSchema = z.strictObject({
   expression: nonEmptyStringSchema,
   location: sourceLocationSchema,
   memberNames: z.array(nonEmptyStringSchema),
+  memberPaths: z.array(contextMemberPathSchema),
+  memberEvidence: z.array(contextMemberEvidenceSchema),
   memberCertainty: contextMemberCertaintySchema,
   status: contextRecordStatusSchema,
   proof: z.array(evidenceProofSchema).min(1),
@@ -69,6 +79,7 @@ const contextReadSchema = z.strictObject({
   expression: nonEmptyStringSchema,
   location: sourceLocationSchema,
   members: z.array(nonEmptyStringSchema),
+  memberPaths: z.array(contextMemberPathSchema),
   memberCertainty: contextMemberCertaintySchema,
   status: contextRecordStatusSchema,
   proof: z.array(evidenceProofSchema).min(1),
@@ -95,12 +106,35 @@ const contextContinuityLinkSchema = z.strictObject({
   consumerOccurrenceId: nonEmptyStringSchema,
   terminalIds: z.array(nonEmptyStringSchema),
   members: z.array(nonEmptyStringSchema),
+  memberPaths: z.array(contextMemberPathSchema),
   memberCertainty: contextMemberCertaintySchema,
   sourceKind: z.enum(["provider", "default"]),
   renderAncestry: z.array(nonEmptyStringSchema),
   nearestProvider: z.boolean(),
   repetition: contextRepetitionSchema,
   status: contextRecordStatusSchema,
+  proof: z.array(evidenceProofSchema).min(1),
+});
+
+const contextContinuityRelaySchema = z.strictObject({
+  id: nonEmptyStringSchema,
+  sourceContextDeclarationId: nonEmptyStringSchema,
+  targetContextDeclarationId: nonEmptyStringSchema,
+  sourceReadId: nonEmptyStringSchema,
+  sourceConsumerOccurrenceId: nonEmptyStringSchema,
+  sourceMemberPath: contextMemberPathSchema,
+  sourceReadMemberPaths: z.array(contextMemberPathSchema),
+  factoryMemberPath: contextMemberPathSchema,
+  factoryCallExpression: nonEmptyStringSchema,
+  factoryCallLocation: sourceLocationSchema,
+  factoryCallTargetId: nonEmptyStringSchema.nullable(),
+  targetProviderOccurrenceId: nonEmptyStringSchema,
+  targetProvidedValueId: nonEmptyStringSchema,
+  targetReadId: nonEmptyStringSchema,
+  targetConsumerOccurrenceId: nonEmptyStringSchema,
+  targetMemberPath: contextMemberPathSchema,
+  status: contextRecordStatusSchema,
+  gaps: z.array(nonEmptyStringSchema),
   proof: z.array(evidenceProofSchema).min(1),
 });
 
@@ -136,6 +170,7 @@ const contextContinuityCountsSchema = z.strictObject({
   reads: z.number().int().nonnegative(),
   consumers: z.number().int().nonnegative(),
   links: z.number().int().nonnegative(),
+  relays: z.number().int().nonnegative(),
   gaps: z.number().int().nonnegative(),
 });
 
@@ -148,5 +183,6 @@ export const routeContextContinuitySchema = z.strictObject({
   reads: z.array(contextReadSchema),
   consumers: z.array(contextConsumerOccurrenceSchema),
   links: z.array(contextContinuityLinkSchema),
+  relays: z.array(contextContinuityRelaySchema),
   gaps: z.array(contextContinuityGapSchema),
 });

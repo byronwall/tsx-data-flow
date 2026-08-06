@@ -21,6 +21,7 @@ import { RouteTotalityViewport } from "./RouteTotalityViewport";
 import { createRouteTotalityGraphActions } from "./route-totality-graph-actions";
 import { DEFAULT_ROUTE_TOTALITY_SURFACE_LAYOUT_SETTINGS } from "./route-totality-surface-layout";
 import { createTopologyLayoutDebug } from "./topology-layout-debug";
+import { createRouteContextContinuityUiState } from "./route-context-continuity-state";
 
 const COMPACT_COUNT_KEYS = ["origins", "occurrences", "boundaries", "terminals", "evidenceRelations", "evidenceGaps"] as const;
 
@@ -50,6 +51,11 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     settings: layoutDebug.settings(),
     steps: layoutDebug.steps(),
   }));
+  const contextUi = createRouteContextContinuityUiState({
+    totality: () => props.totality,
+    layout,
+    displayLayout,
+  });
   const initialSelection = untrack(() => selectionFromPersisted(props.selection ?? null, layout()));
   const [selection, setSelection] = createSignal<RouteInvestigationSelection>(initialSelection);
   const [showEvidenceDetail, setShowEvidenceDetail] = createSignal(false);
@@ -343,6 +349,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         onSvgRef={(element) => { svg = element; }}
         onSelect={actions.select}
         onRegisterMark={actions.registerMark}
+        contextVisual={contextUi.visual()}
       />
       <RouteTotalityInspector
         totality={props.totality}
@@ -367,6 +374,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         onOpenSource={props.onOpenSource ?? (() => undefined)}
         onSelectStart={() => { const target = startSelection(); if (target) actions.select(target); }}
         onToggleEvidence={() => setShowEvidenceDetail((value) => !value)}
+        contextUi={contextUi}
       />
     </div>
   </section>;

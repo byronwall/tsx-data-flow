@@ -1108,6 +1108,512 @@
   background: color-mix(in srgb, var(--accent-soft) 74%, var(--bg));
 }
 
+.route-context-panel {
+  display: grid;
+  border-bottom: 1px solid var(--border);
+  background: var(--route-totality-surface);
+}
+
+.route-context-panel-header {
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px 8px;
+}
+
+.route-context-panel-header > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.route-context-panel-header h2 {
+  margin: 0;
+  font-size: .82rem;
+}
+
+.route-context-global-status,
+.route-context-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 4px;
+  font-size: .56rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.route-context-global-status {
+  padding: 2px 5px;
+}
+
+.route-context-status {
+  color: var(--muted);
+}
+
+.route-context-global-status.status-complete,
+.route-context-status.status-proven {
+  background: color-mix(in srgb, #2aa77f 12%, var(--panel));
+  color: color-mix(in srgb, #176846 84%, var(--route-totality-ink));
+}
+
+.route-context-global-status.status-partial,
+.route-context-status.status-partial {
+  background: color-mix(in srgb, var(--route-totality-warning) 12%, var(--panel));
+  color: var(--route-totality-warning);
+}
+
+.route-context-global-status.status-unavailable,
+.route-context-status.status-unsupported,
+.route-context-status.status-unavailable {
+  background: color-mix(in srgb, #a74b46 10%, var(--panel));
+  color: color-mix(in srgb, #8f3732 88%, var(--route-totality-ink));
+}
+
+.route-context-counts,
+.route-context-row-main dl {
+  display: grid;
+  margin: 0;
+}
+
+.route-context-counts {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border);
+}
+
+.route-context-counts > div,
+.route-context-row-main dl > div {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  padding: 4px 5px;
+  background: var(--bg);
+}
+
+.route-context-counts dt,
+.route-context-row-main dt {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: .5rem;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+
+.route-context-counts dd,
+.route-context-row-main dd {
+  margin: 0;
+  font: 700 .64rem var(--mono);
+}
+
+.route-context-controls {
+  display: grid;
+  gap: 6px;
+  padding: 7px 12px 9px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.route-context-controls > div {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.route-context-controls > div > span {
+  color: var(--muted);
+  font-size: .55rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.route-context-toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.route-context-toggle-group button,
+.route-context-row-actions button,
+.route-context-detail-header button {
+  min-height: 24px;
+  padding: 2px 6px;
+  font-size: .59rem;
+}
+
+.route-context-toggle-group button[aria-pressed="true"],
+.route-context-row-actions button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.route-context-toggle-group b {
+  margin-left: 2px;
+  font: 700 .55rem var(--mono);
+}
+
+.route-context-display-note,
+.route-context-empty,
+.route-context-unassigned-gaps {
+  margin: 0;
+  color: var(--muted);
+  font-size: .61rem;
+  line-height: 1.4;
+}
+
+.route-context-empty,
+.route-context-unassigned-gaps {
+  padding: 9px 12px;
+}
+
+.route-context-unassigned-gaps {
+  background: color-mix(in srgb, var(--warning-bg, #fff7d6) 74%, var(--panel));
+  color: var(--route-totality-warning);
+}
+
+.route-context-list {
+  display: grid;
+  gap: 3px;
+  max-height: 210px;
+  margin: 0;
+  padding: 7px 8px;
+  overflow: auto;
+  list-style: none;
+  scrollbar-gutter: stable;
+}
+
+.route-context-list li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px;
+  padding: 6px;
+  border: 1px solid transparent;
+  background: var(--bg);
+}
+
+.route-context-list li.focused {
+  border-color: color-mix(in srgb, var(--context-color) 55%, var(--border));
+  background: color-mix(in srgb, var(--context-color) 8%, var(--panel));
+}
+
+.route-context-row-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 4px 6px;
+  align-items: start;
+}
+
+.route-context-row-main > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.route-context-row-main strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: .65rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-context-row-main strong code {
+  font-size: inherit;
+}
+
+.route-context-row-main dl {
+  grid-column: 2;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.route-context-row-main dl > div {
+  padding: 0;
+  background: transparent;
+}
+
+.route-context-swatch {
+  width: 11px;
+  height: 11px;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+}
+
+.route-context-swatch i {
+  width: 7px;
+  height: 7px;
+  border: 2px solid var(--context-color);
+  transform: rotate(45deg);
+}
+
+.route-context-row-actions {
+  align-self: center;
+}
+
+.route-context-detail {
+  display: grid;
+  border-top: 1px solid var(--border);
+}
+
+.route-context-detail-header {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.route-context-detail-header > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.route-context-detail-header h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: .76rem;
+}
+
+.route-context-detail-header p,
+.route-context-detail-section p {
+  margin: 0;
+  color: var(--muted);
+  font-size: .62rem;
+  line-height: 1.4;
+}
+
+.route-context-detail-header button {
+  flex: none;
+  margin-left: auto;
+}
+
+.route-context-detail-section {
+  display: grid;
+  gap: 5px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.route-context-detail-section h4 {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: .59rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.route-context-detail-section h4 span {
+  font: 700 .59rem var(--mono);
+}
+
+.route-context-facts {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  background: var(--border);
+}
+
+.route-context-facts > div {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 6px;
+  padding: 5px;
+  background: var(--bg);
+}
+
+.route-context-facts dt {
+  color: var(--muted);
+  font-size: .54rem;
+  text-transform: uppercase;
+}
+
+.route-context-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: .61rem;
+}
+
+.route-context-evidence-list,
+.route-context-link-evidence,
+.route-context-gap-list,
+.route-context-proof-list {
+  display: grid;
+  gap: 3px;
+}
+
+.route-context-evidence-list article,
+.route-context-link-evidence article,
+.route-context-gap-list article,
+.route-context-proof-list article {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 6px;
+  background: var(--bg);
+}
+
+.route-context-evidence-list article > div,
+.route-context-link-evidence article > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.route-context-evidence-list strong,
+.route-context-link-evidence strong,
+.route-context-gap-list strong,
+.route-context-proof-list strong {
+  font-size: .63rem;
+}
+
+.route-context-evidence-list span,
+.route-context-link-evidence span,
+.route-context-gap-list span,
+.route-context-proof-list span,
+.route-context-evidence-list small,
+.route-context-link-evidence small,
+.route-context-gap-list small {
+  color: var(--muted);
+  font-size: .57rem;
+  line-height: 1.35;
+}
+
+.route-context-evidence-list code,
+.route-context-link-evidence code,
+.route-context-proof-list code {
+  overflow-wrap: anywhere;
+  font-size: .61rem;
+}
+
+.route-context-role-symbol {
+  width: 7px;
+  height: 7px;
+  display: inline-block;
+  margin-right: 4px;
+  border: 1.5px solid currentColor;
+}
+
+.route-context-role-symbol.role-provider {
+  transform: rotate(45deg);
+}
+
+.route-context-role-symbol.role-consumer {
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--bg);
+  background: currentColor;
+}
+
+.route-context-member-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.route-context-member-paths code {
+  padding: 2px 4px;
+  background: color-mix(in srgb, var(--accent-soft) 64%, var(--bg));
+}
+
+.route-context-continuity-layer {
+  pointer-events: none;
+}
+
+.route-context-continuity-layer * {
+  pointer-events: none;
+}
+
+.route-context-continuity-layer g {
+  transition: opacity .16s ease;
+}
+
+.route-context-continuity-layer g.emphasis-active {
+  opacity: 1;
+}
+
+.route-context-continuity-layer g.emphasis-secondary {
+  opacity: .72;
+}
+
+.route-context-continuity-layer g.emphasis-frontier {
+  opacity: .9;
+}
+
+.route-context-continuity-layer g.emphasis-dimmed {
+  opacity: .1;
+}
+
+.route-context-continuity-layer g.isolation-hidden {
+  display: none;
+}
+
+.route-context-overlay-line,
+.route-context-relay-line {
+  fill: none;
+  stroke: var(--context-color);
+  stroke-width: 1.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.route-context-relay-line {
+  stroke-width: 2.1;
+}
+
+.route-context-continuity-layer .status-partial .route-context-overlay-line,
+.route-context-continuity-layer .status-partial .route-context-relay-line,
+.route-context-continuity-layer .status-partial .route-context-role-mark {
+  stroke-dasharray: 7 4;
+}
+
+.route-context-continuity-layer .status-unsupported .route-context-overlay-line,
+.route-context-continuity-layer .status-unsupported .route-context-relay-line,
+.route-context-continuity-layer .status-unsupported .route-context-role-mark {
+  stroke-dasharray: 2 4;
+}
+
+.route-context-role-mark,
+.route-context-factory-mark rect {
+  fill: #f8f9fc;
+  stroke: var(--context-color);
+  stroke-width: 1.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.route-context-consumer-dot {
+  fill: var(--context-color);
+  stroke: none;
+}
+
+.route-context-factory-mark rect {
+  fill: color-mix(in srgb, var(--context-color) 18%, #f8f9fc);
+}
+
+.route-context-overlay-label {
+  fill: color-mix(in srgb, var(--context-color) 76%, var(--route-totality-ink));
+  font: 700 8px var(--mono);
+  paint-order: stroke;
+  stroke: #f8f9fc;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.context-color-0 { --context-color: #2f6f9f; }
+.context-color-1 { --context-color: #257a69; }
+.context-color-2 { --context-color: #7657a7; }
+.context-color-3 { --context-color: #a5641d; }
+.context-color-4 { --context-color: #a54f64; }
+.context-color-5 { --context-color: #566a7f; }
+
 .route-totality-graph button:focus-visible,
 .route-totality-graph a:focus-visible {
   outline: 2px solid var(--route-totality-focus);
@@ -1116,7 +1622,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .route-totality-edges path,
-  .route-totality-nodes g {
+  .route-totality-nodes g,
+  .route-context-continuity-layer g {
     transition: none;
   }
 }

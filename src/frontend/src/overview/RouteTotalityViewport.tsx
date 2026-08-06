@@ -25,6 +25,8 @@ import {
 } from "./route-totality-graph-state";
 import { routeTotalityFindingSummaryForNode } from "./route-totality-finding-model";
 import type { RouteTotality } from "../../../api/contracts";
+import type { RouteContextContinuityVisual } from "./route-context-continuity-state";
+import { RouteContextContinuityOverlay } from "./RouteContextContinuityOverlay";
 
 type RouteTotalityRenderableAnnotation = Omit<RouteTotalityDisplayLayoutAnnotation, "x" | "y"> & { x: number; y: number };
 
@@ -49,6 +51,7 @@ export type RouteTotalityViewportProps = {
   onSvgRef: (element: SVGSVGElement) => void;
   onSelect: (selection: Exclude<RouteInvestigationSelection, null>) => void;
   onRegisterMark: (selectionId: string, element: SVGGElement) => void;
+  contextVisual: RouteContextContinuityVisual;
 };
 
 export function RouteTotalityViewport(props: RouteTotalityViewportProps) {
@@ -110,6 +113,7 @@ export function RouteTotalityViewport(props: RouteTotalityViewportProps) {
           return <DisplayTotalityEdge edge={displayEdge} selection={target} selected={sameRouteInvestigationSelection(props.selection, target)} emphasisActive={props.emphasis.active} active={props.emphasis.activeLayoutEdgeIds.has(edge.id)} secondary={props.emphasis.secondaryLayoutEdgeIds.has(edge.id)} frontier={props.emphasis.frontierLayoutEdgeIds.has(edge.id)} hidden={props.isolated && !props.emphasis.focusEdgeIds.has(edge.id) && !withinFocus} onSelect={props.onSelect} onRegister={(element) => props.onRegisterMark(target.graphId, element)} />;
         }}</For></g>
         <g class="route-totality-bridge-edges" aria-label="Cross-layer handoffs"><For each={props.displayLayout.bridges}>{(bridge) => <DisplayTotalityBridgeEdge bridge={bridge} visible={Boolean(bridge.fromNode && bridge.toNode) && (props.evidenceVisible || props.emphasis.active)} active={props.emphasis.activeBridgeIds.has(bridge.bridge.bridge.id)} frontier={props.emphasis.frontierBridgeIds.has(bridge.bridge.bridge.id)} hidden={props.isolated && (!bridge.fromNode || !bridge.toNode || !props.emphasis.focusNodeIds.has(bridge.fromNode.id) || !props.emphasis.focusNodeIds.has(bridge.toNode.id))} />}</For></g>
+        <RouteContextContinuityOverlay visual={props.contextVisual} emphasis={props.emphasis} isolated={props.isolated} />
         <g class="route-totality-boundary-stubs" aria-label="Isolation boundary stubs"><For each={props.boundaryStubs}>{(stub) => <DisplayBoundaryStubMark stub={stub} />}</For></g>
         <g class="route-totality-annotations" aria-label="Route totality annotations"><For each={props.displayAnnotations}>{(item) => {
           const target = selectionForRouteTotalityDisplayAnnotation(item.annotation, props.layout);

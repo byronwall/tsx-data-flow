@@ -15,6 +15,16 @@ export type ContextContinuityGapReason =
 
 export type ContextContinuityRecordStatus = Exclude<EvidenceStatus, "unsupported"> | "unsupported";
 
+export type ContextMemberPath = string[];
+
+export type ContextMemberEvidence = {
+  memberPath: ContextMemberPath;
+  sourceExpression: string | null;
+  location: SourceLocation | null;
+  status: ContextContinuityRecordStatus;
+  proof: EvidenceProof[];
+};
+
 export type ContextDeclarationRecord = {
   id: string;
   compilerIdentity: string;
@@ -34,6 +44,8 @@ export type ContextProvidedValueRecord = {
   expression: string;
   location: SourceLocation;
   memberNames: string[];
+  memberPaths: ContextMemberPath[];
+  memberEvidence: ContextMemberEvidence[];
   memberCertainty: ContextMemberCertainty;
   status: ContextContinuityRecordStatus;
   proof: EvidenceProof[];
@@ -58,6 +70,7 @@ export type ContextReadRecord = {
   expression: string;
   location: SourceLocation;
   members: string[];
+  memberPaths: ContextMemberPath[];
   memberCertainty: ContextMemberCertainty;
   status: ContextContinuityRecordStatus;
   proof: EvidenceProof[];
@@ -84,12 +97,35 @@ export type ContextContinuityLink = {
   consumerOccurrenceId: string;
   terminalIds: string[];
   members: string[];
+  memberPaths: ContextMemberPath[];
   memberCertainty: ContextMemberCertainty;
   sourceKind: "provider" | "default";
   renderAncestry: string[];
   nearestProvider: boolean;
   repetition: "single" | "conditional" | "collection" | "unknown";
   status: ContextContinuityRecordStatus;
+  proof: EvidenceProof[];
+};
+
+export type ContextContinuityRelay = {
+  id: string;
+  sourceContextDeclarationId: string;
+  targetContextDeclarationId: string;
+  sourceReadId: string;
+  sourceConsumerOccurrenceId: string;
+  sourceMemberPath: ContextMemberPath;
+  sourceReadMemberPaths: ContextMemberPath[];
+  factoryMemberPath: ContextMemberPath;
+  factoryCallExpression: string;
+  factoryCallLocation: SourceLocation;
+  factoryCallTargetId: string | null;
+  targetProviderOccurrenceId: string;
+  targetProvidedValueId: string;
+  targetReadId: string;
+  targetConsumerOccurrenceId: string;
+  targetMemberPath: ContextMemberPath;
+  status: ContextContinuityRecordStatus;
+  gaps: string[];
   proof: EvidenceProof[];
 };
 
@@ -113,6 +149,7 @@ export type ContextContinuityCounts = {
   reads: number;
   consumers: number;
   links: number;
+  relays: number;
   gaps: number;
 };
 
@@ -125,6 +162,7 @@ export type RouteContextContinuity = {
   reads: ContextReadRecord[];
   consumers: ContextConsumerOccurrenceRecord[];
   links: ContextContinuityLink[];
+  relays: ContextContinuityRelay[];
   gaps: ContextContinuityGap[];
 };
 
@@ -138,6 +176,7 @@ export function unavailableContextContinuity(reason: string): RouteContextContin
       reads: 0,
       consumers: 0,
       links: 0,
+      relays: 0,
       gaps: 1,
     },
     declarations: [],
@@ -146,6 +185,7 @@ export function unavailableContextContinuity(reason: string): RouteContextContin
     reads: [],
     consumers: [],
     links: [],
+    relays: [],
     gaps: [{
       id: `context-gap:unavailable:${reason}`,
       contextDeclarationId: null,
