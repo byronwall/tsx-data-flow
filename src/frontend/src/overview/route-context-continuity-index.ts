@@ -115,7 +115,13 @@ export function buildRouteContextContinuityIndex(
     [...displayLayout.nodes, ...displayLayout.evidenceNodes].map((node) => [node.id, node]),
   );
   const visuals = [...records.byDeclarationId.values()]
-    .map((record) => visualRecord(record, records, layout.nodeRedirects, nodesById))
+    .map((record) => visualRecord(
+      record,
+      records,
+      new Set(record.providers.map((provider) => `occurrence:${provider.renderOccurrenceId}`)),
+      layout.nodeRedirects,
+      nodesById,
+    ))
     .sort((left, right) => compareContextIds(left.id, right.id));
   assignMarkSlots(visuals.flatMap((record) => [...record.marks]));
   return Object.freeze({
@@ -178,17 +184,18 @@ export function isRenderableContextLink(link: ContextVisualLink): boolean {
 function visualRecord(
   records: ContextDeclarationRecords,
   index: ReturnType<typeof buildContextRecordIndex>,
+  providerRenderOccurrences: ReadonlySet<string>,
   redirects: ReadonlyMap<string, string>,
   nodesById: ReadonlyMap<string, RouteTotalityDisplayLayoutNode>,
 ): ContextVisualRecord {
   const colorIndex = stableColorIndex(records.declarationId);
   const providerEndpoints = new Map(records.providers.map((provider) => [
     provider.id,
-    endpointForOccurrence(provider.renderOccurrenceId, redirects, nodesById),
+    endpointForRecordOccurrence(provider.renderOccurrenceId, provider.location, redirects, nodesById),
   ]));
   const consumerEndpoints = new Map(records.consumers.map((consumer) => [
     consumer.id,
-    endpointForOccurrence(consumer.renderOccurrenceId, redirects, nodesById),
+    endpointForRecordOccurrence(consumer.renderOccurrenceId, consumer.location, redirects, nodesById),
   ]));
   const links = records.links.map((link) => visualLink(
     link,
@@ -196,6 +203,9 @@ function visualRecord(
     colorIndex,
     providerEndpoints,
     consumerEndpoints,
+    providerRenderOccurrences,
+    redirects,
+    nodesById,
   ));
   const relays = records.relays.map((relay) => visualRelay(
     relay,
@@ -241,12 +251,25 @@ function visualLink(
   colorIndex: number,
   providerEndpoints: ReadonlyMap<string, ContextNodeEndpoint | null>,
   consumerEndpoints: ReadonlyMap<string, ContextNodeEndpoint | null>,
+  providerRenderOccurrences: ReadonlySet<string>,
+  redirects: ReadonlyMap<string, string>,
+  nodesById: ReadonlyMap<string, RouteTotalityDisplayLayoutNode>,
 ): ContextVisualLink {
   const provider = link.providerOccurrenceId ? index.providersById.get(link.providerOccurrenceId) ?? null : null;
   const value = index.valuesById.get(link.providedValueId) ?? null;
   const read = index.readsById.get(link.readId) ?? null;
   const consumer = index.consumersById.get(link.consumerOccurrenceId) ?? null;
-  const from = provider ? providerEndpoints.get(provider.id) ?? null : null;
+  const from = provider
+    ? linkSourceEndpoint(
+      link,
+      provider,
+      consumer,
+      providerEndpoints,
+      providerRenderOccurrences,
+      redirects,
+      nodesById,
+    )
+    : null;
   const to = consumer ? consumerEndpoints.get(consumer.id) ?? null : null;
   return Object.freeze({
     id: link.id,
@@ -262,6 +285,28 @@ function visualLink(
     from,
     to,
   });
+}
+
+function linkSourceEndpoint(
+  link: ContextLink,
+  provider: ContextProvider,
+  consumer: ContextConsumer | null,
+  providerEndpoints: ReadonlyMap<string, ContextNodeEndpoint | null>,
+  providerRenderOccurrences: ReadonlySet<string>,
+  redirects: ReadonlyMap<string, string>,
+  nodesById: ReadonlyMap<string, RouteTotalityDisplayLayoutNode>,
+): ContextNodeEndpoint | null {
+  const mapped = providerEndpoints.get(provider.id) ?? null;
+  if (!consumer) return mapped;
+  if (link.sourceKind !== "provider" || provider.ownership !== "definition-owned") return mapped;
+  if (link.renderAncestry.length !== 2) return mapped;
+  if (link.renderAncestry[0] !== provider.renderOccurrenceId) return mapped;
+  if (link.renderAncestry[1] !== consumer.renderOccurrenceId) return mapped;
+  const mappedAnchorIsKnownProvider = mapped?.nodeId && mapped.nodeId.startsWith("occurrence:")
+    && providerRenderOccurrences.has(mapped.nodeId)
+    && mapped.nodeId !== `occurrence:${provider.renderOccurrenceId}`;
+  if (mappedAnchorIsKnownProvider) return mapped;
+  return endpointForOccurrence(provider.renderOccurrenceId, redirects, nodesById) ?? mapped;
 }
 
 function visualRelay(
@@ -347,6 +392,47 @@ function endpointForOccurrence(
     y: node.y + node.height / 2,
     radius: node.radius,
   }) : null;
+}
+
+function endpointForRecordOccurrence(
+  occurrenceId: string,
+  recordLocation: RouteTotalityDisplayLayoutNode["node"]["location"] | null,
+  redirects: ReadonlyMap<string, string>,
+  nodesById: ReadonlyMap<string, RouteTotalityDisplayLayoutNode>,
+): ContextNodeEndpoint | null {
+  const mapped = endpointForOccurrence(occurrenceId, redirects, nodesById);
+  if (!recordLocation) return mapped;
+  const mappedNode = mapped ? nodesById.get(mapped.nodeId) : null;
+  if (mappedNode?.node?.location && isSameLocation(mappedNode.node.location, recordLocation)) return mapped;
+  return endpointForLocation(recordLocation, nodesById) ?? mapped;
+}
+
+function endpointForLocation(
+  location: RouteTotalityDisplayLayoutNode["node"]["location"] | null,
+  nodesById: ReadonlyMap<string, RouteTotalityDisplayLayoutNode>,
+): ContextNodeEndpoint | null {
+  const node = [...nodesById.values()].find((candidate) => candidate.node?.location && isSameLocation(candidate.node.location, location));
+  if (!node) return null;
+  return Object.freeze({
+    nodeId: node.id,
+    x: node.x + node.width / 2,
+    y: node.y + node.height / 2,
+    radius: node.radius,
+  });
+}
+
+function isSameLocation(
+  left: RouteTotalityDisplayLayoutNode["node"]["location"] | null,
+  right: RouteTotalityDisplayLayoutNode["node"]["location"] | null,
+): boolean {
+  if (!left || !right) return false;
+  return left.file === right.file
+    && left.line === right.line
+    && left.column === right.column
+    && left.span.startLine === right.span.startLine
+    && left.span.startColumn === right.span.startColumn
+    && left.span.endLine === right.span.endLine
+    && left.span.endColumn === right.span.endColumn;
 }
 
 function nodeMark(

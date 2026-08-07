@@ -17,7 +17,6 @@ import {
   locationForContextNode,
   locationKey,
   providerTagFor,
-  valueExpressionFor,
   type SolidContextDeclaration,
   type SolidProviderSyntax,
 } from "./solid-route-context-continuity-support";
@@ -266,7 +265,7 @@ class SolidRouteContextCompiler {
     }
     this.declarations.set(tag.syntax.context.compilerIdentity, tag.syntax.context);
     this.providerSyntaxes.push(tag.syntax);
-    if (!valueExpressionFor(this.ts, tag.syntax.opening)) {
+    if (!tag.syntax.valueExpression) {
       this.addGap({
         reason: "unsupported-syntax",
         label: `Provider ${tag.syntax.context.label} has no statically visible value expression.`,

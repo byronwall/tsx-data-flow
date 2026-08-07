@@ -52,7 +52,13 @@ export function memberStatusFor(read: ContextReadRecord, value: ContextProvidedV
   for (const path of read.memberPaths) {
     const exact = value.memberEvidence.find((member) => samePath(member.memberPath, path));
     if (exact) {
-      if (exact.status === "unsupported") return "unsupported";
+      if (exact.status === "unsupported") {
+        if (exact.sourceExpression) {
+          partial = true;
+          continue;
+        }
+        return "unsupported";
+      }
       if (exact.status === "partial") partial = true;
       continue;
     }

@@ -97,6 +97,8 @@ export function providerTagFor(
   if (!ts.isIdentifier(tag)) return null;
   const alias = valueAnalyzer ? providerAliasFor(ts, checker, root, tag, valueAnalyzer) : null;
   if (alias) return { kind: "provider", syntax: { context: alias.context, node, opening, valueExpression: valueExpressionFor(ts, opening) } };
+  const wrapper = contextProviderWrapperForTag(ts, checker, root, tag);
+  if (wrapper) return { kind: "provider", syntax: { context: wrapper.context, node, opening, valueExpression: wrapper.valueExpression } };
   const resolved = resolvedSymbol(ts, checker, tag);
   const declaration = resolved?.declaration;
   const initializer = declaration && ts.isVariableDeclaration(declaration) && declaration.initializer
@@ -105,6 +107,31 @@ export function providerTagFor(
   if (initializer && (ts.isPropertyAccessExpression(initializer) || ts.isElementAccessExpression(initializer))) {
     const contextExpression = initializer.expression;
     return { kind: "dynamic-provider", opening, context: contextDeclarationForExpression(ts, checker, root, contextExpression) };
+  }
+  return null;
+}
+
+function contextProviderWrapperForTag(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  root: string,
+  tag: TypeScript.Identifier,
+): { context: SolidContextDeclaration; valueExpression: TypeScript.Expression } | null {
+  const resolved = resolvedSymbol(ts, checker, tag);
+  const declaration = resolved ? declarationForResolved(resolved) : null;
+  if (!declaration || !isFunctionLike(ts, declaration) || !isFirstPartyFunction(root, declaration)) return null;
+  const returns = returnedExpressions(ts, declaration);
+  if (returns.length !== 1) return null;
+  const expression = unwrapExpression(ts, returns[0]);
+  if (!ts.isJsxElement(expression) && !ts.isJsxSelfClosingElement(expression)) return null;
+  const opening = ts.isJsxElement(expression) ? expression.openingElement : expression;
+  const wrapperTag = opening.tagName;
+  if (ts.isPropertyAccessExpression(wrapperTag) && wrapperTag.name.text === "Provider") {
+    const context = contextDeclarationForExpression(ts, checker, root, wrapperTag.expression);
+    if (!context) return null;
+    const valueExpression = valueExpressionFor(ts, opening);
+    if (!valueExpression) return null;
+    return { context, valueExpression };
   }
   return null;
 }
@@ -212,6 +239,18 @@ export function isFirstPartyFunction(root: string, node: TypeScript.Node): boole
   const file = node.getSourceFile();
   const relative = path.relative(path.resolve(root), path.resolve(file.fileName));
   return !file.isDeclarationFile && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !relative.split(path.sep).includes("node_modules");
+}
+
+function returnedExpressions(ts: typeof TypeScript, owner: TypeScript.FunctionLikeDeclaration) {
+  if (ts.isArrowFunction(owner) && !ts.isBlock(owner.body)) return [owner.body];
+  const expressions: TypeScript.Expression[] = [];
+  const visit = (node: TypeScript.Node) => {
+    if (node !== owner && isFunctionLike(ts, node)) return;
+    if (ts.isReturnStatement(node) && node.expression) expressions.push(node.expression);
+    ts.forEachChild(node, visit);
+  };
+  if (owner.body) visit(owner.body);
+  return expressions;
 }
 
 function bindingShape(
