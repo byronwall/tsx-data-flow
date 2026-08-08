@@ -7,15 +7,30 @@ import {
   contextStatusSymbol,
   type ContextVisualRecord,
 } from "./route-context-continuity-index";
+import { sourceTargetForLocation } from "./route-source-targets";
+import type { SourceEvidenceTarget } from "./source-evidence-model";
 
 export function RouteContextContinuityInspector(props: {
   record: ContextVisualRecord;
   onClear: () => void;
+  onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
 }) {
   const defaultValue = () => props.record.declaration?.defaultValueId
     ? props.record.records.values.find((value) => value.id === props.record.declaration?.defaultValueId) ?? null
     : null;
   const proofs = () => collectProofs(props.record);
+  const proofTargets = () => createTraceTargets(proofs());
+
+  const openContextLocation = (location: RouteTotalityLocation, id: string, category: string, kind: string) => {
+    const target = sourceTargetForLocation(id, location, {
+      label: `${category} · ${locationLabel(location)}`,
+      kind,
+      scopeKey: `path:${location.file}`,
+      order: proofTargets().length,
+    });
+    props.onOpenSource(target, proofTargets());
+  };
+
   return <div class="route-context-detail">
     <header class="route-context-detail-header">
       <div>
@@ -46,7 +61,11 @@ export function RouteContextContinuityInspector(props: {
           return <article>
             <div><strong><span class="route-context-role-symbol role-provider" aria-hidden="true" /> Provider</strong><span>{provider.status} · {provider.ownership} · {provider.repetition}</span></div>
             <code>{value()?.expression ?? "Provided value record unavailable"}</code>
-            <small>{mapped() ? "Mapped to a visible route node" : "Route node unmapped"} · <a href={locationHref(provider.location)}>{locationLabel(provider.location)}</a></small>
+            <small>
+              {mapped() ? "Mapped to a visible route node" : "Route node unmapped"} ·
+              <button type="button" onClick={() => openContextLocation(provider.location, `context-provider:${provider.id}`, "Provider", "Context provider")}>{locationLabel(provider.location)}</button>
+              <a href={locationHref(provider.location)} title={`Open full file ${provider.location.file}`}>Full file</a>
+            </small>
           </article>;
         }}</For></div>
       </Show>
@@ -63,7 +82,11 @@ export function RouteContextContinuityInspector(props: {
           return <article>
             <div><strong><span class="route-context-role-symbol role-consumer" aria-hidden="true" /> Consumer</strong><span>{consumer.status} · {consumer.repetition}</span></div>
             <code>{reads().map((read) => read.expression).join(" / ") || "Read record unavailable"}</code>
-            <small>{mapped() ? "Mapped to a visible route node" : "Route node unmapped"} · <a href={locationHref(consumer.location)}>{locationLabel(consumer.location)}</a></small>
+            <small>
+              {mapped() ? "Mapped to a visible route node" : "Route node unmapped"} ·
+              <button type="button" onClick={() => openContextLocation(consumer.location, `context-consumer:${consumer.id}`, "Consumer", "Context consumer")}>{locationLabel(consumer.location)}</button>
+              <a href={locationHref(consumer.location)} title={`Open full file ${consumer.location.file}`}>Full file</a>
+            </small>
           </article>;
         }}</For></div>
       </Show>
@@ -88,7 +111,11 @@ export function RouteContextContinuityInspector(props: {
         <div class="route-context-link-evidence"><For each={props.record.relays}>{(relay) => <article>
           <div><strong>Source → factory → target</strong><span class={`status-${relay.status}`}>{contextStatusSymbol(relay.status)} {contextStatusLabel(relay.status)}</span></div>
           <code>{relay.pathLabel}</code>
-          <small>{relay.relay.factoryCallExpression} · <a href={locationHref(relay.relay.factoryCallLocation)}>{locationLabel(relay.relay.factoryCallLocation)}</a></small>
+          <small>
+            {relay.relay.factoryCallExpression} ·
+            <button type="button" onClick={() => openContextLocation(relay.relay.factoryCallLocation, `context-relay:${relay.id}`, "Factory call", "Context relay")}>{locationLabel(relay.relay.factoryCallLocation)}</button>
+            <a href={locationHref(relay.relay.factoryCallLocation)} title={`Open full file ${relay.relay.factoryCallLocation.file}`}>Full file</a>
+          </small>
           <Show when={!relay.from || !relay.to}><p>The relay is proven as evidence, but both graph endpoints could not map. No overlay was guessed.</p></Show>
         </article>}</For></div>
       </Show>
@@ -98,16 +125,30 @@ export function RouteContextContinuityInspector(props: {
       <Show when={props.record.gaps.length} fallback={<p>No context gap was returned for this declaration.</p>}>
         <div class="route-context-gap-list"><For each={props.record.gaps}>{(gap) => <article>
           <strong>{gap.label}</strong><span>{gap.status} · {humanize(gap.reason)}</span>
-          <small>{gap.location ? <a href={locationHref(gap.location)}>{locationLabel(gap.location)}</a> : "No exact gap location returned"}</small>
+          <small>
+            {gap.location
+              ? <><button type="button" onClick={() => openContextLocation(gap.location!, `context-gap:${gap.id}`, "Gap", "Context gap")}>{locationLabel(gap.location!)}</button><a href={locationHref(gap.location)} title={`Open full file ${gap.location.file}`}>Full file</a></>
+              : "No exact gap location returned"}
+          </small>
         </article>}</For></div>
       </Show>
     </DetailSection>
 
     <DetailSection title="Proof and locations" count={proofs().length}>
       <Show when={proofs().length} fallback={<p>No proof record was returned.</p>}>
-        <div class="route-context-proof-list"><For each={proofs()}>{(proof) => <article>
+        <div class="route-context-proof-list"><For each={proofs()}>{(proof, index) => <article>
           <strong>{proof.kind}</strong><span>{proof.status} · {proof.detail}</span>
-          <For each={proof.locations}>{(location) => <a href={locationHref(location)}><code>{locationLabel(location)}</code></a>}</For>
+          <For each={proof.locations}>{(location, locationIndex) => <>
+            <button type="button" onClick={() => props.onOpenSource(sourceTargetForLocation(`context-proof:${index()}:${locationIndex()}`, location, {
+              label: `${proof.kind} proof`,
+              kind: "Context proof",
+              scopeKey: `path:${location.file}`,
+              order: 0,
+            }), proofTargets())}>
+              <code>{locationLabel(location)}</code>
+            </button>
+            <a href={locationHref(location)} title={`Open full file ${location.file}`}>Full file</a>
+          </>}</For>
         </article>}</For></div>
       </Show>
     </DetailSection>
@@ -146,6 +187,22 @@ function collectProofs(record: ContextVisualRecord): RouteTotalityProof[] {
     if (!unique.has(key)) unique.set(key, proof);
   }
   return [...unique.values()];
+}
+
+function createTraceTargets(proofs: readonly RouteTotalityProof[]): readonly SourceEvidenceTarget[] {
+  const targets: SourceEvidenceTarget[] = [];
+  for (const proof of proofs) {
+    for (let index = 0; index < proof.locations.length; index += 1) {
+      const location = proof.locations[index];
+      targets.push(sourceTargetForLocation(`context-proof-location:${proof.kind}:${proof.detail}:${index}`, location, {
+        label: `${proof.kind} proof`,
+        kind: "Context proof",
+        scopeKey: `path:${location.file}`,
+        order: targets.length,
+      }));
+    }
+  }
+  return targets;
 }
 
 function locationLabel(location: RouteTotalityLocation): string {

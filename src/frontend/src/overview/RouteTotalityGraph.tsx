@@ -32,6 +32,8 @@ type RouteTotalityGraphProps = {
   selection?: TrajectoryTotalitySelection | null;
   camera?: TrajectoryGraphCamera | null;
   isolated?: boolean;
+  contextFocus?: string | null;
+  onContextFocusChange?: (contextFocus: string | null) => void;
   hiddenComponentPolicy: HiddenComponentPolicy;
   genericUiMode: GenericUiMode | null;
   onGenericUiMode: (mode: GenericUiMode) => void;
@@ -55,6 +57,8 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     totality: () => props.totality,
     layout,
     displayLayout,
+    contextFocus: props.contextFocus,
+    onContextFocusChange: props.onContextFocusChange,
   });
   const initialSelection = untrack(() => selectionFromPersisted(props.selection ?? null, layout()));
   const [selection, setSelection] = createSignal<RouteInvestigationSelection>(initialSelection);

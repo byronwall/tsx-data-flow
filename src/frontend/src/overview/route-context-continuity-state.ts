@@ -40,10 +40,14 @@ export function createRouteContextContinuityUiState(options: {
   totality: Accessor<RouteTotality | null>;
   layout: Accessor<RouteTotalityLayout>;
   displayLayout: Accessor<RouteTotalityDisplayLayout>;
+  contextFocus?: string | null;
+  onContextFocusChange?: (contextFocus: string | null) => void;
 }): RouteContextContinuityUiState {
   const [filter, setFilterSignal] = createSignal<ContextStatusFilter>("all");
   const [displayMode, setDisplayMode] = createSignal<ContextDisplayMode>("automatic");
   const [focusedId, setFocusedId] = createSignal<string | null>(null);
+  let routeKey: string | null = null;
+  let syncingFromParent = false;
   const index = createMemo(() => buildRouteContextContinuityIndex(
     options.totality(),
     options.layout(),
@@ -86,20 +90,45 @@ export function createRouteContextContinuityUiState(options: {
       focusedId: focusId,
     });
   });
-  let previousRouteKey: string | null = null;
+  const setFocus = (next: string | null) => {
+    const current = focusedId();
+    if (current === next) return;
+    setFocusedId(next);
+    if (!syncingFromParent) options.onContextFocusChange?.(next);
+  };
+
+  const applyParentFocus = (requested: string | null) => {
+    const valid = index().recordsById.has(requested);
+    syncingFromParent = true;
+    setFocus(valid ? requested : null);
+    syncingFromParent = false;
+    if (!valid && requested !== focusedId() && options.onContextFocusChange) {
+      options.onContextFocusChange(null);
+    }
+  };
 
   createEffect(() => {
-    const routeKey = options.totality()?.route.key ?? null;
+    const nextRouteKey = options.totality()?.route.key ?? null;
+    if (routeKey !== null && routeKey !== nextRouteKey) {
+      routeKey = nextRouteKey;
+      setFocus(null);
+      return;
+    }
+    routeKey = nextRouteKey;
+    const controlledFocus = options.contextFocus;
+    if (controlledFocus !== undefined) {
+      applyParentFocus(controlledFocus ?? null);
+      return;
+    }
     const currentFocus = focusedId();
-    if (previousRouteKey !== null && routeKey !== previousRouteKey) setFocusedId(null);
-    else if (currentFocus && !index().recordsById.has(currentFocus)) setFocusedId(null);
-    previousRouteKey = routeKey;
+    if (currentFocus && !index().recordsById.has(currentFocus)) setFocus(null);
+    if (!routeKey && currentFocus) setFocus(null);
   });
 
   const setFilter = (next: ContextStatusFilter) => {
     setFilterSignal(next);
     const current = focused();
-    if (current && !contextMatchesFilter(current, next)) setFocusedId(null);
+    if (current && !contextMatchesFilter(current, next)) setFocus(null);
   };
 
   return {
@@ -112,7 +141,7 @@ export function createRouteContextContinuityUiState(options: {
     visual,
     setFilter,
     setDisplayMode,
-    focus: setFocusedId,
-    clearFocus: () => setFocusedId(null),
+    focus: setFocus,
+    clearFocus: () => setFocus(null),
   };
 }

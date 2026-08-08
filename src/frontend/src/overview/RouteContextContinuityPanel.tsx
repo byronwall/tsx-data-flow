@@ -9,6 +9,7 @@ import {
 } from "./route-context-continuity-index";
 import type { RouteContextContinuityUiState } from "./route-context-continuity-state";
 import { RouteContextContinuityInspector } from "./RouteContextContinuityInspector";
+import type { SourceEvidenceTarget } from "./source-evidence-model";
 
 const FILTERS: readonly { value: ContextStatusFilter; label: string }[] = [
   { value: "all", label: "All" },
@@ -26,6 +27,7 @@ const DISPLAY_MODES: readonly { value: ContextDisplayMode; label: string }[] = [
 
 export function RouteContextContinuityPanel(props: {
   state: RouteContextContinuityUiState;
+  onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
 }) {
   const visibleCount = () => props.state.visibleRecords().length;
   const globalLabel = () => {
@@ -91,7 +93,7 @@ export function RouteContextContinuityPanel(props: {
     <Show when={props.state.index().unassignedGaps.length}>
       <p class="route-context-unassigned-gaps">{props.state.index().unassignedGaps.length} gap{props.state.index().unassignedGaps.length === 1 ? "" : "s"} could not map to a context declaration. No relation was guessed.</p>
     </Show>
-    <Show when={props.state.focused()}>{(record) => <RouteContextContinuityInspector record={record()} onClear={props.state.clearFocus} />}</Show>
+    <Show when={props.state.focused()}>{(record) => <RouteContextContinuityInspector record={record()} onClear={props.state.clearFocus} onOpenSource={props.onOpenSource} />}</Show>
   </section>;
 }
 

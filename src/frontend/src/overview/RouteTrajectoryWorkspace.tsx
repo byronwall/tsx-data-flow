@@ -102,6 +102,8 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; gener
             hiddenComponentPolicy={props.detail.hiddenComponentPolicy}
             genericUiMode={props.state.genericUi}
             onGenericUiMode={(genericUi) => props.onState({ genericUi })}
+            contextFocus={props.state.contextFocus ?? null}
+            onContextFocusChange={(contextFocus) => props.onState({ contextFocus })}
             scopeKey={`${props.detail.route.key}:${props.detail.trajectory.key}:${props.state.trajectoryRenderer ?? "current"}`}
             selection={props.state.totalitySelection ?? null}
             camera={props.state.graphCamera ?? null}

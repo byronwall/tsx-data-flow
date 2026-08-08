@@ -48,7 +48,7 @@ export function RouteTotalityInspector(props: {
 }) {
   return <aside class="route-totality-inspector" aria-label="Route totality proof inspector">
     <div class="route-totality-inspector-scroll">
-      <RouteContextContinuityPanel state={props.contextUi} />
+      <RouteContextContinuityPanel state={props.contextUi} onOpenSource={props.onOpenSource} />
       <Show when={props.selected()} fallback={<RouteTotalityOverview totality={props.totality} summary={props.summary} counts={props.counts} evidenceVisible={props.evidenceVisible} evidenceDetailEnabled={props.evidenceDetailEnabled} evidenceNodeCount={props.evidenceNodeCount} ledgerItems={props.ledgerItems} startSelectionAvailable={props.startSelectionAvailable} onSelectStart={props.onSelectStart} onToggleEvidence={props.onToggleEvidence} />}>
         {(record) => <>
           <header class="route-totality-inspector-header">

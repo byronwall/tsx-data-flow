@@ -5,7 +5,7 @@ import { RouteTrajectoryWorkspace } from "./RouteTrajectoryWorkspace";
 import { RouteAtlas } from "./RouteAtlas";
 import { TrajectorySourcePicker } from "./TrajectorySourcePicker";
 import { BROWSER_URL_CHANGE_EVENT, commitBrowserUrl, replaceBrowserUrlSilently } from "./trajectory-history";
-import { isTrajectoryCameraOnlyChange, normalizeTrajectoryUrlState, parseTrajectoryUrlState, reconcileTrajectoryDetailState, reconcileTrajectoryUrlState, sameTrajectoryUrlState, selectCheapestTrajectoryForRoute, serializeTrajectoryUrlState, type TrajectoryUrlState } from "./trajectory-url-state";
+import { isTrajectoryHistoryNoiseOnlyChange, normalizeTrajectoryUrlState, parseTrajectoryUrlState, reconcileTrajectoryDetailState, reconcileTrajectoryUrlState, sameTrajectoryUrlState, selectCheapestTrajectoryForRoute, serializeTrajectoryUrlState, type TrajectoryUrlState } from "./trajectory-url-state";
 
 export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; generation: number; open: boolean; initialSearch: string; onClose: () => void }) {
   const initial = untrack(() => reconcileTrajectoryUrlState(parseTrajectoryUrlState(props.initialSearch), props.inventory));
@@ -55,12 +55,12 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     const current = state();
     const changed = !sameTrajectoryUrlState(current, normalized);
     if (!changed) return;
-    const cameraOnly = isTrajectoryCameraOnlyChange(current, normalized);
+    const noiseOnly = isTrajectoryHistoryNoiseOnlyChange(current, normalized);
     lastUrlOpen = normalized.open;
     setState(normalized);
     if (writeHistory && typeof window !== "undefined") {
       const search = serializeTrajectoryUrlState(normalized, window.location.search);
-      if (cameraOnly && !push) replaceBrowserUrlSilently(search);
+      if (noiseOnly && !push) replaceBrowserUrlSilently(search);
       else commitBrowserUrl(search, !push);
     }
   };
@@ -75,9 +75,9 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
   };
   const selectRoute = (routeKey: string) => {
     const flow = selectCheapestTrajectoryForRoute(props.inventory, routeKey);
-    update({ mode: "detail", route: routeKey, flow: flow?.key ?? null, source: null, item: null, expand: [], isolate: false, view: "context", pan: null, zoom: null, totalitySelection: null, graphCamera: null }, true);
+    update({ mode: "detail", route: routeKey, flow: flow?.key ?? null, source: null, item: null, expand: [], isolate: false, view: "context", pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null }, true);
   };
-  const selectSource = (source: string | null) => update({ source, item: null, expand: [], isolate: false, pan: null, zoom: null, totalitySelection: null, graphCamera: null }, true);
+  const selectSource = (source: string | null) => update({ source, item: null, expand: [], isolate: false, pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null }, true);
   const close = () => { update({ open: false }); props.onClose(); };
   createEffect(() => {
     const open = props.open;
