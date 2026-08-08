@@ -328,6 +328,8 @@ following order.
 
 ### 4.1 Restore basic field-to-component parity
 
+**Execution plan:** [Project 4.1 field-to-component parity plan](20260808-project-4-1-field-to-component-parity-plan.md)
+
 The current topology view can show which proven fields pass through each
 component. Route Totality does not yet provide that summary.
 
