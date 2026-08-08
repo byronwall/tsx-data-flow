@@ -14,8 +14,13 @@ import {
 import {
   routeInvestigationSelectionForEdge,
   routeInvestigationSelectionForNode,
+  routeInvestigationSelectionForContextDeclaration,
   type RouteInvestigationSelection,
 } from "./route-investigation-selection";
+import type {
+  ContextConsumer,
+  ContextDeclaration,
+} from "./route-context-continuity-index-records";
 
 export type RouteTotalityRecordKind = RouteTotalityNodeKind | "edge";
 export type RouteTotalityInspectorSelection = Exclude<RouteInvestigationSelection, null>;
@@ -57,6 +62,14 @@ export type RouteTotalityInspectorRecord = {
   routeGlobalGaps: RouteTotalityInspectorLink[];
   definition?: RouteTotalityDefinitionRecord;
   otherCallSites: RouteTotalityInspectorLink[];
+  contextConsumptions: RouteTotalityInspectorContextConsumption[];
+};
+
+export type RouteTotalityInspectorContextConsumption = {
+  selection: Exclude<RouteInvestigationSelection, null>;
+  label: string;
+  detail: string;
+  location: RouteTotalityLocation | null;
 };
 
 export function buildRouteTotalityInspectorRecord(
@@ -65,6 +78,7 @@ export function buildRouteTotalityInspectorRecord(
   selection: RouteInvestigationSelection,
 ): RouteTotalityInspectorRecord | null {
   if (!selection) return null;
+  if (selection.target === "context") return null;
   if (selection.target === "node") {
     const node = layoutNodes(layout).find((item) => item.id === selection.graphId);
     return node ? buildNodeRecord(totality, layout, node, selection) : null;
@@ -85,6 +99,7 @@ function buildNodeRecord(
   const neighborGroups = nodeNeighbors(layout, node);
   const occurrenceLinks = occurrenceEvidence(totality, layout, node);
   const gaps = adjacentGapLinks(layout, [node.id]);
+  const contextConsumptions = occurrenceContextConsumptions(totality, node);
   return {
     selection,
     kind: node.kind,
@@ -101,6 +116,7 @@ function buildNodeRecord(
     routeGlobalGaps: isRouteGlobalGap(node) ? routeGlobalGapLinks(layout) : [],
     definition: occurrenceLinks.definition,
     otherCallSites: occurrenceLinks.otherCallSites,
+    contextConsumptions,
   };
 }
 
@@ -130,6 +146,7 @@ function buildEdgeRecord(
     gaps: adjacentGapLinks(layout, [edge.from, edge.to]),
     routeGlobalGaps: [],
     otherCallSites: [],
+    contextConsumptions: [],
   };
 }
 
@@ -247,6 +264,41 @@ function occurrenceEvidence(
       : undefined,
     otherCallSites,
   };
+}
+
+function occurrenceContextConsumptions(
+  totality: RouteTotality | null,
+  node: RouteTotalityLayoutNode,
+): RouteTotalityInspectorContextConsumption[] {
+  if (!totality || node.kind !== "occurrence") return [];
+  const occurrenceId = (node.record as RouteTotalityOccurrence).id;
+  const contextById = new Map(totality.contextContinuity.declarations.map((declaration) => [declaration.id, declaration]));
+  const consumers = new Map<string, {
+    consumers: ContextConsumer[];
+    declaration: ContextDeclaration | null;
+  }>();
+  for (const consumer of totality.contextContinuity.consumers) {
+    if (consumer.renderOccurrenceId !== occurrenceId) continue;
+    const declaration = contextById.get(consumer.contextDeclarationId) ?? null;
+    const bucket = consumers.get(consumer.contextDeclarationId) ?? { consumers: [], declaration: null };
+    bucket.consumers.push(consumer);
+    bucket.declaration ??= declaration;
+    consumers.set(consumer.contextDeclarationId, bucket);
+  }
+  return [...consumers.entries()]
+    .map(([contextId, bucket]) => {
+      const labels = [...new Set(bucket.consumers.map((consumer) => consumer.status))];
+      const detail = `${labels.join(" / ")} · ${bucket.consumers.length} consumer occurrence${bucket.consumers.length === 1 ? "" : "s"}`;
+      const declaration = bucket.declaration?.label ?? `Context ${contextId}`;
+      const location = bucket.consumers[0]?.location ?? null;
+      return {
+        selection: routeInvestigationSelectionForContextDeclaration(contextId),
+        label: declaration,
+        detail,
+        location,
+      };
+    })
+    .sort((left, right) => left.label.localeCompare(right.label));
 }
 
 function nodeProof(node: RouteTotalityLayoutNode): RouteTotalityProof[] {

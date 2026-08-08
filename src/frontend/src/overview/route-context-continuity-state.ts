@@ -98,7 +98,7 @@ export function createRouteContextContinuityUiState(options: {
   };
 
   const applyParentFocus = (requested: string | null) => {
-    const valid = index().recordsById.has(requested);
+    const valid = requested ? index().recordsById.has(requested) : false;
     syncingFromParent = true;
     setFocus(valid ? requested : null);
     syncingFromParent = false;

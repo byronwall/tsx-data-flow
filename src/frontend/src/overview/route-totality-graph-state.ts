@@ -57,11 +57,13 @@ export function selectionFromPersisted(
 }
 
 export function persistedSelection(selection: RouteInvestigationSelection): TrajectoryTotalitySelection | null {
-  return selection ? { kind: selection.target, graphId: selection.graphId } : null;
+  if (!selection || selection.target === "context") return null;
+  return { kind: selection.target, graphId: selection.graphId };
 }
 
-export function modelSelectionForInvestigationSelection(selection: RouteInvestigationSelection): RouteTotalitySelection {
-  return selection ? { kind: selection.target, id: selection.graphId } : null;
+export function modelSelectionForInvestigationSelection(selection: RouteInvestigationSelection): RouteTotalitySelection | null {
+  if (!selection || selection.target === "context") return null;
+  return { kind: selection.target, id: selection.graphId };
 }
 
 export function reconcileRouteTotalityState(args: {
@@ -77,7 +79,9 @@ export function reconcileRouteTotalityState(args: {
   const requestedMode = args.scopeChanged
     ? null
     : args.currentMode ?? (args.initialPayload && args.requestedIsolation ? emphasisModeForSelection(selection) : null);
-  const emphasisMode = requestedMode && selection?.target === "node" ? requestedMode : null;
+  const emphasisMode = requestedMode && (selection?.target === "node" || (selection?.target === "edge" && selection.kind === "context-edge"))
+    ? requestedMode
+    : null;
   const emphasis = emphasisMode
     ? buildRouteTotalityEmphasis(
       buildRouteTotalityAdjacency(args.layout, args.totality),
@@ -99,26 +103,35 @@ export function reconcileRouteTotalityState(args: {
 }
 
 export function emphasisModeForSelection(selection: RouteInvestigationSelection): RouteTotalityEmphasisMode | null {
-  return selection?.target === "node" ? "both" : null;
+  return selection && (selection.target === "node" || (selection.target === "edge" && selection.kind === "context-edge"))
+    ? "both"
+    : null;
 }
 
 export function sameCamera(left: TrajectoryGraphCamera, right: TrajectoryGraphCamera): boolean {
   return left.x === right.x && left.y === right.y && left.scale === right.scale;
 }
 
-export type RouteTotalityLedgerItem = { id: string; label: string; detail: string; status: string };
+export type RouteTotalityLedgerItem = {
+  id: string;
+  label: string;
+  detail: string;
+  status: string;
+  details?: RouteTotalityLedgerItem[];
+};
 export type RouteTotalityLedgerSection = { id: string; label: string; items: RouteTotalityLedgerItem[] };
 
 export function buildRouteTotalityLedger(
   totality: RouteTotality | null,
   layout: RouteTotalityLayout,
 ): RouteTotalityLedgerSection[] {
-  const omissionItems: RouteTotalityLedgerItem[] = layout.summary.omissions.map((omission) => ({
+  const omissionDetails: RouteTotalityLedgerItem[] = layout.summary.omissions.map((omission) => ({
     id: omission.id,
     label: omission.label,
     detail: [omission.source, omission.reason, omission.count === null ? "" : `count ${omission.count}`].filter(Boolean).join(" · "),
     status: omission.status,
   }));
+  const omissionItems = groupOmissionItems(layout.summary.omissions, omissionDetails);
   const evidence = availableEvidence(totality);
   const coverageItems: RouteTotalityLedgerItem[] = [evidence ? {
     id: "budget:evidence-slice",
@@ -134,7 +147,7 @@ export function buildRouteTotalityLedger(
   });
   if (layout.summary.unresolvedEdgeIds.length) coverageItems.push({ id: "unresolved:edges", label: "Unresolved edges", detail: `${layout.summary.unresolvedEdgeIds.length} edge record(s) name missing graph endpoints`, status: "partial" });
   if (!omissionItems.length) omissionItems.push({ id: "coverage:complete", label: "No named omissions", detail: "The returned route surface has no recorded omissions or truncation flags.", status: "exact" });
-  const explicitGapItems: RouteTotalityLedgerItem[] = layout.nodes
+  const explicitGapDetails: RouteTotalityLedgerItem[] = layout.nodes
     .filter((node) => node.kind === "gap")
     .map((gap) => ({
       id: gap.id,
@@ -142,11 +155,62 @@ export function buildRouteTotalityLedger(
       detail: `${gap.source} · ${gap.compactSummary}`,
       status: gap.status,
     }));
+  const explicitGapItems: RouteTotalityLedgerItem[] = explicitGapDetails.length ? [{
+    id: "gaps:retained",
+    label: "Retained gaps",
+    detail: `${explicitGapDetails.length} named gap${explicitGapDetails.length === 1 ? "" : "s"}`,
+    status: explicitGapDetails.some((item) => item.status === "unsupported") ? "unsupported" : "partial",
+    details: explicitGapDetails,
+  }] : [];
   if (!explicitGapItems.length) explicitGapItems.push({ id: "gaps:none", label: "No explicit gaps", detail: "The returned payload contains no totality gap records.", status: "exact" });
   return [
     { id: "coverage", label: "Omissions and budget", items: [...coverageItems, ...omissionItems] },
     { id: "gaps", label: "Explicit gaps", items: explicitGapItems },
   ];
+}
+
+function groupOmissionItems(
+  omissions: RouteTotalityLayout["summary"]["omissions"],
+  details: RouteTotalityLedgerItem[],
+): RouteTotalityLedgerItem[] {
+  const groups = new Map<string, { source: string; reason: string | null; affected: number; details: RouteTotalityLedgerItem[] }>();
+  omissions.forEach((omission, index) => {
+    const key = `${omission.source}:${omission.reason ?? "named"}`;
+    const group = groups.get(key) ?? { source: omission.source, reason: omission.reason, affected: 0, details: [] };
+    group.affected += omission.count ?? 1;
+    group.details.push(details[index]);
+    groups.set(key, group);
+  });
+  return [...groups.entries()].map(([key, group]) => ({
+    id: `omission-group:${key}`,
+    label: omissionGroupLabel(group.reason),
+    detail: omissionGroupDetail(group.source, group.reason, group.details.length, group.affected),
+    status: group.details.some((item) => item.status === "unavailable") ? "unavailable" : "partial",
+    details: group.details,
+  }));
+}
+
+function omissionGroupLabel(reason: string | null): string {
+  const labels: Record<string, string> = {
+    "external-code": "External definitions",
+    "budget-exhausted": "Budget limits",
+    "recursion-limit": "Recursion limits",
+    "unsupported-syntax": "Unsupported syntax",
+    "unsupported-ownership": "Unsupported ownership",
+    "unresolved-symbol": "Unresolved symbols",
+    "dynamic-dispatch": "Dynamic dispatch",
+    "identity-lost": "Lost identity",
+    "coverage-note": "Evidence coverage",
+    truncation: "Truncated output",
+  };
+  return reason ? labels[reason] ?? reason.replaceAll("-", " ") : "Route omissions";
+}
+
+function omissionGroupDetail(source: string, reason: string | null, named: number, affected: number): string {
+  if (reason === "external-code") {
+    return `${named} named definition${named === 1 ? "" : "s"} · ${affected} affected call site${affected === 1 ? "" : "s"}`;
+  }
+  return `${affected} affected item${affected === 1 ? "" : "s"} · ${source}`;
 }
 
 type RenderableDisplayAnnotation = Omit<RouteTotalityDisplayLayoutAnnotation, "x" | "y"> & { x: number; y: number };

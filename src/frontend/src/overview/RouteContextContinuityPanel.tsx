@@ -7,6 +7,8 @@ import {
   type ContextStatusFilter,
   type ContextVisualRecord,
 } from "./route-context-continuity-index";
+import type { RouteTotalityInspectorSelection } from "./route-totality-inspector-model";
+import { routeInvestigationSelectionForContextDeclaration } from "./route-investigation-selection";
 import type { RouteContextContinuityUiState } from "./route-context-continuity-state";
 import { RouteContextContinuityInspector } from "./RouteContextContinuityInspector";
 import type { SourceEvidenceTarget } from "./source-evidence-model";
@@ -28,6 +30,7 @@ const DISPLAY_MODES: readonly { value: ContextDisplayMode; label: string }[] = [
 export function RouteContextContinuityPanel(props: {
   state: RouteContextContinuityUiState;
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
+  onSelect: (selection: RouteTotalityInspectorSelection) => void;
 }) {
   const visibleCount = () => props.state.visibleRecords().length;
   const globalLabel = () => {
@@ -83,6 +86,7 @@ export function RouteContextContinuityPanel(props: {
               record={record}
               focused={props.state.focusedId() === record.id}
               onFocus={() => props.state.focus(record.id)}
+              onSelect={() => props.onSelect(routeInvestigationSelectionForContextDeclaration(record.id))}
               onClear={props.state.clearFocus}
             />}</For>
           </ul>
@@ -92,8 +96,8 @@ export function RouteContextContinuityPanel(props: {
 
     <Show when={props.state.index().unassignedGaps.length}>
       <p class="route-context-unassigned-gaps">{props.state.index().unassignedGaps.length} gap{props.state.index().unassignedGaps.length === 1 ? "" : "s"} could not map to a context declaration. No relation was guessed.</p>
-    </Show>
-    <Show when={props.state.focused()}>{(record) => <RouteContextContinuityInspector record={record()} onClear={props.state.clearFocus} onOpenSource={props.onOpenSource} />}</Show>
+      </Show>
+    <Show when={props.state.focused()}>{(record) => <RouteContextContinuityInspector record={record()} onClear={props.state.clearFocus} onOpenSource={props.onOpenSource} onSelect={props.onSelect} />}</Show>
   </section>;
 }
 
@@ -101,6 +105,7 @@ function ContextRow(props: {
   record: ContextVisualRecord;
   focused: boolean;
   onFocus: () => void;
+  onSelect: () => void;
   onClear: () => void;
 }) {
   return <li class={`context-color-${props.record.colorIndex}`} classList={{ focused: props.focused }}>
@@ -118,11 +123,17 @@ function ContextRow(props: {
         <Count label="Gaps" value={props.record.gaps.length} />
       </dl>
     </div>
-    <div class="route-context-row-actions">
-      <Show when={props.focused} fallback={<button type="button" aria-pressed="false" onClick={props.onFocus}>Focus</button>}>
-        <button type="button" aria-pressed="true" onClick={() => props.onClear()}>Clear focus</button>
+      <div class="route-context-row-actions">
+      <Show when={props.focused} fallback={<>
+        <button type="button" aria-pressed="false" onClick={props.onFocus}>Focus</button>
+        <button type="button" aria-pressed="false" onClick={props.onSelect}>Select</button>
+      </>}>
+        <>
+          <button type="button" aria-pressed="true" onClick={() => props.onClear()}>Clear focus</button>
+          <button type="button" aria-pressed="false" onClick={props.onSelect}>Select</button>
+        </>
       </Show>
-    </div>
+      </div>
   </li>;
 }
 

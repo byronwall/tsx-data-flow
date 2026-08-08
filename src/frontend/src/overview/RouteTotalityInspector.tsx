@@ -41,6 +41,7 @@ export function RouteTotalityInspector(props: {
   onIsolate: () => void;
   onRestore: () => void;
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
+  onContextSelect: (selection: RouteTotalityInspectorSelection) => void;
   findings: RouteTotalityFindingSummary;
   onSelectStart: () => void;
   onToggleEvidence: () => void;
@@ -48,7 +49,11 @@ export function RouteTotalityInspector(props: {
 }) {
   return <aside class="route-totality-inspector" aria-label="Route totality proof inspector">
     <div class="route-totality-inspector-scroll">
-      <RouteContextContinuityPanel state={props.contextUi} onOpenSource={props.onOpenSource} />
+      <RouteContextContinuityPanel
+        state={props.contextUi}
+        onOpenSource={props.onOpenSource}
+        onSelect={props.onContextSelect}
+      />
       <Show when={props.selected()} fallback={<RouteTotalityOverview totality={props.totality} summary={props.summary} counts={props.counts} evidenceVisible={props.evidenceVisible} evidenceDetailEnabled={props.evidenceDetailEnabled} evidenceNodeCount={props.evidenceNodeCount} ledgerItems={props.ledgerItems} startSelectionAvailable={props.startSelectionAvailable} onSelectStart={props.onSelectStart} onToggleEvidence={props.onToggleEvidence} />}>
         {(record) => <>
           <header class="route-totality-inspector-header">
@@ -81,6 +86,7 @@ export function RouteTotalityInspector(props: {
             <NeighborSection title="Route-global gaps" items={record().routeGlobalGaps} empty="No route-global gap was returned." onSelect={props.onSelect} />
           </Show>
           <OccurrenceLinks record={record()} onSelect={props.onSelect} onOpenSource={props.onOpenSource} />
+          <OccurrenceContextConsumptions record={record()} onSelect={props.onContextSelect} />
           <section class="route-totality-inspector-section route-totality-inspector-actions">
             <button type="button" onClick={props.onClear}>Clear selection</button>
           </section>
@@ -240,12 +246,12 @@ function OccurrenceLinks(props: {
       <Show when={props.record.definition}>
         {(definition) => <div class="route-totality-definition">
           <strong>Shared definition · {definition().name}</strong>
-          <Show when={definition().location} fallback={<code>Definition location unavailable</code>}>
+            <Show when={definition().location} fallback={<code>Definition location unavailable</code>}>
             {(location) => <div class="route-totality-source-item">
               <button type="button" onClick={() => props.onOpenSource(sourceTargetForLocation(location()))}>
                 <code>{formatLocation(location())}</code><span>Open exact code</span>
               </button>
-              <a href={locationHref(location())} title={`Open full file ${location().file}`}>Full file</a>
+              <a href={locationHref(location()!)} title={`Open full file ${location().file}`}>Full file</a>
             </div>}
           </Show>
           <p>{definition().external ? "External definition." : `${definition().sourceFile ?? "Source file unavailable"} · ${definition().importModule ?? "local module"}`}</p>
@@ -254,6 +260,26 @@ function OccurrenceLinks(props: {
       <Show when={props.record.otherCallSites.length} fallback={<Show when={props.record.definition}><p>No other call site was returned for this definition.</p></Show>}>
         <h4>Other call sites <span>{props.record.otherCallSites.length}</span></h4>
         <div class="route-totality-link-list"><For each={props.record.otherCallSites}>{(item) => <SelectionLink item={item} onSelect={props.onSelect} />}</For></div>
+      </Show>
+    </section>
+  </Show>;
+}
+
+function OccurrenceContextConsumptions(props: {
+  record: RouteTotalityInspectorRecord;
+  onSelect: (selection: RouteTotalityInspectorSelection) => void;
+}) {
+  return <Show when={props.record.kind === "occurrence"}>
+    <section class="route-totality-inspector-section route-totality-context-consumptions">
+      <h3>Context consumptions <span>{props.record.contextConsumptions.length}</span></h3>
+      <Show when={props.record.contextConsumptions.length} fallback={<p>No context consumption was returned for this occurrence.</p>}>
+        <div class="route-totality-link-list">
+          <For each={props.record.contextConsumptions}>{(item) => <button type="button" class="route-totality-inspector-link" onClick={() => props.onSelect(item.selection)}>
+            <span><b>{item.label}</b><small>Context declaration</small></span>
+            <Show when={item.location}>{(location) => <code>{formatLocation(location())}</code>}</Show>
+            <small>{item.detail}</small>
+          </button>}</For>
+        </div>
       </Show>
     </section>
   </Show>;

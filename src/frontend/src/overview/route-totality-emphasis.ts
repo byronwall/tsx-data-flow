@@ -9,11 +9,14 @@ import {
   type RouteTotalitySelection,
   type RouteTotalityStatus,
 } from "./route-totality-model";
+import type { RouteInvestigationSelection } from "./route-investigation-selection";
 import { emptyRouteTotalityEmphasis } from "./route-totality-emphasis-empty";
 
 type RouteTotalityBridge = RouteTotality["bridges"][number];
 type RouteTotalityBridgeEndpoint = RouteTotalityBridge["from"] | RouteTotalityBridge["to"];
-type AdjacencyFamily = "render" | "data" | "boundary" | "bridge";
+type RouteTotalityContextLink = RouteTotality["contextContinuity"]["links"][number];
+type RouteTotalityContextOccurrenceReference = RouteTotality["contextContinuity"]["providers"][number] | RouteTotality["contextContinuity"]["consumers"][number];
+type AdjacencyFamily = "render" | "data" | "boundary" | "bridge" | "context";
 
 export type RouteTotalityAdjacencyEdge = {
   id: string;
@@ -37,6 +40,7 @@ export type RouteTotalityAdjacency = {
   incoming: ReadonlyMap<string, readonly RouteTotalityAdjacencyEdge[]>;
   unresolvedBridgeIds: readonly string[];
   unresolvedBridgesByEndpoint: ReadonlyMap<string, readonly RouteTotalityBridge[]>;
+  unresolvedContextIds: readonly string[];
 };
 
 export type RouteTotalityEmphasisMode = "forward" | "backward" | "both";
@@ -109,6 +113,20 @@ export function buildRouteTotalityAdjacency(
   const incoming = new Map<string, RouteTotalityAdjacencyEdge[]>();
   const unresolvedBridgeIds: string[] = [];
   const unresolvedByEndpoint = new Map<string, RouteTotalityBridge[]>();
+  const unresolvedContextIds: string[] = [];
+  const contextContinuity = totality?.contextContinuity;
+  const contextProviders = new Map<string, string>();
+  const providerStatus = new Map<string, string>();
+  const contextConsumers = new Map<string, string>();
+  const consumerStatus = new Map<string, string>();
+  for (const provider of contextContinuity?.providers ?? []) {
+    contextProviders.set(provider.id, provider.renderOccurrenceId);
+    providerStatus.set(provider.id, provider.status);
+  }
+  for (const consumer of contextContinuity?.consumers ?? []) {
+    contextConsumers.set(consumer.id, consumer.renderOccurrenceId);
+    consumerStatus.set(consumer.id, consumer.status);
+  }
 
   const addEdge = (edge: RouteTotalityAdjacencyEdge): void => {
     edges.push(Object.freeze(edge));
@@ -170,6 +188,55 @@ export function buildRouteTotalityAdjacency(
     });
   }
 
+  for (const link of [...(contextContinuity?.links ?? [])].sort((left, right) => left.id.localeCompare(right.id))) {
+    const providerRenderId = link.providerOccurrenceId ? contextProviders.get(link.providerOccurrenceId) : null;
+    const consumerRenderId = contextConsumers.get(link.consumerOccurrenceId) ?? null;
+    const from = resolveContextOccurrenceNodeId(providerRenderId, nodeIds, layout.nodeRedirects);
+    const to = resolveContextOccurrenceNodeId(consumerRenderId, nodeIds, layout.nodeRedirects);
+    const status = deriveContextLinkStatus(
+      link.status,
+      link.providerOccurrenceId ? providerStatus.get(link.providerOccurrenceId) ?? null : null,
+      consumerStatus.get(link.consumerOccurrenceId) ?? null,
+    );
+    const detail = formatContextLinkDetail(link, status, from === null || to === null);
+    const edgeId = `context:${link.id}`;
+    if (from && to) {
+      addEdge({
+        id: edgeId,
+        from,
+        to,
+        family: "context",
+        kind: link.sourceKind,
+        label: contextLinkLabel(link),
+        detail,
+        status,
+        locations: Object.freeze([]),
+        proof: null,
+        layoutEdge: null,
+        bridge: null,
+        bridgeDirection: null,
+      });
+      continue;
+    }
+    if (!from && !to) continue;
+    addEdge({
+      id: edgeId,
+      from: from ?? `context-missing:${link.id}:from`,
+      to: to ?? `context-missing:${link.id}:to`,
+      family: "context",
+      kind: link.sourceKind,
+      label: contextLinkLabel(link),
+      detail,
+      status,
+      locations: Object.freeze([]),
+      proof: null,
+      layoutEdge: null,
+      bridge: null,
+      bridgeDirection: null,
+    });
+    unresolvedContextIds.push(link.id);
+  }
+
   const freezeMap = <T>(source: Map<string, T[]>): ReadonlyMap<string, readonly T[]> => (
     new Map([...source.entries()].map(([id, values]) => [id, Object.freeze([...values])] as const))
   );
@@ -179,21 +246,23 @@ export function buildRouteTotalityAdjacency(
     incoming: freezeMap(incoming),
     unresolvedBridgeIds: Object.freeze(unresolvedBridgeIds),
     unresolvedBridgesByEndpoint: freezeMap(unresolvedByEndpoint),
+    unresolvedContextIds: Object.freeze(unresolvedContextIds),
   });
 }
 
 export function buildRouteTotalityEmphasis(
   adjacency: RouteTotalityAdjacency,
   layout: RouteTotalityLayout,
-  selection: RouteTotalitySelection,
+  selection: RouteTotalitySelection | RouteInvestigationSelection,
   mode: RouteTotalityEmphasisMode | null,
 ): RouteTotalityEmphasis {
-  const seed = selection?.kind === "node"
-    ? layout.nodes.find((node) => node.id === selection.id) ?? null
-    : null;
-  if (!mode || !seed) {
+  const seedIds = collectEmphasisSeedNodeIds(selection, layout);
+  if (!mode || seedIds.size === 0) {
     return emptyRouteTotalityEmphasis();
   }
+  const seedId = seedIds.values().next().value;
+  const seed = layout.nodes.find((node) => node.id === seedId) ?? null;
+  if (!seed) return emptyRouteTotalityEmphasis();
 
   const layoutNodes = layout.nodes as RouteTotalityLayoutNode[];
   const nodesById = new Map(layoutNodes.map((node) => [node.id, node]));
@@ -211,11 +280,14 @@ export function buildRouteTotalityEmphasis(
   const frontiers: RouteTotalityFrontier[] = [];
   const visited = new Set<string>();
   const queued: string[] = [];
-  if (seed.status === "proven") {
-    activeNodes.add(seed.id);
-    queued.push(seed.id);
-  } else {
-    frontierNodes.add(seed.id);
+  const provenSeedIds = [...seedIds].filter((nodeId) => nodesById.get(nodeId)?.status === "proven");
+  for (const id of seedIds) {
+    if (nodesById.get(id)?.status === "proven") {
+      activeNodes.add(id);
+      queued.push(id);
+      continue;
+    }
+    frontierNodes.add(id);
   }
 
   const addFrontier = (candidate: TraversalCandidate, status = candidate.edge.status): void => {
@@ -240,7 +312,7 @@ export function buildRouteTotalityEmphasis(
     const nodeId = queued.shift()!;
     if (visited.has(nodeId)) continue;
     visited.add(nodeId);
-    for (const candidate of traversalCandidates(adjacency, nodesById, nodeId, seed.id, mode)) {
+    for (const candidate of traversalCandidates(adjacency, nodesById, nodeId, seedIds, mode)) {
       const { edge, nextNodeId } = candidate;
       if (edge.status !== "proven") {
         addFrontier(candidate);
@@ -274,20 +346,23 @@ export function buildRouteTotalityEmphasis(
     }
   }
 
-  if (mode === "both" && seed.status === "proven") {
+  if (mode === "both" && provenSeedIds.length > 0) {
     const primaryNodes = new Set(activeNodes);
     const primaryEdges = new Set(activeEdges);
-    const downstreamVisited = new Set<string>([seed.id]);
-    const downstreamQueue = (adjacency.outgoing.get(seed.id) ?? [])
-      .filter((edge) => Boolean(edge.layoutEdge) && activeEdges.has(edge.id) && activeNodes.has(edge.to))
-      .map((edge) => edge.to);
+    const downstreamVisited = new Set<string>(provenSeedIds);
+    const downstreamQueue = [...new Set(provenSeedIds.flatMap((seedNodeId) => (
+      (adjacency.outgoing.get(seedNodeId) ?? [])
+        .filter((edge) => edge.layoutEdge?.kind !== "origin-evidence")
+        .filter((edge) => activeEdges.has(edge.id) && activeNodes.has(edge.to))
+        .map((edge) => edge.to)
+    )))];
 
     while (downstreamQueue.length) {
       const nodeId = downstreamQueue.shift()!;
       if (downstreamVisited.has(nodeId)) continue;
       downstreamVisited.add(nodeId);
       for (const edge of adjacency.outgoing.get(nodeId) ?? []) {
-        if (!edge.layoutEdge || edge.layoutEdge.kind === "origin-evidence") continue;
+        if (edge.layoutEdge?.kind === "origin-evidence") continue;
         const candidate: TraversalCandidate = { edge, nextNodeId: edge.to, continueTraversal: true };
         if (edge.status !== "proven") {
           addFrontier(candidate);
@@ -318,18 +393,18 @@ export function buildRouteTotalityEmphasis(
     ...contributorsFor(layoutNodes, frontierNodes),
     ...activeContributors.filter((origin) => origin.status !== "proven"),
   ]);
-  const hasFrontier = frontiers.length > 0 || seed.status !== "proven";
+  const hasFrontier = frontiers.length > 0 || provenSeedIds.length === 0;
   const status = mode === "both"
     ? hasFrontier ? "partial" : "proven"
     : activeBridges.size === 0
-    ? seed.status === "proven" ? "unavailable" : "partial"
+    ? provenSeedIds.length > 0 ? "unavailable" : "partial"
     : hasFrontier ? "partial" : "proven";
   const note = mode === "both"
     ? hasFrontier
       ? "Immediate connections and upstream lineage use strong emphasis. Downstream trees continue with lighter emphasis. Partial frontiers remain explicit."
       : "Immediate connections and upstream lineage use strong emphasis. Downstream trees continue to their terminals with lighter emphasis."
     : activeBridges.size === 0
-    ? seed.status === "proven"
+    ? provenSeedIds.length > 0
       ? "No proven cross-layer handoff exists. Surface-only reach is not evidence of a cross-layer contribution."
       : "The selected seed is partial. It remains a frontier; downstream reach is not proven."
     : hasFrontier
@@ -368,18 +443,18 @@ function traversalCandidates(
   adjacency: RouteTotalityAdjacency,
   nodesById: ReadonlyMap<string, RouteTotalityLayoutNode>,
   nodeId: string,
-  seedId: string,
+  seedIds: ReadonlySet<string>,
   mode: RouteTotalityEmphasisMode,
 ): TraversalCandidate[] {
   const candidates = new Map<string, TraversalCandidate>();
   if (mode === "both") {
     for (const edge of adjacency.incoming.get(nodeId) ?? []) {
-      if (!edge.layoutEdge || edge.layoutEdge.kind === "origin-evidence") continue;
+      if (edge.layoutEdge?.kind === "origin-evidence") continue;
       candidates.set(edge.id, { edge, nextNodeId: edge.from, continueTraversal: true });
     }
-    if (nodeId === seedId) {
+    if (seedIds.has(nodeId)) {
       for (const edge of adjacency.outgoing.get(nodeId) ?? []) {
-        if (!edge.layoutEdge) continue;
+        if (edge.layoutEdge?.kind === "origin-evidence") continue;
         candidates.set(edge.id, { edge, nextNodeId: edge.to, continueTraversal: false });
       }
     }
@@ -398,7 +473,7 @@ function traversalCandidates(
         candidates.set(edge.id, { edge, nextNodeId: edge.from, continueTraversal: true });
         continue;
       }
-      if (edge.bridgeDirection === "origin-to-render") {
+      if (edge.bridgeDirection === "origin-to-render" || edge.family === "context") {
         candidates.set(edge.id, { edge, nextNodeId: edge.from, continueTraversal: true });
       }
     }
@@ -414,6 +489,63 @@ function traversalCandidates(
     }
   }
   return [...candidates.values()];
+}
+
+function collectEmphasisSeedNodeIds(
+  selection: RouteTotalitySelection | RouteInvestigationSelection,
+  layout: RouteTotalityLayout,
+): ReadonlySet<string> {
+  const nodeIds = new Set(layout.nodes.map((node) => node.id));
+  const result = new Set<string>();
+  if (!selection) return result;
+  if ("kind" in selection && selection.kind === "node" && nodeIds.has(selection.id)) {
+    result.add(selection.id);
+    return result;
+  }
+  if ("target" in selection && selection.target === "edge" && selection.kind === "context-edge") {
+    if (selection.fromNodeId && nodeIds.has(selection.fromNodeId)) result.add(selection.fromNodeId);
+    if (selection.toNodeId && nodeIds.has(selection.toNodeId)) result.add(selection.toNodeId);
+  }
+  return result;
+}
+
+function resolveContextOccurrenceNodeId(
+  occurrenceId: string | null | undefined,
+  nodeIds: ReadonlySet<string>,
+  redirects: ReadonlyMap<string, string>,
+): string | null {
+  if (!occurrenceId) return null;
+  let nodeId = `occurrence:${occurrenceId}`;
+  const visited = new Set<string>();
+  while (redirects.has(nodeId) && !visited.has(nodeId)) {
+    visited.add(nodeId);
+    nodeId = redirects.get(nodeId) ?? nodeId;
+  }
+  return nodeIds.has(nodeId) ? nodeId : null;
+}
+
+function deriveContextLinkStatus(
+  status: RouteTotalityContextLink["status"],
+  providerStatus: string | null,
+  consumerStatus: string | null,
+): RouteTotalityStatus {
+  if (status === "unsupported") return "unsupported";
+  if (providerStatus === "unsupported" || consumerStatus === "unsupported") return "unsupported";
+  if (status === "partial" || providerStatus === "partial" || consumerStatus === "partial") return "partial";
+  return "proven";
+}
+
+function contextLinkLabel(link: RouteTotalityContextLink): string {
+  return `${link.sourceKind === "default" ? "default" : "provider"} context link`;
+}
+
+function formatContextLinkDetail(
+  link: RouteTotalityContextLink,
+  status: RouteTotalityStatus,
+  endpointMissing: boolean,
+): string {
+  const members = [...link.members, ...link.memberPaths.map((path) => path.join("."))].join(" · ");
+  return `${status} ${link.sourceKind === "default" ? "default" : "provider"} context handoff${endpointMissing ? " from or to unknown mapped endpoint" : ""}${members ? ` · ${members}` : ""}`;
 }
 
 function bridgeApplies(bridge: RouteTotalityBridge, mode: RouteTotalityEmphasisMode): boolean {
