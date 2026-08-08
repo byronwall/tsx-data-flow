@@ -201,7 +201,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   const emphasis = createMemo(() => buildRouteTotalityEmphasis(
     adjacency(),
     layout(),
-    selection()?.target === "node" ? { kind: "node", id: selection()!.graphId } : null,
+    selection(),
     emphasisMode(),
   ));
   const visibleDisplayNodes = createMemo(() => evidenceVisible()
@@ -352,6 +352,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         forcesVisible={layoutDebug.forcesVisible()}
         onSvgRef={(element) => { svg = element; }}
         onSelect={actions.select}
+        onContextSelect={actions.select}
         onRegisterMark={actions.registerMark}
         contextVisual={contextUi.visual()}
       />
@@ -376,6 +377,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         onIsolate={actions.isolate}
         onRestore={actions.restoreFullRoute}
         onOpenSource={props.onOpenSource ?? (() => undefined)}
+        onContextSelect={actions.select}
         onSelectStart={() => { const target = startSelection(); if (target) actions.select(target); }}
         onToggleEvidence={() => setShowEvidenceDetail((value) => !value)}
         contextUi={contextUi}

@@ -5,7 +5,7 @@ import type {
   RouteTotalityNodeSource,
 } from "./route-totality-model";
 
-export type RouteInvestigationEdgeFamily = "render" | "data" | "boundary";
+export type RouteInvestigationEdgeFamily = "render" | "data" | "boundary" | "context";
 
 export type RouteInvestigationNodeSelection = {
   target: "node";
@@ -16,17 +16,28 @@ export type RouteInvestigationNodeSelection = {
   originRole?: string;
 };
 
+export type RouteInvestigationContextSelection = {
+  target: "context";
+  kind: "context";
+  recordId: string;
+  graphId: string;
+  source: "context-continuity";
+};
+
 export type RouteInvestigationEdgeSelection = {
   target: "edge";
-  kind: "render-edge" | "data-edge" | "boundary-edge";
+  kind: "render-edge" | "data-edge" | "boundary-edge" | "context-edge";
   family: RouteInvestigationEdgeFamily;
   recordId: string;
   graphId: string;
   source: RouteTotalityNodeSource;
+  fromNodeId: string | null;
+  toNodeId: string | null;
 };
 
 export type RouteInvestigationSelection =
   | RouteInvestigationNodeSelection
+  | RouteInvestigationContextSelection
   | RouteInvestigationEdgeSelection
   | null;
 
@@ -56,6 +67,49 @@ export function routeInvestigationSelectionForEdge(
     recordId: edge.id,
     graphId: `edge:${edge.family}:${edge.id}`,
     source: edge.source,
+    fromNodeId: null,
+    toNodeId: null,
+  };
+}
+
+export function routeInvestigationSelectionForContextDeclaration(contextId: string): RouteInvestigationContextSelection {
+  return {
+    target: "context",
+    kind: "context",
+    recordId: contextId,
+    graphId: `context:${contextId}`,
+    source: "context-continuity",
+  };
+}
+
+export function routeInvestigationSelectionForContextOccurrence(
+  contextId: string,
+  occurrenceId: string,
+  kind: "provider" | "consumer",
+): RouteInvestigationContextSelection {
+  return {
+    target: "context",
+    kind: "context",
+    recordId: `${contextId}:${kind}:${occurrenceId}`,
+    graphId: `context-${kind}:${contextId}:${occurrenceId}`,
+    source: "context-continuity",
+  };
+}
+
+export function routeInvestigationSelectionForContextLink(
+  contextLinkId: string,
+  fromNodeId: string | null,
+  toNodeId: string | null,
+): RouteInvestigationEdgeSelection {
+  return {
+    target: "edge",
+    kind: "context-edge",
+    family: "context",
+    recordId: contextLinkId,
+    graphId: `context-link:${contextLinkId}`,
+    source: "context-continuity",
+    fromNodeId,
+    toNodeId,
   };
 }
 

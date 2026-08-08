@@ -12,34 +12,63 @@ import {
   routeContextNodeVisibility,
   type RouteContextNodeVisibility,
 } from "./route-context-continuity-visibility";
+import {
+  routeInvestigationSelectionForContextLink,
+  routeInvestigationSelectionForContextOccurrence,
+  sameRouteInvestigationSelection,
+  type RouteInvestigationContextSelection,
+  type RouteInvestigationSelection,
+} from "./route-investigation-selection";
 
 export function RouteContextContinuityOverlay(props: {
   visual: RouteContextContinuityVisual;
   emphasis: RouteTotalityEmphasis;
   isolated: boolean;
+  selection: RouteInvestigationSelection;
+  onSelect: (selection: Exclude<RouteInvestigationSelection, null>) => void;
 }) {
   const nodeVisibility = (nodeId: string) => routeContextNodeVisibility(nodeId, props.emphasis, props.isolated);
-  return <g class="route-context-continuity-layer" aria-hidden="true">
+  return <g class="route-context-continuity-layer">
     <g class="route-context-overlay-links">
       <For each={props.visual.links}>{(link) => <ContextLinkMark
         link={link}
         focused={link.contextId === props.visual.focusedId}
+        selected={sameRouteInvestigationSelection(props.selection, linkSelection(link))}
         nodeVisibility={nodeVisibility}
+        selection={linkSelection(link)}
+        onSelect={props.onSelect}
       />}</For>
     </g>
     <g class="route-context-relay-links">
       <For each={props.visual.relays}>{(relay) => <ContextRelayMark relay={relay} nodeVisibility={nodeVisibility} />}</For>
     </g>
     <g class="route-context-node-marks">
-      <For each={props.visual.marks}>{(mark) => <ContextNodeMarkGlyph mark={mark} nodeVisibility={nodeVisibility} />}</For>
+      <For each={props.visual.marks}>{(mark) => <ContextNodeMarkGlyph
+        mark={mark}
+        selected={sameRouteInvestigationSelection(props.selection, markSelection(mark))}
+        nodeVisibility={nodeVisibility}
+        selection={markSelection(mark)}
+        onSelect={props.onSelect}
+      />}</For>
     </g>
   </g>;
+
+  function linkSelection(link: ContextVisualLink): RouteInvestigationSelection {
+    return routeInvestigationSelectionForContextLink(link.link.id, link.from?.nodeId ?? null, link.to?.nodeId ?? null);
+  }
+
+  function markSelection(mark: ContextNodeMark): RouteInvestigationContextSelection {
+    return routeInvestigationSelectionForContextOccurrence(mark.contextId, mark.occurrenceId, mark.role);
+  }
 }
 
 function ContextLinkMark(props: {
   link: ContextVisualLink;
   focused: boolean;
+  selected: boolean;
   nodeVisibility: (nodeId: string) => RouteContextNodeVisibility;
+  selection: RouteInvestigationSelection;
+  onSelect: (selection: Exclude<RouteInvestigationSelection, null>) => void;
 }) {
   const geometry = () => curveGeometry(props.link.from!, props.link.to!, stableBend(props.link.id));
   const visibility = () => combineRouteContextNodeVisibility([
@@ -52,8 +81,23 @@ function ContextLinkMark(props: {
   };
   return <g
     class={`context-color-${props.link.colorIndex} status-${props.link.status}`}
-    classList={visibilityClasses(visibility())}
+    classList={{ ...visibilityClasses(visibility()), selected: props.selected, interactive: true }}
+    role="button"
+    tabindex={visibility() === "hidden" ? -1 : 0}
+    aria-pressed={props.selected}
+    aria-label={`${label()} context link from ${props.link.from?.nodeId} to ${props.link.to?.nodeId}`}
+    onPointerDown={(event) => event.stopPropagation()}
+    onClick={(event) => {
+      event.stopPropagation();
+      if (props.link.from && props.link.to) props.onSelect(routeInvestigationSelectionForContextLink(props.link.link.id, props.link.from.nodeId, props.link.to.nodeId));
+    }}
+    onKeyDown={(event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      if (props.link.from && props.link.to) props.onSelect(routeInvestigationSelectionForContextLink(props.link.link.id, props.link.from.nodeId, props.link.to.nodeId));
+    }}
   >
+    <path class="route-context-overlay-line route-context-overlay-hit" d={geometry().path} />
     <path class="route-context-overlay-line" d={geometry().path} />
     <ProviderGlyph x={geometry().start.x} y={geometry().start.y} />
     <ConsumerGlyph x={geometry().end.x} y={geometry().end.y} />
@@ -94,13 +138,30 @@ function ContextRelayMark(props: {
 
 function ContextNodeMarkGlyph(props: {
   mark: ContextNodeMark;
+  selected: boolean;
   nodeVisibility: (nodeId: string) => RouteContextNodeVisibility;
+  selection: RouteInvestigationSelection;
+  onSelect: (selection: Exclude<RouteInvestigationSelection, null>) => void;
 }) {
   const point = () => markPoint(props.mark);
   const visibility = () => props.nodeVisibility(props.mark.endpoint.nodeId);
   return <g
     class={`context-color-${props.mark.colorIndex} status-${props.mark.status}`}
-    classList={visibilityClasses(visibility())}
+    classList={{ ...visibilityClasses(visibility()), selected: props.selected, interactive: true }}
+    role="button"
+    tabindex={visibility() === "hidden" ? -1 : 0}
+    aria-pressed={props.selected}
+    aria-label={`${props.mark.role === "provider" ? "Provider" : "Consumer"} occurrence ${props.mark.occurrenceId}`}
+    onPointerDown={(event) => event.stopPropagation()}
+    onClick={(event) => {
+      event.stopPropagation();
+      props.onSelect(routeInvestigationSelectionForContextOccurrence(props.mark.contextId, props.mark.occurrenceId, props.mark.role));
+    }}
+    onKeyDown={(event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      props.onSelect(routeInvestigationSelectionForContextOccurrence(props.mark.contextId, props.mark.occurrenceId, props.mark.role));
+    }}
   >
     <Show when={props.mark.role === "provider"} fallback={<ConsumerGlyph x={point().x} y={point().y} />}>
       <ProviderGlyph x={point().x} y={point().y} />
