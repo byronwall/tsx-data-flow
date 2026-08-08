@@ -32,7 +32,7 @@ export function buildRouteTotalityLayout(totality: RouteTotality | null, options
   const baseGraph = buildRouteTotalityGraph(totality);
   const mode = options.genericUiMode ?? "all";
   const projected = projectRouteTotalityUi(baseGraph, totality, options.hiddenComponentPolicy, mode);
-  const condensed = projectRouteTotalityStacks(projected.graph);
+  const condensed = projectRouteTotalityStacks(projected.graph, totality.contextContinuity);
   const graph = condensed.graph;
   assignParallelIndices(graph.edges);
   const positioned = layoutNodes(

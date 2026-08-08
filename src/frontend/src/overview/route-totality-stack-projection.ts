@@ -4,13 +4,15 @@ import type {
   RouteTotalityNode,
   RouteTotalityStackProjection,
 } from "./route-totality-model";
+import type { RouteTotality } from "../../../api/contracts";
 
 const CONDENSED_LAYOUT_NAMES = new Set(["Box", "Flex", "Grid", "HStack", "VStack"]);
 
 export function projectRouteTotalityStacks(
   graph: RouteTotalityGraph,
+  contextContinuity: RouteTotality["contextContinuity"] | null | undefined = undefined,
 ): { graph: RouteTotalityGraph; projection: RouteTotalityStackProjection } {
-  const condensedNodeIds = new Set(graph.nodes.filter(isCondensedLayout).map((node) => node.id));
+  const condensedNodeIds = new Set(graph.nodes.filter((node) => isCondensedLayout(node, contextContinuity)).map((node) => node.id));
   if (condensedNodeIds.size === 0) {
     return { graph, projection: emptyRouteTotalityStackProjection() };
   }
@@ -81,11 +83,13 @@ export function composeRouteTotalityNodeRedirects(
   return redirects;
 }
 
-function isCondensedLayout(node: RouteTotalityNode): boolean {
+function isCondensedLayout(node: RouteTotalityNode, contextContinuity: RouteTotality["contextContinuity"] | null | undefined): boolean {
   return node.kind === "occurrence"
     && "definitionId" in node.record
     && node.record.hiddenWrapperCompatibility
-    && CONDENSED_LAYOUT_NAMES.has(node.record.name);
+    && CONDENSED_LAYOUT_NAMES.has(node.record.name)
+    && contextContinuity?.status === "complete"
+    && !contextContinuity.consumers.some((consumer) => consumer.renderOccurrenceId === node.id.slice("occurrence:".length));
 }
 
 function isStructuralEdge(edge: RouteTotalityGraphEdge): boolean {
