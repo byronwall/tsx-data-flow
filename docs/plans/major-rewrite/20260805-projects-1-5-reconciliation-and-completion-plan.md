@@ -1,7 +1,11 @@
 # Projects 1–5 Reconciliation and Completion Plan
 
-**Date:** 2026-08-05  
-**Status:** Proposed completion sequence  
+**Original date:** 2026-08-05
+
+**Reconciled:** 2026-08-07
+
+**Status:** Context foundation implemented; Projects 3–5 remain open
+
 **Related plans:** [Project map](execution-plans/README.md), [Project 3](execution-plans/03-honest-route-totality.md), [Project 4](execution-plans/04-route-investigation-workspace.md), and [Project 5](execution-plans/05-route-cutover-and-legacy-removal.md)
 
 ## Purpose
@@ -10,9 +14,47 @@ The first four projects produced a strong static-analysis foundation and a much
 better route graph. The remaining work should polish that product without
 removing useful questions from the current view.
 
-This document reconciles the original Projects 1–5 with the current dirty work
-tree. It identifies completed work, missing commitments, cutover requirements,
-and the recommended completion sequence.
+This document reconciles the original Projects 1–5 with the current branch. It
+includes the context work in commits `b79a491` and `c9cb265`. It identifies
+completed work, missing commitments, cutover requirements, and the recommended
+completion sequence.
+
+## Reconciliation basis
+
+The recent context work adds these capabilities:
+
+- compiler-identified context declarations;
+- distinct Provider occurrences and provided values;
+- exact context reads and consuming component occurrences;
+- nearest reachable Provider selection;
+- default-value continuity;
+- nested Provider shadowing barriers;
+- bounded member-path evidence;
+- explicit gaps for unsupported or ambiguous evidence;
+- cross-context relay records;
+- strict transport validation; and
+- context marks, links, filters, proof, and locations in Route Totality.
+
+Commit `c9cb265` also repairs branch reachability for Providers inside wrapped
+render structures.
+
+These commits contain implementation work. They do not contain regression tests
+or recorded product-gate evidence. This plan marks a gate complete only when its
+acceptance evidence exists.
+
+## Outstanding work summary
+
+The context evidence and product integration gaps are now closed. The following
+work still blocks Projects 3–5:
+
+1. Make wrapper hiding consult context reads and other semantic behavior.
+2. Complete the route-origin coverage ledger.
+3. Add general origin field-to-component parity.
+4. Unify source selection with Route Totality.
+5. Finish non-context proof navigation and refresh restoration.
+6. Meet the performance targets after measuring the added context work.
+7. Run the remaining accessibility and production-style gates.
+8. Complete all Project 5 contract, cutover, deletion, and approved test work.
 
 ## Product decisions that govern this plan
 
@@ -35,8 +77,8 @@ implementation if they do not match the intended product.
 | --- | --- | --- |
 | 1 — First proven route slice | Complete | Preserve the exact `readFile` scenario as regression evidence. |
 | 2 — Scope-neutral proof pack | Complete foundation | Prove representative large-project use through later product gates. |
-| 3 — Honest route totality | Visual and occurrence work complete; semantic closure incomplete | Add context continuity, audit origin coverage, and repair wrapper safety. |
-| 4 — Route investigation workspace | Mostly implemented | Restore field parity, unify source selection, finish context display, improve performance, and pass the final gate. |
+| 3 — Honest route totality | Context semantic gates passed; other semantic closure remains | Integrate wrapper safety and audit origin coverage. |
+| 4 — Route investigation workspace | Context investigation works; other product parity remains | Restore field parity, unify source selection, improve performance, and pass the final gate. |
 | 5 — Route cutover and legacy removal | Not started | Promote new contracts, prove parity, remove legacy paths, and complete approved verification. |
 
 ## What stays complete
@@ -82,15 +124,11 @@ Project 3 produced the strongest parts of the rewrite. Preserve these parts:
 - compact route projection with optional evidence detail; and
 - deterministic layout and inspection.
 
-The following commitments remain incomplete.
+The following commitments remain incomplete or need acceptance evidence.
 
-### 3.1 Add context provider-to-consumer continuity
+### 3.1 Finish and prove context provider-to-consumer continuity
 
-The new evidence model does not represent application context as a first-class
-handoff. A Provider can appear in the render hierarchy, but the graph cannot
-reliably identify its consumers.
-
-Add an exact context evidence chain:
+The context evidence model now represents this first-class chain:
 
 ```text
 context declaration
@@ -101,27 +139,47 @@ context declaration
   → render terminal
 ```
 
-Required rules:
+Implemented rules:
 
-- Resolve the context declaration through compiler identity.
-- Keep each Provider occurrence separate.
-- Join a consumer only to a proven reachable Provider occurrence.
-- Preserve nested Provider shadowing.
-- Do not join through matching context names.
-- Preserve member identity only when evidence proves it.
-- Emit gaps for ambiguous providers, dynamic identities, and unsupported wrappers.
+- Context declarations use compiler identity.
+- Each Provider occurrence has its own identity and provided value.
+- Consumers join only to the nearest proven reachable Provider.
+- An incomplete inner Provider blocks an unsafe join to an outer Provider.
+- Context names do not create joins.
+- Member paths require bounded source evidence.
+- Ambiguous Providers, dynamic identities, and unsupported wrappers create gaps.
+- Default values and cross-context relays remain explicit.
 
-Required product behavior:
+Completed semantic evidence:
 
-- Select a context to reveal its Provider and consumers.
-- Select a component to list the contexts it consumes.
-- Show the exact Provider, read, and consumer code locations.
-- Keep unknown member lineage explicit.
+- One Provider reaches two consumer occurrences through two proven links.
+- Two nested Providers reach only their own consumer occurrences.
+- Ambiguous Providers produce no link and one explicit gap.
+- A dynamic Provider shape produces no link and one explicit stop gap.
+- Each tested consumer owns one terminal-linked continuity link.
+- Repeated analysis returns identical counts and stable IDs.
+
+The focused regression suite has six passing tests in
+`test/route-context-continuity.test.ts`. Commit `b724500` records this evidence.
+
+Completed product behavior:
+
+- Component occurrence selection lists its consumed contexts.
+- Context declarations, roles, and links use the main selection contract.
+- Context links support forward and backward emphasis.
+- Partial context endpoints remain explicit frontiers.
+- Context proof opens in the trace-oriented source surface.
+- Valid context focus restores from URL state and refresh.
+- Route changes clear stale context focus.
+
+Commits `28f0ed1`, `0fd1027`, `3d7aee5`, `c414e69`, and `25116b4` implement
+the product path. A clean-room browser pass confirmed the core journey on
+`examples/bad-ish-solid` and `/roster`.
 
 ### 3.2 Repair transparent-wrapper safety
 
 The original plan requires semantic evidence before a wrapper can disappear.
-The current projection cannot fully apply that policy without context evidence.
+Context evidence now exists, but the hiding projection does not consult it.
 
 Before hiding a wrapper, check:
 
@@ -136,7 +194,8 @@ Before hiding a wrapper, check:
 A configured folder or component family can suggest a candidate. It cannot
 prove that the occurrence is transparent.
 
-The inspector must explain why each wrapper was hidden or retained.
+The inspector must explain why each wrapper was hidden or retained. Add focused
+evidence that a context-reading wrapper stays visible.
 
 ### 3.3 Audit route origin coverage
 
@@ -150,7 +209,7 @@ Create a maintained coverage ledger for:
 - network, fetch, and resources;
 - URL and route parameters;
 - environment;
-- application context;
+- application context, now supported as a handoff but not yet classified as an origin;
 - global state or stores; and
 - browser storage.
 
@@ -168,9 +227,13 @@ Project 3 semantic closure passes when:
 
 - one real context Provider reaches more than one consumer occurrence;
 - nested or ambiguous Providers do not create false joins;
+- wrapped Provider branches reach only their proven consumers;
 - context-reading wrappers stay visible when they own behavior;
 - the origin coverage ledger has no silent category; and
 - existing route occurrence and bridge counts do not gain false connections.
+
+Current gate status: context evidence passed. Project 3 still needs wrapper
+safety and the origin coverage ledger before full semantic closure.
 
 ## Project 4 completion
 
@@ -220,23 +283,35 @@ state through one identity.
 
 Remove controls that appear active but do not change Totality.
 
-### 4.3 Integrate context investigation
+### 4.3 Integrate context investigation — complete for cutover parity
 
-Project the context evidence from Project 3 into the route workspace.
+The context panel and graph overlay now project Project 3 evidence. The panel
+supports status filters, display modes, context focus, proof, and locations.
 
-Default display:
+Implemented display:
 
-- Keep context Providers as compact boundary marks.
-- Keep consumer connections quiet until selection.
-- Avoid drawing every context member at low zoom.
+- Dense contexts use compact Provider and consumer marks.
+- Context focus reveals mapped Provider-to-consumer links.
+- Focused links show proven member paths.
+- Partial and unsupported records remain explicit.
 
-Selected display:
+Completed integration:
 
-- Emphasize Provider-to-consumer connections.
-- Show every proven consuming component occurrence.
-- Show proven member reads as field labels.
-- Keep unproven consumers and members as frontiers.
-- Support forward and backward traversal through the context handoff.
+- Graph component selection lists its consumed contexts.
+- Context marks and links use the main selection contract.
+- Context links participate in forward and backward graph adjacency.
+- Context frontiers participate in emphasis and isolation behavior.
+- Context focus persists through URL state and refresh.
+- Context filter and display mode remain local by design.
+- A real-route browser pass verified selection, traversal, proof, and refresh.
+
+Remaining accessibility follow-up:
+
+- Improve direct Provider and consumer control labels.
+- Repair keyboard tab movement into Route Totality context controls.
+
+These accessibility issues belong to the remaining Project 4 gate. They do not
+block the context question-parity path.
 
 ### 4.4 Finish trace-oriented code inspection
 
@@ -263,6 +338,9 @@ Persist only useful investigation state:
 - isolation;
 - useful camera state; and
 - explicit evidence disclosure when appropriate.
+
+Context focus now uses the same URL reconciliation policy. Context filter and
+display mode remain local because they are lightweight display preferences.
 
 Do not persist hover, temporary menus, loading state, or stale errors.
 
@@ -291,6 +369,10 @@ responsive, and supports cancellation.
 
 Measure analysis time, slice time, projection time, layout time, payload size,
 peak memory, and visible mark counts separately.
+
+Repeat these measurements after context analysis. The recent commits add a
+program scan, value summaries, continuity projection, and browser indexing.
+No updated large-repository measurement is recorded yet.
 
 ### 4.7 Run the Project 4 decision gate
 
@@ -418,70 +500,63 @@ Project 5 passes when:
 
 ## Recommended execution sequence
 
-### Step 0 — Protect the current work
+### Step 0 — Protect the current work — complete
 
-The rewrite currently spans a large dirty work tree. Before new implementation:
+The broad rewrite and context work now have coherent checkpoint commits. The
+branch was clean before this plan update. Continue to use focused commits for
+later implementation. Run `pnpm lint` and `pnpm typecheck` with each change.
 
-1. Inventory tracked and untracked files.
-2. Separate unrelated user work from rewrite work.
-3. Run `pnpm lint` and `pnpm typecheck`.
-4. Review the resulting diff by subsystem.
-5. Create a coherent checkpoint commit when authorized.
-
-Do not begin legacy deletion while the rewrite exists only as one dirty state.
-
-### Step 1 — Freeze the question-parity baseline
+### Step 1 — Freeze the question-parity baseline — outstanding
 
 Record the useful questions answered by the current topology and trajectory
 views. Include field, context, resource, transform, source, and terminal use.
 
 This baseline prevents later deletion from redefining parity.
 
-### Step 2 — Close Project 3 semantics
+### Step 2 — Close Project 3 semantics — in progress
 
-Implement context identity and Provider-to-consumer handoffs. Then repair
-transparent-wrapper safety and complete the origin coverage ledger.
+Context identity, Provider-to-consumer handoffs, and their acceptance evidence
+are complete. Connect this evidence to transparent-wrapper safety. Complete the
+origin coverage ledger.
 
-Verify the semantics before adding new UI labels.
+### Step 3 — Complete Project 4 parity — in progress
 
-### Step 3 — Complete Project 4 parity
-
-Add field-to-component projection. Unify source selection. Add context display
-and finish proof-oriented code navigation.
+Context selection and traversal are complete. Add field-to-component projection.
+Unify source selection. Finish the remaining proof navigation.
 
 Use the compact Totality graph as the primary surface.
 
-### Step 4 — Complete state and performance work
+### Step 4 — Complete state and performance work — outstanding
 
 Finish refresh reconciliation. Reduce ordinary payload and cold-route costs.
 Verify cancellation, route switching, and stable camera behavior.
 
-### Step 5 — Run the Project 4 product gate
+### Step 5 — Run the Project 4 product gate — outstanding
 
 Run clean-room production-style reviews on Pluck and one large repository.
 Repair any failed primary journey before cutover.
 
-### Step 6 — Promote the new route contracts
+### Step 6 — Promote the new route contracts — outstanding
 
 Remove the legacy flow dependency from Totality loading. Make the new inventory
 and slice DTOs authoritative.
 
-### Step 7 — Make Totality the default
+### Step 7 — Make Totality the default — outstanding
 
 Retain a temporary comparison route. Use it only to discover missing product
 questions and regressions.
 
-### Step 8 — Approve and add focused tests
+### Step 8 — Approve and add focused tests — outstanding
 
 Request test-work approval. Add coverage for the semantic and state risks
-listed above.
+listed above. Context continuity has six focused tests already.
 
-### Step 9 — Remove legacy paths
+### Step 9 — Remove legacy paths — outstanding
 
 Delete fallbacks, duplicate projections, old renderers, and obsolete contracts
 in bounded steps. Verify each ownership boundary.
 
-### Step 10 — Run final verification and product review
+### Step 10 — Run final verification and product review — outstanding
 
 Run `pnpm verify` after approved test work. Repeat the question-parity review.
 Then decide whether Project 6 or another candidate provides the next value.
@@ -513,13 +588,14 @@ focused gate. The status did not always cover every original product promise.
 
 Use the question-parity ledger to prevent this mismatch.
 
-### Context requirements lack one explicit owner
+### Context requirements originally lacked one explicit owner
 
 The plans require context traversal, but no execution milestone owns the full
 Provider-to-consumer implementation.
 
 This plan assigns evidence semantics to Project 3 and product interaction to
-Project 4.
+Project 4. The recent work implements the semantic foundation. Shared product
+interaction remains open.
 
 ### Basic field tracing was easy to confuse with Project 6
 
@@ -543,11 +619,12 @@ Approve question parity before deleting the current implementations.
 
 ## Most likely failure if the sequence is not reconciled
 
-Route Totality can become the default because its graph and static checks are
-strong. The old view can then be removed before field and context parity exists.
+Route Totality can become the default because its graph and context overlay look
+complete. The old view can then be removed before full field and context parity.
 
-Users would gain honest occurrences, proof, and gaps. They would lose direct
-answers about fields and contexts. Large repositories could also remain slow.
+Users would gain honest context proof. They would still lack component-driven
+context answers and traversal through context handoffs. General field answers
+could also disappear. Large repositories could remain slow.
 
 The missing behavior would become harder to recover after its reference
 implementation disappears.
