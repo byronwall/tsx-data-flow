@@ -6,7 +6,7 @@ const KNOWN_WRAPPER_NAMES = new Set(["Box", "Flex", "Grid", "HStack", "Stack", "
 
 export function isTransparentWrapper(builder: RouteOccurrenceSurfaceBuilder, definition: RouteOccurrenceDefinition) {
   if (!KNOWN_WRAPPER_NAMES.has(definition.name) || !KNOWN_WRAPPER_MODULES.has(definition.importModule ?? "")) return false;
-  if (definition.external) return true;
+  if (definition.external) return false;
   const declaration = builder.renderDeclarationFor(definition);
   if (!declaration) return false;
   const text = declaration.getText();
