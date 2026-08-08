@@ -5,7 +5,7 @@ import type {
 } from "./route-totality-model";
 import type { RouteTotalityAdjacency } from "./route-totality-emphasis";
 
-type BoundaryStubFamily = RouteTotalityEdgeFamily | "bridge";
+type BoundaryStubFamily = RouteTotalityEdgeFamily | "bridge" | "context";
 
 export type RouteTotalityBoundaryStub = {
   id: string;
