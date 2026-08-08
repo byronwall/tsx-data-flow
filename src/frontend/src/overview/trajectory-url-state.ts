@@ -6,7 +6,12 @@ import type { RouteTotalityLayout } from "./route-totality-model";
 export type TrajectoryView = "context" | "trajectory";
 export type GenericUiMode = "hidden" | "all";
 export type TrajectoryRenderer = "current" | "experimental" | "totality";
-export type TrajectoryTotalitySelection = { kind: "node" | "edge"; graphId: string };
+export type TrajectoryTotalitySelection = {
+  kind: "node" | "edge" | "context" | "context-edge";
+  graphId: string;
+  fromNodeId?: string | null;
+  toNodeId?: string | null;
+};
 export type TrajectoryGraphCamera = { x: number; y: number; scale: number };
 export type TrajectoryUrlState = {
   open: boolean; route: string | null; flow: string | null; item: string | null; expand: string[]; isolate: boolean;
@@ -276,7 +281,9 @@ function parseTotalitySelection(value: string): TrajectoryTotalitySelection | nu
   if (separator <= 0) return null;
   const kind = value.slice(0, separator);
   const graphId = clean(value.slice(separator + 1));
-  return (kind === "node" || kind === "edge") && graphId ? { kind, graphId } : null;
+  return (kind === "node" || kind === "edge" || kind === "context" || kind === "context-edge") && graphId
+    ? { kind, graphId }
+    : null;
 }
 
 function parseGraphCamera(value: string): TrajectoryGraphCamera | null {
@@ -294,9 +301,12 @@ function normalizeGraphCamera(camera: TrajectoryGraphCamera): TrajectoryGraphCam
 
 function isTotalitySelectionValid(selection: TrajectoryTotalitySelection | null, layout: RouteTotalityLayout) {
   if (!selection) return true;
-  return selection.kind === "node"
-    ? layout.nodes.some((node) => node.id === selection.graphId)
-    : layout.edges.some((edge) => `edge:${edge.family}:${edge.id}` === selection.graphId);
+  if (selection.kind === "node") return layout.nodes.some((node) => node.id === selection.graphId);
+  if (selection.kind === "edge") {
+    return layout.edges.some((edge) => `edge:${edge.family}:${edge.id}` === selection.graphId);
+  }
+  if (selection.kind === "context") return selection.graphId.startsWith("context:");
+  return selection.graphId.startsWith("context-link:");
 }
 
 function isTotalityIsolationFocusValid(selection: TrajectoryTotalitySelection | null, layout: RouteTotalityLayout) {

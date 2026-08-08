@@ -1,6 +1,9 @@
 import type { RouteTotality } from "../../../api/contracts";
 import {
   routeInvestigationSelectionForEdge,
+  routeInvestigationSelectionForContextDeclaration,
+  routeInvestigationSelectionForContextLink,
+  routeInvestigationSelectionForContextOccurrence,
   routeInvestigationSelectionForNode,
   type RouteInvestigationSelection,
 } from "./route-investigation-selection";
@@ -47,6 +50,31 @@ export function selectionFromPersisted(
   layout: RouteTotalityLayout,
 ): RouteInvestigationSelection {
   if (!persisted) return null;
+  if (persisted.kind === "context") {
+    const declarationMatch = /^context:/.exec(persisted.graphId);
+    if (declarationMatch) {
+      const contextId = persisted.graphId.slice(declarationMatch[0].length);
+      if (contextId) return routeInvestigationSelectionForContextDeclaration(contextId);
+    }
+    const occurrenceMatch = /^context-(provider|consumer):([^:]+):(.+)$/.exec(persisted.graphId);
+    if (occurrenceMatch) {
+      return routeInvestigationSelectionForContextOccurrence(
+        occurrenceMatch[2],
+        occurrenceMatch[3],
+        occurrenceMatch[1] as "provider" | "consumer",
+      );
+    }
+    return null;
+  }
+  if (persisted.kind === "context-edge") {
+    const contextLinkId = /^context-link:(.+)$/.exec(persisted.graphId)?.[1];
+    if (!contextLinkId) return null;
+    return routeInvestigationSelectionForContextLink(
+      contextLinkId,
+      persisted.fromNodeId ?? null,
+      persisted.toNodeId ?? null,
+    );
+  }
   if (persisted.kind === "node") {
     const visibleId = layout.nodeRedirects.get(persisted.graphId) ?? persisted.graphId;
     const node = (layout.nodes as RouteTotalityLayoutNode[]).find((candidate) => candidate.id === visibleId);
@@ -57,7 +85,16 @@ export function selectionFromPersisted(
 }
 
 export function persistedSelection(selection: RouteInvestigationSelection): TrajectoryTotalitySelection | null {
-  if (!selection || selection.target === "context") return null;
+  if (!selection) return null;
+  if (selection.target === "context") return { kind: "context", graphId: selection.graphId };
+  if (selection.target === "edge" && selection.kind === "context-edge") {
+    return {
+      kind: "context-edge",
+      graphId: selection.graphId,
+      fromNodeId: selection.fromNodeId,
+      toNodeId: selection.toNodeId,
+    };
+  }
   return { kind: selection.target, graphId: selection.graphId };
 }
 
