@@ -2,10 +2,11 @@
 
 **Original date:** 2026-08-05
 
-**Reconciled:** 2026-08-07
+**Reconciled:** 2026-08-08
 
-**Status:** Context continuity complete; non-context Project 3 and Project 4
-parity work remains; Project 5 remains blocked
+**Status:** Context continuity complete; origin coverage ledger verified;
+non-context Project 3 and Project 4 parity work remains; Project 5 remains
+blocked
 
 **Related plans:** [Project map](execution-plans/README.md), [Project 3](execution-plans/03-honest-route-totality.md), [Project 4](execution-plans/04-route-investigation-workspace.md), and [Project 5](execution-plans/05-route-cutover-and-legacy-removal.md)
 
@@ -57,6 +58,7 @@ journey. The remaining production-style Project 4 gate is still open.
 | Context investigation UI | Complete for question parity | Context uses shared selection, traversal, isolation frontiers, proof, locations, and URL restoration. |
 | Context accessibility | Open | Direct control labels and keyboard entry still need the Project 4 accessibility gate. |
 | Wrapper transparency | Context guard complete; broader local proof open | Context consumers and unknown context evidence now retain wrappers. External wrapper families also fail closed. The local source predicate remains lexical. |
+| Route origin coverage | Complete for the audited scope | The eight-family ledger below records supported boundaries and explicit gaps. No family is silently absent. |
 | General origin field lineage | Open | Context member paths do not provide field-to-component lineage for non-context origins. |
 | Route cutover | Blocked | Project 4 parity, performance, accessibility, and production-style review must pass first. |
 
@@ -67,7 +69,8 @@ Context continuity no longer blocks the plan. The following work remains:
 1. Record the question-parity baseline before more product changes.
 2. Replace the remaining local lexical wrapper predicate with semantic proof, or
    retain those wrappers. Context and external-wrapper guards are complete.
-3. Complete the route-origin coverage ledger. Keep context classified as a handoff.
+3. Keep the route-origin coverage ledger current as supported boundaries change.
+   Keep context classified as a handoff.
 4. Add general origin field-to-component parity.
 5. Unify source selection with Route Totality.
 6. Finish non-context proof navigation and local state restoration.
@@ -99,7 +102,7 @@ implementation if they do not match the intended product.
 | --- | --- | --- |
 | 1 — First proven route slice | Complete | Preserve the exact `readFile` scenario as regression evidence. |
 | 2 — Scope-neutral proof pack | Complete foundation | Prove representative large-project use through later product gates. |
-| 3 — Honest route totality | Context and external-wrapper safety passed; broader local proof remains | Finish local wrapper proof and audit origin coverage. |
+| 3 — Honest route totality | Context, external-wrapper safety, and origin coverage passed; broader local proof remains | Finish local wrapper proof and keep the origin ledger current. |
 | 4 — Route investigation workspace | Context investigation works; other product parity remains | Restore field parity, unify source selection, improve performance, and pass the final gate. |
 | 5 — Route cutover and legacy removal | Not started | Promote new contracts, prove parity, remove legacy paths, and complete approved verification. |
 
@@ -240,31 +243,50 @@ separate product decision.
 
 ### 3.3 Audit route origin coverage
 
-The Project 3 plan names several origin families. The implementation does not
-yet demonstrate every family as a first-class route origin.
+The audit covers exactly these eight origin families. This table is the
+maintained record for the current route product.
 
-Create a maintained origin coverage ledger for:
+**Verified:** 2026-08-08 from the current branch evidence. Update this table
+when origin roles, boundary facts, or route projection rules change.
 
-- filesystem;
-- database;
-- network and fetch;
-- resource inputs, classified separately from external origins;
-- URL and route parameters;
-- environment;
-- global state or stores; and
-- browser storage.
+| Family | State | Verified evidence | Explicit gap or boundary |
+| --- | --- | --- | --- |
+| Filesystem | proven and supported | `src/analysis/program-evidence-boundary-support.ts` creates `file-input` facts for compiler-resolved file reads. `src/analysis/evidence-slice-support.ts` maps them to the `filesystem` role and boundary. | The route product proves the file-input occurrence. It does not prove the contents of an unresolved runtime path. |
+| Database | unsupported with an explicit gap | `src/analysis/route-data-legacy-support.ts` recognizes Prisma reads for legacy route data. `src/analysis/scope-seam.ts` and `src/api/route-totality-contracts.ts` define no database origin role or database boundary. | A generic `external-read` is not database proof. Prisma reads have no Route Totality database trajectory. |
+| Network and fetch | proven and supported | `src/analysis/program-evidence-boundary-support.ts` creates `fetch-input` facts for `fetch` and supported Node HTTP calls. `src/analysis/evidence-slice-support.ts` maps them to `fetch` and `network` roles and the `network` boundary. | The response-body to resource handoff remains runtime-only and unproven. |
+| Resource inputs | proven and supported | `src/analysis/program-evidence-collector-call-support.ts` creates `resource-input` and `resource-result` facts for resource factories. `src/analysis/evidence-slice-support.ts` maps them to the `resource` role and `framework-runtime` boundary. | Resource inputs remain separate from external origins. |
+| URL and route parameters | unsupported with an explicit gap | `src/analysis/route-discovery.ts` records dynamic and catch-all parameter metadata from route filenames. | No URL or parameter origin role exists. No parameter value trajectory reaches the route evidence slice. |
+| Environment | proven and supported | `src/analysis/program-evidence-collector-boundary-processing.ts` creates `environment-input` facts for `process.env` and `import.meta.env`. `src/analysis/evidence-slice-support.ts` maps them to the `environment` role and process boundary. | The ledger covers the compiler-recognized environment expressions. |
+| Global state or stores | unsupported with an explicit gap | `src/analysis/source-call-classification.ts` lists `createStore` as a Solid built-in. `src/analysis/route-occurrence-surface-policy.ts` only guards wrapper transparency around store calls. | `createStore` does not create a Route Totality origin. Global store value flow is not proven. |
+| Browser storage | unsupported with an explicit gap | `src/analysis/source-call-classification.ts` lists `localStorage` and `sessionStorage` as global namespaces. | No browser-storage fact or origin role exists. These calls remain opaque host calls. |
 
-Add application context to the same audit as a proven handoff. Do not classify
-it as an external origin. Confirm that route projection keeps context and
-resource boundaries distinct from origin occurrences.
+All eight families are in route product scope. None is intentionally outside the
+route product. Unsupported families are explicit gaps, not silent omissions.
 
-For each family, record one of these states:
+Application context is a proven handoff, not a ninth origin family. The context
+continuity record contains declarations, Providers, values, reads, consumers,
+links, relays, and gaps. `src/analysis/route-data-totality.ts` stores it in
+`contextContinuity`, and `src/api/projections/route-totality.ts` projects it as
+a separate field.
+It is not added to `evidenceSlice.origins` and is not classified as an external
+origin.
 
-- proven and supported;
-- unsupported with an explicit gap; or
-- intentionally outside the route product.
+Route projection preserves these distinctions:
 
-No origin family can remain silently absent.
+- `src/api/projections/route-totality.ts` copies each origin role and each
+  boundary kind through separate projection paths.
+- A resource keeps the `resource` origin role and `framework-runtime` boundary.
+  It does not become a generic external origin.
+- Context continuity remains separate from origin occurrences and resource
+  boundaries in the Route Totality contract.
+
+Remaining limits are explicit:
+
+- Database, URL and route parameters, global state or stores, and browser
+  storage remain unsupported.
+- Aggregate origin counts remain scalar. The API and UI do not expose per-family
+  counts from this ledger.
+- This audit does not add broad origin analyzers or infer runtime values.
 
 ### Project 3 closure gate
 
@@ -277,9 +299,9 @@ Project 3 semantic closure passes when:
 - the origin coverage ledger has no silent category; and
 - existing route occurrence and bridge counts do not gain false connections.
 
-Current gate status: context evidence and the fail-closed wrapper guards passed.
-Project 3 still needs local semantic wrapper proof and the origin coverage
-ledger before full semantic closure.
+Current gate status: context evidence, the fail-closed wrapper guards, and the
+origin coverage ledger passed. Project 3 still needs local semantic wrapper
+proof before full semantic closure.
 
 ## Project 4 completion
 
@@ -565,8 +587,8 @@ This baseline prevents later deletion from redefining parity.
 
 Context identity, Provider-to-consumer handoffs, and their acceptance evidence
 are complete. The context-aware and external-wrapper guards are complete.
-Finish or conservatively disable the local lexical predicate. Complete the
-origin coverage ledger.
+Finish or conservatively disable the local lexical predicate. Keep the origin
+coverage ledger current.
 
 ### Step 3 — Complete Project 4 parity — in progress
 
