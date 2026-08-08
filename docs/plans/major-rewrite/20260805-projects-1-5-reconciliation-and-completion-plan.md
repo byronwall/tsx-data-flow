@@ -4,7 +4,8 @@
 
 **Reconciled:** 2026-08-07
 
-**Status:** Context foundation implemented; Projects 3–5 remain open
+**Status:** Context continuity complete; non-context Project 3 and Project 4
+parity work remains; Project 5 remains blocked
 
 **Related plans:** [Project map](execution-plans/README.md), [Project 3](execution-plans/03-honest-route-totality.md), [Project 4](execution-plans/04-route-investigation-workspace.md), and [Project 5](execution-plans/05-route-cutover-and-legacy-removal.md)
 
@@ -15,9 +16,12 @@ better route graph. The remaining work should polish that product without
 removing useful questions from the current view.
 
 This document reconciles the original Projects 1–5 with the current branch. It
-includes the context work in commits `b79a491` and `c9cb265`. It identifies
-completed work, missing commitments, cutover requirements, and the recommended
-completion sequence.
+includes the context work from `b79a491` through `25116b4` and the focused
+evidence in `b724500`. It identifies completed work, missing commitments,
+cutover requirements, and the recommended completion sequence.
+
+This reconciliation overrides older status labels when a project plan marks a
+milestone complete but its stated product commitment is not complete.
 
 ## Reconciliation basis
 
@@ -38,23 +42,41 @@ The recent context work adds these capabilities:
 Commit `c9cb265` also repairs branch reachability for Providers inside wrapped
 render structures.
 
-These commits contain implementation work. They do not contain regression tests
-or recorded product-gate evidence. This plan marks a gate complete only when its
-acceptance evidence exists.
+The first implementation commits did not include focused regression evidence.
+Commit `b724500` adds six context continuity tests. Later product commits add
+shared selection, traversal, source inspection, boundary stubs, and URL
+restoration. The recorded clean-room pass covers the context investigation
+journey. The remaining production-style Project 4 gate is still open.
+
+### Reconciliation result
+
+| Area | Result | Evidence or reason |
+| --- | --- | --- |
+| Context identity and continuity | Complete | Compiler identities, exact Provider occurrences, reads, consumers, links, relays, and gaps exist in the route contract. |
+| Context false-join protection | Complete | Nested shadowing, ambiguous Providers, dynamic shapes, and wrapped branches have focused evidence. |
+| Context investigation UI | Complete for question parity | Context uses shared selection, traversal, isolation frontiers, proof, locations, and URL restoration. |
+| Context accessibility | Open | Direct control labels and keyboard entry still need the Project 4 accessibility gate. |
+| Wrapper transparency | Context guard complete; broader local proof open | Context consumers and unknown context evidence now retain wrappers. External wrapper families also fail closed. The local source predicate remains lexical. |
+| General origin field lineage | Open | Context member paths do not provide field-to-component lineage for non-context origins. |
+| Route cutover | Blocked | Project 4 parity, performance, accessibility, and production-style review must pass first. |
 
 ## Outstanding work summary
 
-The context evidence and product integration gaps are now closed. The following
-work still blocks Projects 3–5:
+Context continuity no longer blocks the plan. The following work remains:
 
-1. Make wrapper hiding consult context reads and other semantic behavior.
-2. Complete the route-origin coverage ledger.
-3. Add general origin field-to-component parity.
-4. Unify source selection with Route Totality.
-5. Finish non-context proof navigation and refresh restoration.
-6. Meet the performance targets after measuring the added context work.
-7. Run the remaining accessibility and production-style gates.
-8. Complete all Project 5 contract, cutover, deletion, and approved test work.
+1. Record the question-parity baseline before more product changes.
+2. Replace the remaining local lexical wrapper predicate with semantic proof, or
+   retain those wrappers. Context and external-wrapper guards are complete.
+3. Complete the route-origin coverage ledger. Keep context classified as a handoff.
+4. Add general origin field-to-component parity.
+5. Unify source selection with Route Totality.
+6. Finish non-context proof navigation and local state restoration.
+7. Fix the remaining context control labels and keyboard navigation.
+8. Measure and meet the accepted performance limits after the context changes.
+9. Pass clean-room Project 4 reviews on Pluck and one large repository.
+10. Promote the new contracts, make Totality the default, and prove question parity.
+11. Request test approval, add the approved coverage, and run `pnpm verify`.
+12. Remove legacy route products and fallbacks in bounded steps.
 
 ## Product decisions that govern this plan
 
@@ -77,7 +99,7 @@ implementation if they do not match the intended product.
 | --- | --- | --- |
 | 1 — First proven route slice | Complete | Preserve the exact `readFile` scenario as regression evidence. |
 | 2 — Scope-neutral proof pack | Complete foundation | Prove representative large-project use through later product gates. |
-| 3 — Honest route totality | Context semantic gates passed; other semantic closure remains | Integrate wrapper safety and audit origin coverage. |
+| 3 — Honest route totality | Context and external-wrapper safety passed; broader local proof remains | Finish local wrapper proof and audit origin coverage. |
 | 4 — Route investigation workspace | Context investigation works; other product parity remains | Restore field parity, unify source selection, improve performance, and pass the final gate. |
 | 5 — Route cutover and legacy removal | Not started | Promote new contracts, prove parity, remove legacy paths, and complete approved verification. |
 
@@ -126,7 +148,7 @@ Project 3 produced the strongest parts of the rewrite. Preserve these parts:
 
 The following commitments remain incomplete or need acceptance evidence.
 
-### 3.1 Finish and prove context provider-to-consumer continuity
+### 3.1 Context provider-to-consumer continuity — complete
 
 The context evidence model now represents this first-class chain:
 
@@ -176,10 +198,26 @@ Commits `28f0ed1`, `0fd1027`, `3d7aee5`, `c414e69`, and `25116b4` implement
 the product path. A clean-room browser pass confirmed the core journey on
 `examples/bad-ish-solid` and `/roster`.
 
-### 3.2 Repair transparent-wrapper safety
+### 3.2 Repair transparent-wrapper safety — context guard complete
 
 The original plan requires semantic evidence before a wrapper can disappear.
-Context evidence now exists, but the hiding projection does not consult it.
+The focused repair now makes stack condensation consult context continuity.
+
+Completed behavior:
+
+- Condensation requires complete context evidence.
+- A context consumer stays visible by exact occurrence identity.
+- Missing, partial, or unavailable context evidence retains all candidates.
+- An external wrapper cannot hide from module and family identity alone.
+- Local stack splicing remains unchanged.
+- Caller-owned and definition-owned child handling remains unchanged.
+
+Commits `9437305` and `3e5c780` implement these guards. An independent source
+review passed the context, identity, fail-closed, and splice checks. `pnpm lint`
+and `pnpm typecheck` pass. Lint reports the same three existing warnings.
+
+The remaining local predicate is still lexical. It checks child text and a
+small set of known hooks. It does not prove every behavior in this list:
 
 Before hiding a wrapper, check:
 
@@ -192,26 +230,33 @@ Before hiding a wrapper, check:
 - caller-owned versus definition-owned children.
 
 A configured folder or component family can suggest a candidate. It cannot
-prove that the occurrence is transparent.
+prove that the occurrence is transparent. This now fails closed for external
+wrappers. Local wrappers still need a source-backed semantic predicate or
+conservative retention.
 
-The inspector must explain why each wrapper was hidden or retained. Add focused
-evidence that a context-reading wrapper stays visible.
+The inspector must also explain why each local wrapper was hidden or retained.
+Do not expand the current fix into a broad behavior-analysis system without a
+separate product decision.
 
 ### 3.3 Audit route origin coverage
 
 The Project 3 plan names several origin families. The implementation does not
 yet demonstrate every family as a first-class route origin.
 
-Create a maintained coverage ledger for:
+Create a maintained origin coverage ledger for:
 
 - filesystem;
 - database;
-- network, fetch, and resources;
+- network and fetch;
+- resource inputs, classified separately from external origins;
 - URL and route parameters;
 - environment;
-- application context, now supported as a handoff but not yet classified as an origin;
 - global state or stores; and
 - browser storage.
+
+Add application context to the same audit as a proven handoff. Do not classify
+it as an external origin. Confirm that route projection keeps context and
+resource boundaries distinct from origin occurrences.
 
 For each family, record one of these states:
 
@@ -232,8 +277,9 @@ Project 3 semantic closure passes when:
 - the origin coverage ledger has no silent category; and
 - existing route occurrence and bridge counts do not gain false connections.
 
-Current gate status: context evidence passed. Project 3 still needs wrapper
-safety and the origin coverage ledger before full semantic closure.
+Current gate status: context evidence and the fail-closed wrapper guards passed.
+Project 3 still needs local semantic wrapper proof and the origin coverage
+ledger before full semantic closure.
 
 ## Project 4 completion
 
@@ -341,6 +387,8 @@ Persist only useful investigation state:
 
 Context focus now uses the same URL reconciliation policy. Context filter and
 display mode remain local because they are lightweight display preferences.
+The remaining state work applies to non-context selections, proof surfaces,
+isolation, camera state, and history behavior.
 
 Do not persist hover, temporary menus, loading state, or stale errors.
 
@@ -516,7 +564,8 @@ This baseline prevents later deletion from redefining parity.
 ### Step 2 — Close Project 3 semantics — in progress
 
 Context identity, Provider-to-consumer handoffs, and their acceptance evidence
-are complete. Connect this evidence to transparent-wrapper safety. Complete the
+are complete. The context-aware and external-wrapper guards are complete.
+Finish or conservatively disable the local lexical predicate. Complete the
 origin coverage ledger.
 
 ### Step 3 — Complete Project 4 parity — in progress
@@ -594,8 +643,8 @@ The plans require context traversal, but no execution milestone owns the full
 Provider-to-consumer implementation.
 
 This plan assigns evidence semantics to Project 3 and product interaction to
-Project 4. The recent work implements the semantic foundation. Shared product
-interaction remains open.
+Project 4. The recent work completes both context responsibilities. Only the
+shared accessibility and final product gates remain.
 
 ### Basic field tracing was easy to confuse with Project 6
 
@@ -620,11 +669,13 @@ Approve question parity before deleting the current implementations.
 ## Most likely failure if the sequence is not reconciled
 
 Route Totality can become the default because its graph and context overlay look
-complete. The old view can then be removed before full field and context parity.
+complete. The old view can then be removed before general field parity, unified
+source selection, and production-scale review.
 
-Users would gain honest context proof. They would still lack component-driven
-context answers and traversal through context handoffs. General field answers
-could also disappear. Large repositories could remain slow.
+Users would keep honest context proof and context traversal. They could still
+lose general field answers from the current topology view. Large repositories
+could also remain slow, and incomplete state restoration could interrupt an
+investigation.
 
 The missing behavior would become harder to recover after its reference
 implementation disappears.
