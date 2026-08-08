@@ -4,8 +4,8 @@
 
 **Reconciled:** 2026-08-08
 
-**Status:** Context continuity complete; origin coverage ledger verified;
-non-context Project 3 and Project 4 parity work remains; Project 5 remains
+**Status:** Project 3 semantic closure complete for the approved scope; origin
+coverage ledger verified; Project 4 parity work remains; Project 5 remains
 blocked
 
 **Related plans:** [Project map](execution-plans/README.md), [Project 3](execution-plans/03-honest-route-totality.md), [Project 4](execution-plans/04-route-investigation-workspace.md), and [Project 5](execution-plans/05-route-cutover-and-legacy-removal.md)
@@ -57,7 +57,7 @@ journey. The remaining production-style Project 4 gate is still open.
 | Context false-join protection | Complete | Nested shadowing, ambiguous Providers, dynamic shapes, and wrapped branches have focused evidence. |
 | Context investigation UI | Complete for question parity | Context uses shared selection, traversal, isolation frontiers, proof, locations, and URL restoration. |
 | Context accessibility | Open | Direct control labels and keyboard entry still need the Project 4 accessibility gate. |
-| Wrapper transparency | Context guard complete; broader local proof open | Context consumers and unknown context evidence now retain wrappers. External wrapper families also fail closed. The local source predicate remains lexical. |
+| Wrapper transparency | Complete for the approved scope | Local wrappers are retained conservatively when semantic transparency is unproven. No local wrapper receives compatibility proof from lexical source text. Automatic semantic wrapper condensation is deferred. Context and external-wrapper guards remain fail-closed. |
 | Route origin coverage | Complete for the audited scope | The eight-family ledger below records supported boundaries and explicit gaps. No family is silently absent. |
 | General origin field lineage | Open | Context member paths do not provide field-to-component lineage for non-context origins. |
 | Route cutover | Blocked | Project 4 parity, performance, accessibility, and production-style review must pass first. |
@@ -67,10 +67,12 @@ journey. The remaining production-style Project 4 gate is still open.
 Context continuity no longer blocks the plan. The following work remains:
 
 1. Record the question-parity baseline before more product changes.
-2. Replace the remaining local lexical wrapper predicate with semantic proof, or
-   retain those wrappers. Context and external-wrapper guards are complete.
+2. Retain local wrappers conservatively when semantic transparency is unproven.
+   Defer automatic semantic wrapper condensation until source-backed proof
+   exists.
 3. Keep the route-origin coverage ledger current as supported boundaries change.
-   Keep context classified as a handoff.
+   Keep context classified as a handoff. Database, URL and route parameters,
+   global state or stores, and browser storage remain accepted later work.
 4. Add general origin field-to-component parity.
 5. Unify source selection with Route Totality.
 6. Finish non-context proof navigation and local state restoration.
@@ -102,7 +104,7 @@ implementation if they do not match the intended product.
 | --- | --- | --- |
 | 1 — First proven route slice | Complete | Preserve the exact `readFile` scenario as regression evidence. |
 | 2 — Scope-neutral proof pack | Complete foundation | Prove representative large-project use through later product gates. |
-| 3 — Honest route totality | Context, external-wrapper safety, and origin coverage passed; broader local proof remains | Finish local wrapper proof and keep the origin ledger current. |
+| 3 — Honest route totality | Complete for the approved scope: context and external-wrapper safety, conservative local-wrapper retention, and origin coverage | Keep automatic semantic wrapper condensation deferred until source-backed proof exists. Keep the origin ledger current. |
 | 4 — Route investigation workspace | Context investigation works; other product parity remains | Restore field parity, unify source selection, improve performance, and pass the final gate. |
 | 5 — Route cutover and legacy removal | Not started | Promote new contracts, prove parity, remove legacy paths, and complete approved verification. |
 
@@ -149,7 +151,10 @@ Project 3 produced the strongest parts of the rewrite. Preserve these parts:
 - compact route projection with optional evidence detail; and
 - deterministic layout and inspection.
 
-The following commitments remain incomplete or need acceptance evidence.
+For the approved scope, the commitments below are complete. Automatic wrapper
+condensation remains deferred until source-backed semantic proof exists. The
+database, URL and route-parameter, global-state or store, and browser-storage
+origin families remain accepted later work with explicit gaps.
 
 ### 3.1 Context provider-to-consumer continuity — complete
 
@@ -201,10 +206,13 @@ Commits `28f0ed1`, `0fd1027`, `3d7aee5`, `c414e69`, and `25116b4` implement
 the product path. A clean-room browser pass confirmed the core journey on
 `examples/bad-ish-solid` and `/roster`.
 
-### 3.2 Repair transparent-wrapper safety — context guard complete
+### 3.2 Repair transparent-wrapper safety — complete for the approved scope
 
-The original plan requires semantic evidence before a wrapper can disappear.
-The focused repair now makes stack condensation consult context continuity.
+The approved scope retains every local wrapper when semantic transparency is
+unproven. The compatibility seam now fails closed for all wrappers, so no local
+wrapper receives proof from lexical source text. This preserves wrapper
+occurrences, ownership, and render edges. Automatic wrapper condensation remains
+deferred until source-backed semantic proof exists.
 
 Completed behavior:
 
@@ -212,15 +220,18 @@ Completed behavior:
 - A context consumer stays visible by exact occurrence identity.
 - Missing, partial, or unavailable context evidence retains all candidates.
 - An external wrapper cannot hide from module and family identity alone.
-- Local stack splicing remains unchanged.
+- Local wrappers are retained conservatively rather than classified as
+  compatible.
 - Caller-owned and definition-owned child handling remains unchanged.
+- Current analyzer output keeps compatibility fields valid but empty, false, or
+  zero, so stack condensation receives no compatible nodes.
 
 Commits `9437305` and `3e5c780` implement these guards. An independent source
 review passed the context, identity, fail-closed, and splice checks. `pnpm lint`
 and `pnpm typecheck` pass. Lint reports the same three existing warnings.
 
-The remaining local predicate is still lexical. It checks child text and a
-small set of known hooks. It does not prove every behavior in this list:
+If automatic wrapper condensation is added later, source-backed semantic proof
+must check all of these behaviors:
 
 Before hiding a wrapper, check:
 
@@ -233,13 +244,12 @@ Before hiding a wrapper, check:
 - caller-owned versus definition-owned children.
 
 A configured folder or component family can suggest a candidate. It cannot
-prove that the occurrence is transparent. This now fails closed for external
-wrappers. Local wrappers still need a source-backed semantic predicate or
-conservative retention.
+prove that the occurrence is transparent. The current policy therefore retains
+local wrappers and defers automatic condensation.
 
-The inspector must also explain why each local wrapper was hidden or retained.
-Do not expand the current fix into a broad behavior-analysis system without a
-separate product decision.
+Future condensation work must explain in the inspector why each local wrapper
+was hidden or retained. Do not expand the current fix into a broad
+behavior-analysis system without a separate product decision.
 
 ### 3.3 Audit route origin coverage
 
@@ -257,7 +267,7 @@ when origin roles, boundary facts, or route projection rules change.
 | Resource inputs | proven and supported | `src/analysis/program-evidence-collector-call-support.ts` creates `resource-input` and `resource-result` facts for resource factories. In `src/analysis/evidence-slice-support.ts`, only `resource-input` receives the `resource` role. Both fact kinds receive the `framework-runtime` boundary. | Resource inputs remain separate from external origins. |
 | URL and route parameters | unsupported with an explicit gap | `src/analysis/route-discovery.ts` records dynamic and catch-all parameter metadata from route filenames. | No URL-specific or route-parameter-specific origin role exists. Generic `request` and `event` roles exist, but they do not prove URL or route-parameter value flow. |
 | Environment | proven and supported | `src/analysis/program-evidence-collector-boundary-processing.ts` creates `environment-input` facts for `process.env` and `import.meta.env`. `src/analysis/evidence-slice-support.ts` maps them to the `environment` role and process boundary. | The ledger covers the compiler-recognized environment expressions. |
-| Global state or stores | unsupported with an explicit gap | `src/analysis/source-call-classification.ts` lists `createStore` as a Solid built-in. `src/analysis/route-occurrence-surface-policy.ts` only guards wrapper transparency around store calls. | `createStore` does not create a Route Totality origin. Global store value flow is not proven. |
+| Global state or stores | unsupported with an explicit gap | `src/analysis/source-call-classification.ts` lists `createStore` as a Solid built-in. `src/analysis/route-occurrence-surface-policy.ts` retains wrappers rather than classifying them as transparent. | `createStore` does not create a Route Totality origin. Global store value flow is not proven. |
 | Browser storage | unsupported with an explicit gap | `src/analysis/source-call-classification.ts` lists `localStorage` and `sessionStorage` as global namespaces. | No browser-storage fact or origin role exists. These calls remain opaque host calls. |
 
 All eight families are in route product scope. None is intentionally outside the
@@ -284,6 +294,7 @@ Remaining limits are explicit:
 
 - Database, URL and route parameters, global state or stores, and browser
   storage remain unsupported.
+- These unsupported origin families are accepted later work for this phase.
 - Aggregate origin counts remain scalar. The API and UI do not expose per-family
   counts from this ledger.
 - This audit does not add broad origin analyzers or infer runtime values.
@@ -296,12 +307,18 @@ Project 3 semantic closure passes when:
 - nested or ambiguous Providers do not create false joins;
 - wrapped Provider branches reach only their proven consumers;
 - context-reading wrappers stay visible when they own behavior;
+- local wrappers are retained when semantic transparency is unproven;
+- no local wrapper receives compatibility proof from lexical source text;
+- the current compatibility fields remain valid but empty, false, or zero;
 - the origin coverage ledger has no silent category; and
 - existing route occurrence and bridge counts do not gain false connections.
 
-Current gate status: context evidence, the fail-closed wrapper guards, and the
-origin coverage ledger passed. Project 3 still needs local semantic wrapper
-proof before full semantic closure.
+Current gate status: context evidence, fail-closed wrapper guards, conservative
+local-wrapper retention, and the origin coverage ledger passed for the approved
+scope. Project 3 semantic closure is complete for that scope. Automatic wrapper
+condensation remains deferred until source-backed semantic proof exists. The
+database, URL and route-parameter, global-state or store, and browser-storage
+origin families remain accepted later work.
 
 ## Project 4 completion
 
@@ -583,12 +600,16 @@ views. Include field, context, resource, transform, source, and terminal use.
 
 This baseline prevents later deletion from redefining parity.
 
-### Step 2 — Close Project 3 semantics — in progress
+### Step 2 — Close Project 3 semantics — complete for the approved scope
 
 Context identity, Provider-to-consumer handoffs, and their acceptance evidence
 are complete. The context-aware and external-wrapper guards are complete.
-Finish or conservatively disable the local lexical predicate. Keep the origin
-coverage ledger current.
+Local wrappers are retained conservatively when semantic transparency is
+unproven. The lexical compatibility classification is disabled, and occurrence
+ownership and render edges remain in the output. Automatic semantic wrapper
+condensation remains deferred until source-backed proof exists. Keep the
+origin-coverage ledger current. Database, URL and route parameters, global state
+or stores, and browser storage remain accepted later work.
 
 ### Step 3 — Complete Project 4 parity — in progress
 
