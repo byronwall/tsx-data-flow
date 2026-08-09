@@ -24,6 +24,7 @@ import type {
 } from "./route-investigation-selection";
 import type { RouteTotalityBoundaryStub } from "./route-totality-boundary-stubs";
 import type { RouteTotalityFindingSummary } from "./route-totality-finding-model";
+import type { RouteTotalityFieldOccurrenceSummary } from "./route-totality-field-lineage-model";
 
 export function DisplayTotalityEdge(props: {
   edge: RouteTotalityDisplayLayoutEdge;
@@ -33,6 +34,9 @@ export function DisplayTotalityEdge(props: {
   active: boolean;
   secondary: boolean;
   frontier: boolean;
+  fieldFocused: boolean;
+  fieldActive: boolean;
+  fieldFrontier: boolean;
   hidden: boolean;
   onSelect: (selection: RouteInvestigationEdgeSelection) => void;
   onRegister: (element: SVGGElement) => void;
@@ -47,6 +51,9 @@ export function DisplayTotalityEdge(props: {
       "emphasis-active": props.active && !props.secondary,
       "emphasis-secondary": props.secondary,
       "emphasis-frontier": props.frontier,
+      "field-path": props.fieldFocused && props.fieldActive,
+      "field-frontier": props.fieldFocused && props.fieldFrontier && !props.fieldActive,
+      "field-dimmed": props.fieldFocused && !props.fieldActive && !props.fieldFrontier,
       "emphasis-dimmed": props.emphasisActive && !props.active && !props.frontier,
       "isolation-hidden": props.hidden,
     }}
@@ -77,6 +84,10 @@ export function DisplayTotalityNode(props: {
   stackChildrenModified: boolean;
   hidden: boolean;
   showLabel: boolean;
+  fieldFocused: boolean;
+  fieldActive: boolean;
+  fieldFrontier: boolean;
+  fieldSummary: RouteTotalityFieldOccurrenceSummary | null;
   findings: RouteTotalityFindingSummary;
   labelRenderScale: number;
   onSelect: (selection: RouteInvestigationNodeSelection) => void;
@@ -87,6 +98,7 @@ export function DisplayTotalityNode(props: {
   const summary = createMemo(() => routeTotalityDisplayNodeSummary(props.node, props.zoom));
   const location = createMemo(() => routeTotalityLocationLabel(props.node.node.location));
   const details = createMemo(() => props.node.node.detailLines.join(" · "));
+  const fieldSummary = createMemo(() => props.fieldSummary?.labelText ?? "");
   const centerX = () => props.node.width / 2;
   const centerY = () => props.node.height / 2;
   const labelScale = () => Math.max(.001, props.labelRenderScale);
@@ -99,6 +111,9 @@ export function DisplayTotalityNode(props: {
       "emphasis-active": props.active && !props.secondary,
       "emphasis-secondary": props.secondary,
       "emphasis-frontier": props.frontier,
+      "field-path": props.fieldFocused && props.fieldActive,
+      "field-frontier": props.fieldFocused && props.fieldFrontier && !props.fieldActive,
+      "field-dimmed": props.fieldFocused && !props.fieldActive && !props.fieldFrontier,
       "ui-collapsed": props.uiCollapsed,
       "stack-children-modified": props.stackChildrenModified,
       "emphasis-dimmed": props.emphasisActive && !props.active && !props.frontier,
@@ -132,6 +147,14 @@ export function DisplayTotalityNode(props: {
         transform={`scale(${1 / labelScale()})`}
       >{clip(label(), 24)}</text>
     </Show>
+    <Show when={props.fieldFocused && props.node.node.kind === "occurrence" && fieldSummary()}>
+      <text
+        class="route-totality-node-summary route-totality-node-field-summary"
+        x={(centerX() + props.node.radius + 5) * labelScale()}
+        y={(centerY() + 17) * labelScale()}
+        transform={`scale(${1 / labelScale()})`}
+      >{fieldSummary()}</text>
+    </Show>
     <title>{label()}{props.uiCollapsed ? " · UI implementation hidden inside this node" : ""}{props.stackChildrenModified ? " · layout wrapper children were promoted into this node" : ""} · {summary()} · {details()} · {location()}</title>
   </g>;
 }
@@ -141,13 +164,16 @@ export function DisplayTotalityBridgeEdge(props: {
   visible: boolean;
   active: boolean;
   frontier: boolean;
+  fieldFocused: boolean;
+  fieldActive: boolean;
+  fieldFrontier: boolean;
   hidden: boolean;
 }) {
   const path = createMemo(() => routeTotalityDisplayBridgePath(props.bridge));
   const bridge = () => props.bridge.bridge.bridge;
   const visiblePath = () => path();
   return <g
-    classList={{ "bridge-visible": props.visible && Boolean(visiblePath()), "bridge-active": props.active, "bridge-frontier": props.frontier, "isolation-hidden": props.hidden }}
+    classList={{ "bridge-visible": props.visible && Boolean(visiblePath()), "bridge-active": props.active, "bridge-frontier": props.frontier, "field-path": props.fieldFocused && props.fieldActive, "field-frontier": props.fieldFocused && props.fieldFrontier && !props.fieldActive, "field-dimmed": props.fieldFocused && !props.fieldActive && !props.fieldFrontier, "isolation-hidden": props.hidden }}
     role="img"
     aria-hidden={props.visible && !props.hidden && Boolean(visiblePath()) ? undefined : "true"}
     aria-label={`${bridge().direction === "origin-to-render" ? "Origin to render" : "Terminal to origin"} handoff · ${bridge().status}`}

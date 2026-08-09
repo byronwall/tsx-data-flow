@@ -251,7 +251,14 @@
 .component-topology-hub-legend .component-topology-legend-subsection { color: var(--muted); font-size: .58rem; letter-spacing: .04em; text-transform: uppercase; }
 .component-topology-hub-legend .component-topology-key { border: 1px solid #677286; background: #fff; }
 .component-topology-hub-legend .component-topology-key.route { border-color: #245fec; background: #dce9fc; }
-.component-topology-hub-legend .component-topology-key.source { border-color: #4f8b68; background: #e3f3e9; }
+.component-topology,
+.route-totality-graph {
+  --lineage-proven: #3f8f60;
+  --lineage-field-text: #28633d;
+  --lineage-field-fill: #edf7f0;
+  --lineage-source-fill: #e3f3e9;
+}
+.component-topology-hub-legend .component-topology-key.source { border-color: #4f8b68; background: var(--lineage-source-fill); }
 .component-topology-hub-legend .component-topology-key.boundary { border-color: #39739d; background: #e5f0fa; }
 .component-topology-hub-legend .component-topology-key.context { border-color: #795fa8; border-radius: 1px; background: #eee9fa; transform: rotate(45deg) scale(.78); }
 .component-topology-hub-legend .component-topology-key.terminal { border-radius: 1px; }
@@ -259,7 +266,7 @@
 .component-topology-hub-legend .component-topology-policy-ring-key { border: 1px solid #8a5cf6; background: #eee8ff; box-shadow: 0 0 0 1px rgb(138 92 246 / .22); }
 .component-topology-hub-legend .component-topology-edge-key { width: 16px; height: 0; border-radius: 0; background: none; }
 .component-topology-hub-legend .component-topology-edge-key.resource-load { border-top: 2px dashed #39739d; }
-.component-topology-hub-legend .component-topology-edge-key.source-lineage { border-top: 2px solid #3f8f60; }
+.component-topology-hub-legend .component-topology-edge-key.source-lineage { border-top: 2px solid var(--lineage-proven); }
 .component-topology-hub-legend code { font-size: .65rem; }
 .component-topology-hub-legend small { color: var(--muted); font-size: .6rem; }
 .component-topology-edges path { fill: none; stroke: #7e899d; stroke-width: 1.15; opacity: .32; vector-effect: non-scaling-stroke; }
@@ -270,7 +277,7 @@
 .component-topology-edges path.dimmed { opacity: .035; }
 .component-topology-edges path.focused { opacity: .92; stroke-width: 2; }
 .component-topology-edges path.source-dimmed { opacity: .055; }
-.component-topology-edges path.source-focused { stroke: #3f8f60; stroke-width: 1.8; opacity: .82; }
+.component-topology-edges path.source-focused { stroke: var(--lineage-proven); stroke-width: 1.8; opacity: .82; }
 .component-topology-edges path.source-resource-focused { stroke: #39739d; stroke-width: 1.8; stroke-dasharray: 4 2; opacity: .82; }
 .component-topology-forces { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
 .component-topology-forces.visible { opacity: .9; }
@@ -279,17 +286,17 @@
 .component-topology-node circle,.component-topology-node rect { fill: #fff; stroke: #677286; stroke-width: 1.05; vector-effect: non-scaling-stroke; }
 .component-topology-node text { fill: #202735; font: 650 13px ui-monospace,SFMono-Regular,Menlo,monospace; paint-order: stroke; stroke: #f8f9fc; stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
 .component-topology-node.kind-context rect { fill: #eee9fa; stroke: #795fa8; }
-.component-topology-node.kind-source circle { fill: #e3f3e9; stroke: #4f8b68; }
+.component-topology-node.kind-source circle { fill: var(--lineage-source-fill); stroke: #4f8b68; }
 .component-topology-node.kind-boundary circle { fill: #e5f0fa; stroke: #39739d; }
 .component-topology-node.route-entry circle { fill: #dce9fc; stroke: #245fec; stroke-width: 1.7; }
 .component-topology-node.hub circle { fill: #fff2cd; stroke: #9a772d; }
 .component-topology-node.shared-hub .component-topology-node-mark { fill: var(--topology-hub-fill); stroke: var(--topology-hub-color); stroke-width: 1.35; }
 .component-topology-node .component-topology-hub-ring { fill: none; stroke-width: 1.05; opacity: .72; vector-effect: non-scaling-stroke; }
 .component-topology-node .component-topology-transform-ring { fill: none; stroke: #b87820; stroke-width: 2; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; }
-.component-topology-node.source-path .component-topology-node-mark { stroke: #3f8f60; stroke-width: 1.8; }
+.component-topology-node.source-path .component-topology-node-mark { stroke: var(--lineage-proven); stroke-width: 1.8; }
 .component-topology-node.source-resource-participation .component-topology-node-mark { stroke: #39739d; stroke-width: 1.8; stroke-dasharray: 3 2; }
 .component-topology-node.source-dimmed { opacity: .12; }
-.component-topology-node text.component-topology-field-label { fill: #28633d; font-size: 9px; font-weight: 750; stroke-width: 2.5px; }
+.component-topology-node text.component-topology-field-label { fill: var(--lineage-field-text); font-size: 9px; font-weight: 750; stroke-width: 2.5px; }
 .component-topology-node text.component-topology-transform-label { fill: #9a5b0b; font-size: 9px; font-weight: 700; stroke-width: 2.5px; }
 .component-topology-node { cursor: pointer; outline: none; }
 .component-topology-node { transition: opacity .12s ease, transform .22s ease-out; }
@@ -324,11 +331,11 @@
 .component-topology-node-sources > button small { color: var(--muted); font-size: .57rem; font-style: normal; }
 .component-topology-node-sources > button em { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--accent); font-size: .58rem; font-style: normal; font-weight: 700; }
 .component-topology-node-source-fields { display: flex; flex-wrap: wrap; gap: 3px; }
-.component-topology-node-source-fields code { padding: 2px 4px; border-radius: 3px; background: var(--panel); color: #28633d; font-size: .57rem; }
-.component-topology-node-fields { display: grid; gap: 4px; margin-top: 5px; padding: 6px; border-radius: 4px; background: #edf7f0; }
-.component-topology-node-fields > strong { color: #28633d; font-size: .58rem; letter-spacing: .04em; text-transform: uppercase; }
+.component-topology-node-source-fields code { padding: 2px 4px; border-radius: 3px; background: var(--panel); color: var(--lineage-field-text); font-size: .57rem; }
+.component-topology-node-fields { display: grid; gap: 4px; margin-top: 5px; padding: 6px; border-radius: 4px; background: var(--lineage-field-fill); }
+.component-topology-node-fields > strong { color: var(--lineage-field-text); font-size: .58rem; letter-spacing: .04em; text-transform: uppercase; }
 .component-topology-node-fields > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.component-topology-node-fields code { color: #28633d; font-size: .61rem; font-weight: 700; }
+.component-topology-node-fields code { color: var(--lineage-field-text); font-size: .61rem; font-weight: 700; }
 .component-topology-node-fields small { color: var(--muted); font-size: .54rem; white-space: nowrap; }
 .component-topology-node-terminals { display: grid; gap: 6px; }
 .component-topology-node-terminals > small { color: var(--muted); line-height: 1.35; }
@@ -384,7 +391,7 @@
 .component-topology-hidden-groups td button { min-height: 21px; padding: 2px 4px; font-size: .53rem; white-space: nowrap; }
 .component-topology-hidden-number { color: var(--muted); font: 650 .58rem var(--mono); text-align: right!important; }
 .component-topology-hidden-state { color: var(--muted); font-size: .53rem; white-space: nowrap; }
-.component-topology-hidden-state.revealed { color: #28633d; font-weight: 700; }
+.component-topology-hidden-state.revealed { color: var(--lineage-field-text); font-weight: 700; }
 .route-flow-graph { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr); overflow: hidden; background: #f7f8fb; }
 .route-flow-toolbar { display: flex; align-items: center; gap: 7px; min-height: 32px; padding: 3px 8px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .route-flow-toolbar > div { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }
@@ -455,7 +462,7 @@
 .route-trajectory-main-content { min-width: 0; min-height: 0; position: relative; overflow: hidden; }
 .route-trajectory-workspace.route-totality-open { grid-template-columns: minmax(0,1fr); }
 .route-totality-graph { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0,1fr); overflow: hidden; background: #f7f8fb; }
-.route-totality-toolbar { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; min-height: 34px; padding: 3px 8px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.route-totality-toolbar { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 8px; min-height: 34px; padding: 3px 8px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .route-totality-title { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
 .route-totality-route-label { font-family: var(--mono); }
 .route-totality-title strong { overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -469,6 +476,12 @@
 .route-totality-counts b { color: var(--text); font: 700 .65rem var(--mono); }
 .route-totality-camera { display: flex; align-items: center; gap: 3px; }
 .route-totality-toolbar-actions { display: flex; align-items: center; gap: 6px; }
+.route-totality-field-focus { min-width: 0; display: flex; align-items: center; gap: 6px; padding: 3px 6px; background: var(--lineage-field-fill); color: var(--lineage-field-text); font-size: .6rem; }
+.route-totality-field-focus[hidden] { display: none; }
+.route-totality-field-focus > span { flex: none; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.route-totality-field-focus code { min-width: 0; overflow: hidden; color: var(--lineage-field-text); font-size: .62rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.route-totality-field-focus button { flex: none; min-height: 23px; padding: 2px 5px; border-color: color-mix(in srgb, var(--lineage-proven) 30%, var(--border)); background: transparent; color: var(--lineage-field-text); font-size: .58rem; }
+.route-totality-field-focus button:hover,.route-totality-field-focus button:focus-visible { border-color: var(--lineage-proven); background: var(--surface); }
 .route-totality-ui-toggle { min-height: 24px; padding: 2px 7px; font-size: .62rem; white-space: nowrap; }
 .route-totality-ui-toggle[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .route-totality-camera button { min-width: 25px; min-height: 24px; padding: 2px 5px; font-size: .62rem; }
@@ -546,6 +559,7 @@
 .route-totality-legend-mark i.edge-render { border-top: 2px solid #7d8799; }
 .route-totality-legend-mark i.edge-data { border-top: 2px dashed #39739d; }
 .route-totality-legend-mark i.edge-boundary { border-top: 2px solid #7d8799; }
+.route-totality-legend-mark i.field-path { width: 17px; height: 0; border: 0; border-top: 2px solid var(--lineage-proven); background: none; }
 .route-totality-status-note { position: absolute; right: 10px; bottom: 10px; max-width: min(460px,calc(100% - 20px)); margin: 0; padding: 6px 8px; border-radius: 5px; background: var(--warning-bg,#fff7d6); color: var(--warning,#8b5100); font-size: .63rem; }
 .route-totality-emphasis-note { position: absolute; top: 10px; right: 10px; z-index: 2; max-width: min(460px,calc(100% - 20px)); margin: 0; padding: 6px 8px; border-radius: 5px; background: var(--accent-soft); color: var(--accent); font-size: .63rem; line-height: 1.35; }
 .route-totality-emphasis-note.partial { background: var(--warning-bg,#fff7d6); color: var(--warning,#8b5100); }
@@ -648,9 +662,17 @@
 .route-totality-proof-location button code { overflow-wrap: anywhere; }
 .route-totality-proof-location button span,.route-totality-proof-location > a { color: var(--muted); font-size: .57rem; }
 .route-totality-proof-location > a:hover { color: var(--accent); text-decoration: none; }
+.route-totality-field-section { background: var(--lineage-field-fill); }
+.route-totality-field-section h3 { color: var(--lineage-field-text); }
+.route-totality-field-frontier-section { background: var(--warning-bg,#fff7d6); }
+.route-totality-field-frontier-section h3 { color: var(--warning,#8b5100); }
+.route-totality-field-group { display: grid; gap: 4px; }
+.route-totality-field-group-heading { display: grid; gap: 2px; min-width: 0; }
+.route-totality-field-group-heading strong { overflow-wrap: anywhere; color: var(--lineage-field-text); font: 700 .63rem var(--mono); }
+.route-totality-field-group-heading small { overflow-wrap: anywhere; color: var(--muted); font-size: .57rem; line-height: 1.3; }
 .route-totality-field-list { display: grid; gap: 4px; }
-.route-totality-field-item { display: grid; gap: 3px; min-width: 0; padding: 6px; background: var(--bg); }
-.route-totality-field-item strong { overflow-wrap: anywhere; color: var(--text); font: 700 .67rem var(--mono); }
+.route-totality-field-item { display: grid; gap: 3px; min-width: 0; padding: 6px; background: #fff; }
+.route-totality-field-item strong { overflow-wrap: anywhere; color: var(--lineage-field-text); font: 700 .67rem var(--mono); }
 .route-totality-field-item > span { color: var(--muted); font-size: .61rem; line-height: 1.3; }
 .route-totality-field-item button { min-width: 0; display: grid; gap: 2px; padding: 0; border: 0; background: transparent; color: var(--accent); text-align: left; }
 .route-totality-field-item button:hover,.route-totality-field-item button:focus-visible { color: var(--text); }
@@ -828,8 +850,8 @@
 }
 
 .route-totality-node-kind-origin .route-totality-node-surface {
-  fill: color-mix(in srgb, #2aa77f 12%, var(--route-totality-surface));
-  stroke: color-mix(in srgb, #2aa77f 62%, var(--border));
+  fill: var(--lineage-source-fill);
+  stroke: color-mix(in srgb, var(--lineage-proven) 62%, var(--border));
 }
 
 .route-totality-node-kind-occurrence .route-totality-node-surface {
@@ -907,6 +929,60 @@
   stroke-dasharray: 4 2;
 }
 
+.route-totality-edges g.field-dimmed,
+.route-totality-nodes g.field-dimmed,
+.route-totality-bridge-edges g.field-dimmed {
+  opacity: .1;
+}
+
+.route-totality-edges g.field-dimmed.selected,
+.route-totality-edges g.field-dimmed:focus-visible,
+.route-totality-nodes g.field-dimmed.selected,
+.route-totality-nodes g.field-dimmed:focus-visible {
+  opacity: 1;
+}
+
+.route-totality-edges g.field-path:not(.selected):not(:focus-visible) .route-totality-edge-line {
+  stroke: var(--lineage-proven);
+  stroke-width: 1.8;
+  opacity: .82;
+}
+
+.route-totality-edges g.field-frontier:not(.selected):not(:focus-visible) .route-totality-edge-line {
+  stroke: var(--route-totality-warning);
+  stroke-width: 2.2;
+  stroke-dasharray: 5 3;
+  opacity: 1;
+}
+
+.route-totality-bridge-edges g.field-path .route-totality-bridge-line {
+  stroke: var(--lineage-proven);
+  stroke-width: 1.8;
+  opacity: .82;
+}
+
+.route-totality-bridge-edges g.field-frontier .route-totality-bridge-line {
+  stroke: var(--route-totality-warning);
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+  opacity: 1;
+}
+
+.route-totality-nodes g.field-path {
+  opacity: 1;
+}
+
+.route-totality-nodes g.field-path:not(.selected):not(:focus-visible) .route-totality-node-surface {
+  stroke: var(--lineage-proven);
+  stroke-width: 1.8;
+}
+
+.route-totality-nodes g.field-frontier:not(.selected):not(:focus-visible) .route-totality-node-surface {
+  stroke: var(--route-totality-warning);
+  stroke-width: 2.4;
+  stroke-dasharray: 4 2;
+}
+
 .route-totality-node-label {
   fill: var(--route-totality-ink);
   font-weight: 650;
@@ -926,6 +1002,15 @@
 .route-totality-lane-label,
 .route-totality-boundary-stub-label {
   fill: var(--muted);
+}
+
+.route-totality-node-field-summary {
+  fill: var(--lineage-field-text);
+  font: 750 9px var(--mono);
+  paint-order: stroke;
+  stroke: #f8f9fc;
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
 }
 
 .route-totality-node-kind-label,
@@ -1895,6 +1980,8 @@
   .route-trajectory-workspace { grid-template-columns: minmax(0, 1fr) 280px; }
   .route-shadow-body { grid-template-columns: minmax(0,1fr) 280px; }
   .route-totality-toolbar { grid-template-columns: minmax(0,1fr) auto; }
+  .route-totality-field-focus { grid-column: 1 / -1; grid-row: 2; }
+  .route-totality-toolbar-actions { grid-column: 2; grid-row: 1; }
   .route-totality-camera { justify-self: end; }
   .route-totality-body { grid-template-columns: minmax(0,1fr) 280px; }
   .route-context-columns { gap: 18px; }.route-context-columns section + section::before { display: none; }

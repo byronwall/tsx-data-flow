@@ -19,7 +19,8 @@ import { DEFAULT_ROUTE_TOTALITY_CAMERA, createRouteTotalityCamera } from "./rout
 import { emphasisModeForSelection, persistedSelection, reconcileRouteTotalityState, selectionFromPersisted, buildRouteTotalityLedger, renderableRouteTotalityAnnotations, routeTotalityDisplayBounds, type RouteTotalityInvestigationStateChange } from "./route-totality-graph-state";
 import { RouteTotalityViewport } from "./RouteTotalityViewport";
 import { createRouteTotalityGraphActions } from "./route-totality-graph-actions";
-import { fieldOriginFocusForOrigin, selectRouteTotalityFieldInspectorResult, type RouteTotalityFieldOriginFocus } from "./route-totality-field-lineage-model";
+import { fieldOriginFocusForOrigin, hasRouteTotalityFieldOrigin, selectRouteTotalityFieldFocus, type RouteTotalityFieldOriginFocus } from "./route-totality-field-lineage-model";
+import { selectRouteTotalityFieldInspectorResult } from "./route-totality-field-inspector-model";
 import { DEFAULT_ROUTE_TOTALITY_SURFACE_LAYOUT_SETTINGS } from "./route-totality-surface-layout";
 import { createTopologyLayoutDebug } from "./topology-layout-debug";
 import { createRouteContextContinuityUiState } from "./route-context-continuity-state";
@@ -70,6 +71,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   const markRefs = new Map<string, SVGGElement>();
   let svg: SVGSVGElement | undefined;
   let previousIdentity = "";
+  let previousPayloadIdentity = "";
   let previousScopeKey: string | null | undefined;
   let skipControlledSync = false;
   let skipControlledCameraSync = false;
@@ -100,15 +102,18 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   const camera = cameraController.camera;
 
   createEffect(() => {
+    const payloadIdentity = routeTotalityPayloadIdentity(props.totality, props.generation);
     const identity = JSON.stringify([
-      routeTotalityPayloadIdentity(props.totality, props.generation),
+      payloadIdentity,
       effectiveGenericUiMode(),
     ]);
     const initialPayload = previousIdentity === "";
     const scopeKey = props.scopeKey ?? props.totality?.route.key ?? null;
     const scopeChanged = !initialPayload && scopeKey !== previousScopeKey;
+    const payloadChanged = !initialPayload && payloadIdentity !== previousPayloadIdentity;
     if (identity === previousIdentity && scopeKey === previousScopeKey) return;
     previousIdentity = identity;
+    previousPayloadIdentity = payloadIdentity;
     previousScopeKey = scopeKey;
     skipControlledSync = false;
     skipControlledCameraSync = false;
@@ -130,8 +135,13 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     });
     setEmphasisMode(reconciliation.emphasisMode);
     applyLocalInvestigationState(reconciliation.selection, reconciliation.isolated);
-    setActiveFieldOrigin(initialPayload
-      ? fieldOriginFocusForSelection(props.totality, reconciliation.selection)
+    const nextFieldOrigin = initialPayload
+      ? null
+      : scopeChanged || payloadChanged
+        ? null
+        : untrack(() => activeFieldOrigin());
+    setActiveFieldOrigin(nextFieldOrigin && hasRouteTotalityFieldOrigin(props.totality, nextFieldOrigin)
+      ? nextFieldOrigin
       : null);
 
     if (scopeChanged) {
@@ -182,6 +192,11 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   });
 
   createEffect(() => {
+    const focus = activeFieldOrigin();
+    if (focus && !hasRouteTotalityFieldOrigin(props.totality, focus)) setActiveFieldOrigin(null);
+  });
+
+  createEffect(() => {
     if (props.camera === undefined) return;
     if (cameraController.isCommitPending()) return;
     if (skipControlledCameraSync) {
@@ -213,6 +228,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     selection(),
     emphasisMode(),
   ));
+  const fieldFocus = createMemo(() => selectRouteTotalityFieldFocus(props.totality, layout(), activeFieldOrigin()));
   const visibleDisplayNodes = createMemo(() => evidenceVisible()
     ? [...displayLayout().nodes, ...displayLayout().evidenceNodes]
     : [...displayLayout().nodes]);
@@ -225,8 +241,18 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
       cameraScale: camera().scale,
       includeEvidence: evidenceVisible(),
       selectedNodeIds: selection()?.target === "node" ? new Set([selection()!.graphId]) : new Set(),
-      focusedNodeIds: new Set([...emphasis().focusNodeIds, ...emphasis().frontierNodeIds]),
-      participantNodeIds: new Set([...emphasis().activeNodeIds, ...emphasis().frontierNodeIds]),
+      focusedNodeIds: new Set([
+        ...emphasis().focusNodeIds,
+        ...emphasis().frontierNodeIds,
+        ...fieldFocus().activeNodeIds,
+        ...fieldFocus().frontierNodeIds,
+      ]),
+      participantNodeIds: new Set([
+        ...emphasis().activeNodeIds,
+        ...emphasis().frontierNodeIds,
+        ...fieldFocus().activeNodeIds,
+        ...fieldFocus().frontierNodeIds,
+      ]),
     },
   ));
   const baseDisplayBounds = createMemo(() => routeTotalityDisplayBounds(
@@ -263,7 +289,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   const selectedFieldResult = createMemo(() => {
     const record = selectedRecord();
     return record?.kind === "occurrence"
-      ? selectRouteTotalityFieldInspectorResult(props.totality, activeFieldOrigin(), record.selection.recordId)
+      ? selectRouteTotalityFieldInspectorResult(props.totality, layout(), activeFieldOrigin(), record.selection.recordId)
       : null;
   });
   const ledgerItems = createMemo(() => buildRouteTotalityLedger(props.totality, layout()));
@@ -334,11 +360,13 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     <RouteTotalityControls
       routePath={layout().summary.route?.pathPattern ?? "Route totality"}
       routeFile={layout().summary.route?.file ?? "No route identity returned"}
+      fieldOriginLabel={fieldFocus().originLabel}
       zoomScale={camera().scale}
       genericUiMode={effectiveGenericUiMode()}
       hiddenUiNodeCount={layout().uiProjection.hiddenNodeIds.size}
       availableHiddenUiNodeCount={layout().uiProjection.availableHiddenNodeCount}
       onGenericUiMode={props.onGenericUiMode}
+      onClearFieldFocus={() => setActiveFieldOrigin(null)}
       onZoomOut={() => cameraController.zoomAt(camera().scale / 1.25, undefined, true)}
       onReset={actions.reset}
       onZoomIn={() => cameraController.zoomAt(camera().scale * 1.25, undefined, true)}
@@ -372,6 +400,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         cameraController={cameraController}
         evidenceVisible={evidenceVisible()}
         selection={selection()}
+        fieldFocus={fieldFocus()}
         emphasis={emphasis()}
         isolated={isolated()}
         forcesVisible={layoutDebug.forcesVisible()}

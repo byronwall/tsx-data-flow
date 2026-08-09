@@ -40,7 +40,7 @@ export function RouteTotalityOverview(props: {
       <h3>Legend</h3>
       <div class="route-totality-overview-legend" aria-label="Route totality legend">
         <DisplayLegendMark kind="origin" label="Origin" /><DisplayLegendMark kind="occurrence" label="Occurrence" /><DisplayLegendMark kind="boundary" label="Framework boundary" /><DisplayLegendMark kind="terminal" label="Terminal" /><DisplayLegendMark kind="gap" label="Gap" />
-        <DisplayLegendMark kind="edge-render" label="Render edge" /><DisplayLegendMark kind="edge-data" label="Data edge" /><DisplayLegendMark kind="edge-boundary" label="Boundary edge" />
+        <DisplayLegendMark kind="edge-render" label="Render edge" /><DisplayLegendMark kind="edge-data" label="Data edge" /><DisplayLegendMark kind="edge-boundary" label="Boundary edge" /><DisplayLegendMark kind="field-path" label="Proven field path" />
       </div>
     </section>
     <RouteTotalityCoverageLedger items={props.ledgerItems} inspector />

@@ -3,11 +3,13 @@ import type { GenericUiMode } from "./trajectory-url-state";
 export type RouteTotalityControlsProps = {
   routePath: string;
   routeFile: string;
+  fieldOriginLabel: string | null;
   zoomScale: number;
   genericUiMode: GenericUiMode;
   hiddenUiNodeCount: number;
   availableHiddenUiNodeCount: number;
   onGenericUiMode: (mode: GenericUiMode) => void;
+  onClearFieldFocus: () => void;
   onZoomOut: () => void;
   onReset: () => void;
   onZoomIn: () => void;
@@ -18,6 +20,11 @@ export function RouteTotalityControls(props: RouteTotalityControlsProps) {
     <div class="route-totality-title">
       <strong class="route-totality-route-label">{props.routePath}</strong>
       <span class="route-totality-route-label">{props.routeFile}</span>
+    </div>
+    <div class="route-totality-field-focus" hidden={!props.fieldOriginLabel} aria-live="polite">
+      <span>Fields from</span>
+      <code title={props.fieldOriginLabel ?? ""}>{props.fieldOriginLabel ?? ""}</code>
+      <button type="button" onClick={() => props.onClearFieldFocus()}>Clear field focus</button>
     </div>
     <div class="route-totality-toolbar-actions">
       <button

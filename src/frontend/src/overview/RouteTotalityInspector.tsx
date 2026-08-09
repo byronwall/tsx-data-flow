@@ -6,7 +6,7 @@ import type {
   RouteTotalityInspectorRecord,
   RouteTotalityInspectorSelection,
 } from "./route-totality-inspector-model";
-import type { RouteTotalityFieldInspectorResult } from "./route-totality-field-lineage-model";
+import type { RouteTotalityFieldInspectorResult } from "./route-totality-field-inspector-model";
 import type {
   RouteTotalityEmphasis,
   RouteTotalityEmphasisMode,
@@ -21,6 +21,7 @@ import type { RouteTotalityLedgerSection } from "./route-totality-graph-state";
 import { RouteTotalityOverview } from "./RouteTotalityOverview";
 import type { RouteContextContinuityUiState } from "./route-context-continuity-state";
 import { RouteContextContinuityPanel } from "./RouteContextContinuityPanel";
+import { RouteTotalityFieldSections } from "./RouteTotalityFieldSections";
 
 export function RouteTotalityInspector(props: {
   totality: RouteTotality | null;
@@ -79,7 +80,7 @@ export function RouteTotalityInspector(props: {
           <EmphasisSection record={record()} emphasis={props.emphasis} emphasisMode={props.emphasisMode} isolated={props.isolated} onEmphasize={props.onEmphasize} onClearEmphasis={props.onClearEmphasis} onIsolate={props.onIsolate} onRestore={props.onRestore} />
           <SourceLocations locations={record().locations} onOpenSource={props.onOpenSource} />
           <ProofRecords proofs={record().proof} onOpenSource={props.onOpenSource} />
-          <ProvenFieldsSection result={props.fieldResult} onOpenSource={props.onOpenSource} />
+          <RouteTotalityFieldSections result={props.fieldResult} onOpenSource={props.onOpenSource} />
           <FindingSection findings={props.findings} />
           <NeighborSection title="Incoming neighbors" items={record().incoming} empty="No incoming neighbor was returned." onSelect={props.onSelect} />
           <NeighborSection title="Outgoing neighbors" items={record().outgoing} empty="No outgoing neighbor was returned." onSelect={props.onSelect} />
@@ -97,29 +98,6 @@ export function RouteTotalityInspector(props: {
       </Show>
     </div>
   </aside>;
-}
-
-function ProvenFieldsSection(props: {
-  result: RouteTotalityFieldInspectorResult | null;
-  onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
-}) {
-  return <Show when={props.result}>
-    {(result) => <section class="route-totality-inspector-section route-totality-field-section">
-      <h3>Proven fields <span>{result().attachments.length}</span></h3>
-      <div class="route-totality-field-list">
-        <For each={result().attachments}>{(item) => {
-          const location = item.attachment.field.location;
-          return <article class="route-totality-field-item">
-            <strong><code>{item.attachment.field.label}</code></strong>
-            <span>{item.attachment.proof[0]?.status ?? "unknown"} · {item.terminalLabels.length > 0 ? `Render terminal · ${item.terminalLabels.join(" / ")}` : "Occurrence handoff · no render terminal"}</span>
-            <button type="button" onClick={() => props.onOpenSource(sourceTargetForLocation(location))}>
-              <code>Field read · {formatLocation(location)}</code><span>Open exact code</span>
-            </button>
-          </article>;
-        }}</For>
-      </div>
-    </section>}
-  </Show>;
 }
 
 function EmphasisSection(props: {
