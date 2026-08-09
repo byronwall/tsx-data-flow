@@ -222,6 +222,8 @@ function projectEvidenceSlice(slice: DomainEvidenceValue, cancellation: Analysis
     elements: projectItems(slice.elements, (element) => ({
       id: element.id,
       kind: element.kind,
+      fieldName: element.fieldName,
+      operationKind: element.operationKind,
       label: element.label,
       source: {
         file: element.source.file,

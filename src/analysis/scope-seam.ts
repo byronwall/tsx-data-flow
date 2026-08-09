@@ -39,6 +39,10 @@ export type ProgramElement = {
   /** Stable source identity. This must never contain a scope or route ID. */
   id: string;
   kind: string;
+  /** Exact compiler-backed name for a static named field read. */
+  fieldName: string | null;
+  /** Exact compiler operation classification when one exists. */
+  operationKind: string | null;
   label: string;
   source: SourceIdentity;
   location: SourceLocation;

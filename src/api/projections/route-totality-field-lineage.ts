@@ -12,13 +12,26 @@ export function projectRouteTotalityFieldLineage(
   lineage: RouteTotalityFieldLineage,
   cancellation: AnalysisCancellationToken,
 ): RouteTotality["fieldLineage"] {
+  cancellation.throwIfCancelled();
+  const omissions: string[] = [];
+  for (const omission of lineage.omissions) {
+    cancellation.throwIfCancelled();
+    omissions.push(omission);
+  }
+  cancellation.throwIfCancelled();
   return {
     status: lineage.status,
     unavailableReason: lineage.unavailableReason,
     attachments: sortedProject(lineage.attachments, (left, right) => left.id.localeCompare(right.id), projectAttachment, cancellation),
     frontiers: sortedProject(lineage.frontiers, (left, right) => left.id.localeCompare(right.id), projectFrontier, cancellation),
-    counts: { ...lineage.counts },
-    omissions: [...lineage.omissions],
+    counts: {
+      origins: lineage.counts.origins,
+      fields: lineage.counts.fields,
+      occurrences: lineage.counts.occurrences,
+      terminals: lineage.counts.terminals,
+      frontiers: lineage.counts.frontiers,
+    },
+    omissions,
   };
 }
 
@@ -26,21 +39,29 @@ function projectAttachment(
   attachment: RouteTotalityFieldAttachment,
   cancellation: AnalysisCancellationToken,
 ): RouteTotality["fieldLineage"]["attachments"][number] {
+  cancellation.throwIfCancelled();
+  const elementIds = copyIds(attachment.field.elementIds, cancellation);
+  const segments = projectSegments(attachment.field.segments, cancellation);
+  const terminalIds = copyIds(attachment.terminalIds, cancellation);
+  const pathElementIds = copyIds(attachment.evidencePathElementIds, cancellation);
+  const pathRelationIds = copyIds(attachment.evidencePathRelationIds, cancellation);
+  const locations = projectLocations(attachment.locations, cancellation);
+  cancellation.throwIfCancelled();
   return {
     id: attachment.id,
     origin: { ...attachment.origin },
     field: {
-      elementIds: [...attachment.field.elementIds],
-      segments: attachment.field.segments.map((segment) => ({ ...segment })),
+      elementIds,
+      segments,
       label: attachment.field.label,
       location: projectLocation(attachment.field.location),
     },
     occurrenceId: attachment.occurrenceId,
-    terminalIds: [...attachment.terminalIds],
-    evidencePathElementIds: [...attachment.evidencePathElementIds],
-    evidencePathRelationIds: [...attachment.evidencePathRelationIds],
+    terminalIds,
+    evidencePathElementIds: pathElementIds,
+    evidencePathRelationIds: pathRelationIds,
     proof: projectProofs(attachment.proof, cancellation),
-    locations: attachment.locations.map(projectLocation),
+    locations,
   };
 }
 
@@ -48,14 +69,17 @@ function projectFrontier(
   frontier: RouteTotalityFieldFrontier,
   cancellation: AnalysisCancellationToken,
 ): RouteTotality["fieldLineage"]["frontiers"][number] {
+  cancellation.throwIfCancelled();
+  const field = frontier.field ? {
+    elementIds: copyIds(frontier.field.elementIds, cancellation),
+    segments: projectSegments(frontier.field.segments, cancellation),
+    label: frontier.field.label,
+  } : null;
+  cancellation.throwIfCancelled();
   return {
     id: frontier.id,
     origin: { ...frontier.origin },
-    field: frontier.field ? {
-      elementIds: [...frontier.field.elementIds],
-      segments: frontier.field.segments.map((segment) => ({ ...segment })),
-      label: frontier.field.label,
-    } : null,
+    field,
     occurrenceId: frontier.occurrenceId,
     reason: frontier.reason,
     stoppedAtElementId: frontier.stoppedAtElementId,
@@ -75,13 +99,56 @@ function projectLocation(location: SourceLocation) {
 }
 
 function projectProofs(proofs: DomainEvidenceProof[], cancellation: AnalysisCancellationToken): RouteTotality["scopeProof"] {
-  return proofs.map((proof) => {
+  cancellation.throwIfCancelled();
+  const projected: RouteTotality["scopeProof"] = [];
+  for (const proof of proofs) {
     cancellation.throwIfCancelled();
-    return {
+    projected.push({
       kind: proof.kind,
       detail: proof.detail,
-      locations: proof.locations.map(projectLocation),
+      locations: projectLocations(proof.locations, cancellation),
       status: proof.status,
-    };
-  });
+    });
+  }
+  cancellation.throwIfCancelled();
+  return projected;
+}
+
+function projectSegments(
+  segments: readonly { kind: "property" | "string-index" | "number-index"; value: string }[],
+  cancellation: AnalysisCancellationToken,
+) {
+  cancellation.throwIfCancelled();
+  const projected: Array<{ kind: "property" | "string-index" | "number-index"; value: string }> = [];
+  for (const segment of segments) {
+    cancellation.throwIfCancelled();
+    projected.push({ kind: segment.kind, value: segment.value });
+  }
+  cancellation.throwIfCancelled();
+  return projected;
+}
+
+function projectLocations(
+  locations: readonly SourceLocation[],
+  cancellation: AnalysisCancellationToken,
+) {
+  cancellation.throwIfCancelled();
+  const projected: ReturnType<typeof projectLocation>[] = [];
+  for (const location of locations) {
+    cancellation.throwIfCancelled();
+    projected.push(projectLocation(location));
+  }
+  cancellation.throwIfCancelled();
+  return projected;
+}
+
+function copyIds(values: readonly string[], cancellation: AnalysisCancellationToken): string[] {
+  cancellation.throwIfCancelled();
+  const copied: string[] = [];
+  for (const value of values) {
+    cancellation.throwIfCancelled();
+    copied.push(value);
+  }
+  cancellation.throwIfCancelled();
+  return copied;
 }

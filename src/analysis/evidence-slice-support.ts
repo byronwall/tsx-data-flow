@@ -198,6 +198,10 @@ function toSliceElement(element: IndexedProgramElement): ProgramElement {
   return {
     id: element.id,
     kind: element.kind,
+    fieldName: element.kind === "field-read" && element.operationKind === "field-read" && typeof element.attributes.property === "string"
+      ? element.attributes.property
+      : null,
+    operationKind: element.operationKind,
     label: element.label,
     source: sourceIdentityFor(element.location),
     location: toSliceLocation(element.location),

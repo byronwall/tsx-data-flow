@@ -1,15 +1,10 @@
 import { z } from "zod";
-import {
-  validateRouteOccurrenceSurface,
-  validateRouteTotality,
-} from "./route-occurrence-validation";
+import { validateRouteOccurrenceSurface, validateRouteTotality } from "./route-occurrence-validation";
 import { routeContextContinuitySchema } from "./route-context-continuity-contracts";
 import { routeTotalityFieldLineageSchema } from "./route-totality-field-lineage-contracts";
-
 const nonEmptyStringSchema = z.string().min(1);
 const nonNegativeIntegerSchema = z.number().int().nonnegative();
 const positiveIntegerSchema = z.number().int().positive();
-
 const evidenceStatusSchema = z.enum(["proven", "partial", "unsupported"]);
 const sourceSpanSchema = z.strictObject({
   startLine: positiveIntegerSchema,
@@ -17,27 +12,23 @@ const sourceSpanSchema = z.strictObject({
   endLine: positiveIntegerSchema,
   endColumn: positiveIntegerSchema,
 });
-
 export const sourceLocationSchema = z.strictObject({
   file: nonEmptyStringSchema,
   line: positiveIntegerSchema,
   column: positiveIntegerSchema,
   span: sourceSpanSchema,
 });
-
 const sourceRangeSchema = z.strictObject({
   file: nonEmptyStringSchema,
   start: nonNegativeIntegerSchema,
   end: nonNegativeIntegerSchema,
 });
-
 export const evidenceProofSchema = z.strictObject({
   kind: nonEmptyStringSchema,
   detail: nonEmptyStringSchema,
   locations: z.array(sourceLocationSchema).min(1),
   status: evidenceStatusSchema,
 });
-
 const scopeDirectionSchema = z.enum(["forward", "backward", "both"]);
 const boundaryKindSchema = z.enum([
   "external-code",
@@ -75,7 +66,6 @@ const terminalRoleSchema = z.enum([
   "child-process",
   "completion",
 ]);
-
 const boundaryPolicySchema = z.strictObject({
   maxDepth: nonNegativeIntegerSchema,
   maxElements: positiveIntegerSchema,
@@ -85,20 +75,17 @@ const boundaryPolicySchema = z.strictObject({
   includeFramework: z.boolean(),
   stopAtBoundary: z.boolean(),
 });
-
 const terminalPolicySchema = z.strictObject({
   roles: z.array(terminalRoleSchema),
   maxTerminals: positiveIntegerSchema,
   includeIntermediate: z.boolean(),
   stopAtTerminal: z.boolean(),
 });
-
 const scopePolicySchema = z.strictObject({
   direction: scopeDirectionSchema,
   boundaryPolicy: boundaryPolicySchema,
   terminalPolicy: terminalPolicySchema,
 });
-
 const routeTotalityCandidateSchema = z.strictObject({
   id: nonEmptyStringSchema,
   kind: nonEmptyStringSchema,
@@ -110,7 +97,6 @@ const routeTotalityCandidateSchema = z.strictObject({
   proof: z.array(evidenceProofSchema),
   defaults: scopePolicySchema,
 });
-
 const routeTotalitySeedSchema = z.strictObject({
   candidateId: nonEmptyStringSchema,
   entryElementId: nonEmptyStringSchema,
@@ -120,10 +106,11 @@ const routeTotalitySeedSchema = z.strictObject({
   proof: z.array(evidenceProofSchema),
   defaults: scopePolicySchema,
 });
-
 const programElementSchema = z.strictObject({
   id: nonEmptyStringSchema,
   kind: nonEmptyStringSchema,
+  fieldName: nonEmptyStringSchema.nullable(),
+  operationKind: nonEmptyStringSchema.nullable(),
   label: nonEmptyStringSchema,
   source: sourceRangeSchema,
   location: sourceLocationSchema,
@@ -134,7 +121,6 @@ const programElementSchema = z.strictObject({
   terminalRoles: z.array(terminalRoleSchema),
   boundary: boundaryKindSchema.nullable(),
 });
-
 const programRelationSchema = z.strictObject({
   id: nonEmptyStringSchema,
   from: nonEmptyStringSchema,
@@ -143,7 +129,6 @@ const programRelationSchema = z.strictObject({
   status: evidenceStatusSchema,
   proof: evidenceProofSchema,
 });
-
 const sliceOriginSchema = z.strictObject({
   elementId: nonEmptyStringSchema,
   role: originRoleSchema,
@@ -151,7 +136,6 @@ const sliceOriginSchema = z.strictObject({
   status: evidenceStatusSchema,
   proof: z.array(evidenceProofSchema),
 });
-
 const sliceTerminalSchema = z.strictObject({
   elementId: nonEmptyStringSchema,
   role: terminalRoleSchema,
@@ -159,7 +143,6 @@ const sliceTerminalSchema = z.strictObject({
   status: evidenceStatusSchema,
   proof: z.array(evidenceProofSchema),
 });
-
 const evidenceGapReasonSchema = z.enum([
   "unsupported-syntax",
   "dynamic-dispatch",
@@ -173,7 +156,6 @@ const evidenceGapReasonSchema = z.enum([
   "unproven-handoff",
   "budget-exhausted",
 ]);
-
 const evidenceGapSchema = z.strictObject({
   id: nonEmptyStringSchema,
   from: nonEmptyStringSchema.nullable(),
@@ -184,14 +166,12 @@ const evidenceGapSchema = z.strictObject({
   location: sourceLocationSchema.nullable(),
   proof: z.array(evidenceProofSchema),
 });
-
 const coverageStatusCountSchema = z.strictObject({
   total: nonNegativeIntegerSchema,
   proven: nonNegativeIntegerSchema,
   partial: nonNegativeIntegerSchema,
   unsupported: nonNegativeIntegerSchema,
 });
-
 const coverageSetCountSchema = z.strictObject({
   total: nonNegativeIntegerSchema,
   elements: nonNegativeIntegerSchema,
@@ -199,7 +179,6 @@ const coverageSetCountSchema = z.strictObject({
   origins: nonNegativeIntegerSchema,
   terminals: nonNegativeIntegerSchema,
 });
-
 const coverageSchema = z.strictObject({
   status: evidenceStatusSchema,
   complete: z.boolean(),
@@ -230,7 +209,6 @@ const coverageSchema = z.strictObject({
     gaps: z.boolean(),
   }),
 });
-
 export const evidenceSliceSchema = z.strictObject({
   elements: z.array(programElementSchema),
   relations: z.array(programRelationSchema),
@@ -239,26 +217,22 @@ export const evidenceSliceSchema = z.strictObject({
   gaps: z.array(evidenceGapSchema),
   coverage: coverageSchema,
 });
-
 const routeTotalityBridgeOriginEndpointSchema = z.strictObject({
   layer: z.literal("evidence-slice"),
   kind: z.literal("origin"),
   elementId: nonEmptyStringSchema,
   role: originRoleSchema,
 });
-
 const routeTotalityBridgeOccurrenceEndpointSchema = z.strictObject({
   layer: z.literal("occurrence-surface"),
   kind: z.literal("occurrence"),
   occurrenceId: nonEmptyStringSchema,
 });
-
 const routeTotalityBridgeTerminalEndpointSchema = z.strictObject({
   layer: z.literal("occurrence-surface"),
   kind: z.literal("terminal"),
   terminalId: nonEmptyStringSchema,
 });
-
 const routeTotalityBridgeCommonSchema = {
   id: nonEmptyStringSchema,
   status: z.enum(["proven", "partial"]),
@@ -267,7 +241,6 @@ const routeTotalityBridgeCommonSchema = {
   evidencePathElementIds: z.array(nonEmptyStringSchema).min(1),
   evidencePathRelationIds: z.array(nonEmptyStringSchema),
 };
-
 const routeTotalityBridgeSchema = z.discriminatedUnion("direction", [
   z.strictObject({
     ...routeTotalityBridgeCommonSchema,
@@ -282,7 +255,6 @@ const routeTotalityBridgeSchema = z.discriminatedUnion("direction", [
     to: routeTotalityBridgeOriginEndpointSchema,
   }),
 ]);
-
 const routeTotalityBridgeCountsSchema = z.strictObject({
   total: nonNegativeIntegerSchema,
   originToRender: nonNegativeIntegerSchema,
@@ -290,7 +262,6 @@ const routeTotalityBridgeCountsSchema = z.strictObject({
   proven: nonNegativeIntegerSchema,
   partial: nonNegativeIntegerSchema,
 });
-
 const routeTotalityFindingTargetSchema = z.union([
   z.strictObject({
     source: z.literal("evidence-slice"),
@@ -321,7 +292,6 @@ const routeTotalityFindingTargetSchema = z.union([
     family: nonEmptyStringSchema,
   }),
 ]);
-
 const routeTotalityFindingAttachmentSchema = z.strictObject({
   id: nonEmptyStringSchema,
   findingId: nonEmptyStringSchema,
@@ -331,7 +301,6 @@ const routeTotalityFindingAttachmentSchema = z.strictObject({
   status: z.enum(["proven", "partial"]),
   proof: evidenceProofSchema,
 });
-
 const routeTotalityFindingIndexEntrySchema = z.strictObject({
   findingId: nonEmptyStringSchema,
   label: nonEmptyStringSchema,
@@ -346,7 +315,6 @@ const routeTotalityFindingIndexEntrySchema = z.strictObject({
     file: nonEmptyStringSchema,
   }),
 });
-
 const routeOccurrenceRepetitionSchema = z.enum([
   "single",
   "conditional",
@@ -377,7 +345,6 @@ const slotExpressionKindSchema = z.enum([
   "children-parameter",
   "named-slot",
 ]);
-
 const routeOccurrenceDefinitionSchema = z.strictObject({
   id: nonEmptyStringSchema,
   name: nonEmptyStringSchema,
@@ -388,7 +355,6 @@ const routeOccurrenceDefinitionSchema = z.strictObject({
   declaration: sourceLocationSchema.nullable(),
   external: z.boolean(),
 });
-
 const routeRenderOccurrenceSchema = z.strictObject({
   id: nonEmptyStringSchema,
   key: nonEmptyStringSchema,
@@ -414,7 +380,6 @@ const routeRenderOccurrenceSchema = z.strictObject({
   frameworkBoundaryIds: z.array(nonEmptyStringSchema),
   hiddenWrapperCompatibility: z.boolean(),
 });
-
 const routeFrameworkBoundarySchema = z.strictObject({
   id: nonEmptyStringSchema,
   key: nonEmptyStringSchema,
@@ -436,7 +401,6 @@ const routeFrameworkBoundarySchema = z.strictObject({
   condition: z.strictObject({ outcome: z.enum(["truthy", "falsey", "unknown"]), detail: nonEmptyStringSchema, locations: z.array(sourceLocationSchema).min(1) }).nullable(),
   ownership: z.literal("framework-owned"),
 });
-
 const routeOccurrenceEdgeSchema = z.strictObject({
   id: nonEmptyStringSchema,
   from: nonEmptyStringSchema,
@@ -445,7 +409,6 @@ const routeOccurrenceEdgeSchema = z.strictObject({
   locations: z.array(sourceLocationSchema),
   detail: nonEmptyStringSchema,
 });
-
 const routeSlotForwardingSchema = z.strictObject({
   id: nonEmptyStringSchema,
   occurrenceId: nonEmptyStringSchema,
@@ -460,7 +423,6 @@ const routeSlotForwardingSchema = z.strictObject({
   sourceBacked: z.boolean(),
   detail: nonEmptyStringSchema,
 });
-
 const routeTerminalOccurrenceSchema = z.strictObject({
   id: nonEmptyStringSchema,
   kind: z.enum(["jsx-text", "dom-attribute", "style", "render-expression"]),
@@ -472,7 +434,6 @@ const routeTerminalOccurrenceSchema = z.strictObject({
   repetition: routeOccurrenceRepetitionSchema,
   runtimeMultiplicity: z.literal("unknown"),
 });
-
 const routeOccurrenceOmissionReasonSchema = z.enum([
   "budget-exhausted",
   "recursion-limit",
@@ -483,7 +444,6 @@ const routeOccurrenceOmissionReasonSchema = z.enum([
   "external-code",
   "identity-lost",
 ]);
-
 const routeOccurrenceOmissionSchema = z.strictObject({
   id: nonEmptyStringSchema,
   reason: routeOccurrenceOmissionReasonSchema,
@@ -491,7 +451,6 @@ const routeOccurrenceOmissionSchema = z.strictObject({
   count: positiveIntegerSchema,
   locations: z.array(sourceLocationSchema),
 });
-
 const hiddenWrapperCompatibilityOccurrenceSchema = z.strictObject({
   occurrenceId: nonEmptyStringSchema,
   definitionId: nonEmptyStringSchema,
@@ -499,14 +458,12 @@ const hiddenWrapperCompatibilityOccurrenceSchema = z.strictObject({
   callSite: sourceLocationSchema,
   detail: nonEmptyStringSchema,
 });
-
 const totalStatusSchema = z.enum(["exact", "lower-bound", "unknown"]);
 const totalCountSchema = z.strictObject({
   emitted: nonNegativeIntegerSchema,
   total: nonNegativeIntegerSchema.nullable(),
   totalStatus: totalStatusSchema,
 });
-
 const routeOccurrenceTotalsSchema = z.strictObject({
   definitions: totalCountSchema,
   occurrences: totalCountSchema,
@@ -521,7 +478,6 @@ const routeOccurrenceTotalsSchema = z.strictObject({
   omissions: totalCountSchema,
   omittedItems: totalCountSchema,
 });
-
 const routeOccurrenceTruncationSchema = z.strictObject({
   definitions: z.boolean(),
   occurrences: z.boolean(),
@@ -535,7 +491,6 @@ const routeOccurrenceTruncationSchema = z.strictObject({
   collection: z.boolean(),
   omissions: z.boolean(),
 });
-
 export const routeOccurrenceSurfaceStructureSchema = z.strictObject({
   id: nonEmptyStringSchema,
   status: z.enum(["complete", "partial", "unavailable"]),
@@ -560,7 +515,6 @@ export const routeOccurrenceSurfaceStructureSchema = z.strictObject({
   totals: routeOccurrenceTotalsSchema,
   truncation: routeOccurrenceTruncationSchema,
 });
-
 export const routeOccurrenceSurfaceSchema = routeOccurrenceSurfaceStructureSchema
   .superRefine((surface, context) => {
     for (const issue of validateRouteOccurrenceSurface(surface)) {
@@ -571,12 +525,10 @@ export const routeOccurrenceSurfaceSchema = routeOccurrenceSurfaceStructureSchem
       });
     }
   });
-
 const routeTotalityUnavailableSchema = z.strictObject({
   status: z.literal("unavailable"),
   reason: nonEmptyStringSchema,
 });
-
 const routeTotalityGapSchema = z.strictObject({
   id: nonEmptyStringSchema,
   source: z.enum(["route-selection", "occurrence-surface", "evidence-slice", "context-continuity"]),
@@ -586,7 +538,6 @@ const routeTotalityGapSchema = z.strictObject({
   location: sourceLocationSchema.nullable(),
   proof: z.array(evidenceProofSchema),
 });
-
 const routeTotalityCountsSchema = z.strictObject({
   definitions: totalCountSchema,
   occurrences: totalCountSchema,
@@ -606,7 +557,6 @@ const routeTotalityCountsSchema = z.strictObject({
   evidenceTerminals: totalCountSchema,
   evidenceGaps: totalCountSchema,
 });
-
 function routeTotalityObject<Surface extends z.ZodType>(surfaceSchema: Surface) {
   return z.strictObject({
     status: z.enum(["complete", "partial", "unavailable"]),

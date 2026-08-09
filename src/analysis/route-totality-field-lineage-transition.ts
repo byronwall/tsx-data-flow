@@ -1,0 +1,238 @@
+import type {
+  EvidenceProof,
+  EvidenceStatus,
+} from "./scope-seam";
+import { NO_ANALYSIS_CANCELLATION, type AnalysisCancellationToken } from "./cancellation";
+
+export type FieldLineageStopReason =
+  | "partial-proof"
+  | "ambiguous-target"
+  | "unsupported-relation"
+  | "unsupported-transform"
+  | "dynamic-index"
+  | "multiple-origins"
+  | "unmapped-occurrence"
+  | "unmapped-terminal";
+
+export type FieldLineageElement = {
+  id: string;
+  kind: string;
+  operationKind: string | null;
+  status: EvidenceStatus;
+  proof: readonly EvidenceProof[];
+};
+
+export type FieldLineageRelation = {
+  id: string;
+  from: string;
+  to: string;
+  kind: string;
+  status: EvidenceStatus;
+  proof: EvidenceProof;
+};
+
+export type FieldLineageTransitionContext = {
+  relation: FieldLineageRelation;
+  source: FieldLineageElement | undefined;
+  target: FieldLineageElement | undefined;
+  outgoingRelations: readonly FieldLineageRelation[];
+  incomingRelations: readonly FieldLineageRelation[];
+  hasField: boolean;
+  isInitialOrigin: boolean;
+  staticNamedField: boolean | null;
+  occurrenceAnchorCount: number;
+  terminalAnchorCount: number;
+  currentOccurrenceId: string | null;
+  terminalOwnerOccurrenceId: string | null | undefined;
+  cancellation: AnalysisCancellationToken;
+};
+
+export type FieldLineageTransition =
+  | { kind: "preserve" }
+  | { kind: "field-input" }
+  | { kind: "component-prop" }
+  | { kind: "render-terminal" }
+  | { kind: "stop"; reason: FieldLineageStopReason };
+
+const SCALAR_CARRIERS = new Set([
+  "value",
+  "alias",
+  "parameter",
+  "field-read",
+  "call",
+  "resource-result",
+]);
+
+const REFERENCE_TARGETS = new Set(["value", "alias", "field-read"]);
+const ARGUMENT_SOURCES = new Set(["value", "alias", "field-read", "call", "parameter"]);
+
+/**
+ * Decide whether one exact evidence edge preserves Milestone 1 field identity.
+ *
+ * This table is deliberately endpoint-aware. Relation names alone are never
+ * sufficient evidence for a field transition.
+ */
+export function classifyRouteTotalityFieldTransition(
+  context: FieldLineageTransitionContext,
+): FieldLineageTransition {
+  const incomplete = incompleteEvidenceReason(context);
+  if (incomplete) return { kind: "stop", reason: incomplete };
+
+  const { relation, source, target } = context;
+  if (!source || !target) return { kind: "stop", reason: "partial-proof" };
+
+  switch (relation.kind) {
+    case "references": {
+      if ((!context.isInitialOrigin && !SCALAR_CARRIERS.has(source.kind)) || !REFERENCE_TARGETS.has(target.kind)) {
+        return { kind: "stop", reason: "unsupported-relation" };
+      }
+      if (provenRelationsBetween(context.outgoingRelations, relation.from, relation.to, "references", context.cancellation).length !== 1) {
+        return { kind: "stop", reason: "ambiguous-target" };
+      }
+      return { kind: "preserve" };
+    }
+    case "argument-binding": {
+      if (!ARGUMENT_SOURCES.has(source.kind) || target.kind !== "parameter") {
+        return { kind: "stop", reason: "unsupported-relation" };
+      }
+      if (provenRelationsOfKind(context.outgoingRelations, "argument-binding", context.cancellation).length !== 1) {
+        return { kind: "stop", reason: "ambiguous-target" };
+      }
+      return { kind: "preserve" };
+    }
+    case "return-expression": {
+      if (!ARGUMENT_SOURCES.has(source.kind) || target.kind !== "return") {
+        return { kind: "stop", reason: "unsupported-relation" };
+      }
+      if (provenRelationsOfKind(context.outgoingRelations, "return-expression", context.cancellation).length !== 1) {
+        return { kind: "stop", reason: "ambiguous-target" };
+      }
+      return { kind: "preserve" };
+    }
+    case "return-value": {
+      if (source.kind !== "return" || target.kind !== "call") {
+        return { kind: "stop", reason: "unsupported-relation" };
+      }
+      const incoming = provenRelationsOfKind(context.incomingRelations, "return-value", context.cancellation);
+      if (incoming.length !== 1) {
+        return { kind: "stop", reason: incoming.length > 1 ? "multiple-origins" : "partial-proof" };
+      }
+      return { kind: "preserve" };
+    }
+    case "resource-result": {
+      if (context.hasField) return { kind: "stop", reason: "unsupported-transform" };
+      if (source.kind !== "resource-input" || (target.kind !== "alias" && target.kind !== "resource-result")) {
+        return { kind: "stop", reason: "unsupported-relation" };
+      }
+      if (provenRelationsOfKind(context.outgoingRelations, "resource-result", context.cancellation).length !== 1) {
+        return { kind: "stop", reason: "ambiguous-target" };
+      }
+      return { kind: "preserve" };
+    }
+    case "field-input": {
+      const fieldInputs = provenRelationsOfKind(context.outgoingRelations, "field-input", context.cancellation);
+      if (fieldInputs.length !== 1) return { kind: "stop", reason: "ambiguous-target" };
+      if (target.kind === "index-read") return { kind: "stop", reason: "dynamic-index" };
+      if (target.kind !== "field-read" || target.operationKind !== "field-read") {
+        return { kind: "stop", reason: "unsupported-relation" };
+      }
+      if (context.staticNamedField === null) return { kind: "stop", reason: "partial-proof" };
+      if (!context.staticNamedField) return { kind: "stop", reason: "unsupported-relation" };
+      return { kind: "field-input" };
+    }
+    case "component-prop": {
+      if (!context.hasField || target.kind !== "component-occurrence") {
+        return { kind: "stop", reason: "unsupported-relation" };
+      }
+      if (context.occurrenceAnchorCount === 0) return { kind: "stop", reason: "unmapped-occurrence" };
+      if (context.occurrenceAnchorCount !== 1) return { kind: "stop", reason: "ambiguous-target" };
+      return { kind: "component-prop" };
+    }
+    case "render-terminal": {
+      if (!context.hasField || (target.kind !== "render-terminal" && target.kind !== "dom-terminal")) {
+        return { kind: "stop", reason: "unsupported-relation" };
+      }
+      if (!context.currentOccurrenceId) return { kind: "stop", reason: "unmapped-occurrence" };
+      if (context.terminalAnchorCount === 0) return { kind: "stop", reason: "unmapped-terminal" };
+      if (context.terminalAnchorCount !== 1) return { kind: "stop", reason: "ambiguous-target" };
+      if (context.terminalOwnerOccurrenceId !== context.currentOccurrenceId) {
+        return { kind: "stop", reason: "unmapped-terminal" };
+      }
+      return { kind: "render-terminal" };
+    }
+    default:
+      return { kind: "stop", reason: "unsupported-relation" };
+  }
+}
+
+export function isFullyProvenElement(
+  element: Pick<FieldLineageElement, "status" | "proof"> | undefined,
+  cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION,
+): element is Pick<FieldLineageElement, "status" | "proof"> {
+  cancellation.throwIfCancelled();
+  if (!element || element.status !== "proven" || element.proof.length === 0) return false;
+  for (const proof of element.proof) {
+    cancellation.throwIfCancelled();
+    if (!isFullyProvenProof(proof)) return false;
+  }
+  cancellation.throwIfCancelled();
+  return true;
+}
+
+export function isFullyProvenRelation(
+  relation: Pick<FieldLineageRelation, "status" | "proof"> | undefined,
+  cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION,
+): relation is Pick<FieldLineageRelation, "status" | "proof"> {
+  cancellation.throwIfCancelled();
+  const proven = Boolean(relation && relation.status === "proven" && isFullyProvenProof(relation.proof));
+  cancellation.throwIfCancelled();
+  return proven;
+}
+
+export function isFullyProvenProof(proof: EvidenceProof): boolean {
+  return proof.status === "proven" && proof.locations.length > 0;
+}
+
+function incompleteEvidenceReason(context: FieldLineageTransitionContext): FieldLineageStopReason | null {
+  const { relation, source, target } = context;
+  if (!source || !target) return "partial-proof";
+  if (isFullyProvenRelation(relation, context.cancellation)
+    && isFullyProvenElement(source, context.cancellation)
+    && isFullyProvenElement(target, context.cancellation)) return null;
+  if (relation.status === "unsupported" || source.status === "unsupported" || target.status === "unsupported") {
+    return "unsupported-relation";
+  }
+  return "partial-proof";
+}
+
+function provenRelationsOfKind(
+  relations: readonly FieldLineageRelation[],
+  kind: string,
+  cancellation: AnalysisCancellationToken,
+): FieldLineageRelation[] {
+  const matches: FieldLineageRelation[] = [];
+  for (const relation of relations) {
+    cancellation.throwIfCancelled();
+    if (relation.kind === kind && isFullyProvenRelation(relation, cancellation)) matches.push(relation);
+  }
+  cancellation.throwIfCancelled();
+  return matches;
+}
+
+function provenRelationsBetween(
+  relations: readonly FieldLineageRelation[],
+  from: string,
+  to: string,
+  kind: string,
+  cancellation: AnalysisCancellationToken,
+): FieldLineageRelation[] {
+  const matches: FieldLineageRelation[] = [];
+  for (const relation of relations) {
+    cancellation.throwIfCancelled();
+    if (relation.from === from && relation.to === to && relation.kind === kind && isFullyProvenRelation(relation, cancellation)) {
+      matches.push(relation);
+    }
+  }
+  cancellation.throwIfCancelled();
+  return matches;
+}

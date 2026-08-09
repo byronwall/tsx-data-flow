@@ -1,4 +1,5 @@
 import type { AnalysisCancellationToken } from "../../analysis/cancellation";
+import { cancellableStableSort } from "../../analysis/cancellable-stable-sort";
 
 export function projectItems<Input, Output>(
   items: readonly Input[],
@@ -20,12 +21,7 @@ export function sortedProject<Input, Output>(
   project: (item: Input, cancellation: AnalysisCancellationToken) => Output,
   cancellation: AnalysisCancellationToken,
 ): Output[] {
-  cancellation.throwIfCancelled();
-  const sorted = [...items].sort((left, right) => {
-    cancellation.throwIfCancelled();
-    return compare(left, right);
-  });
-  cancellation.throwIfCancelled();
+  const sorted = cancellableStableSort(items, compare, cancellation);
   return projectItems(sorted, project, cancellation);
 }
 

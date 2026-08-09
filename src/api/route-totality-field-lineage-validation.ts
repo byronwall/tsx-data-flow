@@ -1,429 +1,575 @@
 import type { AnalysisCancellationToken } from "../analysis/cancellation";
 import { NO_ANALYSIS_CANCELLATION } from "../analysis/cancellation";
+import {
+  classifyRouteTotalityFieldTransition,
+  isFullyProvenElement,
+  isFullyProvenProof,
+  isFullyProvenRelation,
+} from "../analysis/route-totality-field-lineage-transition";
+import { MAX_FRONTIERS } from "../analysis/route-totality-field-lineage-support";
 import type { RouteTotality } from "./route-totality-contracts";
 import {
   addIssue,
   type ValidationIssue,
 } from "./route-occurrence-validation-graph";
+import {
+  availableEvidence,
+  availableSurface,
+  endpointOccurrenceAnchorId,
+  endpointOccurrenceAnchors,
+  exactElement,
+  exactRelation,
+  fullyProvenOrigin,
+  hasPartialInputs,
+  indexEvidence,
+  indexSurface,
+  isUnavailable,
+  sameLocations,
+  type AvailableSurface,
+  type EvidenceElement,
+  type EvidenceIndexes,
+  type EvidenceOrigin,
+  type EvidenceRelation,
+  type FieldAttachment,
+  type FieldFrontier,
+  type FieldValue,
+  type SurfaceIndexes,
+  type SurfaceOccurrence,
+} from "./route-totality-field-lineage-validation-index";
+import { validateFieldLineageAttachmentTerminals } from "./route-totality-field-lineage-validation-terminal";
+import {
+  validateFieldLineageCounts,
+  hasFieldLineageId,
+  validateSortedFieldLineageIds,
+  validateStableFieldLineageId,
+  validateUniqueFieldLineageIds,
+} from "./route-totality-field-lineage-validation-structure";
 
-type AvailableEvidence = Extract<RouteTotality["evidenceSlice"], { elements: unknown[] }>;
-type AvailableSurface = Extract<RouteTotality["occurrenceSurface"], { occurrences: unknown[] }>;
-type EvidenceElement = AvailableEvidence["elements"][number];
-type EvidenceRelation = AvailableEvidence["relations"][number];
-type EvidenceOrigin = AvailableEvidence["origins"][number];
-type SurfaceOccurrence = AvailableSurface["occurrences"][number];
-type SurfaceTerminal = AvailableSurface["terminals"][number];
+const CAP_OMISSION = /^Field frontier limit reached; ([1-9]\d*) additional frontiers were omitted\. The emitted frontier count is a lower bound\.$/;
 
 export function validateRouteTotalityFieldLineage(
   totality: RouteTotality,
   cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION,
 ): ValidationIssue[] {
+  cancellation.throwIfCancelled();
   const issues: ValidationIssue[] = [];
   const lineage = totality.fieldLineage;
   const unavailableInputs = isUnavailable(totality.occurrenceSurface) || isUnavailable(totality.evidenceSlice);
-  const partialInputs = hasPartialInputs(totality);
 
-  if (unavailableInputs && (lineage.attachments.length > 0 || lineage.frontiers.length > 0)) {
-    addIssue(issues, ["fieldLineage"], "unavailable route inputs cannot contain field attachments or frontiers");
-  }
-  if (unavailableInputs && lineage.status !== "unavailable") {
-    addIssue(issues, ["fieldLineage", "status"], "unavailable route inputs require unavailable field lineage");
-  }
   if (lineage.status === "unavailable") {
-    if (!lineage.unavailableReason) addIssue(issues, ["fieldLineage", "unavailableReason"], "unavailable field lineage requires a reason");
-    if (lineage.attachments.length > 0 || lineage.frontiers.length > 0) addIssue(issues, ["fieldLineage"], "unavailable field lineage cannot contain attachments or frontiers");
-    if (!unavailableInputs) addIssue(issues, ["fieldLineage", "status"], "available route inputs cannot produce unavailable field lineage");
-  } else if (lineage.unavailableReason !== null) {
+    validateUnavailable(lineage, unavailableInputs, issues, cancellation);
+    cancellation.throwIfCancelled();
+    return issues;
+  }
+
+  if (lineage.unavailableReason !== null) {
     addIssue(issues, ["fieldLineage", "unavailableReason"], "available field lineage must not contain an unavailable reason");
   }
-
-  const expectedCounts = lineageCounts(lineage, cancellation);
-  for (const key of Object.keys(expectedCounts) as Array<keyof typeof expectedCounts>) {
+  if (unavailableInputs) {
+    addIssue(issues, ["fieldLineage", "status"], "unavailable route inputs require unavailable field lineage");
+    if (lineage.attachments.length > 0 || lineage.frontiers.length > 0) {
+      addIssue(issues, ["fieldLineage"], "unavailable route inputs cannot contain field attachments or frontiers");
+    }
     cancellation.throwIfCancelled();
-    if (lineage.counts[key] !== expectedCounts[key]) addIssue(issues, ["fieldLineage", "counts", key], `count must equal ${expectedCounts[key]}`);
+    return issues;
   }
-  validateAttachmentReferences(totality, issues, cancellation);
-  validateFrontierReferences(totality, issues, cancellation);
 
-  if (lineage.status === "complete") {
-    if (partialInputs) addIssue(issues, ["fieldLineage", "status"], "partial or bounded route inputs require partial field lineage");
-    if (lineage.frontiers.length > 0) addIssue(issues, ["fieldLineage", "status"], "complete field lineage cannot contain frontiers");
-    if (lineage.omissions.length > 0) addIssue(issues, ["fieldLineage", "omissions"], "complete field lineage cannot contain omissions");
-    if (lineage.attachments.some((attachment) => attachment.proof.some((proof) => proof.status !== "proven"))) addIssue(issues, ["fieldLineage", "attachments"], "complete field lineage requires proven attachment proof");
+  const evidence = availableEvidence(totality.evidenceSlice);
+  const surface = availableSurface(totality.occurrenceSurface);
+  if (!evidence || !surface) {
+    addIssue(issues, ["fieldLineage"], "available field lineage requires available route inputs");
+    cancellation.throwIfCancelled();
+    return issues;
   }
-  if (lineage.status === "partial" && lineage.attachments.length === 0 && lineage.frontiers.length === 0 && lineage.omissions.length === 0 && !unavailableInputs) {
-    addIssue(issues, ["fieldLineage", "status"], "partial field lineage requires a frontier, attachment, omission, or bounded input");
-  }
+  const evidenceIndexes = indexEvidence(evidence, cancellation);
+  const surfaceIndexes = indexSurface(evidence, surface, cancellation);
+  validateFieldLineageCounts(lineage, issues, cancellation);
+  validateAttachments(lineage.attachments, evidenceIndexes, surface, surfaceIndexes, issues, cancellation);
+  validateFrontiers(lineage.frontiers, evidenceIndexes, surfaceIndexes, issues, cancellation);
+  validateStatus(lineage, hasPartialInputs(evidence, surface, cancellation), issues, cancellation);
+  cancellation.throwIfCancelled();
   return issues;
 }
 
-function validateAttachmentReferences(
-  totality: RouteTotality,
+function validateUnavailable(
+  lineage: RouteTotality["fieldLineage"],
+  unavailableInputs: boolean,
   issues: ValidationIssue[],
   cancellation: AnalysisCancellationToken,
 ): void {
-  const lineage = totality.fieldLineage;
-  const surface = availableSurface(totality.occurrenceSurface);
-  const evidence = availableEvidence(totality.evidenceSlice);
-  if (!surface || !evidence) return;
-  const elements = new Map(evidence.elements.map((element) => [element.id, element]));
-  const relations = new Map(evidence.relations.map((relation) => [relation.id, relation]));
-  const origins = new Map(evidence.origins.map((origin) => [`${origin.elementId}:${origin.role}`, origin]));
-  const occurrences = new Map(surface.occurrences.map((occurrence) => [occurrence.id, occurrence]));
-  const terminals = new Map(surface.terminals.map((terminal) => [terminal.id, terminal]));
-  const definitionIds = new Set(surface.definitions.map((definition) => definition.id));
-  const ids = new Set<string>();
-
-  lineage.attachments.forEach((attachment, index) => {
+  cancellation.throwIfCancelled();
+  if (!lineage.unavailableReason) {
+    addIssue(issues, ["fieldLineage", "unavailableReason"], "unavailable field lineage requires a reason");
+  }
+  if (!unavailableInputs) {
+    addIssue(issues, ["fieldLineage", "status"], "available route inputs cannot produce unavailable field lineage");
+  }
+  if (lineage.attachments.length > 0 || lineage.frontiers.length > 0) {
+    addIssue(issues, ["fieldLineage"], "unavailable field lineage cannot contain attachments or frontiers");
+  }
+  const counts = lineage.counts;
+  for (const key of ["origins", "fields", "occurrences", "terminals", "frontiers"] as const) {
     cancellation.throwIfCancelled();
-    const path = ["fieldLineage", "attachments", index] as Array<string | number>;
-    validateSortedId(lineage.attachments, index, path, issues);
-    if (ids.has(attachment.id)) addIssue(issues, [...path, "id"], `duplicate field attachment id "${attachment.id}"`);
-    ids.add(attachment.id);
-    const origin = origins.get(`${attachment.origin.elementId}:${attachment.origin.role}`);
-    if (!origin) addIssue(issues, [...path, "origin"], "field attachment origin is not present in the evidence slice");
-    else if (origin.status !== "proven" || origin.proof.length === 0) addIssue(issues, [...path, "origin"], "field attachment origin must be proven");
-    const occurrence = occurrences.get(attachment.occurrenceId);
-    if (!occurrence) addIssue(issues, [...path, "occurrenceId"], "field attachment occurrence is not present in the occurrence surface");
-    if (definitionIds.has(attachment.occurrenceId)) addIssue(issues, [...path, "occurrenceId"], "field attachment must use an occurrence id, not a definition id");
-    const occurrenceAnchorId = occurrence && exactOccurrenceAnchorId(occurrence, surface.scope.seed, evidence);
-    if (occurrence && !occurrenceAnchorId) addIssue(issues, [...path, "occurrenceId"], "field attachment occurrence does not have one exact evidence anchor");
-    if (occurrence && occurrence.parentOccurrenceId !== null && occurrenceAnchorId && attachment.evidencePathElementIds[attachment.evidencePathElementIds.length - 1] !== occurrenceAnchorId) {
-      addIssue(issues, [...path, "evidencePathElementIds"], "non-root field attachment path must end at its exact occurrence anchor");
-    }
-    validateField(attachment.field, elements, relations, [...path, "field"], issues, cancellation);
-    validatePath(attachment, origin, occurrence, elements, relations, terminals, surface, evidence, path, issues, cancellation);
-    validateUniqueSorted(attachment.terminalIds, [...path, "terminalIds"], "terminal", issues, cancellation);
-    if (attachment.proof.length === 0) addIssue(issues, [...path, "proof"], "field attachment requires proof");
-    if (attachment.locations.length === 0) addIssue(issues, [...path, "locations"], "field attachment requires locations");
-    if (attachment.proof.some((proof) => !sameLocations(proof.locations, attachment.locations))) addIssue(issues, [...path, "proof"], "field attachment proof locations must match attachment locations");
-  });
+    if (counts[key] !== 0) addIssue(issues, ["fieldLineage", "counts", key], "unavailable field lineage must have zero counts");
+  }
+  if (lineage.unavailableReason && (lineage.omissions.length !== 1 || lineage.omissions[0] !== lineage.unavailableReason)) {
+    addIssue(issues, ["fieldLineage", "omissions"], "unavailable field lineage must have one omission equal to its reason");
+  }
+  cancellation.throwIfCancelled();
 }
 
-function validateFrontierReferences(
-  totality: RouteTotality,
+function validateAttachments(
+  attachments: readonly FieldAttachment[],
+  evidence: EvidenceIndexes,
+  surface: AvailableSurface,
+  surfaceIndexes: SurfaceIndexes,
   issues: ValidationIssue[],
   cancellation: AnalysisCancellationToken,
 ): void {
-  const lineage = totality.fieldLineage;
-  const unavailableInputs = isUnavailable(totality.occurrenceSurface) || isUnavailable(totality.evidenceSlice);
-  if (unavailableInputs) {
-    if (lineage.frontiers.length > 0) addIssue(issues, ["fieldLineage", "frontiers"], "unavailable route inputs cannot contain field frontiers");
-    return;
-  }
-  const surface = availableSurface(totality.occurrenceSurface);
-  const evidence = availableEvidence(totality.evidenceSlice);
-  if (!surface || !evidence) return;
-  const elements = new Map(evidence.elements.map((element) => [element.id, element]));
-  const relations = new Map(evidence.relations.map((relation) => [relation.id, relation]));
-  const origins = new Map(evidence.origins.map((origin) => [`${origin.elementId}:${origin.role}`, origin]));
-  const occurrences = new Map(surface.occurrences.map((occurrence) => [occurrence.id, occurrence]));
-  const definitionIds = new Set(surface.definitions.map((definition) => definition.id));
+  cancellation.throwIfCancelled();
   const ids = new Set<string>();
-  lineage.frontiers.forEach((frontier, index) => {
+  for (let index = 0; index < attachments.length; index += 1) {
     cancellation.throwIfCancelled();
+    const attachment = attachments[index];
+    const path = ["fieldLineage", "attachments", index] as Array<string | number>;
+    validateStableFieldLineageId(attachments, index, path, issues);
+    if (ids.has(attachment.id)) addIssue(issues, [...path, "id"], `duplicate field attachment id "${attachment.id}"`);
+    ids.add(attachment.id);
+    const originElement = validateOrigin(attachment.origin, evidence, [...path, "origin"], issues, cancellation);
+    const occurrence = validateOccurrence(
+      attachment.occurrenceId,
+      evidence,
+      surface,
+      surfaceIndexes,
+      [...path, "occurrenceId"],
+      issues,
+      cancellation,
+    );
+    validateField(attachment.field, evidence, [...path, "field"], issues, cancellation, true);
+    validateAttachmentProof(attachment, [...path, "proof"], issues, cancellation);
+    validateSortedFieldLineageIds(attachment.terminalIds, [...path, "terminalIds"], "terminal", issues, cancellation);
+    validateAttachmentPath(
+      attachment,
+      originElement,
+      occurrence,
+      evidence,
+      surface,
+      surfaceIndexes,
+      path,
+      issues,
+      cancellation,
+    );
+    validateFieldLineageAttachmentTerminals(
+      attachment,
+      originElement,
+      occurrence,
+      evidence,
+      surfaceIndexes,
+      path,
+      issues,
+      cancellation,
+    );
+  }
+  cancellation.throwIfCancelled();
+}
+
+function validateFrontiers(
+  frontiers: readonly FieldFrontier[],
+  evidence: EvidenceIndexes,
+  surface: SurfaceIndexes,
+  issues: ValidationIssue[],
+  cancellation: AnalysisCancellationToken,
+): void {
+  cancellation.throwIfCancelled();
+  const ids = new Set<string>();
+  for (let index = 0; index < frontiers.length; index += 1) {
+    cancellation.throwIfCancelled();
+    const frontier = frontiers[index];
     const path = ["fieldLineage", "frontiers", index] as Array<string | number>;
-    validateSortedId(lineage.frontiers, index, path, issues);
+    validateStableFieldLineageId(frontiers, index, path, issues);
     if (ids.has(frontier.id)) addIssue(issues, [...path, "id"], `duplicate field frontier id "${frontier.id}"`);
     ids.add(frontier.id);
-    const origin = origins.get(`${frontier.origin.elementId}:${frontier.origin.role}`);
-    if (!origin) addIssue(issues, [...path, "origin"], "field frontier origin is not present in the evidence slice");
-    else if (origin.status !== "proven" || origin.proof.length === 0) addIssue(issues, [...path, "origin"], "field frontier origin must be proven");
-    if (frontier.occurrenceId !== null && !occurrences.has(frontier.occurrenceId)) addIssue(issues, [...path, "occurrenceId"], "field frontier occurrence is not present in the occurrence surface");
-    if (frontier.occurrenceId !== null && definitionIds.has(frontier.occurrenceId)) addIssue(issues, [...path, "occurrenceId"], "field frontier must use an occurrence id, not a definition id");
-    if (frontier.field) validateFieldWithoutLocation(frontier.field, elements, relations, [...path, "field"], issues, cancellation);
-    if (frontier.stoppedAtElementId !== null) {
-      const element = elements.get(frontier.stoppedAtElementId);
-      if (!element) addIssue(issues, [...path, "stoppedAtElementId"], "field frontier stopped element is not in the evidence slice");
-      else if (element.proof.length === 0) addIssue(issues, [...path, "stoppedAtElementId"], "field frontier stopped element must carry proof");
+    validateOrigin(frontier.origin, evidence, [...path, "origin"], issues, cancellation);
+    if (!frontier.field) {
+      addIssue(issues, [...path, "field"], "Milestone 1 field frontiers require the last exact field identity");
+    } else {
+      validateField(frontier.field, evidence, [...path, "field"], issues, cancellation, false);
     }
-    if (frontier.stoppedAtRelationId !== null) {
-      const relation = relations.get(frontier.stoppedAtRelationId);
-      if (!relation) addIssue(issues, [...path, "stoppedAtRelationId"], "field frontier stopped relation is not in the evidence slice");
-      else if (relation.proof.locations.length === 0) addIssue(issues, [...path, "stoppedAtRelationId"], "field frontier stopped relation must carry proof");
+    if (frontier.occurrenceId !== null) {
+      validateOccurrence(
+        frontier.occurrenceId,
+        evidence,
+        undefined,
+        surface,
+        [...path, "occurrenceId"],
+        issues,
+        cancellation,
+      );
     }
-    if (frontier.proof.some((proof) => proof.locations.length === 0)) addIssue(issues, [...path, "proof"], "field frontier proof requires locations");
-    if (frontier.proof.length === 0) addIssue(issues, [...path, "proof"], "field frontier requires proof");
-    if (frontier.reason === "partial-proof" && !frontier.proof.some((proof) => proof.status === "partial")) addIssue(issues, [...path, "proof"], "partial-proof frontier requires partial proof");
-  });
+    validateFrontierStop(frontier, evidence, path, issues, cancellation);
+  }
+  cancellation.throwIfCancelled();
+}
+
+function validateOrigin(
+  origin: { elementId: string; role: string },
+  evidence: EvidenceIndexes,
+  path: Array<string | number>,
+  issues: ValidationIssue[],
+  cancellation: AnalysisCancellationToken,
+): EvidenceElement | undefined {
+  cancellation.throwIfCancelled();
+  const key = `${origin.elementId}:${origin.role}`;
+  const records = evidence.originsByKey.get(key) ?? [];
+  if (records.length !== 1) {
+    addIssue(issues, path, "field lineage origin must have one exact evidence origin record");
+  } else if (!fullyProvenOrigin(records[0], cancellation)) {
+    addIssue(issues, path, "field lineage origin record must be fully proven with located proof");
+  }
+  const elements = evidence.elementsById.get(origin.elementId) ?? [];
+  if (elements.length !== 1) {
+    addIssue(issues, path, "field lineage origin must have one exact evidence element");
+    return undefined;
+  }
+  const element = elements[0];
+  if (!isFullyProvenElement(element, cancellation)) {
+    addIssue(issues, path, "field lineage origin evidence element must be fully proven with located proof");
+  }
+  if (!hasFieldLineageId(element.originRoles, origin.role as EvidenceOrigin["role"], cancellation)) {
+    addIssue(issues, path, "field lineage origin role must match its exact evidence element kind");
+  }
+  cancellation.throwIfCancelled();
+  return element;
+}
+
+function validateOccurrence(
+  occurrenceId: string,
+  evidence: EvidenceIndexes,
+  availableSurface: AvailableSurface | undefined,
+  surface: SurfaceIndexes,
+  path: Array<string | number>,
+  issues: ValidationIssue[],
+  cancellation: AnalysisCancellationToken,
+): SurfaceOccurrence | undefined {
+  cancellation.throwIfCancelled();
+  const occurrences = surface.occurrencesById.get(occurrenceId) ?? [];
+  if (occurrences.length !== 1) {
+    addIssue(issues, path, "field lineage occurrence must exist exactly once in the occurrence surface");
+    return undefined;
+  }
+  const occurrence = occurrences[0];
+  if (surface.definitionIds.has(occurrenceId)) {
+    addIssue(issues, path, "field lineage occurrence cannot use a definition id");
+  }
+  const anchors = endpointOccurrenceAnchors(surface.anchors, occurrenceId, cancellation);
+  if (anchors.length !== 1 || surface.anchors.occurrenceIssuesByEndpointId.has(occurrenceId)) {
+    addIssue(issues, path, "field lineage occurrence must have one unshared exact evidence anchor");
+  } else {
+    const reverse = surface.anchors.occurrenceAnchorsByEvidenceElementId.get(anchors[0].evidenceElementId) ?? [];
+    if (reverse.length !== 1 || !isFullyProvenElement(exactElement(evidence, anchors[0].evidenceElementId), cancellation)) {
+      addIssue(issues, path, "field lineage occurrence anchor must be uniquely and fully proven");
+    }
+  }
+  if (availableSurface && occurrence.parentOccurrenceId === null
+    && (occurrence.scopeSeed !== availableSurface.scope.seed || occurrence.id !== surface.rootOccurrenceId)) {
+    addIssue(issues, path, "root field attachment is allowed only for the exact route seed occurrence");
+  }
+  cancellation.throwIfCancelled();
+  return occurrence;
 }
 
 function validateField(
-  field: RouteTotality["fieldLineage"]["attachments"][number]["field"],
-  elements: Map<string, EvidenceElement>,
-  relations: Map<string, EvidenceRelation>,
+  field: FieldValue,
+  evidence: EvidenceIndexes,
   path: Array<string | number>,
   issues: ValidationIssue[],
   cancellation: AnalysisCancellationToken,
+  includesLocation: boolean,
 ): void {
-  validateFieldShape(field, path, issues, cancellation);
-  field.elementIds.forEach((elementId, index) => {
-    cancellation.throwIfCancelled();
-    const element = elements.get(elementId);
-    if (!element) addIssue(issues, [...path, "elementIds", index], "field element is not in the evidence slice");
-    else if (element.kind !== "field-read" || element.status !== "proven" || element.proof.length === 0) addIssue(issues, [...path, "elementIds", index], "field element must be a proven field-read");
-  });
-  const last = elements.get(field.elementIds[field.elementIds.length - 1]);
-  if (last && !sameLocation(last.location, field.location)) addIssue(issues, [...path, "location"], "field location must match the final field-read element");
-  validateFieldContinuity(field.elementIds, relations, path, issues, cancellation);
-}
-
-function validateFieldWithoutLocation(
-  field: NonNullable<RouteTotality["fieldLineage"]["frontiers"][number]["field"]>,
-  elements: Map<string, EvidenceElement>,
-  relations: Map<string, EvidenceRelation>,
-  path: Array<string | number>,
-  issues: ValidationIssue[],
-  cancellation: AnalysisCancellationToken,
-): void {
-  validateFieldShape(field, path, issues, cancellation);
-  for (const elementId of field.elementIds) {
-    cancellation.throwIfCancelled();
-    const element = elements.get(elementId);
-    if (!element) addIssue(issues, [...path, "elementIds"], "frontier field element is not in the evidence slice");
-    else if (element.kind !== "field-read" || element.status !== "proven" || element.proof.length === 0) addIssue(issues, [...path, "elementIds"], "frontier field element must be a proven field-read");
+  cancellation.throwIfCancelled();
+  if (field.elementIds.length !== field.segments.length) {
+    addIssue(issues, path, "field element and segment counts must match");
   }
-  validateFieldContinuity(field.elementIds, relations, path, issues, cancellation);
-}
-
-function validateFieldShape(
-  field: { elementIds: string[]; segments: Array<{ kind: string; value: string }>; label: string },
-  path: Array<string | number>,
-  issues: ValidationIssue[],
-  cancellation: AnalysisCancellationToken,
-): void {
-  if (field.elementIds.length !== field.segments.length) addIssue(issues, path, "field element and segment counts must match");
-  const expectedLabel = field.segments.reduce((label, segment) => label ? `${label}.${segment.value}` : segment.value, "");
-  if (field.label !== expectedLabel) addIssue(issues, [...path, "label"], "field label must be built from exact field segments");
-  field.segments.forEach((segment, index) => {
+  if (field.elementIds.length === 0) addIssue(issues, [...path, "elementIds"], "field requires at least one element");
+  let expectedLabel = "";
+  for (let index = 0; index < field.segments.length; index += 1) {
     cancellation.throwIfCancelled();
-    if (segment.kind !== "property") addIssue(issues, [...path, "segments", index], "Milestone 1 field segments must be named properties");
-    if (segment.value.length === 0) addIssue(issues, [...path, "segments", index, "value"], "field segment value must not be empty");
-  });
-}
-
-function validateFieldContinuity(
-  elementIds: string[],
-  relations: Map<string, EvidenceRelation>,
-  path: Array<string | number>,
-  issues: ValidationIssue[],
-  cancellation: AnalysisCancellationToken,
-): void {
-  for (let index = 0; index + 1 < elementIds.length; index += 1) {
-    cancellation.throwIfCancelled();
-    const matching = [...relations.values()].filter((relation) => relation.from === elementIds[index] && relation.to === elementIds[index + 1]);
-    if (matching.length !== 1 || matching[0].kind !== "field-input" || matching[0].status !== "proven" || matching[0].proof.locations.length === 0) {
-      addIssue(issues, [...path, "elementIds", index], "field element chain must use one exact proven field-input relation");
+    const segment = field.segments[index];
+    if (segment.kind !== "property" || segment.value.length === 0) {
+      addIssue(issues, [...path, "segments", index], "Milestone 1 fields require static named property segments");
     }
-  }
-}
-
-function validatePath(
-  attachment: RouteTotality["fieldLineage"]["attachments"][number],
-  origin: EvidenceOrigin | undefined,
-  occurrence: SurfaceOccurrence | undefined,
-  elements: Map<string, EvidenceElement>,
-  relations: Map<string, EvidenceRelation>,
-  terminals: Map<string, SurfaceTerminal>,
-  surface: AvailableSurface,
-  evidence: AvailableEvidence,
-  path: Array<string | number>,
-  issues: ValidationIssue[],
-  cancellation: AnalysisCancellationToken,
-): void {
-  if (origin && attachment.evidencePathElementIds[0] !== origin.elementId) addIssue(issues, [...path, "evidencePathElementIds", 0], "field path must start at its exact origin element");
-  validateUnique(attachment.evidencePathElementIds, [...path, "evidencePathElementIds"], "evidence element", issues, cancellation);
-  validateUnique(attachment.evidencePathRelationIds, [...path, "evidencePathRelationIds"], "evidence relation", issues, cancellation);
-  if (attachment.evidencePathRelationIds.length !== attachment.evidencePathElementIds.length - 1) addIssue(issues, path, "field path must contain one relation between adjacent elements");
-  attachment.evidencePathElementIds.forEach((elementId, index) => {
-    cancellation.throwIfCancelled();
-    const element = elements.get(elementId);
-    if (!element) addIssue(issues, [...path, "evidencePathElementIds", index], "field path references an unknown evidence element");
-    else if (element.proof.length === 0 || element.status === "unsupported") addIssue(issues, [...path, "evidencePathElementIds", index], "field path elements must be proven or partial");
-  });
-  attachment.evidencePathRelationIds.forEach((relationId, index) => {
-    cancellation.throwIfCancelled();
-    const relation = relations.get(relationId);
-    if (!relation) {
-      addIssue(issues, [...path, "evidencePathRelationIds", index], "field path references an unknown relation");
-      return;
-    }
-    const from = attachment.evidencePathElementIds[index];
-    const to = attachment.evidencePathElementIds[index + 1];
-    if (relation.from !== from || relation.to !== to) addIssue(issues, [...path, "evidencePathRelationIds", index], "field path relation does not connect adjacent elements");
-    if (relation.status === "unsupported" || relation.proof.locations.length === 0) addIssue(issues, [...path, "evidencePathRelationIds", index], "field path relations must carry proof");
-  });
-  const fieldPositions = attachment.field.elementIds.map((id) => attachment.evidencePathElementIds.indexOf(id));
-  if (fieldPositions.some((position, index) => position < 0 || (index > 0 && position <= fieldPositions[index - 1]))) addIssue(issues, [...path, "field"], "field elements must appear in path order");
-  const finalPathElementId = attachment.evidencePathElementIds[attachment.evidencePathElementIds.length - 1];
-  const finalTerminalAnchorIds = new Set<string>();
-  for (const terminalId of attachment.terminalIds) {
-    cancellation.throwIfCancelled();
-    const terminal = terminals.get(terminalId);
-    if (!terminal) {
-      addIssue(issues, [...path, "terminalIds"], `field attachment references unknown terminal "${terminalId}"`);
+    expectedLabel = expectedLabel ? `${expectedLabel}.${segment.value}` : segment.value;
+    const element = exactElement(evidence, field.elementIds[index]);
+    if (!element) {
+      addIssue(issues, [...path, "elementIds", index], "field element must exist exactly once in the evidence slice");
       continue;
     }
-    const expectedKind = terminal.kind === "jsx-text" || terminal.kind === "render-expression" ? "render-terminal" : "dom-terminal";
-    const candidates = evidence.elements.filter((element) => element.kind === expectedKind
-      && provenEvidenceElement(element)
-      && element.terminalRoles.includes("render")
-      && evidence.terminals.some((item) => item.elementId === element.id
-        && item.role === "render"
-        && item.status === "proven"
-        && item.proof.length > 0
-        && item.proof.every((proof) => proof.status === "proven" && proof.locations.length > 0))
-      && sameLocation(element.location, terminal.location));
-    if (candidates.length !== 1) addIssue(issues, [...path, "terminalIds"], "terminal must use one exact evidence anchor");
-    if (candidates.length === 1) {
-      if (!terminalReachableFromField(attachment.field.elementIds[attachment.field.elementIds.length - 1], candidates[0].id, elements, relations, cancellation)) {
-        addIssue(issues, [...path, "terminalIds"], "terminal must be reachable through the proven field route path");
-      }
-      if (candidates[0].id === finalPathElementId) finalTerminalAnchorIds.add(candidates[0].id);
+    if (!isFullyProvenElement(element, cancellation)
+      || element.kind !== "field-read"
+      || element.operationKind !== "field-read"
+      || element.fieldName !== segment.value) {
+      addIssue(issues, [...path, "elementIds", index], "field element must be the exact fully proven static named field-read");
     }
-    if (terminal.ownerOccurrenceId !== null && terminal.ownerOccurrenceId !== attachment.occurrenceId) addIssue(issues, [...path, "terminalIds"], "terminal owner must match the field attachment occurrence");
+    if (index > 0) {
+      validateFieldInput(field.elementIds[index - 1], field.elementIds[index], evidence, [...path, "elementIds", index], issues, cancellation);
+    }
   }
-  if (attachment.terminalIds.length > 0 && finalTerminalAnchorIds.size === 0) addIssue(issues, [...path, "evidencePathElementIds"], "field path must end at one exact terminal anchor");
-  if (occurrence && occurrence.parentOccurrenceId === null && occurrence.scopeSeed !== surface.scope.seed) addIssue(issues, [...path, "occurrenceId"], "root field attachment must use the selected route scope root");
+  if (field.label !== expectedLabel) addIssue(issues, [...path, "label"], "field label must be built from exact field segments");
+  if (includesLocation && "location" in field && field.elementIds.length > 0) {
+    const final = exactElement(evidence, field.elementIds[field.elementIds.length - 1]);
+    if (final && !sameLocations([final.location], [field.location], cancellation)) {
+      addIssue(issues, [...path, "location"], "field location must match the final exact field-read");
+    }
+  }
+  cancellation.throwIfCancelled();
 }
 
-function terminalReachableFromField(
-  fieldElementId: string,
-  terminalElementId: string,
-  elements: Map<string, EvidenceElement>,
-  relations: Map<string, EvidenceRelation>,
+function validateFieldInput(
+  from: string,
+  to: string,
+  evidence: EvidenceIndexes,
+  path: Array<string | number>,
+  issues: ValidationIssue[],
   cancellation: AnalysisCancellationToken,
-): boolean {
-  const preservingKinds = new Set(["references", "argument-binding", "return-expression", "return-value"]);
-  const relationsByFrom = new Map<string, EvidenceRelation[]>();
-  for (const relation of relations.values()) {
+): void {
+  cancellation.throwIfCancelled();
+  const source = exactElement(evidence, from);
+  const target = exactElement(evidence, to);
+  const outgoing = evidence.outgoing.get(from) ?? [];
+  const matches: EvidenceRelation[] = [];
+  for (const relation of outgoing) {
     cancellation.throwIfCancelled();
-    if (!preservingKinds.has(relation.kind) && relation.kind !== "render-terminal") continue;
-    const current = relationsByFrom.get(relation.from) ?? [];
-    current.push(relation);
-    relationsByFrom.set(relation.from, current);
-  }
-  const queue = [fieldElementId];
-  const visited = new Set<string>();
-  while (queue.length > 0) {
-    cancellation.throwIfCancelled();
-    const currentId = queue.shift()!;
-    if (visited.has(currentId)) continue;
-    visited.add(currentId);
-    for (const relation of relationsByFrom.get(currentId) ?? []) {
-      cancellation.throwIfCancelled();
-      if (relation.status !== "proven" || relation.proof.status !== "proven" || relation.proof.locations.length === 0) continue;
-      const target = elements.get(relation.to);
-      if (!target || !provenEvidenceElement(target)) continue;
-      if (relation.kind === "render-terminal") {
-        if (target.id === terminalElementId) return true;
-        continue;
-      }
-      if (!visited.has(target.id)) queue.push(target.id);
+    if (relation.from === from && relation.to === to && relation.kind === "field-input" && isFullyProvenRelation(relation, cancellation)) {
+      matches.push(relation);
     }
   }
-  return false;
+  if (matches.length !== 1 || !source || !target) {
+    addIssue(issues, path, "adjacent field elements require one exact proven field-input relation");
+    return;
+  }
+  const transition = classifyRouteTotalityFieldTransition({
+    relation: matches[0],
+    source,
+    target,
+    outgoingRelations: outgoing,
+    incomingRelations: evidence.incoming.get(to) ?? [],
+    hasField: true,
+    isInitialOrigin: false,
+    staticNamedField: target.fieldName !== null,
+    occurrenceAnchorCount: 0,
+    terminalAnchorCount: 0,
+    currentOccurrenceId: null,
+    terminalOwnerOccurrenceId: undefined,
+    cancellation,
+  });
+  if (transition.kind !== "field-input") {
+    addIssue(issues, path, "adjacent field elements must satisfy the exact field-input transition policy");
+  }
+  cancellation.throwIfCancelled();
 }
 
-function lineageCounts(
+function validateAttachmentPath(
+  attachment: FieldAttachment,
+  origin: EvidenceElement | undefined,
+  occurrence: SurfaceOccurrence | undefined,
+  evidence: EvidenceIndexes,
+  availableSurface: AvailableSurface,
+  surface: SurfaceIndexes,
+  path: Array<string | number>,
+  issues: ValidationIssue[],
+  cancellation: AnalysisCancellationToken,
+): void {
+  cancellation.throwIfCancelled();
+  const elementIds = attachment.evidencePathElementIds;
+  const relationIds = attachment.evidencePathRelationIds;
+  if (elementIds.length === 0) {
+    addIssue(issues, [...path, "evidencePathElementIds"], "field attachment requires an exact evidence path");
+    return;
+  }
+  if (elementIds[0] !== attachment.origin.elementId) {
+    addIssue(issues, [...path, "evidencePathElementIds", 0], "field attachment path must start at its exact origin");
+  }
+  if (origin && elementIds[0] !== origin.id) {
+    addIssue(issues, [...path, "evidencePathElementIds", 0], "field attachment path must start at the proven origin evidence element");
+  }
+  validateUniqueFieldLineageIds(elementIds, [...path, "evidencePathElementIds"], "evidence element", issues, cancellation);
+  validateUniqueFieldLineageIds(relationIds, [...path, "evidencePathRelationIds"], "evidence relation", issues, cancellation);
+  if (relationIds.length !== elementIds.length - 1) {
+    addIssue(issues, path, "field attachment path must contain one relation between adjacent elements");
+  }
+  for (let index = 0; index < elementIds.length; index += 1) {
+    cancellation.throwIfCancelled();
+    const element = exactElement(evidence, elementIds[index]);
+    if (!element || !isFullyProvenElement(element, cancellation)) {
+      addIssue(issues, [...path, "evidencePathElementIds", index], "field attachment path elements must be unique, existing, and fully proven");
+    }
+  }
+
+  let currentOccurrenceId = surface.rootOccurrenceId;
+  let fieldIndex = 0;
+  let componentAttachment = false;
+  let terminalAttachment = false;
+  for (let index = 0; index < relationIds.length; index += 1) {
+    cancellation.throwIfCancelled();
+    const relation = exactRelation(evidence, relationIds[index]);
+    const source = exactElement(evidence, elementIds[index]);
+    const target = exactElement(evidence, elementIds[index + 1]);
+    if (!relation || !source || !target) {
+      addIssue(issues, [...path, "evidencePathRelationIds", index], "field attachment path relation must connect exact existing evidence");
+      continue;
+    }
+    if (relation.from !== source.id || relation.to !== target.id || !isFullyProvenRelation(relation, cancellation)) {
+      addIssue(issues, [...path, "evidencePathRelationIds", index], "field attachment path relation must exactly connect fully proven adjacent elements");
+      continue;
+    }
+    const occurrenceAnchors = surface.anchors.occurrenceAnchorsByEvidenceElementId.get(target.id) ?? [];
+    const terminalAnchors = surface.anchors.terminalAnchorsByEvidenceElementId.get(target.id) ?? [];
+    const terminal = terminalAnchors.length === 1 ? terminalAnchors[0].endpoint : undefined;
+    const transition = classifyRouteTotalityFieldTransition({
+      relation,
+      source,
+      target,
+      outgoingRelations: evidence.outgoing.get(source.id) ?? [],
+      incomingRelations: evidence.incoming.get(target.id) ?? [],
+      hasField: fieldIndex > 0,
+      isInitialOrigin: index === 0 && source.id === attachment.origin.elementId,
+      staticNamedField: target.fieldName !== null,
+      occurrenceAnchorCount: occurrenceAnchors.length,
+      terminalAnchorCount: terminalAnchors.length,
+      currentOccurrenceId,
+      terminalOwnerOccurrenceId: terminal?.ownerOccurrenceId,
+      cancellation,
+    });
+    if (transition.kind === "stop") {
+      addIssue(issues, [...path, "evidencePathRelationIds", index], "field attachment path uses a partial or unsupported field transition");
+      continue;
+    }
+    if (transition.kind === "field-input") {
+      if (fieldIndex >= attachment.field.elementIds.length || target.id !== attachment.field.elementIds[fieldIndex]) {
+        addIssue(issues, [...path, "field"], "field elements must occur in the exact accepted path order");
+      }
+      fieldIndex += 1;
+      continue;
+    }
+    if (transition.kind === "component-prop") {
+      const anchor = occurrenceAnchors[0];
+      componentAttachment = true;
+      currentOccurrenceId = anchor?.endpoint.id ?? null;
+      if (index !== relationIds.length - 1
+        || !occurrence
+        || anchor?.endpoint.id !== occurrence.id
+        || target.id !== endpointOccurrenceAnchorId(surface.anchors, occurrence.id, cancellation)) {
+        addIssue(issues, [...path, "evidencePathElementIds", index + 1], "component-prop attachment must end at its exact occurrence anchor");
+      }
+      continue;
+    }
+    if (transition.kind === "render-terminal") {
+      terminalAttachment = true;
+      const anchor = terminalAnchors[0];
+      if (index !== relationIds.length - 1
+        || !anchor
+        || !hasFieldLineageId(attachment.terminalIds, anchor.endpoint.id, cancellation)) {
+        addIssue(issues, [...path, "evidencePathElementIds", index + 1], "render-terminal attachment path must end at one listed exact terminal anchor");
+      }
+    }
+  }
+  if (fieldIndex !== attachment.field.elementIds.length || fieldIndex === 0) {
+    addIssue(issues, [...path, "field"], "attachment path must carry every exact field element");
+  }
+  if (componentAttachment) {
+    if (attachment.terminalIds.length > 0 || terminalAttachment) {
+      addIssue(issues, [...path, "terminalIds"], "component-prop attachments stop at the occurrence and cannot contain terminals");
+    }
+  } else if (!terminalAttachment || attachment.terminalIds.length === 0) {
+    addIssue(issues, [...path, "evidencePathElementIds"], "field attachment must end at an exact component occurrence or render terminal");
+  }
+  if (occurrence?.parentOccurrenceId === null
+    && (occurrence.scopeSeed !== availableSurface.scope.seed || occurrence.id !== surface.rootOccurrenceId)) {
+    addIssue(issues, [...path, "occurrenceId"], "root attachment must use the exact route seed occurrence");
+  }
+  cancellation.throwIfCancelled();
+}
+
+function validateAttachmentProof(
+  attachment: FieldAttachment,
+  path: Array<string | number>,
+  issues: ValidationIssue[],
+  cancellation: AnalysisCancellationToken,
+): void {
+  cancellation.throwIfCancelled();
+  if (attachment.proof.length === 0 || attachment.locations.length === 0) {
+    addIssue(issues, path, "field attachment requires proof and locations");
+  }
+  for (const proof of attachment.proof) {
+    cancellation.throwIfCancelled();
+    if (!isFullyProvenProof(proof) || !sameLocations(proof.locations, attachment.locations, cancellation)) {
+      addIssue(issues, path, "field attachment proof must be fully proven and match attachment locations");
+    }
+  }
+  cancellation.throwIfCancelled();
+}
+
+function validateFrontierStop(
+  frontier: FieldFrontier,
+  evidence: EvidenceIndexes,
+  path: Array<string | number>,
+  issues: ValidationIssue[],
+  cancellation: AnalysisCancellationToken,
+): void {
+  cancellation.throwIfCancelled();
+  if (frontier.stoppedAtElementId !== null && !exactElement(evidence, frontier.stoppedAtElementId)) {
+    addIssue(issues, [...path, "stoppedAtElementId"], "field frontier stopped element must exist exactly once");
+  }
+  if (frontier.stoppedAtRelationId !== null && !exactRelation(evidence, frontier.stoppedAtRelationId)) {
+    addIssue(issues, [...path, "stoppedAtRelationId"], "field frontier stopped relation must exist exactly once");
+  }
+  if (frontier.proof.length === 0) addIssue(issues, [...path, "proof"], "field frontier requires proof");
+  let hasPartialProof = false;
+  for (const proof of frontier.proof) {
+    cancellation.throwIfCancelled();
+    if (proof.locations.length === 0 || proof.status === "unsupported") {
+      addIssue(issues, [...path, "proof"], "field frontier proof requires a located proven or partial proof");
+    }
+    if (proof.status === "partial") hasPartialProof = true;
+  }
+  if ((frontier.reason === "partial-proof" || frontier.reason === "evidence-truncated") && !hasPartialProof) {
+    addIssue(issues, [...path, "proof"], "partial and truncation frontiers require partial proof");
+  }
+  if (frontier.reason === "evidence-truncated") {
+    const stopped = frontier.stoppedAtElementId ? exactElement(evidence, frontier.stoppedAtElementId) : undefined;
+    if (!stopped || !isFullyProvenElement(stopped, cancellation)) {
+      addIssue(issues, [...path, "stoppedAtElementId"], "truncation frontier must retain its last fully proven element");
+    }
+  }
+  cancellation.throwIfCancelled();
+}
+
+function validateStatus(
   lineage: RouteTotality["fieldLineage"],
+  partialInputs: boolean,
+  issues: ValidationIssue[],
   cancellation: AnalysisCancellationToken,
-) {
-  const origins = new Set<string>();
-  const fields = new Set<string>();
-  const occurrences = new Set<string>();
-  const terminals = new Set<string>();
-  for (const attachment of lineage.attachments) {
-    cancellation.throwIfCancelled();
-    origins.add(`${attachment.origin.elementId}:${attachment.origin.role}`);
-    fields.add(attachment.field.elementIds.join("\u0000"));
-    occurrences.add(attachment.occurrenceId);
-    for (const terminal of attachment.terminalIds) terminals.add(terminal);
+): void {
+  cancellation.throwIfCancelled();
+  if (lineage.frontiers.length > MAX_FRONTIERS) {
+    addIssue(issues, ["fieldLineage", "frontiers"], `field lineage may emit at most ${MAX_FRONTIERS} frontiers`);
   }
-  for (const frontier of lineage.frontiers) {
+  let capOmissions = 0;
+  for (const omission of lineage.omissions) {
     cancellation.throwIfCancelled();
-    origins.add(`${frontier.origin.elementId}:${frontier.origin.role}`);
-    if (frontier.field) fields.add(frontier.field.elementIds.join("\u0000"));
-    if (frontier.occurrenceId) occurrences.add(frontier.occurrenceId);
+    if (CAP_OMISSION.test(omission)) capOmissions += 1;
   }
-  return { origins: origins.size, fields: fields.size, occurrences: occurrences.size, terminals: terminals.size, frontiers: lineage.frontiers.length };
-}
-
-function validateSortedId<T extends { id: string }>(items: readonly T[], index: number, path: Array<string | number>, issues: ValidationIssue[]): void {
-  if (index > 0 && items[index - 1].id.localeCompare(items[index].id) > 0) addIssue(issues, path, "items must be sorted by stable id");
-}
-
-function validateUniqueSorted(values: readonly string[], path: Array<string | number>, label: string, issues: ValidationIssue[], cancellation: AnalysisCancellationToken): void {
-  const seen = new Set<string>();
-  values.forEach((value, index) => {
-    cancellation.throwIfCancelled();
-    if (seen.has(value)) addIssue(issues, [...path, index], `duplicate ${label} id "${value}"`);
-    seen.add(value);
-    if (index > 0 && values[index - 1].localeCompare(value) > 0) addIssue(issues, [...path, index], `${label} ids must be sorted`);
-  });
-}
-
-function validateUnique(values: readonly string[], path: Array<string | number>, label: string, issues: ValidationIssue[], cancellation: AnalysisCancellationToken): void {
-  const seen = new Set<string>();
-  values.forEach((value, index) => {
-    cancellation.throwIfCancelled();
-    if (seen.has(value)) addIssue(issues, [...path, index], `duplicate ${label} id "${value}"`);
-    seen.add(value);
-  });
-}
-
-function sameLocations(left: readonly RouteTotality["scopeProof"][number]["locations"][number][], right: readonly RouteTotality["scopeProof"][number]["locations"][number][]): boolean {
-  return JSON.stringify(left.map(locationKey)) === JSON.stringify(right.map(locationKey));
-}
-
-function sameLocation(left: RouteTotality["scopeProof"][number]["locations"][number], right: RouteTotality["scopeProof"][number]["locations"][number]): boolean {
-  return locationKey(left) === locationKey(right);
-}
-
-function locationKey(location: RouteTotality["scopeProof"][number]["locations"][number]): string {
-  return `${location.file}:${location.line}:${location.column}:${location.span.startLine}:${location.span.startColumn}:${location.span.endLine}:${location.span.endColumn}`;
-}
-
-function isUnavailable(value: unknown): value is { status: "unavailable"; reason: string } {
-  return Boolean(value && typeof value === "object" && "reason" in value && (value as { status?: unknown }).status === "unavailable");
-}
-
-function availableEvidence(value: RouteTotality["evidenceSlice"]): AvailableEvidence | null {
-  return "elements" in value ? value : null;
-}
-
-function availableSurface(value: RouteTotality["occurrenceSurface"]): AvailableSurface | null {
-  return "occurrences" in value ? value : null;
-}
-
-function hasPartialInputs(totality: RouteTotality): boolean {
-  const surface = availableSurface(totality.occurrenceSurface);
-  const evidence = availableEvidence(totality.evidenceSlice);
-  if (!surface || !evidence) return false;
-  return surface.status !== "complete"
-    || Object.values(surface.truncation).some(Boolean)
-    || !evidence.coverage.complete
-    || evidence.coverage.budgetExhausted
-    || Object.values(evidence.coverage.truncation).some(Boolean);
-}
-
-function exactOccurrenceAnchorId(
-  occurrence: SurfaceOccurrence,
-  entryElementId: string,
-  evidence: AvailableEvidence,
-): string | null {
-  if (occurrence.parentOccurrenceId === null && occurrence.scopeSeed === entryElementId) {
-    const entry = evidence.elements.find((element) => element.id === entryElementId);
-    return entry && provenEvidenceElement(entry) && sameLocation(entry.location, occurrence.callSite) ? entry.id : null;
+  if (capOmissions > 1) addIssue(issues, ["fieldLineage", "omissions"], "field frontier cap omission must appear once");
+  if (capOmissions > 0 && lineage.frontiers.length !== MAX_FRONTIERS) {
+    addIssue(issues, ["fieldLineage", "frontiers"], "capped field lineage must retain the full bounded frontier count");
   }
-  const candidates = evidence.elements.filter((element) => element.kind === "component-occurrence"
-    && provenEvidenceElement(element)
-    && sameLocation(element.location, occurrence.callSite));
-  return candidates.length === 1 ? candidates[0].id : null;
-}
-
-function provenEvidenceElement(element: EvidenceElement): boolean {
-  return element.status === "proven"
-    && element.proof.length > 0
-    && element.proof.every((proof) => proof.status === "proven" && proof.locations.length > 0);
+  const partialReason = lineage.frontiers.length > 0 || partialInputs || capOmissions > 0;
+  if (lineage.status === "complete") {
+    if (partialReason) addIssue(issues, ["fieldLineage", "status"], "complete field lineage cannot have frontiers, caps, or partial inputs");
+    if (lineage.omissions.length > 0) addIssue(issues, ["fieldLineage", "omissions"], "complete field lineage cannot contain omissions");
+  }
+  if (lineage.status === "partial" && !partialReason) {
+    addIssue(issues, ["fieldLineage", "status"], "partial field lineage requires a frontier, partial input, or capped frontier output");
+  }
+  cancellation.throwIfCancelled();
 }
