@@ -369,7 +369,11 @@ function receiverRootForBindingReceiver(
 ): boolean {
   cancellation.throwIfCancelled();
   const receiver = exactElement(evidence, receiverId);
-  if (!receiver || receiver.kind !== "field-read" || receiver.operationKind !== "field-read" || receiver.fieldName === null) return false;
+  if (!receiver
+    || !isFullyProvenElement(receiver, cancellation)
+    || receiver.kind !== "field-read"
+    || receiver.operationKind !== "field-read"
+    || receiver.fieldName === null) return false;
   const fieldInputs = (evidence.incoming.get(receiverId) ?? []).filter((relation) =>
     relation.kind === "field-input" && isFullyProvenRelation(relation, cancellation),
   );
@@ -384,7 +388,13 @@ function receiverRootForBindingReceiver(
   if (references.length !== 1) return false;
   const parameter = exactElement(evidence, references[0].from);
   cancellation.throwIfCancelled();
-  return Boolean(parameter?.symbol && root.symbol && parameter.symbol === root.symbol);
+  return Boolean(
+    parameter
+      && isFullyProvenElement(parameter, cancellation)
+      && parameter.symbol
+      && root.symbol
+      && parameter.symbol === root.symbol,
+  );
 }
 
 function hasComponentPropBridge(
