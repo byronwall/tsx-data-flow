@@ -15,7 +15,7 @@ The implementation must:
 
 - start from one exact evidence origin and role;
 - preserve field identity only through explicit proven transitions;
-- attach fields to `RouteRenderOccurrence.id` values;
+- attach terminal-qualified fields to exact `RouteRenderOccurrence.id` values;
 - keep consumer handoffs separate from field lineage;
 - show no label after field identity becomes lost;
 - preserve proof locations, accepted evidence IDs, and stop reasons; and
@@ -34,9 +34,11 @@ The implementation must:
   attribute objects.
 - Build canonical nested labels from exact chained reads, such as
   `profile.name`. Keep element IDs as the identity.
-- Keep `component-prop` consumer handoffs separate from field lineage. A proven
-  `component-prop` can attach a field to its exact occurrence and then stops.
-  It never enters the component body in Milestone 1.
+- Keep `component-prop` consumer handoffs separate from field lineage. In
+  Milestone 1, a proven `component-prop` preserves only that consumer handoff.
+  It emits no field attachment and does not enter the component body. A field
+  attachment across that boundary requires later unique occurrence-specific
+  `component-prop-binding` evidence.
 - Start with named property reads.
 - Add literal string and numeric index reads in Milestone 3. Reject every
   computed index.
@@ -64,8 +66,8 @@ Milestone 1 policy:
 | Exact alias | Preserve | Preserve | Require the endpoint-aware transition table. |
 | `field-input` into `field-read` | Preserve | Begin | Use the exact field element and property evidence. |
 | Exact argument binding | Preserve | Preserve | Require one resolved call and parameter. |
-| `component-prop` | Preserve | Stop | Attach the field to the exact consumer occurrence. Do not enter the component body. |
-| Exact JSX prop binding | Preserve | Preserve or remain absent | Milestone 2 only. |
+| `component-prop` | Preserve | Stop | Preserve only the consumer handoff. Emit no Milestone 1 field attachment or downstream label. Do not enter the component body. |
+| Exact JSX prop binding | Preserve | Preserve or remain absent | Requires later unique occurrence-specific `component-prop-binding` evidence. |
 | Exact return | Preserve | Preserve | Require one proven return path. |
 | Object pack, spread, or rename | Stop | Stop | Record an explicit frontier. |
 | Dynamic index or ambiguous merge | Lost | Lost | Show no downstream field label. |
@@ -690,7 +692,7 @@ fragments.
 | --- | --- | --- |
 | Exact selected origin and role | Domain model, projection step 3, field-focus state | 1 |
 | Proven named property reads | Field label rules and raw fact lookup | 1 |
-| Proven component occurrence identity | Shared anchor index and occurrence-keyed attachments | 1 |
+| Exact attachment occurrence identity | Shared anchor index and terminal-qualified occurrence attachments | 1 |
 | Proven render terminals | Attachment `terminalIds` and path validation | 1 |
 | Exact component prop continuity | Occurrence-specific binding element and supported binding shapes | 2 |
 | Consumer handoff separation | Existing `component-prop` remains unchanged | 2 |
