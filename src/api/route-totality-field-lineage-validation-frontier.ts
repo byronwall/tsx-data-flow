@@ -4,6 +4,7 @@ import {
   canonicalRouteTotalityFieldGap,
   hasRouteTotalityFieldGap,
 } from "../analysis/route-totality-field-lineage-truncation";
+import { componentBoundaryFrontierOccurrenceId } from "../analysis/route-totality-field-lineage-component-binding";
 import {
   classifyRouteTotalityFieldTransition,
   isFullyProvenElement,
@@ -195,7 +196,9 @@ function validateCanonicalTruncationPath(
       componentPropBoundaryCount: bindingContext?.boundaryCount,
       componentPropOccurrenceAnchorCount: bindingContext?.occurrenceAnchorCount,
       componentPropBindingReceiverCount: bindingContext?.receiverCount,
+      componentPropReceiverFieldInputCount: bindingContext?.receiverFieldInputCount,
       componentPropReceiverRootProven: bindingContext?.receiverRootProven,
+      componentPropBindingAmbiguous: bindingContext?.bindingAmbiguous,
       componentPropBindingIncomplete: bindingContext?.bindingIncomplete,
       cancellation,
     });
@@ -215,7 +218,7 @@ function validateCanonicalTruncationPath(
       continue;
     }
     if (transition.kind === "component-prop-binding-start") {
-      const boundary = componentPropBoundary(source.id, evidence, surface, cancellation);
+      const boundary = componentPropBoundary(source.id, evidence, surface, cancellation, target.id);
       if (!boundary) {
         addIssue(issues, [...path, "evidencePathRelationIds", index], "component-prop binding must retain one exact component occurrence boundary");
       } else {
@@ -238,7 +241,7 @@ function validateCanonicalTruncationPath(
   if (!frontier.field || fieldIndex !== frontier.field.elementIds.length || fieldIndex === 0) {
     addIssue(issues, [...path, "field"], "truncation path must carry every exact field element");
   }
-  if (!frontier.occurrenceId || frontier.occurrenceId !== currentOccurrenceId) {
+  if (!frontier.occurrenceId || frontier.occurrenceId !== componentBoundaryFrontierOccurrenceId(currentOccurrenceId)) {
     addIssue(issues, [...path, "occurrenceId"], "truncation frontier must retain its exact current occurrence");
   }
   cancellation.throwIfCancelled();

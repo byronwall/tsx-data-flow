@@ -181,7 +181,9 @@ export function validateFieldLineageAttachmentPath(
       componentPropBoundaryCount: bindingContext?.boundaryCount,
       componentPropOccurrenceAnchorCount: bindingContext?.occurrenceAnchorCount,
       componentPropBindingReceiverCount: bindingContext?.receiverCount,
+      componentPropReceiverFieldInputCount: bindingContext?.receiverFieldInputCount,
       componentPropReceiverRootProven: bindingContext?.receiverRootProven,
+      componentPropBindingAmbiguous: bindingContext?.bindingAmbiguous,
       componentPropBindingIncomplete: bindingContext?.bindingIncomplete,
       cancellation,
     });
@@ -199,7 +201,7 @@ export function validateFieldLineageAttachmentPath(
       continue;
     }
     if (transition.kind === "component-prop-binding-start") {
-      const boundary = componentPropBoundary(source.id, evidence, surface, cancellation);
+      const boundary = componentPropBoundary(source.id, evidence, surface, cancellation, target.id);
       if (!boundary) {
         addIssue(issues, [...path, "evidencePathRelationIds", index], "component-prop binding must retain one exact component occurrence boundary");
       } else {

@@ -53,7 +53,9 @@ export type FieldLineageTransitionContext = {
   componentPropBoundaryCount?: number;
   componentPropOccurrenceAnchorCount?: number;
   componentPropBindingReceiverCount?: number;
+  componentPropReceiverFieldInputCount?: number;
   componentPropReceiverRootProven?: boolean;
+  componentPropBindingAmbiguous?: boolean;
   componentPropBindingIncomplete?: boolean;
   cancellation: AnalysisCancellationToken;
 };
@@ -193,6 +195,12 @@ export function classifyRouteTotalityFieldTransition(
             reason: (context.componentPropBindingReceiverCount ?? 0) > 1 ? "ambiguous-target" : "partial-proof",
           };
         }
+        if (context.componentPropReceiverFieldInputCount !== 1) {
+          return {
+            kind: "stop",
+            reason: (context.componentPropReceiverFieldInputCount ?? 0) > 1 ? "ambiguous-target" : "partial-proof",
+          };
+        }
         if (context.componentPropReceiverRootProven !== true) return { kind: "stop", reason: "partial-proof" };
         if (context.staticNamedField === null) return { kind: "stop", reason: "partial-proof" };
         if (!context.staticNamedField) return { kind: "stop", reason: "unsupported-relation" };
@@ -297,6 +305,7 @@ export function isFullyProvenProof(proof: EvidenceProof): boolean {
 function incompleteEvidenceReason(context: FieldLineageTransitionContext): FieldLineageStopReason | null {
   const { relation, source, target } = context;
   if (!source || !target) return "partial-proof";
+  if (relation.kind === "component-prop-binding" && context.componentPropBindingAmbiguous) return "ambiguous-target";
   if (relation.kind === "component-prop-binding" && context.componentPropBindingIncomplete) return "partial-proof";
   if (isFullyProvenRelation(relation, context.cancellation)
     && isFullyProvenElement(source, context.cancellation)

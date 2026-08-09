@@ -4,6 +4,13 @@ import {
   isFullyProvenElement,
   isFullyProvenRelation,
 } from "./route-totality-field-lineage-transition";
+import {
+  componentBindingDefinitionEvidence,
+  componentBindingOwnershipMatches,
+  componentBindingReceiverEvidence,
+  type ComponentBindingEvidenceGraph,
+  type ComponentBindingOwnershipExpectation,
+} from "./program-component-binding-metadata";
 import type { FieldState } from "./route-totality-field-lineage-support";
 import type { RouteTotalityAnchorIndex } from "./route-totality-anchor-index";
 
@@ -13,7 +20,9 @@ export type ComponentPropBindingContext = {
   boundaryCount: number;
   occurrenceAnchorCount: number;
   receiverCount: number;
+  receiverFieldInputCount: number;
   receiverRootProven: boolean;
+  bindingAmbiguous: boolean;
   bindingIncomplete: boolean;
   boundary: RouteTotalityAnchorIndex["occurrenceAnchors"][number] | null;
 };
@@ -47,12 +56,6 @@ export function componentPropBindingContext(
     ? boundaryGroups.length
     : provenBoundaryCounts[0] ?? 0;
   const completeBoundaryGroups = boundaryGroups.filter((group) => group.relations.every((candidate) => isFullyProvenRelation(candidate, cancellation)));
-  const boundaryAnchors = boundaryGroups.length === 1 && completeBoundaryGroups.length === 1 && boundaryCount === 1
-    ? anchors.occurrenceAnchorsByEvidenceElementId.get(boundaryGroups[0].targetId) ?? []
-    : [];
-  const boundary = boundaryGroups.length === 1 && completeBoundaryGroups.length === 1 && boundaryCount === 1 && boundaryAnchors.length === 1
-    ? boundaryAnchors[0]
-    : null;
   const sourceKind = elementsById.get(sourceElementId)?.kind;
   const receiverCandidates = sourceKind === "component-prop-binding"
     ? (relationsByTo.get(target.id) ?? []).filter((candidate) =>
@@ -63,24 +66,81 @@ export function componentPropBindingContext(
       candidate.kind === "component-prop-binding",
     );
   const receiverRelations = receiverCandidates.filter((candidate) => isFullyProvenRelation(candidate, cancellation));
-  const receiverRootProven = sourceKind === "component-prop-binding"
-    ? receiverCandidates.length === 1 && receiverRelations.length === 1
-      && receiverRootForBindingReceiver(target.id, relationsByTo, elementsById, cancellation)
-    : receiverCandidates.length === 1 && receiverRelations.length === 1
-      && receiverRootForBindingReceiver(receiverRelations[0].to, relationsByTo, elementsById, cancellation);
   const bindingElementId = target.kind === "component-prop-binding"
     ? target.id
     : sourceKind === "component-prop-binding" ? sourceElementId : null;
+  const bindingElement = bindingElementId ? elementsById.get(bindingElementId) : undefined;
+  const graph: ComponentBindingEvidenceGraph = {
+    element: (id) => elementsById.get(id),
+    incoming: (id) => relationsByTo.get(id) ?? [],
+    outgoing: (id) => relationsByFrom.get(id) ?? [],
+  };
+  const receiverId = receiverCandidates.length === 1
+    ? sourceKind === "component-prop-binding" ? target.id : receiverCandidates[0].to
+    : null;
+  const receiverEvidence = receiverId
+    ? componentBindingReceiverEvidence(receiverId, graph, cancellation)
+    : null;
+  const ownershipOccurrenceId = boundaryGroups.length === 1
+    ? boundaryGroups[0].targetId
+    : bindingElement?.componentBinding?.componentOccurrenceElementId ?? null;
+  const boundaryAnchors = ownershipOccurrenceId
+    ? anchors.occurrenceAnchorsByEvidenceElementId.get(ownershipOccurrenceId) ?? []
+    : [];
+  const definitionEvidence = ownershipOccurrenceId
+    ? componentBindingDefinitionEvidence(ownershipOccurrenceId, graph, cancellation)
+    : { candidates: [], definition: null, ready: false };
+  const ownershipExpectation: ComponentBindingOwnershipExpectation | null = receiverEvidence?.parameter
+    && receiverEvidence.receiver
+    && definitionEvidence.definition
+    && ownershipOccurrenceId
+    ? {
+      componentOccurrenceElementId: ownershipOccurrenceId,
+      componentDefinitionId: definitionEvidence.definition.id,
+      parameterElementId: receiverEvidence.parameter.id,
+      receiverElementId: receiverEvidence.receiver.id,
+      candidateCount: receiverCandidates.length,
+    }
+    : null;
+  const ownershipReady = Boolean(
+    bindingElement
+      && isFullyProvenElement(bindingElement, cancellation)
+      && ownershipExpectation
+      && definitionEvidence.ready
+      && receiverEvidence?.ready
+      && boundaryAnchors.length === 1
+      && componentBindingOwnershipMatches(bindingElement?.componentBinding, ownershipExpectation),
+  );
+  const bindingAmbiguous = receiverCandidates.length > 1
+    || (receiverEvidence?.fieldInputCandidates.length ?? 0) > 1
+    || (receiverEvidence?.referenceCandidates.length ?? 0) > 1
+    || definitionEvidence.candidates.length > 1
+    || boundaryCount > 1
+    || boundaryAnchors.length > 1;
+  const boundary = sourceKind !== "component-prop-binding"
+    && boundaryGroups.length === 1
+    && completeBoundaryGroups.length === 1
+    && boundaryCount === 1
+    && ownershipReady
+    ? boundaryAnchors[0]
+    : null;
   cancellation.throwIfCancelled();
   return {
     boundaryCount,
-    occurrenceAnchorCount: boundaryGroups.length === 1 && completeBoundaryGroups.length === 1 && boundaryCount === 1
+    occurrenceAnchorCount: ownershipOccurrenceId
       ? boundaryAnchors.length
       : boundaryCount,
     receiverCount: receiverCandidates.length,
-    receiverRootProven,
+    receiverFieldInputCount: receiverEvidence?.fieldInputCandidates.length ?? 0,
+    receiverRootProven: Boolean(
+      receiverCandidates.length === 1
+        && receiverRelations.length === 1
+        && receiverEvidence?.ready
+        && ownershipReady,
+    ),
+    bindingAmbiguous,
     bindingIncomplete: bindingElementId === null
-      ? completeBoundaryGroups.length !== boundaryGroups.length || receiverRelations.length !== receiverCandidates.length
+      ? true
       : componentPropBindingEvidenceIncomplete(
         bindingElementId,
         relationsByFrom,
@@ -88,7 +148,12 @@ export function componentPropBindingContext(
         elementsById,
         gapsByFrom,
         cancellation,
-      ) || completeBoundaryGroups.length !== boundaryGroups.length || receiverRelations.length !== receiverCandidates.length,
+      )
+        || (sourceKind !== "component-prop-binding" && completeBoundaryGroups.length !== boundaryGroups.length)
+        || receiverRelations.length !== receiverCandidates.length
+        || !receiverEvidence?.ready
+        || !definitionEvidence.ready
+        || !ownershipReady,
     boundary,
   };
 }
@@ -123,22 +188,26 @@ export function componentPropBindingReadiness(
   if (provenBindings.length !== 1) return "ambiguous";
   const bindingTarget = elementsById.get(provenBindings[0].to);
   if (!bindingTarget || !isFullyProvenElement(bindingTarget, cancellation)) return "partial";
-  const receivers = (relationsByFrom.get(bindingTarget.id) ?? []).filter((candidate) => candidate.kind === "component-prop-binding");
-  if (receivers.length === 0) return "partial";
-  const provenReceivers = receivers.filter((candidate) => isFullyProvenRelation(candidate, cancellation));
-  if (provenReceivers.length !== receivers.length) return "partial";
-  if (provenReceivers.length !== 1) return "ambiguous";
-  if (componentPropBindingEvidenceIncomplete(
-    bindingTarget.id,
+  const bindingContext = componentPropBindingContext(
+    sourceElementId,
+    bindingTarget,
+    outgoing,
     relationsByFrom,
     relationsByTo,
     elementsById,
     gapsByFrom,
+    anchors,
     cancellation,
-  )) return "partial";
-  return receiverRootForBindingReceiver(provenReceivers[0].to, relationsByTo, elementsById, cancellation)
-    ? "ready"
-    : "partial";
+  );
+  if (!bindingContext) return "partial";
+  if (bindingContext.bindingAmbiguous) return "ambiguous";
+  if (bindingContext.receiverCount === 0) return "partial";
+  if (bindingContext.receiverCount !== 1) return "ambiguous";
+  if (bindingContext.receiverFieldInputCount !== 1) {
+    return bindingContext.receiverFieldInputCount > 1 ? "ambiguous" : "partial";
+  }
+  if (bindingContext.bindingIncomplete || !bindingContext.receiverRootProven) return "partial";
+  return "ready";
 }
 
 export function componentPropBindingEvidenceIncomplete(
@@ -256,40 +325,4 @@ function componentPropBoundaryGroups(
   const values = [...groups.values()];
   cancellation.throwIfCancelled();
   return values;
-}
-
-function receiverRootForBindingReceiver(
-  receiverId: string,
-  relationsByTo: ReadonlyMap<string, readonly EvidenceSlice["relations"][number][]>,
-  elementsById: ReadonlyMap<string, EvidenceSlice["elements"][number]>,
-  cancellation: AnalysisCancellationToken,
-): boolean {
-  cancellation.throwIfCancelled();
-  const receiver = elementsById.get(receiverId);
-  if (!receiver
-    || !isFullyProvenElement(receiver, cancellation)
-    || receiver.kind !== "field-read"
-    || receiver.operationKind !== "field-read"
-    || receiver.fieldName === null) return false;
-  const fieldInputs = (relationsByTo.get(receiverId) ?? []).filter((relation) =>
-    relation.kind === "field-input" && isFullyProvenRelation(relation, cancellation),
-  );
-  if (fieldInputs.length !== 1) return false;
-  const root = elementsById.get(fieldInputs[0].from);
-  if (!root || root.kind !== "value" || !isFullyProvenElement(root, cancellation)) return false;
-  const references = (relationsByTo.get(root.id) ?? []).filter((relation) =>
-    relation.kind === "references"
-      && elementsById.get(relation.from)?.kind === "parameter"
-      && isFullyProvenRelation(relation, cancellation),
-  );
-  if (references.length !== 1) return false;
-  const parameter = elementsById.get(references[0].from);
-  cancellation.throwIfCancelled();
-  return Boolean(
-    parameter
-      && isFullyProvenElement(parameter, cancellation)
-      && parameter.symbol
-      && root.symbol
-      && parameter.symbol === root.symbol,
-  );
 }
