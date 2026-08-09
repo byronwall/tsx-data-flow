@@ -105,8 +105,9 @@ export class ProgramEvidenceCollectorDeclarations extends ProgramEvidenceCollect
     for (const parameter of node.parameters) {
       for (const binding of bindingIdentifiers(this.ts, parameter.name)) {
         const originRole = parameterOriginRole(this.checker, parameter, handler);
+        const bindingLocation = this.location(binding);
         const parameterId = this.ensureElement(
-          parameter,
+          binding,
           "parameter",
           id,
           {
@@ -120,7 +121,7 @@ export class ProgramEvidenceCollectorDeclarations extends ProgramEvidenceCollect
           proof(
             "compiler-symbol",
             "The parameter binding is declared by the function entry.",
-            [this.location(parameter)],
+            [bindingLocation],
           ),
         );
         const bindingSymbol = this.symbolId(binding);
@@ -129,11 +130,11 @@ export class ProgramEvidenceCollectorDeclarations extends ProgramEvidenceCollect
           id,
           parameterId,
           "declares-parameter",
-          [this.location(parameter)],
+          [bindingLocation],
           proof(
             "compiler-symbol",
             "The function declaration owns this parameter binding.",
-            [this.location(parameter)],
+            [bindingLocation],
           ),
           "proven",
         );
