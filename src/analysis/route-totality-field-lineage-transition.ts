@@ -161,7 +161,15 @@ export function classifyRouteTotalityFieldTransition(
       if (source.kind !== "resource-input" || (target.kind !== "alias" && target.kind !== "resource-result")) {
         return { kind: "stop", reason: "unsupported-relation" };
       }
-      if (provenRelationsOfKind(context.outgoingRelations, "resource-result", context.cancellation).length !== 1) {
+      if (provenRelationsBetween(context.outgoingRelations, relation.from, relation.to, "resource-result", context.cancellation).length !== 1) {
+        return { kind: "stop", reason: "ambiguous-target" };
+      }
+      const incomingResourceResults = provenRelationsOfKind(
+        context.incomingRelations,
+        "resource-result",
+        context.cancellation,
+      ).filter((candidate) => candidate.to === target.id);
+      if (incomingResourceResults.length !== 1) {
         return { kind: "stop", reason: "ambiguous-target" };
       }
       return { kind: "preserve" };
