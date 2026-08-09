@@ -131,7 +131,16 @@ function validateAttachments(
       issues,
       cancellation,
     );
-    validateFieldLineageField(attachment.field, evidence, [...path, "field"], issues, cancellation, true);
+    validateFieldLineageField(
+      attachment.field,
+      evidence,
+      [...path, "field"],
+      issues,
+      cancellation,
+      true,
+      attachment.evidencePathElementIds,
+      attachment.evidencePathRelationIds,
+    );
     validateFieldLineageAttachmentProof(attachment, [...path, "proof"], issues, cancellation);
     validateSortedFieldLineageIds(attachment.terminalIds, [...path, "terminalIds"], "terminal", issues, cancellation);
     validateFieldLineageAttachmentPath(
@@ -170,7 +179,16 @@ function validateFrontiers(
     if (!frontier.field) {
       addIssue(issues, [...path, "field"], "Milestone 1 field frontiers require the last exact field identity");
     } else {
-      validateFieldLineageField(frontier.field, evidence, [...path, "field"], issues, cancellation, false);
+      validateFieldLineageField(
+        frontier.field,
+        evidence,
+        [...path, "field"],
+        issues,
+        cancellation,
+        false,
+        frontier.evidencePathElementIds,
+        frontier.evidencePathRelationIds,
+      );
     }
     if (frontier.occurrenceId !== null) {
       validateOccurrence(frontier.occurrenceId, evidence, undefined, surface, [...path, "occurrenceId"], issues, cancellation);

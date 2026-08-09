@@ -16,6 +16,10 @@ import {
   type FieldFrontier,
   type SurfaceIndexes,
 } from "./route-totality-field-lineage-validation-index";
+import {
+  componentPropBindingContext,
+  componentPropBoundary,
+} from "./route-totality-field-lineage-validation-path";
 import { validateUniqueFieldLineageIds } from "./route-totality-field-lineage-validation-structure";
 
 export function validateFieldLineageFrontierStop(
@@ -132,7 +136,7 @@ function validateCanonicalTruncationPath(
     }
   }
 
-  const currentOccurrenceId = surface.rootOccurrenceId;
+  let currentOccurrenceId = surface.rootOccurrenceId;
   let fieldIndex = 0;
   for (let index = 0; index < relationIds.length; index += 1) {
     cancellation.throwIfCancelled();
@@ -149,6 +153,9 @@ function validateCanonicalTruncationPath(
     const occurrenceAnchors = surface.anchors.occurrenceAnchorsByEvidenceElementId.get(target.id) ?? [];
     const terminalAnchors = surface.anchors.terminalAnchorsByEvidenceElementId.get(target.id) ?? [];
     const terminal = terminalAnchors.length === 1 ? terminalAnchors[0].endpoint : undefined;
+    const bindingContext = relation.kind === "component-prop-binding"
+      ? componentPropBindingContext(source, target, evidence, surface, cancellation)
+      : null;
     const transition = classifyRouteTotalityFieldTransition({
       relation,
       source,
@@ -162,6 +169,10 @@ function validateCanonicalTruncationPath(
       terminalAnchorCount: terminalAnchors.length,
       currentOccurrenceId,
       terminalOwnerOccurrenceId: terminal?.ownerOccurrenceId,
+      componentPropBoundaryCount: bindingContext?.boundaryCount,
+      componentPropOccurrenceAnchorCount: bindingContext?.occurrenceAnchorCount,
+      componentPropBindingReceiverCount: bindingContext?.receiverCount,
+      componentPropReceiverRootProven: bindingContext?.receiverRootProven,
       cancellation,
     });
     if (transition.kind === "stop" || transition.kind === "component-prop" || transition.kind === "render-terminal") {
@@ -175,6 +186,25 @@ function validateCanonicalTruncationPath(
         addIssue(issues, [...path, "field"], "truncation path must carry exact field elements in order");
       }
       fieldIndex += 1;
+      continue;
+    }
+    if (transition.kind === "component-prop-binding-start") {
+      const boundary = componentPropBoundary(source.id, evidence, surface, cancellation);
+      if (!boundary) {
+        addIssue(issues, [...path, "evidencePathRelationIds", index], "component-prop binding must retain one exact component occurrence boundary");
+      } else {
+        currentOccurrenceId = boundary.occurrenceId;
+      }
+      continue;
+    }
+    if (transition.kind === "component-prop-binding-receiver") {
+      if (frontier.field && fieldIndex > 0 && target.fieldName !== frontier.field.segments.at(-1)?.value) {
+        addIssue(issues, [...path, "field"], "component-prop binding cannot rename an existing field");
+      }
+      if (!target.fieldName) {
+        addIssue(issues, [...path, "evidencePathRelationIds", index], "component-prop binding receiver must have one exact named field");
+      }
+      continue;
     }
   }
   if (!frontier.field || fieldIndex !== frontier.field.elementIds.length || fieldIndex === 0) {

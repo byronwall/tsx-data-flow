@@ -102,6 +102,7 @@ export const SUPPORTED_LAZY_RELATION_KINDS: readonly ProgramRelationKind[] = [
   "renders",
   "component-occurrence",
   "component-prop",
+  "component-prop-binding",
   "render-terminal",
   "input-call",
   "resource-loader",

@@ -44,6 +44,10 @@ export type FieldLineageTransitionContext = {
   terminalAnchorCount: number;
   currentOccurrenceId: string | null;
   terminalOwnerOccurrenceId: string | null | undefined;
+  componentPropBoundaryCount?: number;
+  componentPropOccurrenceAnchorCount?: number;
+  componentPropBindingReceiverCount?: number;
+  componentPropReceiverRootProven?: boolean;
   cancellation: AnalysisCancellationToken;
 };
 
@@ -51,6 +55,8 @@ export type FieldLineageTransition =
   | { kind: "preserve" }
   | { kind: "field-input" }
   | { kind: "component-prop" }
+  | { kind: "component-prop-binding-start" }
+  | { kind: "component-prop-binding-receiver" }
   | { kind: "render-terminal" }
   | { kind: "stop"; reason: FieldLineageStopReason };
 
@@ -65,6 +71,7 @@ const SCALAR_CARRIERS = new Set([
 
 const REFERENCE_TARGETS = new Set(["value", "alias", "field-read"]);
 const ARGUMENT_SOURCES = new Set(["value", "alias", "field-read", "call", "parameter"]);
+const COMPONENT_PROP_SOURCES = new Set(["value", "alias", "field-read", "call", "parameter", "resource-result"]);
 
 /**
  * Decide whether one exact evidence edge preserves Milestone 1 field identity.
@@ -141,12 +148,47 @@ export function classifyRouteTotalityFieldTransition(
       return { kind: "field-input" };
     }
     case "component-prop": {
-      if (!context.hasField || target.kind !== "component-occurrence") {
+      if (target.kind !== "component-occurrence") {
         return { kind: "stop", reason: "unsupported-relation" };
       }
       if (context.occurrenceAnchorCount === 0) return { kind: "stop", reason: "unmapped-occurrence" };
       if (context.occurrenceAnchorCount !== 1) return { kind: "stop", reason: "ambiguous-target" };
       return { kind: "component-prop" };
+    }
+    case "component-prop-binding": {
+      if (source.kind === "component-prop-binding") {
+        if (target.kind !== "field-read" || target.operationKind !== "field-read") {
+          return { kind: "stop", reason: "unsupported-relation" };
+        }
+        if (context.componentPropBindingReceiverCount !== 1) {
+          return {
+            kind: "stop",
+            reason: (context.componentPropBindingReceiverCount ?? 0) > 1 ? "ambiguous-target" : "partial-proof",
+          };
+        }
+        if (context.componentPropReceiverRootProven !== true) return { kind: "stop", reason: "partial-proof" };
+        if (context.staticNamedField === null) return { kind: "stop", reason: "partial-proof" };
+        if (!context.staticNamedField) return { kind: "stop", reason: "unsupported-relation" };
+        return { kind: "component-prop-binding-receiver" };
+      }
+      if (!COMPONENT_PROP_SOURCES.has(source.kind) || target.kind !== "component-prop-binding") {
+        return { kind: "stop", reason: "unsupported-relation" };
+      }
+      if (context.componentPropBoundaryCount !== 1) {
+        return {
+          kind: "stop",
+          reason: (context.componentPropBoundaryCount ?? 0) > 1 ? "ambiguous-target" : "partial-proof",
+        };
+      }
+      if ((context.componentPropOccurrenceAnchorCount ?? 0) === 0) return { kind: "stop", reason: "unmapped-occurrence" };
+      if (context.componentPropOccurrenceAnchorCount !== 1) return { kind: "stop", reason: "ambiguous-target" };
+      if (context.componentPropBindingReceiverCount !== 1) {
+        return {
+          kind: "stop",
+          reason: (context.componentPropBindingReceiverCount ?? 0) > 1 ? "ambiguous-target" : "partial-proof",
+        };
+      }
+      return { kind: "component-prop-binding-start" };
     }
     case "render-terminal": {
       if (!context.hasField || (target.kind !== "render-terminal" && target.kind !== "dom-terminal")) {

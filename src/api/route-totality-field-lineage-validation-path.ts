@@ -28,6 +28,8 @@ export function validateFieldLineageField(
   issues: ValidationIssue[],
   cancellation: AnalysisCancellationToken,
   includesLocation: boolean,
+  evidencePathElementIds: readonly string[] = [],
+  evidencePathRelationIds: readonly string[] = [],
 ): void {
   cancellation.throwIfCancelled();
   if (field.elementIds.length !== field.segments.length) {
@@ -54,7 +56,16 @@ export function validateFieldLineageField(
       addIssue(issues, [...path, "elementIds", index], "field element must be the exact fully proven static named field-read");
     }
     if (index > 0) {
-      validateFieldInput(field.elementIds[index - 1], field.elementIds[index], evidence, [...path, "elementIds", index], issues, cancellation);
+      validateFieldInput(
+        field.elementIds[index - 1],
+        field.elementIds[index],
+        evidence,
+        [...path, "elementIds", index],
+        issues,
+        cancellation,
+        evidencePathElementIds,
+        evidencePathRelationIds,
+      );
     }
   }
   if (field.label !== expectedLabel) addIssue(issues, [...path, "label"], "field label must be built from exact field segments");
@@ -104,7 +115,7 @@ export function validateFieldLineageAttachmentPath(
     }
   }
 
-  const currentOccurrenceId = surface.rootOccurrenceId;
+  let currentOccurrenceId = surface.rootOccurrenceId;
   let fieldIndex = 0;
   let terminalAttachment = false;
   for (let index = 0; index < relationIds.length; index += 1) {
@@ -123,6 +134,9 @@ export function validateFieldLineageAttachmentPath(
     const occurrenceAnchors = surface.anchors.occurrenceAnchorsByEvidenceElementId.get(target.id) ?? [];
     const terminalAnchors = surface.anchors.terminalAnchorsByEvidenceElementId.get(target.id) ?? [];
     const terminal = terminalAnchors.length === 1 ? terminalAnchors[0].endpoint : undefined;
+    const bindingContext = relation.kind === "component-prop-binding"
+      ? componentPropBindingContext(source, target, evidence, surface, cancellation)
+      : null;
     const transition = classifyRouteTotalityFieldTransition({
       relation,
       source,
@@ -136,6 +150,10 @@ export function validateFieldLineageAttachmentPath(
       terminalAnchorCount: terminalAnchors.length,
       currentOccurrenceId,
       terminalOwnerOccurrenceId: terminal?.ownerOccurrenceId,
+      componentPropBoundaryCount: bindingContext?.boundaryCount,
+      componentPropOccurrenceAnchorCount: bindingContext?.occurrenceAnchorCount,
+      componentPropBindingReceiverCount: bindingContext?.receiverCount,
+      componentPropReceiverRootProven: bindingContext?.receiverRootProven,
       cancellation,
     });
     if (transition.kind === "stop") {
@@ -147,6 +165,24 @@ export function validateFieldLineageAttachmentPath(
         addIssue(issues, [...path, "field"], "field elements must occur in the exact accepted path order");
       }
       fieldIndex += 1;
+      continue;
+    }
+    if (transition.kind === "component-prop-binding-start") {
+      const boundary = componentPropBoundary(source.id, evidence, surface, cancellation);
+      if (!boundary) {
+        addIssue(issues, [...path, "evidencePathRelationIds", index], "component-prop binding must retain one exact component occurrence boundary");
+      } else {
+        currentOccurrenceId = boundary.occurrenceId;
+      }
+      continue;
+    }
+    if (transition.kind === "component-prop-binding-receiver") {
+      if (fieldIndex > 0 && target.fieldName !== attachment.field.segments.at(-1)?.value) {
+        addIssue(issues, [...path, "field"], "component-prop binding cannot rename an existing field");
+      }
+      if (!target.fieldName) {
+        addIssue(issues, [...path, "evidencePathRelationIds", index], "component-prop binding receiver must have one exact named field");
+      }
       continue;
     }
     if (transition.kind === "component-prop") {
@@ -203,6 +239,8 @@ function validateFieldInput(
   path: Array<string | number>,
   issues: ValidationIssue[],
   cancellation: AnalysisCancellationToken,
+  evidencePathElementIds: readonly string[] = [],
+  evidencePathRelationIds: readonly string[] = [],
 ): void {
   cancellation.throwIfCancelled();
   const source = exactElement(evidence, from);
@@ -216,6 +254,7 @@ function validateFieldInput(
     }
   }
   if (matches.length !== 1 || !source || !target) {
+    if (hasComponentPropBridge(from, to, evidencePathElementIds, evidencePathRelationIds, evidence, cancellation)) return;
     addIssue(issues, path, "adjacent field elements require one exact proven field-input relation");
     return;
   }
@@ -238,4 +277,118 @@ function validateFieldInput(
     addIssue(issues, path, "adjacent field elements must satisfy the exact field-input transition policy");
   }
   cancellation.throwIfCancelled();
+}
+
+export function componentPropBindingContext(
+  source: EvidenceElement,
+  target: EvidenceElement,
+  evidence: EvidenceIndexes,
+  surface: SurfaceIndexes,
+  cancellation: AnalysisCancellationToken,
+) {
+  cancellation.throwIfCancelled();
+  const boundaries = uniqueComponentPropBoundaries(source.id, evidence, cancellation);
+  const bindingSource = source.kind === "component-prop-binding";
+  const receiverRelations = bindingSource
+    ? (evidence.incoming.get(target.id) ?? []).filter((relation) =>
+      relation.from === source.id
+        && relation.kind === "component-prop-binding"
+        && isFullyProvenRelation(relation, cancellation),
+    )
+    : (evidence.outgoing.get(target.id) ?? []).filter((relation) =>
+      relation.kind === "component-prop-binding" && isFullyProvenRelation(relation, cancellation),
+    );
+  const receiverRootProven = bindingSource
+    ? receiverRelations.length === 1 && receiverRootForBindingReceiver(target.id, evidence, cancellation)
+    : receiverRelations.length === 1 && receiverRootForBindingReceiver(receiverRelations[0].to, evidence, cancellation);
+  return {
+    boundaryCount: boundaries.length,
+    occurrenceAnchorCount: boundaries.length === 1
+      ? surface.anchors.occurrenceAnchorsByEvidenceElementId.get(boundaries[0].to)?.length ?? 0
+      : boundaries.length,
+    receiverCount: receiverRelations.length,
+    receiverRootProven,
+  };
+}
+
+export function componentPropBoundary(
+  sourceElementId: string,
+  evidence: EvidenceIndexes,
+  surface: SurfaceIndexes,
+  cancellation: AnalysisCancellationToken,
+): { occurrenceId: string } | null {
+  cancellation.throwIfCancelled();
+  const boundaries = uniqueComponentPropBoundaries(sourceElementId, evidence, cancellation);
+  if (boundaries.length !== 1) return null;
+  const anchors = surface.anchors.occurrenceAnchorsByEvidenceElementId.get(boundaries[0].to) ?? [];
+  if (anchors.length !== 1) return null;
+  return { occurrenceId: anchors[0].endpoint.id };
+}
+
+function uniqueComponentPropBoundaries(
+  sourceElementId: string,
+  evidence: EvidenceIndexes,
+  cancellation: AnalysisCancellationToken,
+): EvidenceRelation[] {
+  cancellation.throwIfCancelled();
+  const byTarget = new Map<string, EvidenceRelation>();
+  for (const relation of evidence.outgoing.get(sourceElementId) ?? []) {
+    cancellation.throwIfCancelled();
+    const target = exactElement(evidence, relation.to);
+    if (relation.kind !== "component-prop"
+      || !target
+      || target.kind !== "component-occurrence"
+      || !isFullyProvenRelation(relation, cancellation)) continue;
+    const existing = byTarget.get(relation.to);
+    if (!existing || relation.id.localeCompare(existing.id) < 0) byTarget.set(relation.to, relation);
+  }
+  const values = [...byTarget.values()];
+  cancellation.throwIfCancelled();
+  return values;
+}
+
+function receiverRootForBindingReceiver(
+  receiverId: string,
+  evidence: EvidenceIndexes,
+  cancellation: AnalysisCancellationToken,
+): boolean {
+  cancellation.throwIfCancelled();
+  const receiver = exactElement(evidence, receiverId);
+  if (!receiver || receiver.kind !== "field-read" || receiver.operationKind !== "field-read" || receiver.fieldName === null) return false;
+  const fieldInputs = (evidence.incoming.get(receiverId) ?? []).filter((relation) =>
+    relation.kind === "field-input" && isFullyProvenRelation(relation, cancellation),
+  );
+  if (fieldInputs.length !== 1) return false;
+  const root = exactElement(evidence, fieldInputs[0].from);
+  if (!root || root.kind !== "value" || !isFullyProvenElement(root, cancellation)) return false;
+  const references = (evidence.incoming.get(root.id) ?? []).filter((relation) =>
+    relation.kind === "references"
+      && exactElement(evidence, relation.from)?.kind === "parameter"
+      && isFullyProvenRelation(relation, cancellation),
+  );
+  if (references.length !== 1) return false;
+  const parameter = exactElement(evidence, references[0].from);
+  cancellation.throwIfCancelled();
+  return Boolean(parameter?.symbol && root.symbol && parameter.symbol === root.symbol);
+}
+
+function hasComponentPropBridge(
+  from: string,
+  to: string,
+  elementIds: readonly string[],
+  relationIds: readonly string[],
+  evidence: EvidenceIndexes,
+  cancellation: AnalysisCancellationToken,
+): boolean {
+  cancellation.throwIfCancelled();
+  const fromIndex = elementIds.indexOf(from);
+  const toIndex = elementIds.indexOf(to);
+  if (fromIndex < 0 || toIndex <= fromIndex) return false;
+  for (let index = fromIndex; index < toIndex; index += 1) {
+    cancellation.throwIfCancelled();
+    const relation = exactRelation(evidence, relationIds[index]);
+    if (relation?.kind === "component-prop-binding") return true;
+  }
+  cancellation.throwIfCancelled();
+  return false;
 }

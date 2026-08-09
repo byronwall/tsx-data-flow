@@ -1,6 +1,6 @@
 import * as TypeScript from "typescript";
 import type { ProgramElementKind } from "./program-evidence";
-import { ProgramEvidenceCollectorBoundaryProcessing } from "./program-evidence-collector-boundary-processing";
+import { ProgramEvidenceCollectorComponentBindingSupport } from "./program-evidence-collector-component-binding";
 import {
   firstBindingIdentifier,
   isExitStatusAssignment,
@@ -10,7 +10,7 @@ import {
   proof,
 } from "./program-evidence-support";
 
-export class ProgramEvidenceCollectorJsxSupport extends ProgramEvidenceCollectorBoundaryProcessing {
+export class ProgramEvidenceCollectorJsxSupport extends ProgramEvidenceCollectorComponentBindingSupport {
   protected collectNodes(file: TypeScript.SourceFile): void {
     const visit = (node: TypeScript.Node, ownerId: string | null) => {
       this.noteAstUnit();
@@ -143,6 +143,9 @@ export class ProgramEvidenceCollectorJsxSupport extends ProgramEvidenceCollector
         ),
         target ? "proven" : "partial",
       );
+      if (target) {
+        this.queueComponentPropBinding(opening, attribute, valueId, occurrenceId, ownerId, target);
+      }
       if (!target) {
         this.addTerminal(
           attribute.initializer.expression,
@@ -228,6 +231,7 @@ export class ProgramEvidenceCollectorJsxSupport extends ProgramEvidenceCollector
   }
 
   protected connectCalls(): void {
+    this.connectComponentPropBindings();
     for (const call of this.calls) {
       this.checkCancellation();
       if (call.target) {

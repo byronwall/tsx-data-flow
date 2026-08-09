@@ -14,6 +14,11 @@ export type FieldState = {
   location: SourceLocation;
 };
 
+export type ComponentPropReceiverState = {
+  elementId: string;
+  propName: string;
+};
+
 export type PathState = {
   currentElementId: string;
   currentOccurrenceId: string | null;
@@ -21,6 +26,7 @@ export type PathState = {
   elementIds: string[];
   relationIds: string[];
   partial: boolean;
+  componentPropReceiver: ComponentPropReceiverState | null;
 };
 
 export type TraversalState = PathState & {
@@ -76,6 +82,7 @@ export function nextState(
   field: FieldState | null,
   occurrenceId: string | null,
   cancellation: AnalysisCancellationToken,
+  componentPropReceiver: ComponentPropReceiverState | null = state.componentPropReceiver,
 ): TraversalState {
   cancellation.throwIfCancelled();
   const elementIds = copyIds(state.elementIds, [target.id], cancellation);
@@ -89,6 +96,7 @@ export function nextState(
     elementIds,
     relationIds,
     partial: false,
+    componentPropReceiver,
   };
 }
 
@@ -137,6 +145,7 @@ export function traversalKey(state: TraversalState): string {
     origin: state.origin,
     currentElementId: state.currentElementId,
     currentOccurrenceId: state.currentOccurrenceId,
+    componentPropReceiver: state.componentPropReceiver,
     field: state.field?.elementIds ?? [],
   });
 }
