@@ -1,4 +1,5 @@
 import type { AnalysisCancellationToken } from "../analysis/cancellation";
+import { componentPropBindingEvidenceIncomplete } from "../analysis/route-totality-field-lineage-component-binding";
 import {
   classifyRouteTotalityFieldTransition,
   isFullyProvenElement,
@@ -154,6 +155,7 @@ export function validateFieldLineageAttachmentPath(
       componentPropOccurrenceAnchorCount: bindingContext?.occurrenceAnchorCount,
       componentPropBindingReceiverCount: bindingContext?.receiverCount,
       componentPropReceiverRootProven: bindingContext?.receiverRootProven,
+      componentPropBindingIncomplete: bindingContext?.bindingIncomplete,
       cancellation,
     });
     if (transition.kind === "stop") {
@@ -300,7 +302,10 @@ export function componentPropBindingContext(
     );
   const receiverRootProven = bindingSource
     ? receiverRelations.length === 1 && receiverRootForBindingReceiver(target.id, evidence, cancellation)
-    : receiverRelations.length === 1 && receiverRootForBindingReceiver(receiverRelations[0].to, evidence, cancellation);
+      : receiverRelations.length === 1 && receiverRootForBindingReceiver(receiverRelations[0].to, evidence, cancellation);
+  const bindingElementId = target.kind === "component-prop-binding"
+    ? target.id
+    : bindingSource ? source.id : null;
   return {
     boundaryCount: boundaries.length,
     occurrenceAnchorCount: boundaries.length === 1
@@ -308,6 +313,16 @@ export function componentPropBindingContext(
       : boundaries.length,
     receiverCount: receiverRelations.length,
     receiverRootProven,
+    bindingIncomplete: bindingElementId === null
+      ? false
+      : componentPropBindingEvidenceIncomplete(
+        bindingElementId,
+        evidence.outgoing,
+        evidence.incoming,
+        evidence.elementsById,
+        evidence.gapsByFrom,
+        cancellation,
+      ),
   };
 }
 

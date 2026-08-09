@@ -28,6 +28,7 @@ export type EvidenceIndexes = {
   originsByKey: ReadonlyMap<string, readonly EvidenceOrigin[]>;
   terminalsByKey: ReadonlyMap<string, readonly EvidenceTerminal[]>;
   gapsById: ReadonlyMap<string, readonly EvidenceGap[]>;
+  gapsByFrom: ReadonlyMap<string, readonly EvidenceGap[]>;
   outgoing: ReadonlyMap<string, readonly EvidenceRelation[]>;
   incoming: ReadonlyMap<string, readonly EvidenceRelation[]>;
 };
@@ -50,6 +51,7 @@ export function indexEvidence(
   const originsByKey = indexMany(evidence.origins, (origin) => `${origin.elementId}:${origin.role}`, cancellation);
   const terminalsByKey = indexMany(evidence.terminals, (terminal) => `${terminal.elementId}:${terminal.role}`, cancellation);
   const gapsById = indexMany(evidence.gaps, (gap) => gap.id, cancellation);
+  const gapsByFrom = indexMany(evidence.gaps.filter((gap) => gap.from !== null), (gap) => gap.from as string, cancellation);
   const outgoing = new Map<string, EvidenceRelation[]>();
   const incoming = new Map<string, EvidenceRelation[]>();
   const sorted = cancellableStableSort(evidence.relations, (left, right) => left.id.localeCompare(right.id), cancellation);
@@ -63,7 +65,7 @@ export function indexEvidence(
     incoming.set(relation.to, to);
   }
   cancellation.throwIfCancelled();
-  return { elementsById, relationsById, originsByKey, terminalsByKey, gapsById, outgoing, incoming };
+  return { elementsById, relationsById, originsByKey, terminalsByKey, gapsById, gapsByFrom, outgoing, incoming };
 }
 
 export function indexSurface(

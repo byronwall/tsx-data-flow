@@ -173,6 +173,7 @@ function validateCanonicalTruncationPath(
       componentPropOccurrenceAnchorCount: bindingContext?.occurrenceAnchorCount,
       componentPropBindingReceiverCount: bindingContext?.receiverCount,
       componentPropReceiverRootProven: bindingContext?.receiverRootProven,
+      componentPropBindingIncomplete: bindingContext?.bindingIncomplete,
       cancellation,
     });
     if (transition.kind === "stop" || transition.kind === "component-prop" || transition.kind === "render-terminal") {

@@ -14,6 +14,7 @@ export type ComponentPropBindingContext = {
   occurrenceAnchorCount: number;
   receiverCount: number;
   receiverRootProven: boolean;
+  bindingIncomplete: boolean;
   boundary: RouteTotalityAnchorIndex["occurrenceAnchors"][number] | null;
 };
 
@@ -24,6 +25,7 @@ export function componentPropBindingContext(
   relationsByFrom: ReadonlyMap<string, readonly EvidenceSlice["relations"][number][]>,
   relationsByTo: ReadonlyMap<string, readonly EvidenceSlice["relations"][number][]>,
   elementsById: ReadonlyMap<string, EvidenceSlice["elements"][number]>,
+  gapsByFrom: ReadonlyMap<string, readonly EvidenceSlice["gaps"][number][]>,
   anchors: RouteTotalityAnchorIndex,
   cancellation: AnalysisCancellationToken,
 ): ComponentPropBindingContext | null {
@@ -48,6 +50,9 @@ export function componentPropBindingContext(
       && receiverRootForBindingReceiver(target.id, relationsByTo, elementsById, cancellation)
     : receiverRelations.length === 1
       && receiverRootForBindingReceiver(receiverRelations[0].to, relationsByTo, elementsById, cancellation);
+  const bindingElementId = target.kind === "component-prop-binding"
+    ? target.id
+    : sourceKind === "component-prop-binding" ? sourceElementId : null;
   cancellation.throwIfCancelled();
   return {
     boundaryCount: boundaries.length,
@@ -56,6 +61,16 @@ export function componentPropBindingContext(
       : boundaries.length,
     receiverCount: receiverRelations.length,
     receiverRootProven,
+    bindingIncomplete: bindingElementId === null
+      ? false
+      : componentPropBindingEvidenceIncomplete(
+        bindingElementId,
+        relationsByFrom,
+        relationsByTo,
+        elementsById,
+        gapsByFrom,
+        cancellation,
+      ),
     boundary,
   };
 }
@@ -67,6 +82,7 @@ export function componentPropBindingReadiness(
   relationsByFrom: ReadonlyMap<string, readonly EvidenceSlice["relations"][number][]>,
   relationsByTo: ReadonlyMap<string, readonly EvidenceSlice["relations"][number][]>,
   elementsById: ReadonlyMap<string, EvidenceSlice["elements"][number]>,
+  gapsByFrom: ReadonlyMap<string, readonly EvidenceSlice["gaps"][number][]>,
   anchors: RouteTotalityAnchorIndex,
   cancellation: AnalysisCancellationToken,
 ): ComponentPropBindingReadiness {
@@ -88,9 +104,68 @@ export function componentPropBindingReadiness(
   const provenReceivers = receivers.filter((candidate) => isFullyProvenRelation(candidate, cancellation));
   if (provenReceivers.length !== receivers.length) return "partial";
   if (provenReceivers.length !== 1) return "ambiguous";
+  if (componentPropBindingEvidenceIncomplete(
+    bindingTarget.id,
+    relationsByFrom,
+    relationsByTo,
+    elementsById,
+    gapsByFrom,
+    cancellation,
+  )) return "partial";
   return receiverRootForBindingReceiver(provenReceivers[0].to, relationsByTo, elementsById, cancellation)
     ? "ready"
     : "partial";
+}
+
+export function componentPropBindingEvidenceIncomplete(
+  bindingId: string,
+  relationsByFrom: ReadonlyMap<string, readonly EvidenceSlice["relations"][number][]>,
+  relationsByTo: ReadonlyMap<string, readonly EvidenceSlice["relations"][number][]>,
+  elementsById: ReadonlyMap<string, EvidenceSlice["elements"][number] | readonly EvidenceSlice["elements"][number][]>,
+  gapsByFrom: ReadonlyMap<string, readonly EvidenceSlice["gaps"][number][]>,
+  cancellation: AnalysisCancellationToken,
+): boolean {
+  cancellation.throwIfCancelled();
+  if ((gapsByFrom.get(bindingId) ?? []).length > 0) return true;
+  const receivers = (relationsByFrom.get(bindingId) ?? []).filter((relation) =>
+    relation.kind === "component-prop-binding",
+  );
+  for (const receiver of receivers) {
+    cancellation.throwIfCancelled();
+    if (hasGap(receiver.to, gapsByFrom)) return true;
+    const fieldInputs = (relationsByTo.get(receiver.to) ?? []).filter((relation) => relation.kind === "field-input");
+    for (const fieldInput of fieldInputs) {
+      cancellation.throwIfCancelled();
+      if (hasGap(fieldInput.from, gapsByFrom)) return true;
+      const references = (relationsByTo.get(fieldInput.from) ?? []).filter((relation) =>
+        relation.kind === "references"
+          && exactBindingElement(elementsById, relation.from)?.kind === "parameter",
+      );
+      for (const reference of references) {
+        cancellation.throwIfCancelled();
+        if (hasGap(reference.from, gapsByFrom)) return true;
+      }
+    }
+  }
+  cancellation.throwIfCancelled();
+  return false;
+}
+
+function exactBindingElement(
+  elementsById: ReadonlyMap<string, EvidenceSlice["elements"][number] | readonly EvidenceSlice["elements"][number][]>,
+  elementId: string,
+): EvidenceSlice["elements"][number] | undefined {
+  const value = elementsById.get(elementId);
+  if (!value) return undefined;
+  if ("length" in value) return value.length === 1 ? value[0] : undefined;
+  return value;
+}
+
+function hasGap(
+  elementId: string,
+  gapsByFrom: ReadonlyMap<string, readonly EvidenceSlice["gaps"][number][]>,
+): boolean {
+  return (gapsByFrom.get(elementId) ?? []).length > 0;
 }
 
 export function lastFieldSegment(field: FieldState): string | null {

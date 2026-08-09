@@ -48,6 +48,7 @@ export type FieldLineageTransitionContext = {
   componentPropOccurrenceAnchorCount?: number;
   componentPropBindingReceiverCount?: number;
   componentPropReceiverRootProven?: boolean;
+  componentPropBindingIncomplete?: boolean;
   cancellation: AnalysisCancellationToken;
 };
 
@@ -238,6 +239,7 @@ export function isFullyProvenProof(proof: EvidenceProof): boolean {
 function incompleteEvidenceReason(context: FieldLineageTransitionContext): FieldLineageStopReason | null {
   const { relation, source, target } = context;
   if (!source || !target) return "partial-proof";
+  if (relation.kind === "component-prop-binding" && context.componentPropBindingIncomplete) return "partial-proof";
   if (isFullyProvenRelation(relation, context.cancellation)
     && isFullyProvenElement(source, context.cancellation)
     && isFullyProvenElement(target, context.cancellation)) return null;
