@@ -18,6 +18,7 @@ import {
 import { validateRouteTotality } from "../route-occurrence-validation";
 import { countItems, projectItems, sortedProject, sumItems } from "./cancellable-projection";
 import { projectContextContinuity } from "./context-continuity";
+import { projectRouteTotalityFieldLineage } from "./route-totality-field-lineage";
 import type {
   EvidenceSlice,
   RouteCount,
@@ -45,6 +46,7 @@ export function projectRouteTotality(record: RouteTotalityRecord | undefined, ca
     contextContinuity: projectContextContinuity(record.contextContinuity, cancellation),
     bridges: sortedProject(record.bridges, (left, right) => left.id.localeCompare(right.id), projectBridge, cancellation),
     bridgeCounts: { ...record.bridgeCounts },
+    fieldLineage: projectRouteTotalityFieldLineage(record.fieldLineage, cancellation),
     findingAttachments: sortedProject(record.findingAttachments, (left, right) => left.id.localeCompare(right.id), projectFindingAttachment, cancellation),
     findingIndex: sortedProject(record.findingIndex, (left, right) => left.findingId.localeCompare(right.findingId), projectFindingIndexEntry, cancellation),
     counts: projectCounts(occurrenceSurface, evidenceSlice),

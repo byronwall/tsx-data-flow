@@ -19,6 +19,7 @@ import { DEFAULT_ROUTE_TOTALITY_CAMERA, createRouteTotalityCamera } from "./rout
 import { emphasisModeForSelection, persistedSelection, reconcileRouteTotalityState, selectionFromPersisted, buildRouteTotalityLedger, renderableRouteTotalityAnnotations, routeTotalityDisplayBounds, type RouteTotalityInvestigationStateChange } from "./route-totality-graph-state";
 import { RouteTotalityViewport } from "./RouteTotalityViewport";
 import { createRouteTotalityGraphActions } from "./route-totality-graph-actions";
+import { fieldOriginFocusForOrigin, selectRouteTotalityFieldInspectorResult, type RouteTotalityFieldOriginFocus } from "./route-totality-field-lineage-model";
 import { DEFAULT_ROUTE_TOTALITY_SURFACE_LAYOUT_SETTINGS } from "./route-totality-surface-layout";
 import { createTopologyLayoutDebug } from "./topology-layout-debug";
 import { createRouteContextContinuityUiState } from "./route-context-continuity-state";
@@ -62,6 +63,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   });
   const initialSelection = untrack(() => selectionFromPersisted(props.selection ?? null, layout()));
   const [selection, setSelection] = createSignal<RouteInvestigationSelection>(initialSelection);
+  const [activeFieldOrigin, setActiveFieldOrigin] = createSignal<RouteTotalityFieldOriginFocus | null>(null);
   const [showEvidenceDetail, setShowEvidenceDetail] = createSignal(false);
   const [emphasisMode, setEmphasisMode] = createSignal<RouteTotalityEmphasisMode | null>(untrack(() => emphasisModeForSelection(initialSelection)));
   const [isolated, setIsolated] = createSignal(untrack(() => Boolean(props.isolated && emphasisModeForSelection(initialSelection) !== null)));
@@ -128,6 +130,9 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     });
     setEmphasisMode(reconciliation.emphasisMode);
     applyLocalInvestigationState(reconciliation.selection, reconciliation.isolated);
+    setActiveFieldOrigin(initialPayload
+      ? fieldOriginFocusForSelection(props.totality, reconciliation.selection)
+      : null);
 
     if (scopeChanged) {
       skipControlledSync = props.selection !== undefined || props.isolated !== undefined;
@@ -166,6 +171,10 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     });
     setEmphasisMode(reconciliation.emphasisMode);
     applyLocalInvestigationState(reconciliation.selection, reconciliation.isolated);
+    if (reconciliation.selection?.target === "node") {
+      const focus = fieldOriginFocusForSelection(props.totality, reconciliation.selection);
+      if (reconciliation.selection.kind === "origin") setActiveFieldOrigin(focus);
+    }
     if (reconciliation.needsCorrection) {
       skipControlledSync = props.selection !== undefined || props.isolated !== undefined;
       emitInvestigationState(reconciliation.selection, reconciliation.isolated);
@@ -251,6 +260,12 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   ));
   const displayAnnotations = createMemo(() => renderableRouteTotalityAnnotations(displayLayout(), evidenceVisible()));
   const selectedRecord = createMemo(() => buildRouteTotalityInspectorRecord(props.totality, layout(), selection()));
+  const selectedFieldResult = createMemo(() => {
+    const record = selectedRecord();
+    return record?.kind === "occurrence"
+      ? selectRouteTotalityFieldInspectorResult(props.totality, activeFieldOrigin(), record.selection.recordId)
+      : null;
+  });
   const ledgerItems = createMemo(() => buildRouteTotalityLedger(props.totality, layout()));
   const findingSummary = createMemo(() => routeTotalityFindingSummaryForSelection(
     props.totality,
@@ -272,6 +287,16 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     focusFallback: () => svg?.focus(),
     resetCamera: cameraController.reset,
   });
+  const selectWithFieldFocus = (next: Exclude<RouteInvestigationSelection, null>) => {
+    const focus = fieldOriginFocusForSelection(props.totality, next);
+    if (next.target === "node" && next.kind === "origin") setActiveFieldOrigin(focus);
+    actions.select(next);
+  };
+  const selectFromInspectorWithFieldFocus = (next: Exclude<RouteInvestigationSelection, null>) => {
+    const focus = fieldOriginFocusForSelection(props.totality, next);
+    if (next.target === "node" && next.kind === "origin") setActiveFieldOrigin(focus);
+    actions.selectFromInspector(next);
+  };
   const copyLayoutDebugState = async () => {
     const current = displayLayout();
     await layoutDebug.copy({
@@ -351,8 +376,8 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         isolated={isolated()}
         forcesVisible={layoutDebug.forcesVisible()}
         onSvgRef={(element) => { svg = element; }}
-        onSelect={actions.select}
-        onContextSelect={actions.select}
+        onSelect={selectWithFieldFocus}
+        onContextSelect={selectWithFieldFocus}
         onRegisterMark={actions.registerMark}
         contextVisual={contextUi.visual()}
       />
@@ -366,19 +391,20 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         ledgerItems={ledgerItems()}
         startSelectionAvailable={layout().summary.status !== "unavailable" && Boolean(startSelection())}
         selected={selectedRecord}
+        fieldResult={selectedFieldResult()}
         emphasis={emphasis()}
         emphasisMode={emphasisMode()}
         isolated={isolated()}
         findings={findingSummary()}
         onClear={actions.clearSelection}
-        onSelect={actions.selectFromInspector}
+        onSelect={selectFromInspectorWithFieldFocus}
         onEmphasize={actions.emphasize}
         onClearEmphasis={actions.clearEmphasis}
         onIsolate={actions.isolate}
         onRestore={actions.restoreFullRoute}
         onOpenSource={props.onOpenSource ?? (() => undefined)}
-        onContextSelect={actions.select}
-        onSelectStart={() => { const target = startSelection(); if (target) actions.select(target); }}
+        onContextSelect={selectFromInspectorWithFieldFocus}
+        onSelectStart={() => { const target = startSelection(); if (target) selectWithFieldFocus(target); }}
         onToggleEvidence={() => setShowEvidenceDetail((value) => !value)}
         contextUi={contextUi}
       />
@@ -388,4 +414,12 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
 
 function round(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function fieldOriginFocusForSelection(
+  totality: RouteTotality | null,
+  selection: RouteInvestigationSelection,
+): RouteTotalityFieldOriginFocus | null {
+  if (!selection || selection.target !== "node" || selection.kind !== "origin") return null;
+  return fieldOriginFocusForOrigin(totality, selection.recordId, selection.originRole);
 }

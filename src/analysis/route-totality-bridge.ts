@@ -12,9 +12,12 @@ import type {
 import { stableHash } from "./scope-seam";
 import type {
   RouteOccurrenceSurface,
-  RouteRenderOccurrence,
-  RouteTerminalOccurrence,
 } from "./route-occurrence-surface";
+import {
+  buildRouteTotalityAnchorIndex,
+  type RouteTotalityOccurrenceAnchor,
+  type RouteTotalityTerminalAnchor,
+} from "./route-totality-anchor-index";
 
 export type RouteTotalityBridgeDirection =
   | "origin-to-render"
@@ -83,11 +86,6 @@ type PathState = EvidencePath & {
   elementId: string;
 };
 
-type RouteEndpointAnchor = {
-  evidenceElementId: string;
-  routeLocation: SourceLocation;
-};
-
 const ACCEPTED_STATUSES = new Set<Exclude<EvidenceStatus, "unsupported">>([
   "proven",
   "partial",
@@ -107,14 +105,9 @@ export function buildRouteTotalityBridges(
   cancellation.throwIfCancelled();
   const elementsById = new Map(slice.elements.map((element) => [element.id, element]));
   const origins = [...slice.origins].sort(compareOrigin);
-  const occurrenceAnchors = surface.occurrences
-    .map((occurrence) => occurrenceAnchor(occurrence, surface.scope.seed, elementsById, slice))
-    .filter((value): value is RouteEndpointAnchor & { endpoint: RouteRenderOccurrence } => value !== null)
-    .sort((left, right) => left.endpoint.id.localeCompare(right.endpoint.id));
-  const terminalAnchors = surface.terminals
-    .map((terminal) => terminalAnchor(terminal, elementsById, slice))
-    .filter((value): value is RouteEndpointAnchor & { endpoint: RouteTerminalOccurrence } => value !== null)
-    .sort((left, right) => left.endpoint.id.localeCompare(right.endpoint.id));
+  const anchorIndex = buildRouteTotalityAnchorIndex(slice, surface, cancellation);
+  const occurrenceAnchors = anchorIndex.occurrenceAnchors;
+  const terminalAnchors = anchorIndex.terminalAnchors;
   const targets = new Set([
     ...occurrenceAnchors.map((anchor) => anchor.evidenceElementId),
     ...terminalAnchors.map((anchor) => anchor.evidenceElementId),
@@ -157,50 +150,6 @@ export function routeTotalityBridgeCounts(
     },
     { total: 0, originToRender: 0, renderTerminalToOrigin: 0, proven: 0, partial: 0 },
   );
-}
-
-function occurrenceAnchor(
-  occurrence: RouteRenderOccurrence,
-  entryElementId: string,
-  elementsById: Map<string, EvidenceSlice["elements"][number]>,
-  slice: EvidenceSlice,
-): (RouteEndpointAnchor & { endpoint: RouteRenderOccurrence }) | null {
-  if (occurrence.parentOccurrenceId === null && occurrence.scopeSeed === entryElementId) {
-    const entry = elementsById.get(entryElementId);
-    if (entry && entry.proof.length > 0 && sameLocation(entry.location, occurrence.callSite)) {
-      return { endpoint: occurrence, evidenceElementId: entry.id, routeLocation: occurrence.callSite };
-    }
-  }
-  const matches = slice.elements.filter((element) =>
-    element.kind === "component-occurrence"
-    && element.proof.length > 0
-    && sameLocation(element.location, occurrence.callSite));
-  return matches.length === 1
-    ? { endpoint: occurrence, evidenceElementId: matches[0].id, routeLocation: occurrence.callSite }
-    : null;
-}
-
-function terminalAnchor(
-  terminal: RouteTerminalOccurrence,
-  elementsById: Map<string, EvidenceSlice["elements"][number]>,
-  slice: EvidenceSlice,
-): (RouteEndpointAnchor & { endpoint: RouteTerminalOccurrence }) | null {
-  const expectedKind = terminal.kind === "jsx-text" || terminal.kind === "render-expression"
-    ? "render-terminal"
-    : "dom-terminal";
-  const matches = slice.terminals
-    .filter((item) => item.role === "render" && item.proof.length > 0)
-    .map((item) => elementsById.get(item.elementId))
-    .filter((element): element is EvidenceSlice["elements"][number] =>
-      element !== undefined
-      && element.kind === expectedKind
-      && element.proof.length > 0
-      && element.terminalRoles.includes("render")
-      && sameLocation(element.location, terminal.location));
-  const unique = [...new Map(matches.map((element) => [element.id, element])).values()];
-  return unique.length === 1
-    ? { endpoint: terminal, evidenceElementId: unique[0].id, routeLocation: terminal.location }
-    : null;
 }
 
 function pathsFrom(
@@ -249,7 +198,7 @@ function pathsFrom(
 
 function makeOriginToRenderBridge(
   origin: EvidenceSlice["origins"][number],
-  occurrence: RouteEndpointAnchor & { endpoint: RouteRenderOccurrence },
+  occurrence: RouteTotalityOccurrenceAnchor,
   path: EvidencePath,
   elementsById: Map<string, EvidenceSlice["elements"][number]>,
   slice: EvidenceSlice,
@@ -280,7 +229,7 @@ function makeOriginToRenderBridge(
 
 function makeRenderTerminalToOriginBridge(
   origin: EvidenceSlice["origins"][number],
-  terminal: RouteEndpointAnchor & { endpoint: RouteTerminalOccurrence },
+  terminal: RouteTotalityTerminalAnchor,
   path: EvidencePath,
   elementsById: Map<string, EvidenceSlice["elements"][number]>,
   slice: EvidenceSlice,
@@ -380,16 +329,6 @@ function comparePath(left: PathState, right: PathState): number {
 
 function compareLocation(left: SourceLocation, right: SourceLocation): number {
   return locationKey(left).localeCompare(locationKey(right));
-}
-
-function sameLocation(left: SourceLocation, right: SourceLocation): boolean {
-  return path.normalize(left.file) === path.normalize(right.file)
-    && left.line === right.line
-    && left.column === right.column
-    && left.span.startLine === right.span.startLine
-    && left.span.startColumn === right.span.startColumn
-    && left.span.endLine === right.span.endLine
-    && left.span.endColumn === right.span.endColumn;
 }
 
 function locationKey(location: SourceLocation): string {

@@ -18,6 +18,7 @@ import {
 } from "./route-occurrence-validation-totality";
 import { validateRouteTotalityBridges } from "./route-totality-bridge-validation";
 import { validateRouteTotalityFindingAttachments } from "./route-totality-finding-validation";
+import { validateRouteTotalityFieldLineage } from "./route-totality-field-lineage-validation";
 import { validateRouteContextContinuity } from "./route-context-continuity-validation";
 
 export type RouteOccurrenceValidationIssue = ValidationIssue;
@@ -133,6 +134,7 @@ export const validateRouteTotality = (
   }
 
   issues.push(...validateRouteTotalityBridges(totality, cancellation));
+  issues.push(...validateRouteTotalityFieldLineage(totality, cancellation));
   issues.push(...validateRouteTotalityFindingAttachments(totality, cancellation));
   issues.push(...validateRouteContextContinuity(totality, cancellation));
 

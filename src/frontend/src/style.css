@@ -648,6 +648,14 @@
 .route-totality-proof-location button code { overflow-wrap: anywhere; }
 .route-totality-proof-location button span,.route-totality-proof-location > a { color: var(--muted); font-size: .57rem; }
 .route-totality-proof-location > a:hover { color: var(--accent); text-decoration: none; }
+.route-totality-field-list { display: grid; gap: 4px; }
+.route-totality-field-item { display: grid; gap: 3px; min-width: 0; padding: 6px; background: var(--bg); }
+.route-totality-field-item strong { overflow-wrap: anywhere; color: var(--text); font: 700 .67rem var(--mono); }
+.route-totality-field-item > span { color: var(--muted); font-size: .61rem; line-height: 1.3; }
+.route-totality-field-item button { min-width: 0; display: grid; gap: 2px; padding: 0; border: 0; background: transparent; color: var(--accent); text-align: left; }
+.route-totality-field-item button:hover,.route-totality-field-item button:focus-visible { color: var(--text); }
+.route-totality-field-item button code { overflow-wrap: anywhere; font-size: .61rem; }
+.route-totality-field-item button span { color: var(--muted); font-size: .57rem; }
 .route-totality-finding-list { display: grid; gap: 4px; }
 .route-totality-finding-item { display: grid; gap: 3px; min-width: 0; padding: 6px; background: var(--bg); }
 .route-totality-finding-item strong { overflow-wrap: anywhere; color: var(--text); font: 700 .67rem var(--mono); }

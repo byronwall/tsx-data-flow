@@ -29,6 +29,11 @@ import {
   type RouteTotalityBridge,
   type RouteTotalityBridgeCounts,
 } from "./route-totality-bridge";
+import {
+  buildRouteTotalityFieldLineage,
+  unavailableRouteTotalityFieldLineage,
+  type RouteTotalityFieldLineage,
+} from "./route-totality-field-lineage";
 import type { RouteRecord } from "./route-data";
 import {
   buildSolidRouteContextContinuity,
@@ -142,6 +147,7 @@ export type RouteTotalityRecord = {
   contextContinuity: RouteContextContinuity;
   bridges: RouteTotalityBridge[];
   bridgeCounts: RouteTotalityBridgeCounts;
+  fieldLineage: RouteTotalityFieldLineage;
   findingAttachments: RouteTotalityFindingAttachment[];
   findingIndex: RouteTotalityFindingIndexEntry[];
   counts: RouteTotalityCounts;
@@ -228,6 +234,15 @@ function buildRouteTotalityRecord(
   const bridges = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice)
     ? buildRouteTotalityBridges(evidenceSlice, occurrenceSurface, cancellation)
     : [];
+  const fieldLineage = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice)
+    ? buildRouteTotalityFieldLineage(provider, evidenceSlice, occurrenceSurface, cancellation)
+    : unavailableRouteTotalityFieldLineage(
+      isUnavailable(occurrenceSurface)
+        ? occurrenceSurface.reason
+        : isUnavailable(evidenceSlice)
+          ? evidenceSlice.reason
+          : "Field lineage inputs were unavailable.",
+    );
   const gaps = [
     ...route.omissions.map((label, index) => routeGap(route, index, label)),
     ...surfaceGaps(occurrenceSurface),
@@ -257,6 +272,7 @@ function buildRouteTotalityRecord(
     contextContinuity,
     bridges,
     bridgeCounts: routeTotalityBridgeCounts(bridges),
+    fieldLineage,
     findingAttachments: [],
     findingIndex: [],
     counts,
@@ -418,6 +434,7 @@ function unavailableRecord(route: Pick<RouteRecord, "key" | "pathPattern" | "fil
     contextContinuity: unavailableContextContinuity(reason),
     bridges: [],
     bridgeCounts: { ...EMPTY_BRIDGE_COUNTS },
+    fieldLineage: unavailableRouteTotalityFieldLineage(reason),
     findingAttachments: [],
     findingIndex: [],
     counts: { ...EMPTY_COUNTS },

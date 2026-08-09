@@ -4,6 +4,7 @@ import {
   validateRouteTotality,
 } from "./route-occurrence-validation";
 import { routeContextContinuitySchema } from "./route-context-continuity-contracts";
+import { routeTotalityFieldLineageSchema } from "./route-totality-field-lineage-contracts";
 
 const nonEmptyStringSchema = z.string().min(1);
 const nonNegativeIntegerSchema = z.number().int().nonnegative();
@@ -625,6 +626,7 @@ function routeTotalityObject<Surface extends z.ZodType>(surfaceSchema: Surface) 
     contextContinuity: routeContextContinuitySchema,
     bridges: z.array(routeTotalityBridgeSchema),
     bridgeCounts: routeTotalityBridgeCountsSchema,
+    fieldLineage: routeTotalityFieldLineageSchema,
     findingAttachments: z.array(routeTotalityFindingAttachmentSchema),
     findingIndex: z.array(routeTotalityFindingIndexEntrySchema),
     counts: routeTotalityCountsSchema,
@@ -632,9 +634,7 @@ function routeTotalityObject<Surface extends z.ZodType>(surfaceSchema: Surface) 
     omissions: z.array(nonEmptyStringSchema),
   });
 }
-
 export const routeTotalityStructureSchema = routeTotalityObject(routeOccurrenceSurfaceStructureSchema);
-
 export const routeTotalitySchema = routeTotalityObject(routeOccurrenceSurfaceSchema)
   .superRefine((totality, context) => {
     for (const issue of validateRouteTotality(totality)) {
@@ -645,8 +645,5 @@ export const routeTotalitySchema = routeTotalityObject(routeOccurrenceSurfaceSch
       });
     }
   });
-
-export type EvidenceSlice = z.infer<typeof evidenceSliceSchema>;
-export type RouteCount = z.infer<typeof totalCountSchema>;
-export type RouteOccurrenceSurface = z.infer<typeof routeOccurrenceSurfaceSchema>;
-export type RouteTotality = z.infer<typeof routeTotalitySchema>;
+export type EvidenceSlice = z.infer<typeof evidenceSliceSchema>; export type RouteCount = z.infer<typeof totalCountSchema>;
+export type RouteOccurrenceSurface = z.infer<typeof routeOccurrenceSurfaceSchema>; export type RouteTotality = z.infer<typeof routeTotalitySchema>;
