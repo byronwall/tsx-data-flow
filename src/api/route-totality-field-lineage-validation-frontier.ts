@@ -1,5 +1,6 @@
 import type { AnalysisCancellationToken } from "../analysis/cancellation";
 import { cancellableStableSort } from "../analysis/cancellable-stable-sort";
+import { hasRouteTotalityFieldGap } from "../analysis/route-totality-field-lineage-truncation";
 import {
   classifyRouteTotalityFieldTransition,
   isFullyProvenElement,
@@ -19,7 +20,7 @@ import {
 import {
   componentPropBindingContext,
   componentPropBoundary,
-} from "./route-totality-field-lineage-validation-path";
+} from "./route-totality-field-lineage-validation-binding";
 import { validateUniqueFieldLineageIds } from "./route-totality-field-lineage-validation-structure";
 
 export function validateFieldLineageFrontierStop(
@@ -148,6 +149,10 @@ function validateCanonicalTruncationPath(
       || relation.to !== target.id
       || !isFullyProvenRelation(relation, cancellation)) {
       addIssue(issues, [...path, "evidencePathRelationIds", index], "truncation path relation must exactly connect fully proven adjacent evidence");
+      continue;
+    }
+    if (fieldIndex > 0 && hasRouteTotalityFieldGap(source.id, evidence.gapsByFrom, cancellation)) {
+      addIssue(issues, [...path, "evidencePathElementIds", index], "truncation path cannot cross an ordinary evidence gap");
       continue;
     }
     const occurrenceAnchors = surface.anchors.occurrenceAnchorsByEvidenceElementId.get(target.id) ?? [];

@@ -92,7 +92,7 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
     const previous = best.get(stateKey);
     if (previous && comparePath(previous, state) <= 0) continue;
     best.set(stateKey, state);
-    recordRouteTotalityFieldTruncations(state, gapsByFrom, truncations, cancellation);
+    if (recordRouteTotalityFieldTruncations(state, gapsByFrom, truncations, cancellation)) continue;
     const outgoing = relationsByFrom.get(state.currentElementId) ?? [];
 
     for (const relation of outgoing) {

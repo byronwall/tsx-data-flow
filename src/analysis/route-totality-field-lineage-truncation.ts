@@ -22,14 +22,29 @@ export type TruncatedTraversalState = {
   gap: EvidenceGap;
 };
 
+export function hasRouteTotalityFieldGap<T extends { from: string | null }>(
+  elementId: string,
+  gapsByFrom: ReadonlyMap<string, readonly T[]>,
+  cancellation: AnalysisCancellationToken,
+): boolean {
+  cancellation.throwIfCancelled();
+  for (const gap of gapsByFrom.get(elementId) ?? []) {
+    cancellation.throwIfCancelled();
+    if (gap.from === elementId) return true;
+  }
+  cancellation.throwIfCancelled();
+  return false;
+}
+
 export function recordRouteTotalityFieldTruncations(
   state: TraversalState,
   gapsByFrom: ReadonlyMap<string, readonly EvidenceSlice["gaps"][number][]>,
   truncations: Map<string, TruncatedTraversalState>,
   cancellation: AnalysisCancellationToken,
-): void {
+): boolean {
   cancellation.throwIfCancelled();
-  if (!state.field || !state.currentOccurrenceId) return;
+  if (!state.field || !hasRouteTotalityFieldGap(state.currentElementId, gapsByFrom, cancellation)) return false;
+  if (!state.currentOccurrenceId) return true;
   for (const gap of gapsByFrom.get(state.currentElementId) ?? []) {
     cancellation.throwIfCancelled();
     if (gap.from !== state.currentElementId) continue;
@@ -43,6 +58,7 @@ export function recordRouteTotalityFieldTruncations(
     }, cancellation);
   }
   cancellation.throwIfCancelled();
+  return true;
 }
 
 export function emitRouteTotalityFieldTruncationFrontiers(
