@@ -17,6 +17,7 @@ import {
   proof,
   unwrap,
 } from "./program-evidence-support";
+import { indexReadAttributes } from "./program-index-read-metadata";
 
 type Attributes = Record<string, string | number | boolean | null>;
 
@@ -129,7 +130,7 @@ export function collectProgramEvidenceExpression(
       unwrapped,
       "index-read",
       ownerId,
-      { operation: "index-read" },
+      indexReadAttributes(context.ts, unwrapped),
       context.symbolId(unwrapped.expression),
       null,
       null,

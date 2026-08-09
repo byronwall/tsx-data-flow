@@ -5,6 +5,7 @@ import {
   proof,
   responseReturnRole,
 } from "./program-evidence-support";
+import { indexReadAttributes } from "./program-index-read-metadata";
 
 export class ProgramEvidenceCollectorBoundaryProcessing extends ProgramEvidenceCollectorCallSupport {
   protected processProperty(
@@ -125,7 +126,7 @@ export class ProgramEvidenceCollectorBoundaryProcessing extends ProgramEvidenceC
       node,
       "index-read",
       ownerId,
-      { operation: "index-read" },
+      indexReadAttributes(this.ts, node),
       this.symbolId(node.expression),
       null,
       null,

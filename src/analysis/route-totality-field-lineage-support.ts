@@ -36,11 +36,9 @@ export type TraversalState = PathState & {
 export function appendField(
   previous: FieldState,
   next: FieldState,
-  consecutive: boolean,
   cancellation: AnalysisCancellationToken,
-): FieldState | null {
+): FieldState {
   cancellation.throwIfCancelled();
-  if (!consecutive) return null;
   const elementIds = copyIds(previous.elementIds, next.elementIds, cancellation);
   const segments: RouteTotalityFieldSegment[] = [];
   for (const segment of previous.segments) {
@@ -68,7 +66,7 @@ export function fieldLabel(
   for (const segment of segments) {
     cancellation.throwIfCancelled();
     if (segment.kind === "property") label = label ? `${label}.${segment.value}` : segment.value;
-    else if (segment.kind === "string-index") label = `${label}["${segment.value}"]`;
+    else if (segment.kind === "string-index") label = `${label}[${JSON.stringify(segment.value)}]`;
     else label = `${label}[${segment.value}]`;
   }
   cancellation.throwIfCancelled();

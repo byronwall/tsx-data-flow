@@ -1,11 +1,13 @@
 import type { AnalysisCancellationToken } from "../analysis/cancellation";
 import { hasRouteTotalityFieldGap } from "../analysis/route-totality-field-lineage-truncation";
 import {
+  classifyIndexReadMetadata,
   classifyRouteTotalityFieldTransition,
   isFullyProvenElement,
   isFullyProvenProof,
   isFullyProvenRelation,
 } from "../analysis/route-totality-field-lineage-transition";
+import { fieldLabel } from "../analysis/route-totality-field-lineage-support";
 import { addIssue, type ValidationIssue } from "./route-occurrence-validation-graph";
 import {
   exactElement,
@@ -46,20 +48,30 @@ export function validateFieldLineageField(
   for (let index = 0; index < field.segments.length; index += 1) {
     cancellation.throwIfCancelled();
     const segment = field.segments[index];
-    if (segment.kind !== "property" || segment.value.length === 0) {
-      addIssue(issues, [...path, "segments", index], "Milestone 1 fields require static named property segments");
-    }
-    expectedLabel = expectedLabel ? `${expectedLabel}.${segment.value}` : segment.value;
     const element = exactElement(evidence, field.elementIds[index]);
     if (!element) {
       addIssue(issues, [...path, "elementIds", index], "field element must exist exactly once in the evidence slice");
       continue;
     }
-    if (!isFullyProvenElement(element, cancellation)
-      || element.kind !== "field-read"
-      || element.operationKind !== "field-read"
-      || element.fieldName !== segment.value) {
-      addIssue(issues, [...path, "elementIds", index], "field element must be the exact fully proven static named field-read");
+    let validSegment = false;
+    if (segment.kind === "property") {
+      validSegment = segment.value.length > 0
+        && isFullyProvenElement(element, cancellation)
+        && element.kind === "field-read"
+        && element.operationKind === "field-read"
+        && element.fieldName === segment.value;
+    } else {
+      const indexClassification = element.kind === "index-read"
+        ? classifyIndexReadMetadata(element.index)
+        : { kind: "partial" as const };
+      validSegment = indexClassification.kind === "accepted"
+        && indexClassification.segment.kind === segment.kind
+        && indexClassification.segment.value === segment.value
+        && isFullyProvenElement(element, cancellation)
+        && element.operationKind === "index-read";
+    }
+    if (!validSegment) {
+      addIssue(issues, [...path, "elementIds", index], "field element must match one exact fully proven compiler-backed field or literal index read");
     }
     if (index > 0) {
       validateFieldInput(
@@ -74,6 +86,7 @@ export function validateFieldLineageField(
       );
     }
   }
+  expectedLabel = fieldLabel(field.segments, cancellation);
   if (field.label !== expectedLabel) addIssue(issues, [...path, "label"], "field label must be built from exact field segments");
   if (includesLocation && "location" in field && field.elementIds.length > 0) {
     const final = exactElement(evidence, field.elementIds[field.elementIds.length - 1]);
@@ -123,6 +136,8 @@ export function validateFieldLineageAttachmentPath(
 
   let currentOccurrenceId = surface.rootOccurrenceId;
   let fieldIndex = 0;
+  let currentFieldElementId: string | null = null;
+  let componentPropReceiverElementId: string | null = null;
   let terminalAttachment = false;
   for (let index = 0; index < relationIds.length; index += 1) {
     cancellation.throwIfCancelled();
@@ -137,7 +152,7 @@ export function validateFieldLineageAttachmentPath(
       addIssue(issues, [...path, "evidencePathRelationIds", index], "field attachment path relation must exactly connect fully proven adjacent elements");
       continue;
     }
-    if (fieldIndex > 0 && hasRouteTotalityFieldGap(source.id, evidence.gapsByFrom, cancellation)) {
+    if (hasRouteTotalityFieldGap(source.id, evidence.gapsByFrom, cancellation)) {
       addIssue(issues, [...path, "evidencePathElementIds", index], "field attachment path cannot cross an ordinary evidence gap");
       continue;
     }
@@ -155,7 +170,10 @@ export function validateFieldLineageAttachmentPath(
       incomingRelations: evidence.incoming.get(target.id) ?? [],
       hasField: fieldIndex > 0,
       isInitialOrigin: index === 0 && source.id === attachment.origin.elementId,
-      staticNamedField: target.fieldName !== null,
+      staticNamedField: target.kind === "field-read" ? target.fieldName !== null : null,
+      indexMetadata: target.kind === "index-read" ? target.index : null,
+      currentFieldElementId,
+      componentPropReceiverElementId,
       occurrenceAnchorCount: occurrenceAnchors.length,
       terminalAnchorCount: terminalAnchors.length,
       currentOccurrenceId,
@@ -176,6 +194,8 @@ export function validateFieldLineageAttachmentPath(
         addIssue(issues, [...path, "field"], "field elements must occur in the exact accepted path order");
       }
       fieldIndex += 1;
+      currentFieldElementId = target.id;
+      componentPropReceiverElementId = null;
       continue;
     }
     if (transition.kind === "component-prop-binding-start") {
@@ -185,6 +205,7 @@ export function validateFieldLineageAttachmentPath(
       } else {
         currentOccurrenceId = boundary.occurrenceId;
       }
+      componentPropReceiverElementId = null;
       continue;
     }
     if (transition.kind === "component-prop-binding-receiver") {
@@ -194,6 +215,7 @@ export function validateFieldLineageAttachmentPath(
       if (!target.fieldName) {
         addIssue(issues, [...path, "evidencePathRelationIds", index], "component-prop binding receiver must have one exact named field");
       }
+      componentPropReceiverElementId = target.id;
       continue;
     }
     if (transition.kind === "component-prop") {
@@ -277,7 +299,10 @@ function validateFieldInput(
     incomingRelations: evidence.incoming.get(to) ?? [],
     hasField: true,
     isInitialOrigin: false,
-    staticNamedField: target.fieldName !== null,
+    staticNamedField: target.kind === "field-read" ? target.fieldName !== null : null,
+    indexMetadata: target.kind === "index-read" ? target.index : null,
+    currentFieldElementId: from,
+    componentPropReceiverElementId: null,
     occurrenceAnchorCount: 0,
     terminalAnchorCount: 0,
     currentOccurrenceId: null,

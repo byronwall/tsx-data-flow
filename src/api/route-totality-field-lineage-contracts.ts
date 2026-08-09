@@ -36,7 +36,7 @@ const originRoleSchema = z.enum([
 ]);
 const fieldSegmentSchema = z.strictObject({
   kind: z.enum(["property", "string-index", "numeric-index"]),
-  value: nonEmptyStringSchema,
+  value: z.string(),
 });
 const fieldOriginSchema = z.strictObject({
   elementId: nonEmptyStringSchema,

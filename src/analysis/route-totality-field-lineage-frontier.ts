@@ -51,7 +51,6 @@ export function makeFrontier(
       occurrenceId,
       reason,
       stoppedAtElementId,
-      stoppedAtRelationId: reason === "evidence-truncated" ? null : stoppedAtRelationId,
     }))}`,
     origin: { ...origin },
     field: field ? { elementIds, segments, label: field.label } : null,

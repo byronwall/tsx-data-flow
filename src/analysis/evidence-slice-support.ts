@@ -20,6 +20,7 @@ import type {
   TerminalRole,
 } from "./scope-seam";
 import type { AnalysisCancellationToken } from "./cancellation";
+import { indexReadMetadataFromElement } from "./program-index-read-metadata";
 
 export type NormalizedProgramEvidence = {
   elements: ProgramElement[];
@@ -202,6 +203,7 @@ function toSliceElement(element: IndexedProgramElement): ProgramElement {
       ? element.attributes.property
       : null,
     operationKind: element.operationKind,
+    index: indexReadMetadataFromElement(element),
     label: element.label,
     source: sourceIdentityFor(element.location),
     location: toSliceLocation(element.location),

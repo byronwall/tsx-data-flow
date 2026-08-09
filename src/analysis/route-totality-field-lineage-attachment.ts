@@ -74,7 +74,7 @@ export function projectAttachment(
     evidencePathRelationIds,
     proof: [{
       kind: "route-totality-field-lineage",
-      detail: "The proven named property path reaches the exact route occurrence and render terminal.",
+      detail: "The proven field or literal index path reaches the exact route occurrence and render terminal.",
       locations,
       status: "proven",
     }],

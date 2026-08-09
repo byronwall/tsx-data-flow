@@ -21,6 +21,7 @@ import {
   componentPropBindingContext,
   componentPropBoundary,
 } from "./route-totality-field-lineage-validation-binding";
+import { validateFieldLineageFrontierPath } from "./route-totality-field-lineage-validation-frontier-path";
 import { validateUniqueFieldLineageIds } from "./route-totality-field-lineage-validation-structure";
 
 export function validateFieldLineageFrontierStop(
@@ -52,8 +53,11 @@ export function validateFieldLineageFrontierStop(
   }
   if (frontier.reason === "evidence-truncated") {
     validateEvidenceTruncatedFrontier(frontier, evidence, surface, path, issues, cancellation);
-  } else if (frontier.gapId !== null) {
-    addIssue(issues, [...path, "gapId"], "only evidence-truncated frontiers may contain a gap id");
+  } else {
+    if (frontier.gapId !== null) {
+      addIssue(issues, [...path, "gapId"], "only evidence-truncated frontiers may contain a gap id");
+    }
+    validateFieldLineageFrontierPath(frontier, evidence, surface, path, issues, cancellation);
   }
   cancellation.throwIfCancelled();
 }
@@ -139,6 +143,8 @@ function validateCanonicalTruncationPath(
 
   let currentOccurrenceId = surface.rootOccurrenceId;
   let fieldIndex = 0;
+  let currentFieldElementId: string | null = null;
+  let componentPropReceiverElementId: string | null = null;
   for (let index = 0; index < relationIds.length; index += 1) {
     cancellation.throwIfCancelled();
     const relation = exactRelation(evidence, relationIds[index]);
@@ -151,7 +157,7 @@ function validateCanonicalTruncationPath(
       addIssue(issues, [...path, "evidencePathRelationIds", index], "truncation path relation must exactly connect fully proven adjacent evidence");
       continue;
     }
-    if (fieldIndex > 0 && hasRouteTotalityFieldGap(source.id, evidence.gapsByFrom, cancellation)) {
+    if (hasRouteTotalityFieldGap(source.id, evidence.gapsByFrom, cancellation)) {
       addIssue(issues, [...path, "evidencePathElementIds", index], "truncation path cannot cross an ordinary evidence gap");
       continue;
     }
@@ -169,7 +175,10 @@ function validateCanonicalTruncationPath(
       incomingRelations: evidence.incoming.get(target.id) ?? [],
       hasField: fieldIndex > 0,
       isInitialOrigin: index === 0 && source.id === frontier.origin.elementId,
-      staticNamedField: target.fieldName !== null,
+      staticNamedField: target.kind === "field-read" ? target.fieldName !== null : null,
+      indexMetadata: target.kind === "index-read" ? target.index : null,
+      currentFieldElementId,
+      componentPropReceiverElementId,
       occurrenceAnchorCount: occurrenceAnchors.length,
       terminalAnchorCount: terminalAnchors.length,
       currentOccurrenceId,
@@ -192,6 +201,8 @@ function validateCanonicalTruncationPath(
         addIssue(issues, [...path, "field"], "truncation path must carry exact field elements in order");
       }
       fieldIndex += 1;
+      currentFieldElementId = target.id;
+      componentPropReceiverElementId = null;
       continue;
     }
     if (transition.kind === "component-prop-binding-start") {
@@ -201,6 +212,7 @@ function validateCanonicalTruncationPath(
       } else {
         currentOccurrenceId = boundary.occurrenceId;
       }
+      componentPropReceiverElementId = null;
       continue;
     }
     if (transition.kind === "component-prop-binding-receiver") {
@@ -210,6 +222,7 @@ function validateCanonicalTruncationPath(
       if (!target.fieldName) {
         addIssue(issues, [...path, "evidencePathRelationIds", index], "component-prop binding receiver must have one exact named field");
       }
+      componentPropReceiverElementId = target.id;
       continue;
     }
   }

@@ -111,6 +111,7 @@ const programElementSchema = z.strictObject({
   kind: nonEmptyStringSchema,
   fieldName: nonEmptyStringSchema.nullable(),
   operationKind: nonEmptyStringSchema.nullable(),
+  index: z.union([z.strictObject({ kind: z.literal("string-literal"), value: z.string() }), z.strictObject({ kind: z.literal("numeric-literal"), value: z.string() }), z.strictObject({ kind: z.literal("dynamic"), value: z.null() })]).nullable(),
   label: nonEmptyStringSchema,
   source: sourceRangeSchema,
   location: sourceLocationSchema,

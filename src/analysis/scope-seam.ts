@@ -43,6 +43,8 @@ export type ProgramElement = {
   fieldName: string | null;
   /** Exact compiler operation classification when one exists. */
   operationKind: string | null;
+  /** Narrow raw metadata for an element-access expression. */
+  index: ProgramIndexReadMetadata | null;
   label: string;
   source: SourceIdentity;
   location: SourceLocation;
@@ -53,6 +55,11 @@ export type ProgramElement = {
   terminalRoles: TerminalRole[];
   boundary: BoundaryKind | null;
 };
+
+export type ProgramIndexReadMetadata =
+  | { kind: "string-literal"; value: string }
+  | { kind: "numeric-literal"; value: string }
+  | { kind: "dynamic"; value: null };
 
 export type ProgramRelation = {
   /** Stable identity derived from source-backed endpoints and relation proof. */

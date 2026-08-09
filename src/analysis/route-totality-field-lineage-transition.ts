@@ -1,11 +1,13 @@
 import type {
   EvidenceProof,
   EvidenceStatus,
+  ProgramIndexReadMetadata,
 } from "./scope-seam";
 import { NO_ANALYSIS_CANCELLATION, type AnalysisCancellationToken } from "./cancellation";
 
 export type FieldLineageStopReason =
   | "partial-proof"
+  | "identity-lost"
   | "ambiguous-target"
   | "unsupported-relation"
   | "unsupported-transform"
@@ -20,6 +22,7 @@ export type FieldLineageElement = {
   operationKind: string | null;
   status: EvidenceStatus;
   proof: readonly EvidenceProof[];
+  index?: ProgramIndexReadMetadata | null;
 };
 
 export type FieldLineageRelation = {
@@ -40,6 +43,9 @@ export type FieldLineageTransitionContext = {
   hasField: boolean;
   isInitialOrigin: boolean;
   staticNamedField: boolean | null;
+  indexMetadata: ProgramIndexReadMetadata | null;
+  currentFieldElementId: string | null;
+  componentPropReceiverElementId: string | null;
   occurrenceAnchorCount: number;
   terminalAnchorCount: number;
   currentOccurrenceId: string | null;
@@ -66,13 +72,34 @@ const SCALAR_CARRIERS = new Set([
   "alias",
   "parameter",
   "field-read",
+  "index-read",
   "call",
   "resource-result",
 ]);
 
 const REFERENCE_TARGETS = new Set(["value", "alias", "field-read"]);
-const ARGUMENT_SOURCES = new Set(["value", "alias", "field-read", "call", "parameter"]);
-const COMPONENT_PROP_SOURCES = new Set(["value", "alias", "field-read", "call", "parameter", "resource-result"]);
+const ARGUMENT_SOURCES = new Set(["value", "alias", "field-read", "index-read", "call", "parameter"]);
+const COMPONENT_PROP_SOURCES = new Set(["value", "alias", "field-read", "index-read", "call", "parameter", "resource-result"]);
+
+export type IndexReadClassification =
+  | { kind: "accepted"; segment: { kind: "string-index" | "numeric-index"; value: string } }
+  | { kind: "dynamic" }
+  | { kind: "partial" };
+
+/** Convert one raw index literal into its only supported canonical segment. */
+export function classifyIndexReadMetadata(
+  metadata: ProgramIndexReadMetadata | null | undefined,
+): IndexReadClassification {
+  if (!metadata) return { kind: "partial" };
+  if (metadata.kind === "dynamic") return { kind: "dynamic" };
+  if (metadata.kind === "string-literal") {
+    return { kind: "accepted", segment: { kind: "string-index", value: metadata.value } };
+  }
+  if (!/^(0|[1-9]\d*)$/.test(metadata.value)) return { kind: "dynamic" };
+  const numeric = Number(metadata.value);
+  if (!Number.isSafeInteger(numeric) || String(numeric) !== metadata.value) return { kind: "dynamic" };
+  return { kind: "accepted", segment: { kind: "numeric-index", value: metadata.value } };
+}
 
 /**
  * Decide whether one exact evidence edge preserves Milestone 1 field identity.
@@ -140,7 +167,18 @@ export function classifyRouteTotalityFieldTransition(
     case "field-input": {
       const fieldInputs = provenRelationsOfKind(context.outgoingRelations, "field-input", context.cancellation);
       if (fieldInputs.length !== 1) return { kind: "stop", reason: "ambiguous-target" };
-      if (target.kind === "index-read") return { kind: "stop", reason: "dynamic-index" };
+      if (context.hasField
+        && context.currentFieldElementId !== relation.from
+        && context.componentPropReceiverElementId !== relation.from) {
+        return { kind: "stop", reason: "identity-lost" };
+      }
+      if (target.kind === "index-read") {
+        if (target.operationKind !== "index-read") return { kind: "stop", reason: "unsupported-relation" };
+        const index = classifyIndexReadMetadata(context.indexMetadata);
+        if (index.kind === "accepted") return { kind: "field-input" };
+        if (index.kind === "dynamic") return { kind: "stop", reason: "dynamic-index" };
+        return { kind: "stop", reason: "partial-proof" };
+      }
       if (target.kind !== "field-read" || target.operationKind !== "field-read") {
         return { kind: "stop", reason: "unsupported-relation" };
       }
@@ -148,7 +186,14 @@ export function classifyRouteTotalityFieldTransition(
       if (!context.staticNamedField) return { kind: "stop", reason: "unsupported-relation" };
       return { kind: "field-input" };
     }
+    case "pack-field": {
+      if (target.kind !== "object-pack" || target.operationKind !== "object-pack") {
+        return { kind: "stop", reason: "unsupported-relation" };
+      }
+      return { kind: "stop", reason: context.hasField ? "unsupported-transform" : "unsupported-relation" };
+    }
     case "component-prop": {
+      if (!context.hasField) return { kind: "stop", reason: "unsupported-relation" };
       if (target.kind !== "component-occurrence") {
         return { kind: "stop", reason: "unsupported-relation" };
       }

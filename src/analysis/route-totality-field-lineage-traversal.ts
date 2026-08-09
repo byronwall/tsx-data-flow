@@ -3,13 +3,14 @@ import { cancellableStableSort } from "./cancellable-stable-sort";
 import type { EvidenceSlice } from "./evidence-slice";
 import type { EvidenceRelationProvider } from "./evidence-relation-provider";
 import type { ProgramElement } from "./program-evidence";
+import { indexReadMetadataFromElement } from "./program-index-read-metadata";
 import type { RouteTotalityAnchorIndex } from "./route-totality-anchor-index";
 import { addAttachment, type AttachmentAccumulator } from "./route-totality-field-lineage-attachment";
 import {
   componentPropBindingContext,
   componentPropBindingReadiness,
   lastFieldSegment,
-  uniqueProvenComponentPropBoundaries,
+  provenComponentPropBoundaries,
 } from "./route-totality-field-lineage-component-binding";
 import { addFrontier, makeFrontier, type FrontierAccumulator } from "./route-totality-field-lineage-frontier";
 import { hasRouteTotalityFieldLineageId } from "./route-totality-field-lineage-index";
@@ -17,6 +18,7 @@ import {
   appendField,
   comparePath,
   compareTraversal,
+  fieldLabel,
   lastLocation,
   nextState,
   proofsForStop,
@@ -29,6 +31,7 @@ import {
   type TruncatedTraversalState,
 } from "./route-totality-field-lineage-truncation";
 import {
+  classifyIndexReadMetadata,
   classifyRouteTotalityFieldTransition,
   isFullyProvenElement,
   isFullyProvenProof,
@@ -100,7 +103,7 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
       const source = elementsById.get(relation.from);
       const target = elementsById.get(relation.to);
       if (relation.kind === "component-prop" && target?.kind === "component-occurrence") {
-        const canonicalBoundary = uniqueProvenComponentPropBoundaries(
+        const canonicalBoundary = provenComponentPropBoundaries(
           state.currentElementId,
           outgoing,
           elementsById,
@@ -127,7 +130,10 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
         ) !== "ready") continue;
       }
       const rawTarget = target ? provider.facts.getElement(target.id) : undefined;
-      const namedField = target ? namedPropertyField(rawTarget, target, cancellation) : null;
+      const targetField = target ? fieldForTarget(rawTarget, target, cancellation) : null;
+      const indexMetadata = target?.kind === "index-read"
+        ? rawTarget ? indexReadMetadataFromElement(rawTarget) : null
+        : null;
       const occurrenceAnchors = target ? anchors.occurrenceAnchorsByEvidenceElementId.get(target.id) ?? [] : [];
       const terminalAnchors = target ? anchors.terminalAnchorsByEvidenceElementId.get(target.id) ?? [] : [];
       const terminal = terminalAnchors.length === 1 ? terminalAnchors[0].endpoint : undefined;
@@ -152,7 +158,10 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
         incomingRelations: target ? relationsByTo.get(target.id) ?? [] : [],
         hasField: state.field !== null,
         isInitialOrigin: state.currentElementId === origin.elementId && state.elementIds.length === 1,
-        staticNamedField: target ? rawTarget ? namedField !== null : null : null,
+        staticNamedField: target?.kind === "field-read" ? targetField !== null : null,
+        indexMetadata,
+        currentFieldElementId: state.field?.elementIds.at(-1) ?? null,
+        componentPropReceiverElementId: state.componentPropReceiver?.elementId ?? null,
         occurrenceAnchorCount: occurrenceAnchors.length,
         terminalAnchorCount: terminalAnchors.length,
         currentOccurrenceId: state.currentOccurrenceId,
@@ -221,23 +230,17 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
         continue;
       }
       if (transition.kind === "field-input") {
-        if (!namedField) {
+        if (!targetField) {
           addStopFrontier(state, relation, target, "partial-proof", elementsById, frontiers, cancellation);
           continue;
         }
         const nextField = state.field
           ? appendField(
             state.field,
-            namedField,
-            Boolean(state.componentPropReceiver)
-              || relation.from === state.field.elementIds[state.field.elementIds.length - 1],
+            targetField,
             cancellation,
           )
-          : namedField;
-        if (!nextField) {
-          addStopFrontier(state, relation, target, "identity-lost", elementsById, frontiers, cancellation);
-          continue;
-        }
+          : targetField;
         const next = nextState(state, target, relation, nextField, state.currentOccurrenceId, cancellation, null);
         recordRouteTotalityFieldTruncations(next, gapsByFrom, truncations, cancellation);
         queue.push(next);
@@ -257,7 +260,8 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
             cancellation,
           );
           if (readiness !== "ready") {
-            const boundaryAnchor = anchors.occurrenceAnchorsByEvidenceElementId.get(target?.id ?? "")?.[0];
+            const boundaryAnchors = anchors.occurrenceAnchorsByEvidenceElementId.get(target?.id ?? "") ?? [];
+            const boundaryAnchor = boundaryAnchors.length === 1 ? boundaryAnchors[0] : undefined;
             const frontierState = boundaryAnchor
               ? { ...state, currentOccurrenceId: boundaryAnchor.endpoint.id }
               : state;
@@ -321,29 +325,39 @@ function addStopFrontier(
   ), cancellation);
 }
 
-function namedPropertyField(
+function fieldForTarget(
   raw: ProgramElement | undefined,
   element: EvidenceSlice["elements"][number],
   cancellation: AnalysisCancellationToken,
 ): FieldState | null {
   cancellation.throwIfCancelled();
   if (!raw
-    || raw.kind !== "field-read"
-    || raw.operationKind !== "field-read"
     || raw.confidence !== "proven"
     || raw.proof.locations.length === 0
     || !isFullyProvenElement(element, cancellation)
-    || element.kind !== "field-read"
-    || element.operationKind !== "field-read") {
+    || (element.kind !== "field-read" && element.kind !== "index-read")) {
     return null;
   }
-  const property = raw.attributes.property;
-  if (typeof property !== "string" || property.length === 0 || element.fieldName !== property) return null;
+  if (element.kind === "field-read") {
+    if (raw.kind !== "field-read" || raw.operationKind !== "field-read" || element.operationKind !== "field-read") return null;
+    const property = raw.attributes.property;
+    if (typeof property !== "string" || property.length === 0 || element.fieldName !== property) return null;
+    cancellation.throwIfCancelled();
+    return {
+      elementIds: [element.id],
+      segments: [{ kind: "property", value: property }],
+      label: property,
+      location: element.location,
+    };
+  }
+  if (raw.kind !== "index-read" || raw.operationKind !== "index-read" || element.operationKind !== "index-read") return null;
+  const index = classifyIndexReadMetadata(indexReadMetadataFromElement(raw));
+  if (index.kind !== "accepted") return null;
   cancellation.throwIfCancelled();
   return {
     elementIds: [element.id],
-    segments: [{ kind: "property", value: property }],
-    label: property,
+    segments: [index.segment],
+    label: fieldLabel([index.segment], cancellation),
     location: element.location,
   };
 }
