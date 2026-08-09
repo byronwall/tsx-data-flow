@@ -16,6 +16,11 @@ export type RouteTotalityControlsProps = {
 };
 
 export function RouteTotalityControls(props: RouteTotalityControlsProps) {
+  const activateClearFieldFocus = (event: KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    props.onClearFieldFocus();
+  };
   return <header class="route-totality-toolbar">
     <div class="route-totality-title">
       <strong class="route-totality-route-label">{props.routePath}</strong>
@@ -24,7 +29,7 @@ export function RouteTotalityControls(props: RouteTotalityControlsProps) {
     <div class="route-totality-field-focus" hidden={!props.fieldOriginLabel} aria-live="polite">
       <span>Fields from</span>
       <code title={props.fieldOriginLabel ?? ""}>{props.fieldOriginLabel ?? ""}</code>
-      <button type="button" onClick={() => props.onClearFieldFocus()}>Clear field focus</button>
+      <button type="button" onClick={() => props.onClearFieldFocus()} onKeyDown={activateClearFieldFocus}>Clear field focus</button>
     </div>
     <div class="route-totality-toolbar-actions">
       <button
