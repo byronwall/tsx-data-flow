@@ -168,7 +168,7 @@ export function classifyRouteTotalityFieldTransition(
         context.incomingRelations,
         "resource-result",
         context.cancellation,
-      ).filter((candidate) => candidate.to === target.id);
+      );
       if (incomingResourceResults.length !== 1) {
         return { kind: "stop", reason: "ambiguous-target" };
       }
