@@ -111,6 +111,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     onCommit: (nextCamera) => emitInvestigationState(selection(), isolated(), nextCamera),
     onTap: () => {
       setEmphasisMode(null);
+      if (activeFieldOrigin()) setFieldInspectorScope({ kind: "origin" });
       emitInvestigationState(null, false);
     },
   });

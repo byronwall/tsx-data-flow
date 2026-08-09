@@ -80,7 +80,6 @@ export function RouteTotalityInspector(props: {
           <EmphasisSection record={record()} emphasis={props.emphasis} emphasisMode={props.emphasisMode} isolated={props.isolated} onEmphasize={props.onEmphasize} onClearEmphasis={props.onClearEmphasis} onIsolate={props.onIsolate} onRestore={props.onRestore} />
           <SourceLocations locations={record().locations} onOpenSource={props.onOpenSource} />
           <ProofRecords proofs={record().proof} onOpenSource={props.onOpenSource} />
-          <RouteTotalityFieldSections result={props.fieldResult} onOpenSource={props.onOpenSource} />
           <FindingSection findings={props.findings} />
           <NeighborSection title="Incoming neighbors" items={record().incoming} empty="No incoming neighbor was returned." onSelect={props.onSelect} />
           <NeighborSection title="Outgoing neighbors" items={record().outgoing} empty="No outgoing neighbor was returned." onSelect={props.onSelect} />
@@ -96,6 +95,7 @@ export function RouteTotalityInspector(props: {
           </section>
         </>}
       </Show>
+      <RouteTotalityFieldSections result={props.fieldResult} onOpenSource={props.onOpenSource} />
     </div>
   </aside>;
 }

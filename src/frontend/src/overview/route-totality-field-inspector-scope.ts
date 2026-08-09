@@ -13,7 +13,9 @@ export function routeTotalityFieldInspectorScopeForSelection(
     return { origin, scope: origin ? { kind: "origin" } : null };
   }
   if (selection.target === "node" && selection.kind === "occurrence") {
-    return { origin: activeOrigin, scope: { kind: "occurrence", occurrenceId: selection.recordId } };
+    return activeOrigin
+      ? { origin: activeOrigin, scope: { kind: "occurrence", occurrenceId: selection.recordId } }
+      : { origin: null, scope: null };
   }
   return { origin: activeOrigin, scope: activeOrigin ? { kind: "origin" } : null };
 }
