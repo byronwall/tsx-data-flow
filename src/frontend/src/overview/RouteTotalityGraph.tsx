@@ -271,6 +271,8 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     displayLayout(),
     evidenceVisible(),
     renderableRouteTotalityAnnotations(displayLayout(), evidenceVisible()),
+    [],
+    { nodeIds: fieldEvidenceNodeIds(), edgeIds: fieldEvidenceEdgeIds() },
   ));
   const boundaryStubLayout = createMemo<RouteTotalityLayout>(() => {
     const displayNodes = [...displayLayout().nodes, ...displayLayout().evidenceNodes].map((displayNode) => ({
@@ -295,6 +297,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     evidenceVisible(),
     renderableRouteTotalityAnnotations(displayLayout(), evidenceVisible()),
     boundaryStubs(),
+    { nodeIds: fieldEvidenceNodeIds(), edgeIds: fieldEvidenceEdgeIds() },
   ));
   const displayAnnotations = createMemo(() => renderableRouteTotalityAnnotations(displayLayout(), evidenceVisible()));
   const selectedRecord = createMemo(() => buildRouteTotalityInspectorRecord(props.totality, layout(), selection()));

@@ -293,12 +293,20 @@ export function routeTotalityDisplayBounds(
   evidenceVisible: boolean,
   annotations: readonly RenderableDisplayAnnotation[],
   boundaryStubs: readonly RouteTotalityBoundaryStub[] = [],
+  focusedFieldPath?: {
+    nodeIds: ReadonlySet<string>;
+    edgeIds: ReadonlySet<string>;
+  },
 ): { width: number; height: number } {
-  const nodes = evidenceVisible ? [...display.nodes, ...display.evidenceNodes] : [...display.nodes];
+  const nodes = evidenceVisible
+    ? [...display.nodes, ...display.evidenceNodes]
+    : [...display.nodes, ...display.evidenceNodes.filter((node) => focusedFieldPath?.nodeIds.has(node.id))];
   const bounds = { maxX: 0, maxY: 0 };
   for (const node of nodes) includePoint(bounds, node.x + node.width + 48, node.y + node.height + 42);
   for (const item of annotations) includePoint(bounds, item.x + 420, item.y + 42);
-  const edges = evidenceVisible ? [...display.edges, ...display.evidenceEdges] : [...display.edges];
+  const edges = evidenceVisible
+    ? [...display.edges, ...display.evidenceEdges]
+    : [...display.edges, ...display.evidenceEdges.filter((edge) => focusedFieldPath?.edgeIds.has(edge.id))];
   for (const edge of edges) includePath(bounds, routeTotalityDisplayEdgePath(edge));
   for (const bridge of display.bridges) {
     const path = routeTotalityDisplayBridgePath(bridge);
