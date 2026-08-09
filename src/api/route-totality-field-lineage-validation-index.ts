@@ -15,6 +15,7 @@ export type EvidenceElement = AvailableEvidence["elements"][number];
 export type EvidenceRelation = AvailableEvidence["relations"][number];
 export type EvidenceOrigin = AvailableEvidence["origins"][number];
 export type EvidenceTerminal = AvailableEvidence["terminals"][number];
+export type EvidenceGap = AvailableEvidence["gaps"][number];
 export type SurfaceOccurrence = AvailableSurface["occurrences"][number];
 export type SurfaceTerminal = AvailableSurface["terminals"][number];
 export type FieldAttachment = RouteTotality["fieldLineage"]["attachments"][number];
@@ -26,6 +27,7 @@ export type EvidenceIndexes = {
   relationsById: ReadonlyMap<string, readonly EvidenceRelation[]>;
   originsByKey: ReadonlyMap<string, readonly EvidenceOrigin[]>;
   terminalsByKey: ReadonlyMap<string, readonly EvidenceTerminal[]>;
+  gapsById: ReadonlyMap<string, readonly EvidenceGap[]>;
   outgoing: ReadonlyMap<string, readonly EvidenceRelation[]>;
   incoming: ReadonlyMap<string, readonly EvidenceRelation[]>;
 };
@@ -47,6 +49,7 @@ export function indexEvidence(
   const relationsById = indexMany(evidence.relations, (relation) => relation.id, cancellation);
   const originsByKey = indexMany(evidence.origins, (origin) => `${origin.elementId}:${origin.role}`, cancellation);
   const terminalsByKey = indexMany(evidence.terminals, (terminal) => `${terminal.elementId}:${terminal.role}`, cancellation);
+  const gapsById = indexMany(evidence.gaps, (gap) => gap.id, cancellation);
   const outgoing = new Map<string, EvidenceRelation[]>();
   const incoming = new Map<string, EvidenceRelation[]>();
   const sorted = cancellableStableSort(evidence.relations, (left, right) => left.id.localeCompare(right.id), cancellation);
@@ -60,7 +63,7 @@ export function indexEvidence(
     incoming.set(relation.to, to);
   }
   cancellation.throwIfCancelled();
-  return { elementsById, relationsById, originsByKey, terminalsByKey, outgoing, incoming };
+  return { elementsById, relationsById, originsByKey, terminalsByKey, gapsById, outgoing, incoming };
 }
 
 export function indexSurface(
@@ -93,6 +96,11 @@ export function exactElement(evidence: EvidenceIndexes, id: string): EvidenceEle
 
 export function exactRelation(evidence: EvidenceIndexes, id: string): EvidenceRelation | undefined {
   const values = evidence.relationsById.get(id) ?? [];
+  return values.length === 1 ? values[0] : undefined;
+}
+
+export function exactGap(evidence: EvidenceIndexes, id: string): EvidenceGap | undefined {
+  const values = evidence.gapsById.get(id) ?? [];
   return values.length === 1 ? values[0] : undefined;
 }
 

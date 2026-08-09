@@ -11,6 +11,7 @@ export type RouteTotalityFieldLineageIndexes = {
   relationsByFrom: ReadonlyMap<string, readonly EvidenceSlice["relations"][number][]>;
   relationsByTo: ReadonlyMap<string, readonly EvidenceSlice["relations"][number][]>;
   gapsByFrom: ReadonlyMap<string, readonly EvidenceSlice["gaps"][number][]>;
+  gapsById: ReadonlyMap<string, readonly EvidenceSlice["gaps"][number][]>;
 };
 
 export function buildRouteTotalityFieldLineageIndexes(
@@ -31,8 +32,9 @@ export function buildRouteTotalityFieldLineageIndexes(
   const relationsByFrom = relationIndex(slice, "from", cancellation);
   const relationsByTo = relationIndex(slice, "to", cancellation);
   const gapsByFrom = gapIndex(slice, cancellation);
+  const gapsById = gapIdIndex(slice, cancellation);
   cancellation.throwIfCancelled();
-  return { elementsById, relationsById, relationsByFrom, relationsByTo, gapsByFrom };
+  return { elementsById, relationsById, relationsByFrom, relationsByTo, gapsByFrom, gapsById };
 }
 
 export function routeTotalityFieldRootOccurrenceId(
@@ -121,6 +123,23 @@ function gapIndex(
     const current = indexed.get(gap.from) ?? [];
     current.push(gap);
     indexed.set(gap.from, current);
+  }
+  cancellation.throwIfCancelled();
+  return indexed;
+}
+
+function gapIdIndex(
+  slice: EvidenceSlice,
+  cancellation: AnalysisCancellationToken,
+): ReadonlyMap<string, readonly EvidenceSlice["gaps"][number][]> {
+  cancellation.throwIfCancelled();
+  const indexed = new Map<string, EvidenceSlice["gaps"]>();
+  const sorted = cancellableStableSort(slice.gaps, (left, right) => left.id.localeCompare(right.id), cancellation);
+  for (const gap of sorted) {
+    cancellation.throwIfCancelled();
+    const current = indexed.get(gap.id) ?? [];
+    current.push(gap);
+    indexed.set(gap.id, current);
   }
   cancellation.throwIfCancelled();
   return indexed;

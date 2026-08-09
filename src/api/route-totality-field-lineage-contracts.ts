@@ -35,7 +35,7 @@ const originRoleSchema = z.enum([
   "input-boundary",
 ]);
 const fieldSegmentSchema = z.strictObject({
-  kind: z.enum(["property", "string-index", "number-index"]),
+  kind: z.enum(["property", "string-index", "numeric-index"]),
   value: nonEmptyStringSchema,
 });
 const fieldOriginSchema = z.strictObject({
@@ -57,7 +57,7 @@ export const routeTotalityFieldLineageSchema = z.strictObject({
     origin: fieldOriginSchema,
     field: fieldSchema,
     occurrenceId: nonEmptyStringSchema,
-    terminalIds: z.array(nonEmptyStringSchema),
+    terminalIds: z.array(nonEmptyStringSchema).length(1),
     evidencePathElementIds: z.array(nonEmptyStringSchema).min(1),
     evidencePathRelationIds: z.array(nonEmptyStringSchema),
     proof: z.array(evidenceProofSchema).min(1),
@@ -81,8 +81,11 @@ export const routeTotalityFieldLineageSchema = z.strictObject({
       "unmapped-occurrence",
       "unmapped-terminal",
     ]),
+    gapId: nonEmptyStringSchema.nullable(),
     stoppedAtElementId: nonEmptyStringSchema.nullable(),
     stoppedAtRelationId: nonEmptyStringSchema.nullable(),
+    evidencePathElementIds: z.array(nonEmptyStringSchema),
+    evidencePathRelationIds: z.array(nonEmptyStringSchema),
     location: sourceLocationSchema.nullable(),
     proof: z.array(evidenceProofSchema),
   })),

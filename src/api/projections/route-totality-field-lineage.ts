@@ -82,8 +82,11 @@ function projectFrontier(
     field,
     occurrenceId: frontier.occurrenceId,
     reason: frontier.reason,
+    gapId: frontier.gapId,
     stoppedAtElementId: frontier.stoppedAtElementId,
     stoppedAtRelationId: frontier.stoppedAtRelationId,
+    evidencePathElementIds: copyIds(frontier.evidencePathElementIds, cancellation),
+    evidencePathRelationIds: copyIds(frontier.evidencePathRelationIds, cancellation),
     location: frontier.location ? projectLocation(frontier.location) : null,
     proof: projectProofs(frontier.proof, cancellation),
   };
@@ -115,11 +118,11 @@ function projectProofs(proofs: DomainEvidenceProof[], cancellation: AnalysisCanc
 }
 
 function projectSegments(
-  segments: readonly { kind: "property" | "string-index" | "number-index"; value: string }[],
+  segments: readonly { kind: "property" | "string-index" | "numeric-index"; value: string }[],
   cancellation: AnalysisCancellationToken,
 ) {
   cancellation.throwIfCancelled();
-  const projected: Array<{ kind: "property" | "string-index" | "number-index"; value: string }> = [];
+  const projected: Array<{ kind: "property" | "string-index" | "numeric-index"; value: string }> = [];
   for (const segment of segments) {
     cancellation.throwIfCancelled();
     projected.push({ kind: segment.kind, value: segment.value });

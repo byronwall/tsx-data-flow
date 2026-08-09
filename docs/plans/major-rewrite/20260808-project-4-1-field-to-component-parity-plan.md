@@ -103,14 +103,14 @@ type RouteTotalityFieldAttachment = {
   field: {
     elementIds: string[];
     segments: Array<{
-      kind: "property" | "string-index" | "number-index";
+      kind: "property" | "string-index" | "numeric-index";
       value: string;
     }>;
     label: string;
     location: SourceLocation;
   };
   occurrenceId: string;
-  terminalIds: string[];
+  terminalIds: [string];
   evidencePathElementIds: string[];
   evidencePathRelationIds: string[];
   proof: EvidenceProof[];
@@ -123,7 +123,7 @@ type RouteTotalityFieldFrontier = {
   field: {
     elementIds: string[];
     segments: Array<{
-      kind: "property" | "string-index" | "number-index";
+      kind: "property" | "string-index" | "numeric-index";
       value: string;
     }>;
     label: string;
@@ -141,8 +141,11 @@ type RouteTotalityFieldFrontier = {
     | "evidence-truncated"
     | "unmapped-occurrence"
     | "unmapped-terminal";
+  gapId: string | null;
   stoppedAtElementId: string | null;
   stoppedAtRelationId: string | null;
+  evidencePathElementIds: string[];
+  evidencePathRelationIds: string[];
   location: SourceLocation | null;
   proof: EvidenceProof[];
 };
@@ -154,11 +157,13 @@ Use one attachment for each exact tuple:
 origin element and role
   + field element chain
   + route occurrence
+  + render terminal
 ```
 
-Store every proven terminal for that tuple in sorted `terminalIds`. An empty
-terminal list is valid when the field reaches the occurrence and then stops.
-The matching frontier explains the stop.
+Milestone 1 stores exactly one terminal ID in each attachment. The terminal
+anchor is the final `evidencePathElementId`. Emit separate attachments for
+separate proven terminals. A consumer boundary is not a terminal-qualified
+field attachment.
 
 A frontier's optional field describes the last exact identity before the stop.
 It never attaches that label to a downstream occurrence. `unavailableReason`
@@ -169,16 +174,17 @@ labels, component names, or definition IDs in identity keys.
 
 ### Field label rules
 
-- Read each segment from `ProgramElement.attributes.property`.
-- Require `kind: "field-read"`, `operationKind: "field-read"`, proven
-  confidence, source proof, and a non-empty static property.
+- Read property segments from `ProgramElement.attributes.property`.
+- Require a property segment to have `kind: "field-read"`,
+  `operationKind: "field-read"`, proven confidence, source proof, and one
+  non-empty static property.
 - Build nested paths only from consecutive proven `field-input` relations.
 - Use element IDs as identity.
 - Format property segments as `profile.name`, string indexes as `["name"]`,
   and numeric indexes as `[0]`. Mixed paths use `items[0].name`.
 - Do not use `ProgramElement.label` as a join key.
-- In Milestone 3, store static index kind and value on raw `index-read`
-  elements. Do not include computed or dynamic index expressions.
+- In Milestone 3, read a literal index only from raw `index-read` metadata.
+  Do not include computed or dynamic index expressions.
 - Do not append the same prop segment twice when an exact component binding
   repeats the incoming field at the component parameter.
 
@@ -203,14 +209,15 @@ instead of selecting one. This extraction must preserve current bridge output.
 5. Carry `originIdentity`, `fieldIdentity`, `currentOccurrenceId`, and the
    accepted path in each traversal state.
 6. Apply the transition table below. Every unlisted relation ends that branch.
-   Create a frontier when the branch already has a field or when the stopped
-   branch is the only consumer handoff for that origin.
+   Create a frontier only when the stopped branch already has a field.
 7. Map generic occurrences and terminals to the route surface through the same
    exact source anchors used by Route Totality bridges.
 8. Use the root occurrence only through the route seed anchor. Never map a
    shared definition to all of its occurrences.
-9. Emit an attachment when an exact field reaches an exact occurrence.
-10. Add terminal IDs only when the same exact state reaches their anchors.
+9. Emit an attachment only when an exact field reaches one exact render terminal
+   owned by its exact occurrence.
+10. Store that terminal anchor as the final evidence path element. Store one
+    terminal ID per attachment.
 11. Deduplicate attachments and frontiers by semantic IDs.
 12. Sort origins, fields, occurrences, terminals, paths, and frontiers by stable
     IDs before projection.
@@ -229,7 +236,7 @@ transitions.
 | `return-value` | Source is a return. Target is a call with exactly one proven incoming return-value. | Preserve. |
 | `resource-result` | Only while field identity is absent. Source is `resource-input`; target is exactly one bound `alias` or `resource-result` value for that declaration. | Preserve origin only. |
 | `field-input` | The current receiver has exactly one proven target: a static named `field-read` with `operationKind: "field-read"`. | Begin or append the exact field. |
-| `component-prop` | Only while field identity exists. Target is a `component-occurrence` with one unshared exact occurrence anchor. | Attach and stop at that occurrence. |
+| `component-prop` | Only while field identity exists. Target is a `component-occurrence` with one unshared exact occurrence anchor. | Stop at the consumer boundary. Keep the handoff in Route Totality bridges. Do not create a Milestone 1 field attachment. |
 | `render-terminal` | Only while field identity exists. Target is a render terminal with one unshared exact anchor that is owned by the current occurrence. | Attach the terminal and stop. |
 
 `selection`, `pack-field`, `index-read`, definitions, component occurrences,
@@ -281,74 +288,47 @@ fragments from different candidates.
 
 ### Exact component prop binding
 
-This section belongs to Milestone 2. Milestone 1 does not add or traverse
-`component-prop-binding`, JSX parameter reads, cross-component labels, renames,
-or object shape flow. It only attaches a field to the exact caller-side
-component occurrence and stops.
+Milestone 1 does not add or traverse `component-prop-binding`. A
+`component-prop` remains a consumer handoff and stops field lineage at its
+boundary. Milestones 2 and 3 use this exact binding policy.
 
-Add `component-prop-binding` to `ProgramElementKind`,
-`ProgramRelationKind`, and `ProgramProofKind`. Store pending JSX binding records
-in `ProgramEvidenceCollectorSupport` beside pending calls and references.
+Create one proven occurrence-specific `component-prop-binding` element at the
+JSX attribute location. It connects one exact `component-prop` boundary to one
+exact parameter-rooted receiver. It carries one unique component occurrence
+anchor and one unique parameter evidence element.
 
-For each supported JSX attribute, create one occurrence-specific binding
-element at the attribute location. Keep the current value-to-occurrence
-`component-prop` relation unchanged.
-
-Create this additional path:
+The accepted path is:
 
 ```text
-attribute value
-  → occurrence-specific component-prop-binding element
-  → exact parameter-rooted field read in the resolved component
+exact component-prop boundary
+  → one occurrence-specific component-prop-binding element
+  → one exact parameter-rooted receiver
 ```
 
-Support a binding only when all conditions are true:
+Accept the binding only when all conditions are true:
 
-- the JSX tag resolves to one in-project function component;
-- the attribute is one static `JsxAttribute` with an expression value;
-- the component has exactly one identifier parameter, such as `props`;
-- the target read is a direct static property access rooted in that parameter,
-  such as `props.name`;
-- the parameter reference resolves to the exact compiler symbol;
-- the target read belongs to the exact resolved component definition; and
-- no spread, rest, destructuring, optional dynamic key, or external wrapper is
-  required.
+- The JSX tag resolves to one in-project function component.
+- The attribute is one static `JsxAttribute` with one expression value.
+- The occurrence anchor resolves to exactly one component occurrence.
+- The parameter evidence resolves to exactly one compiler parameter.
+- The receiver is rooted in that exact parameter symbol.
+- The receiver belongs to that exact resolved component definition.
+- The binding, endpoints, and all proof entries are proven and located.
+- The binding has one candidate at each required endpoint.
 
-Queue bindings during `processJsx()`. Resolve them after references and field
-reads exist. Emit one binding-to-read relation for each exact use of that prop
-inside the resolved definition. The binding element keeps call-site identity,
-so repeated component occurrences cannot share incoming field paths.
+More than one binding, occurrence anchor, parameter evidence element, or
+receiver candidate emits `ambiguous-target`. No binding stops at the consumer
+boundary. Equal prop and parameter names are never proof.
 
-Build one lookup keyed by target definition ID, parameter symbol ID, and static
-prop name before resolving pending bindings. Do not scan component bodies once
-per JSX attribute.
+Reject spread, rest, destructuring, rename, optional or dynamic keys, computed
+variables, template expressions, symbols, wrappers, packing, derivation, and
+shape transforms. Use the existing bounded fail-closed frontier reason. Do not
+infer a binding from displayed text.
 
-The static attribute name and parameter property name can match only inside
-this exact resolved component binding. This is language binding evidence. It is
-not a repository-wide field-name join.
-
-Apply these field rules across the binding:
-
-- If an exact field already exists and its final segment equals the bound prop,
-  preserve it without adding a duplicate segment.
-- If an exact field exists and the prop differs, emit `renamed-prop` and stop.
-- If no field exists, treat the first parameter property as a handoff carrier.
-  Do not display it as a source field.
-- A later exact nested `field-input` can begin the source field path.
-- If field identity is lost, no later read can restart it.
-
-These cases remain unsupported:
-
-```tsx
-<Child {...props} />
-function Child({ name }) {}
-function Child({ name: displayName }) {}
-const Child = withWrapper(Inner)
-<Child title={source.name} />
-```
-
-The last example still has a proven consumer handoff. It has no downstream
-field label because it renames the source field.
+When a binding is accepted, preserve an existing exact field identity only when
+the binding proves the same exact receiver. Do not append a duplicate segment.
+A different exact prop is `renamed-prop`. A parameter-rooted receiver without
+an incoming field remains a handoff carrier. It is not a displayed source field.
 
 ### Transport and validation
 
@@ -371,6 +351,9 @@ The validator must reject:
 - unsorted or duplicate terminal and path IDs;
 - discontinuous relation paths;
 - terminal references outside the attachment's proven route path;
+- an attachment with other than one terminal ID;
+- a terminal anchor that is not the final attachment path element;
+- a truncation frontier without one exact concrete gap;
 - a complete status with omissions, partial proof, or frontiers; and
 - an unavailable surface or evidence slice with non-empty attachments.
 
@@ -387,11 +370,15 @@ For Milestone 1, strict validation also enforces these non-negotiable rules:
   pair satisfies the shared endpoint-aware transition classifier.
 - An attached occurrence exists, is not a definition, and has one unshared
   exact evidence anchor. A root is valid only when it is the exact route seed.
-  A `component-prop` path ends at that anchor and has no terminals.
-- Every terminal exists, is render-owned by the attachment occurrence, has one
-  unshared exact evidence anchor, appears in stable increasing ID order, and is
-  reachable through the same occurrence-aware transition classifier. Validation
-  never uses a global permissive graph search or a same-name match.
+- Every Milestone 1 attachment has exactly one terminal. The terminal is
+  render-owned by the attachment occurrence. Its one unshared evidence anchor
+  is the final attachment path element. Validation uses the stored canonical
+  path. It does not accept a terminal through a fresh graph search or a
+  same-name match.
+- A truncation frontier has one `gapId`. The gap exists once and its `from`
+  equals `stoppedAtElementId`. Its stored canonical path starts at the exact
+  origin and ends at that element. Its location and partial proof equal the
+  exact gap and canonical path proof. Other frontier reasons have `gapId: null`.
 - `unavailable` has no records, zero counts, and one omission equal to its
   reason. `complete` has no frontier, omission, partial input, or partial
   proof. `partial` requires a frontier, partial or truncated input, or capped
@@ -581,9 +568,13 @@ before adding any of these unplanned surfaces:
   at its exact current element or immediately after an accepted edge. Retain the
   origin, field IDs, current element, unique occurrence, canonical path, gap
   ID, gap location, and gap proof. Emit one `evidence-truncated` frontier per
-  unique semantic tuple after traversal. Include a relation only if the gap
-  names that relation. Do not make a frontier from a global truncation flag.
-  A gap before the first field-read produces no field frontier.
+  unique semantic tuple after traversal. The semantic tuple is origin, field,
+  current element, occurrence, and reason. It does not include `gapId`. When
+  multiple gaps match one tuple, use the lexicographically smallest gap ID as
+  the canonical proof source. Include a relation only if the gap names that
+  relation. Store the canonical path IDs on the frontier. Do not make a frontier
+  from a global truncation flag. A gap before the first field-read produces no
+  field frontier.
 - Call `cancellation.throwIfCancelled()` before, during, and after bounded
   loops, map and set construction, path lookup, proof or location projection,
   and validator return. Use a cancellable stable sort whose comparator checks
@@ -592,7 +583,8 @@ before adding any of these unplanned surfaces:
 - Use the cancellable projection helpers for DTO arrays.
 - Do not query facts outside the materialized slice.
 - Keep one canonical path for each attachment.
-- Keep one frontier for each origin, field chain, stop endpoint, and reason.
+- Keep one frontier for each origin, field chain, stop endpoint, occurrence,
+  and reason. Use the same semantic ID when a truncation gap changes.
 - Mark field lineage `partial` when it has an emitted frontier, a partial or
   truncated input, or capped frontier output. The emitted frontier count is a
   lower bound when the cap omission is present.
@@ -610,6 +602,12 @@ Analyzer ownership:
 - New: `src/analysis/route-totality-field-lineage.ts`
 - New: `src/analysis/route-totality-field-lineage-transition.ts`
 - New: `src/analysis/route-totality-field-lineage-support.ts`
+- New: `src/analysis/route-totality-field-lineage-attachment.ts`
+- New: `src/analysis/route-totality-field-lineage-counts.ts`
+- New: `src/analysis/route-totality-field-lineage-frontier.ts`
+- New: `src/analysis/route-totality-field-lineage-index.ts`
+- New: `src/analysis/route-totality-field-lineage-result.ts`
+- New: `src/analysis/route-totality-field-lineage-truncation.ts`
 - New: `src/analysis/route-totality-anchor-index.ts`
 - New: `src/analysis/cancellable-stable-sort.ts`
 - Modify: `src/analysis/scope-seam.ts`
@@ -620,11 +618,14 @@ Analyzer ownership:
 API ownership:
 
 - Modify: `src/api/route-totality-contracts.ts`
+- New: `src/api/route-totality-field-lineage-contracts.ts`
 - Modify: `src/api/projections/route-totality.ts`
 - Modify: `src/api/projections/route-totality-field-lineage.ts`
 - Modify: `src/api/projections/cancellable-projection.ts`
 - New: `src/api/route-totality-field-lineage-validation.ts`
 - New: `src/api/route-totality-field-lineage-validation-index.ts`
+- New: `src/api/route-totality-field-lineage-validation-frontier.ts`
+- New: `src/api/route-totality-field-lineage-validation-path.ts`
 - New: `src/api/route-totality-field-lineage-validation-terminal.ts`
 - New: `src/api/route-totality-field-lineage-validation-structure.ts`
 - Modify: `src/api/route-occurrence-validation.ts`
@@ -669,9 +670,12 @@ prompts.
 | One call has multiple proven incoming returns | No downstream label. Emit a `multiple-origins` frontier. |
 | Repeated `Child` occurrences share one evidence anchor | Bridge entries remain one per route endpoint. Field lineage emits `ambiguous-target` and attaches no label. |
 | A slice gap follows the `NAME` field-read before a terminal | Emit one `evidence-truncated` frontier with the last field and element. Do not attach a terminal. |
+| Two gaps follow the same field state | Emit one `evidence-truncated` frontier with the lexicographically smallest gap ID. |
+| An `evidence-truncated` frontier has no exact gap | Strict validation rejects the frontier. |
 | A proven origin record has a partial matching evidence element | Strict validation rejects the lineage record. |
 | 300 unique field frontiers | Retain the lexicographically smallest 256. Report exactly 44 omitted frontiers with the lower-bound wording. |
 | A terminal anchor maps to more than one terminal endpoint | Emit `ambiguous-target`. Do not attach a terminal label. |
+| A stored path ends at terminal A but terminal IDs contain A and B | Strict validation rejects the attachment. |
 | Cancellation during anchor extraction, frontier sort, or terminal validation | Throw cancellation. Do not return a completed result. |
 | A hidden occurrence redirects to a visible node | The graph shows the union summary. The inspector groups fields by original occurrence and call site. |
 | A context member has the same field name | Context continuity remains separate and creates no field-lineage record. |
@@ -726,8 +730,12 @@ Milestone 1 has these fixed repair constraints:
   prior bridge counts.
 - The traversal and strict validator call the same endpoint-aware transition
   classifier. They do not use a relation-kind allow list.
-- A `component-prop` attachment has an empty terminal list and stops. A direct
-  root field can instead attach to a render terminal owned by that exact root.
+- A Milestone 1 attachment has exactly one render terminal. Its terminal anchor
+  is the final canonical path element and its owner is the attachment occurrence.
+  A `component-prop` stays a separate consumer handoff and stops at the boundary.
+- An `evidence-truncated` frontier stores one exact `gapId`. Its gap source is
+  the stopped element. Its canonical path proof and location must match that
+  gap. Other frontier reasons store `gapId: null`.
 - Do not implement JSX prop bindings, literal index labels, renames, packing
   history, derivation, shape transforms, or full graph green-path parity.
 
@@ -801,15 +809,32 @@ Widen the projection only after the direct and component-boundary slices work.
 This milestone makes negative cases part of the product behavior.
 
 - **Change 1 — Complete the transition policy**
-  - Define direction and endpoint rules for each accepted relation.
-  - Require unique source, target, occurrence, and terminal mappings.
-  - Stop on partial proof, dynamic dispatch, dynamic indexes, ambiguous merges,
-    packing, spreads, renames, derivation, and traversal limits.
+  - Use the shared endpoint-aware transition classifier. Do not define a second
+    relation policy.
+  - Require one proven source, target, occurrence anchor, terminal anchor, and
+    component-prop binding endpoint where that transition needs one.
+  - A component-prop binding has one occurrence-specific binding element between
+    one exact component-prop boundary and one exact parameter-rooted receiver.
+    It has one unique occurrence anchor and one unique parameter evidence
+    element. More than one candidate is `ambiguous-target`. No binding stops at
+    the consumer boundary. Equal prop and parameter names are never proof.
+  - Stop on partial proof, dynamic dispatch, ambiguous merges, packing, spreads,
+    renames, derivation, transforms, and traversal limits.
   - Never resume a stopped field identity.
 - **Change 2 — Add exact literal index labels**
-  - Store string or numeric literal key metadata on raw `index-read` elements.
-  - Format exact keys with the canonical label rules.
-  - Keep all computed keys unlabeled with a `dynamic-index` frontier.
+  - Accept an index only through one proven `field-input` transition from the
+    current exact receiver to one `index-read` element.
+  - Accept only an `index-read` whose metadata contains one raw string or
+    numeric literal. Do not read display text.
+  - For a string literal, emit `kind: "string-index"` and the unescaped literal
+    value.
+  - For a numeric literal, emit `kind: "numeric-index"` and the base-10
+    canonical integer string. Reject `NaN`, `Infinity`, negative zero,
+    exponent-only ambiguity, and non-integer values.
+  - Reject computed variables, template expressions, symbols, optional or
+    dynamic keys with `dynamic-index`. Reject packing, spread, rename,
+    derivation, and transforms with the existing bounded fail-closed frontier
+    reason. Do not infer identity from a label.
 - **Change 3 — Emit explicit field frontiers**
   - Record one bounded stop reason and location when field identity ends.
   - Keep downstream consumer handoffs available without a field label.

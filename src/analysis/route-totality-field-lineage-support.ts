@@ -1,14 +1,8 @@
 import type { AnalysisCancellationToken } from "./cancellation";
 import { cancellableStableSort } from "./cancellable-stable-sort";
 import type { EvidenceSlice } from "./evidence-slice";
-import type { RouteOccurrenceSurface } from "./route-occurrence-surface";
-import type { EvidenceGap, EvidenceProof, SourceLocation } from "./scope-seam";
-import { stableHash } from "./scope-seam";
+import type { EvidenceProof, SourceLocation } from "./scope-seam";
 import type {
-  RouteTotalityField,
-  RouteTotalityFieldAttachment,
-  RouteTotalityFieldFrontier,
-  RouteTotalityFieldFrontierReason,
   RouteTotalityFieldOrigin,
   RouteTotalityFieldSegment,
 } from "./route-totality-field-lineage";
@@ -33,30 +27,6 @@ export type TraversalState = PathState & {
   origin: RouteTotalityFieldOrigin;
 };
 
-export type AttachmentAccumulator = {
-  origin: RouteTotalityFieldOrigin;
-  field: FieldState;
-  occurrenceId: string;
-  terminalIds: Set<string>;
-  path: PathState;
-};
-
-export type FrontierAccumulator = {
-  emitted: Map<string, RouteTotalityFieldFrontier>;
-  omittedIds: Set<string>;
-};
-
-export type TruncatedTraversalState = {
-  origin: RouteTotalityFieldOrigin;
-  field: FieldState;
-  currentElementId: string;
-  currentOccurrenceId: string | null;
-  path: PathState;
-  gap: EvidenceGap;
-};
-
-export const MAX_FRONTIERS = 256;
-
 export function appendField(
   previous: FieldState,
   next: FieldState,
@@ -65,16 +35,8 @@ export function appendField(
 ): FieldState | null {
   cancellation.throwIfCancelled();
   if (!consecutive) return null;
-  const elementIds: string[] = [];
+  const elementIds = copyIds(previous.elementIds, next.elementIds, cancellation);
   const segments: RouteTotalityFieldSegment[] = [];
-  for (const elementId of previous.elementIds) {
-    cancellation.throwIfCancelled();
-    elementIds.push(elementId);
-  }
-  for (const elementId of next.elementIds) {
-    cancellation.throwIfCancelled();
-    elementIds.push(elementId);
-  }
   for (const segment of previous.segments) {
     cancellation.throwIfCancelled();
     segments.push({ ...segment });
@@ -116,18 +78,8 @@ export function nextState(
   cancellation: AnalysisCancellationToken,
 ): TraversalState {
   cancellation.throwIfCancelled();
-  const elementIds: string[] = [];
-  const relationIds: string[] = [];
-  for (const elementId of state.elementIds) {
-    cancellation.throwIfCancelled();
-    elementIds.push(elementId);
-  }
-  elementIds.push(target.id);
-  for (const relationId of state.relationIds) {
-    cancellation.throwIfCancelled();
-    relationIds.push(relationId);
-  }
-  relationIds.push(relation.id);
+  const elementIds = copyIds(state.elementIds, [target.id], cancellation);
+  const relationIds = copyIds(state.relationIds, [relation.id], cancellation);
   cancellation.throwIfCancelled();
   return {
     origin: state.origin,
@@ -138,208 +90,6 @@ export function nextState(
     relationIds,
     partial: false,
   };
-}
-
-export function addAttachment(
-  attachments: Map<string, AttachmentAccumulator>,
-  origin: RouteTotalityFieldOrigin,
-  field: FieldState,
-  occurrenceId: string,
-  path: PathState,
-  cancellation: AnalysisCancellationToken,
-  terminalId?: string,
-): void {
-  cancellation.throwIfCancelled();
-  const key = JSON.stringify({ origin, field: field.elementIds, occurrenceId });
-  const current = attachments.get(key);
-  if (!current) {
-    const terminalIds = new Set<string>();
-    if (terminalId) terminalIds.add(terminalId);
-    attachments.set(key, { origin, field, occurrenceId, terminalIds, path });
-    cancellation.throwIfCancelled();
-    return;
-  }
-  if (terminalId) current.terminalIds.add(terminalId);
-  if (comparePath(path, current.path) < 0) current.path = path;
-  cancellation.throwIfCancelled();
-}
-
-export function projectAttachment(
-  attachment: AttachmentAccumulator,
-  elementsById: ReadonlyMap<string, EvidenceSlice["elements"][number]>,
-  relationsById: ReadonlyMap<string, EvidenceSlice["relations"][number]>,
-  surface: RouteOccurrenceSurface,
-  cancellation: AnalysisCancellationToken,
-): RouteTotalityFieldAttachment {
-  cancellation.throwIfCancelled();
-  const field = projectField(attachment.field, cancellation);
-  const terminalIds: string[] = [];
-  for (const terminalId of attachment.terminalIds) {
-    cancellation.throwIfCancelled();
-    terminalIds.push(terminalId);
-  }
-  const sortedTerminalIds = cancellableStableSort(terminalIds, (left, right) => left.localeCompare(right), cancellation);
-  const locations = locationsForPath(
-    attachment.path,
-    elementsById,
-    relationsById,
-    sortedTerminalIds,
-    surface,
-    cancellation,
-  );
-  const elementIds: string[] = [];
-  const relationIds: string[] = [];
-  for (const elementId of attachment.path.elementIds) {
-    cancellation.throwIfCancelled();
-    elementIds.push(elementId);
-  }
-  for (const relationId of attachment.path.relationIds) {
-    cancellation.throwIfCancelled();
-    relationIds.push(relationId);
-  }
-  cancellation.throwIfCancelled();
-  return {
-    id: `route-totality-field-attachment:${stableHash(JSON.stringify({
-      origin: attachment.origin,
-      field: attachment.field.elementIds,
-      occurrenceId: attachment.occurrenceId,
-    }))}`,
-    origin: { ...attachment.origin },
-    field,
-    occurrenceId: attachment.occurrenceId,
-    terminalIds: sortedTerminalIds,
-    evidencePathElementIds: elementIds,
-    evidencePathRelationIds: relationIds,
-    proof: [{
-      kind: "route-totality-field-lineage",
-      detail: "The proven named property path reaches the exact route occurrence.",
-      locations,
-      status: "proven",
-    }],
-    locations,
-  };
-}
-
-function projectField(field: FieldState, cancellation: AnalysisCancellationToken): RouteTotalityField {
-  cancellation.throwIfCancelled();
-  const elementIds: string[] = [];
-  const segments: RouteTotalityFieldSegment[] = [];
-  for (const elementId of field.elementIds) {
-    cancellation.throwIfCancelled();
-    elementIds.push(elementId);
-  }
-  for (const segment of field.segments) {
-    cancellation.throwIfCancelled();
-    segments.push({ ...segment });
-  }
-  cancellation.throwIfCancelled();
-  return {
-    elementIds,
-    segments,
-    label: field.label,
-    location: field.location,
-  };
-}
-
-export function makeFrontier(
-  origin: RouteTotalityFieldOrigin,
-  field: FieldState | null,
-  occurrenceId: string | null,
-  reason: RouteTotalityFieldFrontierReason,
-  stoppedAtElementId: string | null,
-  stoppedAtRelationId: string | null,
-  location: SourceLocation | null,
-  proof: EvidenceProof[],
-  cancellation: AnalysisCancellationToken,
-  semanticSuffix: string | null = null,
-): RouteTotalityFieldFrontier {
-  cancellation.throwIfCancelled();
-  const elementIds: string[] = [];
-  const segments: RouteTotalityFieldSegment[] = [];
-  if (field) {
-    for (const elementId of field.elementIds) {
-      cancellation.throwIfCancelled();
-      elementIds.push(elementId);
-    }
-    for (const segment of field.segments) {
-      cancellation.throwIfCancelled();
-      segments.push({ ...segment });
-    }
-  }
-  cancellation.throwIfCancelled();
-  return {
-    id: `route-totality-field-frontier:${stableHash(JSON.stringify({
-      origin,
-      field: field?.elementIds ?? [],
-      occurrenceId,
-      reason,
-      stoppedAtElementId,
-      stoppedAtRelationId,
-      semanticSuffix,
-    }))}`,
-    origin: { ...origin },
-    field: field ? { elementIds, segments, label: field.label } : null,
-    occurrenceId,
-    reason,
-    stoppedAtElementId,
-    stoppedAtRelationId,
-    location,
-    proof,
-  };
-}
-
-/** Keep the lexically first bounded set and remember every dropped identity. */
-export function addFrontier(
-  accumulator: FrontierAccumulator,
-  frontier: RouteTotalityFieldFrontier,
-  cancellation: AnalysisCancellationToken,
-): void {
-  cancellation.throwIfCancelled();
-  const existing = accumulator.emitted.get(frontier.id);
-  if (existing) {
-    accumulator.emitted.set(frontier.id, canonicalFrontier(existing, frontier));
-    cancellation.throwIfCancelled();
-    return;
-  }
-  if (accumulator.emitted.size < MAX_FRONTIERS) {
-    accumulator.emitted.set(frontier.id, frontier);
-    accumulator.omittedIds.delete(frontier.id);
-    cancellation.throwIfCancelled();
-    return;
-  }
-  let largestId: string | null = null;
-  for (const emittedId of accumulator.emitted.keys()) {
-    cancellation.throwIfCancelled();
-    if (largestId === null || emittedId.localeCompare(largestId) > 0) largestId = emittedId;
-  }
-  if (largestId !== null && frontier.id.localeCompare(largestId) < 0) {
-    const displaced = accumulator.emitted.get(largestId);
-    accumulator.emitted.delete(largestId);
-    if (displaced) accumulator.omittedIds.add(largestId);
-    accumulator.emitted.set(frontier.id, frontier);
-    accumulator.omittedIds.delete(frontier.id);
-  } else {
-    accumulator.omittedIds.add(frontier.id);
-  }
-  cancellation.throwIfCancelled();
-}
-
-export function addTruncatedState(
-  states: Map<string, TruncatedTraversalState>,
-  candidate: TruncatedTraversalState,
-  cancellation: AnalysisCancellationToken,
-): void {
-  cancellation.throwIfCancelled();
-  const key = JSON.stringify({
-    origin: candidate.origin,
-    field: candidate.field.elementIds,
-    currentElementId: candidate.currentElementId,
-    currentOccurrenceId: candidate.currentOccurrenceId,
-    gapId: candidate.gap.id,
-  });
-  const current = states.get(key);
-  if (!current || comparePath(candidate.path, current.path) < 0) states.set(key, candidate);
-  cancellation.throwIfCancelled();
 }
 
 export function proofsForStop(
@@ -380,83 +130,6 @@ export function proofsForStop(
     locations: uniqueLocations(locations, cancellation),
     status: partial ? "partial" : "proven",
   }];
-}
-
-export function proofsForTruncation(
-  state: PathState,
-  gap: EvidenceGap,
-  elementsById: ReadonlyMap<string, EvidenceSlice["elements"][number]>,
-  relationsById: ReadonlyMap<string, EvidenceSlice["relations"][number]>,
-  namedRelationId: string | null,
-  cancellation: AnalysisCancellationToken,
-): EvidenceProof[] {
-  cancellation.throwIfCancelled();
-  const locations: SourceLocation[] = [];
-  for (const elementId of state.elementIds) {
-    cancellation.throwIfCancelled();
-    const location = elementsById.get(elementId)?.location;
-    if (location) locations.push(location);
-  }
-  if (namedRelationId) {
-    const relation = relationsById.get(namedRelationId);
-    if (relation) {
-      for (const location of relation.proof.locations) {
-        cancellation.throwIfCancelled();
-        locations.push(location);
-      }
-    }
-  }
-  if (gap.location) locations.push(gap.location);
-  for (const proof of gap.proof) {
-    cancellation.throwIfCancelled();
-    for (const location of proof.locations) {
-      cancellation.throwIfCancelled();
-      locations.push(location);
-    }
-  }
-  cancellation.throwIfCancelled();
-  return [{
-    kind: "route-totality-field-frontier",
-    detail: "The bounded field path reached an evidence slice gap.",
-    locations: uniqueLocations(locations, cancellation),
-    status: "partial",
-  }];
-}
-
-export function lineageCounts(
-  attachments: readonly RouteTotalityFieldAttachment[],
-  frontiers: readonly RouteTotalityFieldFrontier[],
-  cancellation: AnalysisCancellationToken,
-) {
-  cancellation.throwIfCancelled();
-  const origins = new Set<string>();
-  const fields = new Set<string>();
-  const occurrences = new Set<string>();
-  const terminals = new Set<string>();
-  for (const attachment of attachments) {
-    cancellation.throwIfCancelled();
-    origins.add(`${attachment.origin.elementId}:${attachment.origin.role}`);
-    fields.add(attachment.field.elementIds.join("\u0000"));
-    occurrences.add(attachment.occurrenceId);
-    for (const terminalId of attachment.terminalIds) {
-      cancellation.throwIfCancelled();
-      terminals.add(terminalId);
-    }
-  }
-  for (const frontier of frontiers) {
-    cancellation.throwIfCancelled();
-    origins.add(`${frontier.origin.elementId}:${frontier.origin.role}`);
-    if (frontier.field) fields.add(frontier.field.elementIds.join("\u0000"));
-    if (frontier.occurrenceId) occurrences.add(frontier.occurrenceId);
-  }
-  cancellation.throwIfCancelled();
-  return {
-    origins: origins.size,
-    fields: fields.size,
-    occurrences: occurrences.size,
-    terminals: terminals.size,
-    frontiers: frontiers.length,
-  };
 }
 
 export function traversalKey(state: TraversalState): string {
@@ -513,58 +186,23 @@ export function compareOrigin(left: EvidenceSlice["origins"][number], right: Evi
   return `${left.elementId}:${left.role}`.localeCompare(`${right.elementId}:${right.role}`);
 }
 
-function locationsForPath(
-  path: PathState,
-  elementsById: ReadonlyMap<string, EvidenceSlice["elements"][number]>,
-  relationsById: ReadonlyMap<string, EvidenceSlice["relations"][number]>,
-  terminalIds: readonly string[],
-  surface: RouteOccurrenceSurface,
+function copyIds(
+  left: readonly string[],
+  right: readonly string[],
   cancellation: AnalysisCancellationToken,
-): SourceLocation[] {
+): string[] {
   cancellation.throwIfCancelled();
-  const locations: SourceLocation[] = [];
-  for (const elementId of path.elementIds) {
+  const copied: string[] = [];
+  for (const value of left) {
     cancellation.throwIfCancelled();
-    const location = elementsById.get(elementId)?.location;
-    if (location) locations.push(location);
+    copied.push(value);
   }
-  for (const relationId of path.relationIds) {
+  for (const value of right) {
     cancellation.throwIfCancelled();
-    const relation = relationsById.get(relationId);
-    if (!relation) continue;
-    for (const location of relation.proof.locations) {
-      cancellation.throwIfCancelled();
-      locations.push(location);
-    }
+    copied.push(value);
   }
-  for (const terminalId of terminalIds) {
-    cancellation.throwIfCancelled();
-    let terminalLocation: SourceLocation | null = null;
-    for (const terminal of surface.terminals) {
-      cancellation.throwIfCancelled();
-      if (terminal.id === terminalId) {
-        terminalLocation = terminal.location;
-        break;
-      }
-    }
-    if (terminalLocation) locations.push(terminalLocation);
-  }
-  return uniqueLocations(locations, cancellation);
-}
-
-function canonicalFrontier(
-  left: RouteTotalityFieldFrontier,
-  right: RouteTotalityFieldFrontier,
-): RouteTotalityFieldFrontier {
-  const leftKey = JSON.stringify({
-    location: left.location,
-    proof: left.proof,
-  });
-  const rightKey = JSON.stringify({
-    location: right.location,
-    proof: right.proof,
-  });
-  return leftKey.localeCompare(rightKey) <= 0 ? left : right;
+  cancellation.throwIfCancelled();
+  return copied;
 }
 
 function locationKey(location: SourceLocation): string {
