@@ -51,13 +51,13 @@ export function selectRouteTotalityFieldInspectorResult(
   occurrenceId: string | null,
 ): RouteTotalityFieldInspectorResult | null {
   if (!totality || !occurrenceId) return null;
-  if (!origin) return emptyResult("no-origin");
   if (totality.fieldLineage.status === "unavailable") {
     return {
       ...emptyResult("unavailable"),
       unavailableReason: totality.fieldLineage.unavailableReason,
     };
   }
+  if (!origin) return emptyResult("no-origin");
 
   const targetNodeId = visibleNodeId(layout, `occurrence:${occurrenceId}`);
   const surfaceOccurrences = "occurrences" in totality.occurrenceSurface

@@ -229,12 +229,24 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     emphasisMode(),
   ));
   const fieldFocus = createMemo(() => selectRouteTotalityFieldFocus(props.totality, layout(), activeFieldOrigin()));
-  const visibleDisplayNodes = createMemo(() => evidenceVisible()
-    ? [...displayLayout().nodes, ...displayLayout().evidenceNodes]
-    : [...displayLayout().nodes]);
-  const visibleDisplayEdges = createMemo(() => evidenceVisible()
-    ? [...displayLayout().edges, ...displayLayout().evidenceEdges]
-    : [...displayLayout().edges]);
+  const fieldEvidenceNodeIds = createMemo(() => new Set([
+    ...fieldFocus().activeNodeIds,
+    ...fieldFocus().frontierNodeIds,
+  ]));
+  const fieldEvidenceEdgeIds = createMemo(() => new Set([
+    ...fieldFocus().activeEdgeIds,
+    ...fieldFocus().frontierEdgeIds,
+  ]));
+  const visibleDisplayNodes = createMemo(() => {
+    const display = displayLayout();
+    if (evidenceVisible()) return [...display.nodes, ...display.evidenceNodes];
+    return [...display.nodes, ...display.evidenceNodes.filter((node) => fieldEvidenceNodeIds().has(node.id))];
+  });
+  const visibleDisplayEdges = createMemo(() => {
+    const display = displayLayout();
+    if (evidenceVisible()) return [...display.edges, ...display.evidenceEdges];
+    return [...display.edges, ...display.evidenceEdges.filter((edge) => fieldEvidenceEdgeIds().has(edge.id))];
+  });
   const displayLabelIds = createMemo(() => selectRouteTotalityDisplayLabelIds(
     visibleDisplayNodes(),
     {
