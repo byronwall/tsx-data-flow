@@ -3,7 +3,6 @@ import { performance } from "node:perf_hooks";
 import * as TypeScript from "typescript";
 import type {
   ProgramEvidence,
-  ProgramEvidenceCollectionStats,
   ProgramEvidenceGap,
   ProgramRelation,
   ProgramRelationKind,
@@ -12,7 +11,6 @@ import { EvidenceCollector, type ProgramEvidenceOptions } from "./program-eviden
 import { ProgramFactIndex } from "./program-fact-index";
 import { programForRoot } from "./program-evidence-loading";
 import {
-  addProgramEvidenceCollectionStats,
   emptyProgramEvidenceCollectionStats,
 } from "./program-evidence-collector-instrumentation";
 import {
@@ -26,54 +24,25 @@ import type {
 } from "./program-evidence-relation-loading";
 import type { SliceDirection } from "./scope-seam";
 import type { AnalysisCancellationToken } from "./cancellation";
+import { LazyEvidenceRelationProviderCore } from "./evidence-relation-provider-lazy";
+import {
+  instrumentationSnapshot,
+  readMemorySnapshot,
+} from "./evidence-relation-provider-instrumentation";
+import type {
+  EvidenceProviderInstrumentation as InstrumentationEvidenceProviderInstrumentation,
+  InstrumentationState,
+  MemorySnapshot as InstrumentationMemorySnapshot,
+  ProviderOptions,
+} from "./evidence-relation-provider-instrumentation";
 
 /** Compatibility names retained for callers that imported recipe primitives. */
 export type RelationRecipeInput = ProgramEvidenceRelationRecipeInput;
 export type RelationRecipe = ProgramEvidenceRelationRecipe;
 export const RelationRecipeStore = ProgramEvidenceRelationRecipeStore;
 
-export type MemorySnapshot = {
-  rss: number;
-  heapUsed: number;
-  heapTotal: number;
-  external: number;
-  arrayBuffers: number;
-};
-
-export type EvidenceProviderInstrumentation = {
-  factCount: number;
-  compactFactCount: number;
-  compactFactBytesEstimate: number;
-  hydratedElementCount: number;
-  hydrationTimeMs: number;
-  factIterations: number;
-  factMemoHits: number;
-  expansionRequests: number;
-  materializedRelationCount: number;
-  memoHits: number;
-  collectionTimeMs: number;
-  expansionTimeMs: number;
-  collectionElapsedMs: number;
-  expansionElapsedMs: number;
-  recipeCount: number;
-  relationIndexCount: number;
-  initialRecipeCount: number;
-  initialRelationIndexCount: number;
-  lastExpansionRecipeCount: number;
-  lastExpansionRelationIndexCount: number;
-  lastExpansionScannedRelationCount: number;
-  lastExpansionSourceFilesVisited: number;
-  lastExpansionAstUnitsVisited: number;
-  lastExpansionPartitionsVisited: number;
-  lastExpansionRecipesExamined: number;
-  totalExpansionScannedRelationCount: number;
-  totalExpansionSourceFilesVisited: number;
-  totalExpansionAstUnitsVisited: number;
-  totalExpansionPartitionsVisited: number;
-  totalExpansionRecipesExamined: number;
-  deferredCollection: ProgramEvidenceCollectionStats;
-  memory: MemorySnapshot | null;
-};
+export type MemorySnapshot = InstrumentationMemorySnapshot;
+export type EvidenceProviderInstrumentation = InstrumentationEvidenceProviderInstrumentation;
 
 export interface EvidenceRelationProvider {
   readonly factIndex: ProgramFactIndex;
@@ -114,43 +83,6 @@ export const SUPPORTED_LAZY_RELATION_KINDS: readonly ProgramRelationKind[] = [
 /** No generated relation kind is silently omitted by the current provider. */
 export const UNSUPPORTED_LAZY_RELATION_KINDS: readonly ProgramRelationKind[] = [];
 
-type InstrumentationState = {
-  factCount: number;
-  expansionRequests: number;
-  materializedRelationCount: number;
-  memoHits: number;
-  collectionTimeMs: number;
-  expansionTimeMs: number;
-  recipeCount: number;
-  relationIndexCount: number;
-  initialRecipeCount: number;
-  initialRelationIndexCount: number;
-  lastExpansionRecipeCount: number;
-  lastExpansionRelationIndexCount: number;
-  lastExpansionScannedRelationCount: number;
-  lastExpansionSourceFilesVisited: number;
-  lastExpansionAstUnitsVisited: number;
-  lastExpansionPartitionsVisited: number;
-  lastExpansionRecipesExamined: number;
-  totalExpansionScannedRelationCount: number;
-  totalExpansionSourceFilesVisited: number;
-  totalExpansionAstUnitsVisited: number;
-  totalExpansionPartitionsVisited: number;
-  totalExpansionRecipesExamined: number;
-  deferredCollection: ProgramEvidenceCollectionStats;
-  memory: MemorySnapshot | null;
-};
-
-type ProviderOptions = {
-  collectionTimeMs?: number;
-  memory?: MemorySnapshot | null;
-};
-
-type RelationCandidate = {
-  recipe: RelationRecipe;
-  direction: "forward" | "backward";
-};
-
 /**
  * Lazy relation provider backed by source-indexed relation recipes.
  *
@@ -158,19 +90,7 @@ type RelationCandidate = {
  * keeps endpoint recipes so a later frontier expansion can create exact proof
  * records without constructing a project-wide ProgramRelation array.
  */
-export class LazyEvidenceRelationProvider implements EvidenceRelationProvider {
-  readonly facts: ProgramFactIndex;
-  readonly factIndex: ProgramFactIndex;
-
-  private readonly outgoingRecipes = new Map<string, RelationRecipe[]>();
-  private readonly incomingRecipes = new Map<string, RelationRecipe[]>();
-  private readonly loadedRecipeIds = new Set<string>();
-  private readonly gapsByElement = new Map<string, ProgramEvidenceGap[]>();
-  private readonly relationCache = new Map<string, readonly ProgramRelation[]>();
-  private readonly materializedById = new Map<string, ProgramRelation>();
-  private readonly frontierLoader: RelationFrontierLoader | null;
-  private readonly state: InstrumentationState;
-
+export class LazyEvidenceRelationProvider extends LazyEvidenceRelationProviderCore implements EvidenceRelationProvider {
   constructor(
     factIndex: ProgramFactIndex,
     recipes: readonly RelationRecipe[],
@@ -189,161 +109,7 @@ export class LazyEvidenceRelationProvider implements EvidenceRelationProvider {
     gaps: readonly ProgramEvidenceGap[] = [],
     options: ProviderOptions = {},
   ) {
-    this.facts = factIndex;
-    this.factIndex = factIndex;
-    this.frontierLoader = isRelationFrontierLoader(recipesOrLoader) ? recipesOrLoader : null;
-    const initialRecipeCount = isRelationFrontierLoader(recipesOrLoader) ? 0 : recipesOrLoader.length;
-    this.state = {
-      factCount: factIndex.factCount,
-      expansionRequests: 0,
-      materializedRelationCount: 0,
-      memoHits: 0,
-      collectionTimeMs: options.collectionTimeMs ?? 0,
-      expansionTimeMs: 0,
-      recipeCount: initialRecipeCount,
-      relationIndexCount: initialRecipeCount * 2,
-      initialRecipeCount,
-      initialRelationIndexCount: initialRecipeCount * 2,
-      lastExpansionRecipeCount: 0,
-      lastExpansionRelationIndexCount: 0,
-      lastExpansionScannedRelationCount: 0,
-      lastExpansionSourceFilesVisited: 0,
-      lastExpansionAstUnitsVisited: 0,
-      lastExpansionPartitionsVisited: 0,
-      lastExpansionRecipesExamined: 0,
-      totalExpansionScannedRelationCount: 0,
-      totalExpansionSourceFilesVisited: 0,
-      totalExpansionAstUnitsVisited: 0,
-      totalExpansionPartitionsVisited: 0,
-      totalExpansionRecipesExamined: 0,
-      deferredCollection: emptyProgramEvidenceCollectionStats(0),
-      memory: options.memory === undefined ? readMemorySnapshot() : options.memory,
-    };
-
-    if (!isRelationFrontierLoader(recipesOrLoader)) for (const recipe of recipesOrLoader) this.addRecipe(recipe);
-    for (const gap of gaps) {
-      const elementGaps = this.gapsByElement.get(gap.from) ?? [];
-      elementGaps.push(gap);
-      this.gapsByElement.set(gap.from, elementGaps);
-    }
-  }
-
-  getRelations(elementId: string, direction: SliceDirection, cancellation?: AnalysisCancellationToken): readonly ProgramRelation[] {
-    cancellation?.throwIfCancelled();
-    this.state.expansionRequests += 1;
-    const cacheKey = `${elementId}:${direction}`;
-    const cached = this.relationCache.get(cacheKey);
-    if (cached) {
-      this.state.memoHits += 1;
-      this.resetLastExpansionStats();
-      return cached;
-    }
-
-    const started = performance.now();
-    this.loadFrontier(elementId, direction, cancellation);
-    cancellation?.throwIfCancelled();
-    const candidates = this.candidatesFor(elementId, direction);
-    const relations = candidates
-      .sort((left, right) => this.compareCandidates(left, right, direction))
-      .map(({ recipe }) => this.materialize(recipe));
-    this.relationCache.set(cacheKey, relations);
-    this.state.expansionTimeMs += performance.now() - started;
-    return relations;
-  }
-
-  getGaps(elementId: string): readonly ProgramEvidenceGap[] {
-    return this.gapsByElement.get(elementId) ?? [];
-  }
-
-  getInstrumentation(): EvidenceProviderInstrumentation {
-    return instrumentationSnapshot(this.state, this.factIndex);
-  }
-
-  get instrumentation(): EvidenceProviderInstrumentation {
-    return this.getInstrumentation();
-  }
-
-  private candidatesFor(elementId: string, direction: SliceDirection): RelationCandidate[] {
-    const candidates: RelationCandidate[] = [];
-    if (direction === "forward" || direction === "both") {
-      for (const recipe of this.outgoingRecipes.get(elementId) ?? []) candidates.push({ recipe, direction: "forward" });
-    }
-    if (direction === "backward" || direction === "both") {
-      for (const recipe of this.incomingRecipes.get(elementId) ?? []) candidates.push({ recipe, direction: "backward" });
-    }
-    const unique = new Map<string, RelationCandidate>();
-    for (const candidate of candidates) if (!unique.has(candidate.recipe.id)) unique.set(candidate.recipe.id, candidate);
-    return [...unique.values()];
-  }
-
-  private loadFrontier(elementId: string, direction: SliceDirection, cancellation?: AnalysisCancellationToken): void {
-    this.resetLastExpansionStats();
-    if (!this.frontierLoader) return;
-    const frontier = this.frontierLoader.load(elementId, direction, cancellation);
-    cancellation?.throwIfCancelled();
-    addProgramEvidenceCollectionStats(this.state.deferredCollection, frontier.collectorStats);
-    for (const recipe of frontier.recipes) this.addRecipe(recipe);
-    this.state.lastExpansionRecipeCount = frontier.recipes.length;
-    this.state.lastExpansionRelationIndexCount = frontier.relationIndexCount;
-    this.state.lastExpansionScannedRelationCount = frontier.recipes.length;
-    this.state.lastExpansionSourceFilesVisited = frontier.sourceFilesVisited;
-    this.state.lastExpansionAstUnitsVisited = frontier.astUnitsVisited;
-    this.state.lastExpansionPartitionsVisited = frontier.partitionsVisited;
-    this.state.lastExpansionRecipesExamined = frontier.recipesExamined;
-    this.state.totalExpansionScannedRelationCount += frontier.recipes.length;
-    this.state.totalExpansionSourceFilesVisited += frontier.sourceFilesVisited;
-    this.state.totalExpansionAstUnitsVisited += frontier.astUnitsVisited;
-    this.state.totalExpansionPartitionsVisited += frontier.partitionsVisited;
-    this.state.totalExpansionRecipesExamined += frontier.recipesExamined;
-  }
-
-  private addRecipe(recipe: RelationRecipe): void {
-    if (this.loadedRecipeIds.has(recipe.id)) return;
-    this.loadedRecipeIds.add(recipe.id);
-    const outgoing = this.outgoingRecipes.get(recipe.from) ?? [];
-    outgoing.push(recipe);
-    this.outgoingRecipes.set(recipe.from, outgoing);
-    const incoming = this.incomingRecipes.get(recipe.to) ?? [];
-    incoming.push(recipe);
-    this.incomingRecipes.set(recipe.to, incoming);
-    if (this.frontierLoader) {
-      this.state.recipeCount += 1;
-      this.state.relationIndexCount += 2;
-    }
-  }
-
-  private resetLastExpansionStats(): void {
-    this.state.lastExpansionRecipeCount = 0;
-    this.state.lastExpansionRelationIndexCount = 0;
-    this.state.lastExpansionScannedRelationCount = 0;
-    this.state.lastExpansionSourceFilesVisited = 0;
-    this.state.lastExpansionAstUnitsVisited = 0;
-    this.state.lastExpansionPartitionsVisited = 0;
-    this.state.lastExpansionRecipesExamined = 0;
-  }
-
-  private compareCandidates(left: RelationCandidate, right: RelationCandidate, direction: SliceDirection): number {
-    const leftTarget = left.direction === "forward" ? left.recipe.to : left.recipe.from;
-    const rightTarget = right.direction === "forward" ? right.recipe.to : right.recipe.from;
-    const priority = this.factIndex.comparePriority(leftTarget, rightTarget, direction);
-    return priority || left.recipe.sequence - right.recipe.sequence;
-  }
-
-  private materialize(recipe: RelationRecipe): ProgramRelation {
-    const existing = this.materializedById.get(recipe.id);
-    if (existing) return existing;
-    const relation: ProgramRelation = {
-      id: recipe.id,
-      from: recipe.from,
-      to: recipe.to,
-      kind: recipe.kind,
-      evidence: recipe.evidence,
-      proof: recipe.proof,
-      confidence: recipe.confidence,
-    };
-    this.materializedById.set(recipe.id, relation);
-    this.state.materializedRelationCount += 1;
-    return relation;
+    super(factIndex, recipesOrLoader, gaps, options);
   }
 }
 
@@ -514,63 +280,4 @@ function createLazyProvider(
   );
   collector.releaseTransientState();
   return provider;
-}
-
-function instrumentationSnapshot(state: InstrumentationState, factIndex: ProgramFactIndex): EvidenceProviderInstrumentation {
-  const facts = factIndex.getInstrumentation();
-  return {
-    factCount: state.factCount,
-    compactFactCount: facts.compactFactCount,
-    compactFactBytesEstimate: facts.compactFactBytesEstimate,
-    hydratedElementCount: facts.hydratedElementCount,
-    hydrationTimeMs: facts.hydrationTimeMs,
-    factIterations: facts.factIterations,
-    factMemoHits: facts.memoHits,
-    expansionRequests: state.expansionRequests,
-    materializedRelationCount: state.materializedRelationCount,
-    memoHits: state.memoHits + facts.memoHits,
-    collectionTimeMs: state.collectionTimeMs,
-    expansionTimeMs: state.expansionTimeMs,
-    collectionElapsedMs: state.collectionTimeMs,
-    expansionElapsedMs: state.expansionTimeMs,
-    recipeCount: state.recipeCount,
-    relationIndexCount: state.relationIndexCount,
-    initialRecipeCount: state.initialRecipeCount,
-    initialRelationIndexCount: state.initialRelationIndexCount,
-    lastExpansionRecipeCount: state.lastExpansionRecipeCount,
-    lastExpansionRelationIndexCount: state.lastExpansionRelationIndexCount,
-    lastExpansionScannedRelationCount: state.lastExpansionScannedRelationCount,
-    lastExpansionSourceFilesVisited: state.lastExpansionSourceFilesVisited,
-    lastExpansionAstUnitsVisited: state.lastExpansionAstUnitsVisited,
-    lastExpansionPartitionsVisited: state.lastExpansionPartitionsVisited,
-    lastExpansionRecipesExamined: state.lastExpansionRecipesExamined,
-    totalExpansionScannedRelationCount: state.totalExpansionScannedRelationCount,
-    totalExpansionSourceFilesVisited: state.totalExpansionSourceFilesVisited,
-    totalExpansionAstUnitsVisited: state.totalExpansionAstUnitsVisited,
-    totalExpansionPartitionsVisited: state.totalExpansionPartitionsVisited,
-    totalExpansionRecipesExamined: state.totalExpansionRecipesExamined,
-    deferredCollection: state.deferredCollection,
-    memory: state.memory ? { ...state.memory } : null,
-  };
-}
-
-function readMemorySnapshot(): MemorySnapshot | null {
-  try {
-    const memory = process.memoryUsage();
-    return {
-      rss: memory.rss,
-      heapUsed: memory.heapUsed,
-      heapTotal: memory.heapTotal,
-      external: memory.external,
-      arrayBuffers: memory.arrayBuffers,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function isRelationFrontierLoader(
-  value: readonly RelationRecipe[] | RelationFrontierLoader,
-): value is RelationFrontierLoader {
-  return !Array.isArray(value);
 }
