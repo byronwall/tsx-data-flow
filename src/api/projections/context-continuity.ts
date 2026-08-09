@@ -1,7 +1,7 @@
 import type { AnalysisCancellationToken } from "../../analysis/cancellation";
 import type { RouteContextContinuity } from "../../analysis/context-continuity";
 import type { EvidenceProof, SourceLocation } from "../../analysis/scope-seam";
-import { sortedProject } from "./cancellable-projection";
+import { projectItems, sortedProject } from "./cancellable-projection";
 import { projectSourceLocations } from "./route-totality-evidence-projection";
 import type { RouteTotality } from "../route-totality-contracts";
 
@@ -42,13 +42,13 @@ export function projectContextContinuity(
       location: projectLocation(value.location),
       memberNames: [...value.memberNames],
       memberPaths: value.memberPaths.map((path) => [...path]),
-      memberEvidence: value.memberEvidence.map((member) => ({
+      memberEvidence: projectItems(value.memberEvidence, (member) => ({
         memberPath: [...member.memberPath],
         sourceExpression: member.sourceExpression,
         location: member.location ? projectLocation(member.location) : null,
         status: member.status,
         proof: projectProofs(member.proof, cancellation),
-      })),
+      }), cancellation),
       memberCertainty: value.memberCertainty,
       status: value.status,
       proof: projectProofs(value.proof, cancellation),
