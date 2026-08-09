@@ -17,6 +17,7 @@ import {
   type HttpBridgeResource,
   type HttpBridgeResponse,
 } from "./http-bridge-evidence";
+import { componentBindingMetadataForElement } from "./program-component-binding-metadata";
 
 export type ProgramEvidenceHydrationContext = {
   ts: typeof TypeScript;
@@ -45,6 +46,8 @@ export function hydrateProgramFact(
     definitionId: fact.definitionId,
     ownerId: fact.ownerId,
     attributes: { ...fact.attributes },
+    componentBinding: fact.componentBinding
+      ?? componentBindingMetadataForElement(fact.kind, fact.attributes),
     confidence: fact.confidence,
     proof: proof(fact.proofKind, fact.proofDetail, [location]),
   };

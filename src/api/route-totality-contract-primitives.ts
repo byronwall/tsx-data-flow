@@ -27,6 +27,13 @@ export const evidenceProofSchema = z.strictObject({
   locations: z.array(sourceLocationSchema).min(1),
   status: evidenceStatusSchema,
 });
+export const componentBindingMetadataSchema = z.strictObject({
+  componentOccurrenceElementId: nonEmptyStringSchema.nullable(),
+  componentDefinitionId: nonEmptyStringSchema.nullable(),
+  parameterElementId: nonEmptyStringSchema.nullable(),
+  receiverElementId: nonEmptyStringSchema.nullable(),
+  candidateCount: nonNegativeIntegerSchema.nullable(),
+});
 const scopeDirectionSchema = z.enum(["forward", "backward", "both"]);
 const boundaryKindSchema = z.enum([
   "external-code",
@@ -116,6 +123,7 @@ const programElementSchema = z.strictObject({
   status: evidenceStatusSchema,
   proof: z.array(evidenceProofSchema),
   symbol: nonEmptyStringSchema.nullable(),
+  componentBinding: componentBindingMetadataSchema.nullable(),
   originRoles: z.array(originRoleSchema),
   terminalRoles: z.array(terminalRoleSchema),
   boundary: boundaryKindSchema.nullable(),

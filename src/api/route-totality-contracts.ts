@@ -1,118 +1,26 @@
 import { z } from "zod";
 import { validateRouteOccurrenceSurface, validateRouteTotality } from "./route-occurrence-validation";
 import { routeContextContinuitySchema } from "./route-context-continuity-contracts";
+import {
+  routeTotalityBridgeCountsSchema,
+  routeTotalityBridgeSchema,
+} from "./route-totality-bridge-contracts";
 import { routeTotalityFieldLineageSchema } from "./route-totality-field-lineage-contracts";
+import {
+  routeTotalityFindingAttachmentSchema,
+  routeTotalityFindingIndexEntrySchema,
+} from "./route-totality-finding-contracts";
 import {
   evidenceProofSchema,
   evidenceSliceSchema,
   nonEmptyStringSchema,
   nonNegativeIntegerSchema,
-  originRoleSchema,
   positiveIntegerSchema,
   routeTotalityCandidateSchema,
   routeTotalitySeedSchema,
   sliceOriginSchema,
   sourceLocationSchema,
-  terminalRoleSchema,
 } from "./route-totality-contract-primitives";
-const routeTotalityBridgeOriginEndpointSchema = z.strictObject({
-  layer: z.literal("evidence-slice"),
-  kind: z.literal("origin"),
-  elementId: nonEmptyStringSchema,
-  role: originRoleSchema,
-});
-const routeTotalityBridgeOccurrenceEndpointSchema = z.strictObject({
-  layer: z.literal("occurrence-surface"),
-  kind: z.literal("occurrence"),
-  occurrenceId: nonEmptyStringSchema,
-});
-const routeTotalityBridgeTerminalEndpointSchema = z.strictObject({
-  layer: z.literal("occurrence-surface"),
-  kind: z.literal("terminal"),
-  terminalId: nonEmptyStringSchema,
-});
-const routeTotalityBridgeCommonSchema = {
-  id: nonEmptyStringSchema,
-  status: z.enum(["proven", "partial"]),
-  proof: evidenceProofSchema,
-  locations: z.array(sourceLocationSchema).min(1),
-  evidencePathElementIds: z.array(nonEmptyStringSchema).min(1),
-  evidencePathRelationIds: z.array(nonEmptyStringSchema),
-};
-const routeTotalityBridgeSchema = z.discriminatedUnion("direction", [
-  z.strictObject({
-    ...routeTotalityBridgeCommonSchema,
-    direction: z.literal("origin-to-render"),
-    from: routeTotalityBridgeOriginEndpointSchema,
-    to: routeTotalityBridgeOccurrenceEndpointSchema,
-  }),
-  z.strictObject({
-    ...routeTotalityBridgeCommonSchema,
-    direction: z.literal("render-terminal-to-origin"),
-    from: routeTotalityBridgeTerminalEndpointSchema,
-    to: routeTotalityBridgeOriginEndpointSchema,
-  }),
-]);
-const routeTotalityBridgeCountsSchema = z.strictObject({
-  total: nonNegativeIntegerSchema,
-  originToRender: nonNegativeIntegerSchema,
-  renderTerminalToOrigin: nonNegativeIntegerSchema,
-  proven: nonNegativeIntegerSchema,
-  partial: nonNegativeIntegerSchema,
-});
-const routeTotalityFindingTargetSchema = z.union([
-  z.strictObject({
-    source: z.literal("evidence-slice"),
-    kind: z.literal("element"),
-    id: nonEmptyStringSchema,
-    role: z.null(),
-    family: nonEmptyStringSchema,
-  }),
-  z.strictObject({
-    source: z.literal("evidence-slice"),
-    kind: z.literal("origin"),
-    id: nonEmptyStringSchema,
-    role: originRoleSchema,
-    family: nonEmptyStringSchema,
-  }),
-  z.strictObject({
-    source: z.literal("evidence-slice"),
-    kind: z.literal("terminal"),
-    id: nonEmptyStringSchema,
-    role: terminalRoleSchema,
-    family: nonEmptyStringSchema,
-  }),
-  z.strictObject({
-    source: z.literal("occurrence-surface"),
-    kind: z.literal("terminal"),
-    id: nonEmptyStringSchema,
-    role: z.null(),
-    family: nonEmptyStringSchema,
-  }),
-]);
-const routeTotalityFindingAttachmentSchema = z.strictObject({
-  id: nonEmptyStringSchema,
-  findingId: nonEmptyStringSchema,
-  expressionId: nonEmptyStringSchema,
-  target: routeTotalityFindingTargetSchema,
-  location: sourceLocationSchema,
-  status: z.enum(["proven", "partial"]),
-  proof: evidenceProofSchema,
-});
-const routeTotalityFindingIndexEntrySchema = z.strictObject({
-  findingId: nonEmptyStringSchema,
-  label: nonEmptyStringSchema,
-  family: nonEmptyStringSchema.nullable(),
-  file: nonEmptyStringSchema,
-  location: sourceLocationSchema,
-  expressionIds: z.array(nonEmptyStringSchema).min(1),
-  detailRef: z.strictObject({
-    source: z.literal("file-page"),
-    kind: z.literal("finding-detail"),
-    id: nonEmptyStringSchema,
-    file: nonEmptyStringSchema,
-  }),
-});
 const routeOccurrenceRepetitionSchema = z.enum([
   "single",
   "conditional",

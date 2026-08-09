@@ -6,6 +6,8 @@
  * program element or relation.
  */
 
+import type { ComponentBindingMetadata } from "./program-component-binding-metadata";
+
 export type EvidenceStatus = "proven" | "partial" | "unsupported";
 
 export type SourceSpan = {
@@ -51,6 +53,7 @@ export type ProgramElement = {
   status: EvidenceStatus;
   proof: EvidenceProof[];
   symbol: string | null;
+  componentBinding: ComponentBindingMetadata | null;
   originRoles: OriginRole[];
   terminalRoles: TerminalRole[];
   boundary: BoundaryKind | null;

@@ -15,6 +15,7 @@ import type {
   TerminalRole,
 } from "./scope-seam";
 import { indexReadMetadataFromElement } from "./program-index-read-metadata";
+import { componentBindingMetadataFromAttributes } from "./program-component-binding-metadata";
 
 export function records<T>(value: unknown): T[] {
   if (Array.isArray(value)) return value as T[];
@@ -84,6 +85,8 @@ export function toSliceElement(element: IndexedProgramElement): ProgramElement {
     status,
     proof: [toSliceProof(element.proof, status)],
     symbol: element.symbolId,
+    componentBinding: element.componentBinding
+      ?? (element.kind === "component-prop-binding" ? componentBindingMetadataFromAttributes(element.attributes) : null),
     originRoles: originRolesFor(element),
     terminalRoles: terminalRolesFor(element),
     boundary: boundaryFor(element),

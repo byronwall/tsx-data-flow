@@ -6,6 +6,7 @@ import type {
   ProgramOperationKind,
   ProgramProofKind,
 } from "./program-evidence";
+import type { ComponentBindingMetadata } from "./program-component-binding-metadata";
 
 export type CompactFactAttributes = Readonly<Record<string, string | number | boolean | null>>;
 
@@ -30,6 +31,7 @@ export type CompactProgramFact = {
   definitionId: string | null;
   ownerId: string | null;
   attributes: CompactFactAttributes;
+  componentBinding?: ComponentBindingMetadata | null;
   confidence: EvidenceConfidence;
   proofKind: ProgramProofKind;
   proofDetail: string;
@@ -94,6 +96,7 @@ export function compactFactFromElement(element: ProgramElement): CompactProgramF
     definitionId: element.definitionId,
     ownerId: element.ownerId,
     attributes: { ...element.attributes },
+    componentBinding: element.componentBinding,
     confidence: element.confidence,
     proofKind: (proofValue?.kind ?? "ast-node") as ProgramProofKind,
     proofDetail: proofValue?.detail ?? "The source element is part of the collected evidence.",

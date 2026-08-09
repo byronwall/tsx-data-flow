@@ -9,6 +9,7 @@ import type {
   ProgramEvidenceDeclarationCatalogImportStats,
 } from "./program-evidence-declaration-catalog";
 import type { AnalysisCancellationToken } from "./cancellation";
+import type { ComponentBindingMetadata } from "./program-component-binding-metadata";
 export type EvidenceConfidence = "proven" | "partial";
 export type ProgramEvidenceLocation = {
   file: string;
@@ -135,6 +136,7 @@ export type ProgramElement = {
   definitionId: string | null;
   ownerId: string | null;
   attributes: Record<string, string | number | boolean | null>;
+  componentBinding: ComponentBindingMetadata | null;
   confidence: EvidenceConfidence;
   proof: ProgramProof;
 };
