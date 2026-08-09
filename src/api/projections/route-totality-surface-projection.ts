@@ -7,6 +7,7 @@ import {
   isUnavailable,
   projectOccurrenceLocation,
   projectOrigin,
+  projectSourceLocations,
 } from "./route-totality-evidence-projection";
 import type {
   RouteCount,
@@ -179,7 +180,11 @@ function boundaryIdsByChildOccurrence(surface: DomainOccurrenceSurface, cancella
   return ids;
 }
 
-function projectBoundary(boundary: DomainOccurrenceSurface["frameworkBoundaries"][number]) {
+function projectBoundary(
+  boundary: DomainOccurrenceSurface["frameworkBoundaries"][number],
+  cancellation: AnalysisCancellationToken,
+) {
+  cancellation.throwIfCancelled();
   return {
     id: boundary.id,
     key: boundary.key,
@@ -201,19 +206,23 @@ function projectBoundary(boundary: DomainOccurrenceSurface["frameworkBoundaries"
     condition: boundary.condition ? {
       outcome: boundary.condition.outcome,
       detail: boundary.condition.detail,
-      locations: boundary.condition.locations.map(projectOccurrenceLocation),
+      locations: projectSourceLocations(boundary.condition.locations, cancellation),
     } : null,
     ownership: boundary.ownership,
   };
 }
 
-function projectOccurrenceEdge(edge: DomainOccurrenceSurface["renderEdges"][number]) {
+function projectOccurrenceEdge(
+  edge: DomainOccurrenceSurface["renderEdges"][number],
+  cancellation: AnalysisCancellationToken,
+) {
+  cancellation.throwIfCancelled();
   return {
     id: edge.id,
     from: edge.from,
     to: edge.to,
     kind: edge.kind,
-    locations: edge.locations.map(projectOccurrenceLocation),
+    locations: projectSourceLocations(edge.locations, cancellation),
     detail: edge.detail,
   };
 }
@@ -259,12 +268,16 @@ function projectHiddenWrapper(wrapper: DomainOccurrenceSurface["hiddenWrapperCom
   };
 }
 
-function projectOccurrenceOmission(omission: DomainOccurrenceSurface["omissions"][number]) {
+function projectOccurrenceOmission(
+  omission: DomainOccurrenceSurface["omissions"][number],
+  cancellation: AnalysisCancellationToken,
+) {
+  cancellation.throwIfCancelled();
   return {
     id: omission.id,
     reason: omission.reason,
     label: omission.label,
     count: omission.count,
-    locations: omission.locations.map(projectOccurrenceLocation),
+    locations: projectSourceLocations(omission.locations, cancellation),
   };
 }

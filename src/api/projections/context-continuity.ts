@@ -2,6 +2,7 @@ import type { AnalysisCancellationToken } from "../../analysis/cancellation";
 import type { RouteContextContinuity } from "../../analysis/context-continuity";
 import type { EvidenceProof, SourceLocation } from "../../analysis/scope-seam";
 import { sortedProject } from "./cancellable-projection";
+import { projectSourceLocations } from "./route-totality-evidence-projection";
 import type { RouteTotality } from "../route-totality-contracts";
 
 export function projectContextContinuity(
@@ -139,7 +140,7 @@ function projectProofs(proofs: EvidenceProof[], cancellation: AnalysisCancellati
     return {
       kind: proof.kind,
       detail: proof.detail,
-      locations: proof.locations.map(projectLocation),
+      locations: projectSourceLocations(proof.locations, cancellation),
       status: proof.status,
     };
   });

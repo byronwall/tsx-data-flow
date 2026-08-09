@@ -2,7 +2,7 @@ import type { EvidenceSlice as DomainEvidenceSlice } from "../../analysis/eviden
 import type {
   RouteOccurrenceLocation as DomainOccurrenceLocation,
 } from "../../analysis/route-occurrence-surface";
-import type { EvidenceProof as DomainEvidenceProof, SourceLocation } from "../../analysis/scope-seam";
+import type { EvidenceProof as DomainEvidenceProof } from "../../analysis/scope-seam";
 import type { AnalysisCancellationToken } from "../../analysis/cancellation";
 import { projectItems } from "./cancellable-projection";
 import type {
@@ -33,6 +33,9 @@ export function projectEvidenceSlice(slice: DomainEvidenceValue, cancellation: A
       status: element.status,
       proof: projectProofs(element.proof, cancellation),
       symbol: element.symbol,
+      componentBinding: element.componentBinding
+        ? { ...element.componentBinding }
+        : null,
       originRoles: [...element.originRoles],
       terminalRoles: [...element.terminalRoles],
       boundary: element.boundary,
@@ -147,7 +150,19 @@ function evidenceCount(emitted: number, total: number, totalStatus: "exact" | "l
   return { emitted, total, totalStatus };
 }
 
-export function projectLocation(location: SourceLocation) {
+type ProjectableSourceLocation = {
+  file: string;
+  line: number;
+  column: number;
+  span: {
+    startLine: number;
+    startColumn: number;
+    endLine: number;
+    endColumn: number;
+  };
+};
+
+export function projectLocation(location: ProjectableSourceLocation) {
   return {
     file: location.file,
     line: location.line,
@@ -165,11 +180,25 @@ export function projectOccurrenceLocation(location: DomainOccurrenceLocation) {
   return projectLocation(location);
 }
 
+export function projectSourceLocations(
+  locations: readonly ProjectableSourceLocation[],
+  cancellation: AnalysisCancellationToken,
+) {
+  cancellation.throwIfCancelled();
+  const projected: ReturnType<typeof projectLocation>[] = [];
+  for (const location of locations) {
+    cancellation.throwIfCancelled();
+    projected.push(projectLocation(location));
+  }
+  cancellation.throwIfCancelled();
+  return projected;
+}
+
 export function projectProofs(proofs: DomainEvidenceProof[], cancellation: AnalysisCancellationToken): Array<RouteTotality["scopeProof"][number]> {
   return projectItems(proofs, (proof) => ({
     kind: proof.kind,
     detail: proof.detail,
-    locations: proof.locations.map(projectLocation),
+    locations: projectSourceLocations(proof.locations, cancellation),
     status: proof.status,
   }), cancellation);
 }
@@ -179,7 +208,7 @@ export function projectProof(proof: DomainEvidenceProof, cancellation: AnalysisC
   return {
     kind: proof.kind,
     detail: proof.detail,
-    locations: proof.locations.map(projectLocation),
+    locations: projectSourceLocations(proof.locations, cancellation),
     status: proof.status,
   };
 }

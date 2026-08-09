@@ -7,6 +7,7 @@ import type {
 import type { EvidenceProof as DomainEvidenceProof, SourceLocation } from "../../analysis/scope-seam";
 import type { RouteTotality } from "../route-totality-contracts";
 import { sortedProject } from "./cancellable-projection";
+import { projectSourceLocations } from "./route-totality-evidence-projection";
 
 export function projectRouteTotalityFieldLineage(
   lineage: RouteTotalityFieldLineage,
@@ -45,7 +46,7 @@ function projectAttachment(
   const terminalIds = copyIds(attachment.terminalIds, cancellation);
   const pathElementIds = copyIds(attachment.evidencePathElementIds, cancellation);
   const pathRelationIds = copyIds(attachment.evidencePathRelationIds, cancellation);
-  const locations = projectLocations(attachment.locations, cancellation);
+  const locations = projectSourceLocations(attachment.locations, cancellation);
   cancellation.throwIfCancelled();
   return {
     id: attachment.id,
@@ -109,7 +110,7 @@ function projectProofs(proofs: DomainEvidenceProof[], cancellation: AnalysisCanc
     projected.push({
       kind: proof.kind,
       detail: proof.detail,
-      locations: projectLocations(proof.locations, cancellation),
+      locations: projectSourceLocations(proof.locations, cancellation),
       status: proof.status,
     });
   }
@@ -126,20 +127,6 @@ function projectSegments(
   for (const segment of segments) {
     cancellation.throwIfCancelled();
     projected.push({ kind: segment.kind, value: segment.value });
-  }
-  cancellation.throwIfCancelled();
-  return projected;
-}
-
-function projectLocations(
-  locations: readonly SourceLocation[],
-  cancellation: AnalysisCancellationToken,
-) {
-  cancellation.throwIfCancelled();
-  const projected: ReturnType<typeof projectLocation>[] = [];
-  for (const location of locations) {
-    cancellation.throwIfCancelled();
-    projected.push(projectLocation(location));
   }
   cancellation.throwIfCancelled();
   return projected;

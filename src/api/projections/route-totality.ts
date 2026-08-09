@@ -18,6 +18,7 @@ import {
   projectLocation,
   projectProof,
   projectProofs,
+  projectSourceLocations,
 } from "./route-totality-evidence-projection";
 import { projectRouteTotalityFieldLineage } from "./route-totality-field-lineage";
 import { projectOccurrenceSurface, projectRouteIdentity } from "./route-totality-surface-projection";
@@ -126,7 +127,7 @@ function projectBridge(bridge: DomainRouteTotalityBridge, cancellation: Analysis
     id: bridge.id,
     status: bridge.status,
     proof: projectProof(bridge.proof, cancellation),
-    locations: bridge.locations.map(projectLocation),
+    locations: projectSourceLocations(bridge.locations, cancellation),
     evidencePathElementIds: [...bridge.evidencePathElementIds],
     evidencePathRelationIds: [...bridge.evidencePathRelationIds],
   };
