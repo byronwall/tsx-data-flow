@@ -125,8 +125,8 @@ export class ProgramEvidenceCollectorComponentBindingSupport extends ProgramEvid
         && !node.questionDotToken
         && this.ts.isIdentifier(node.expression)
         && node.name.text === propName
-        && sameCompilerSymbol(this.checker, this.checker.getSymbolAtLocation(node.expression), parameterSymbol)
-        && sameCompilerSymbol(this.checker, this.checker.getSymbolAtLocation(node.name), expectedProperty)
+        && sameCompilerSymbol(this.checker.getSymbolAtLocation(node.expression), parameterSymbol)
+        && sameCompilerSymbol(this.checker.getSymbolAtLocation(node.name), expectedProperty)
       ) {
         receivers.push({
           node,
@@ -148,9 +148,8 @@ function staticPropName(ts: typeof TypeScript, attribute: TypeScript.JsxAttribut
 }
 
 function sameCompilerSymbol(
-  checker: TypeScript.TypeChecker,
   left: TypeScript.Symbol | undefined,
   right: TypeScript.Symbol | undefined,
 ): boolean {
-  return Boolean(left && right && (left === right || checker.getFullyQualifiedName(left) === checker.getFullyQualifiedName(right)));
+  return Boolean(left && right && left === right);
 }
