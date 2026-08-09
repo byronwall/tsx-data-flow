@@ -1,9 +1,14 @@
 import type { RouteTotality } from "../../../api/contracts";
-import type { RouteTotalityLocation, RouteTotalityLayout } from "./route-totality-model";
+import type { RouteTotalityDisplayLayoutEdge } from "./route-totality-display-layout";
+import { routeTotalityLocationLabel, type RouteTotalityLocation, type RouteTotalityLayout } from "./route-totality-model";
 import type { RouteTotalityFieldOriginFocus } from "./route-totality-field-lineage-model";
 
 type RouteTotalityFieldAttachment = RouteTotality["fieldLineage"]["attachments"][number];
 type RouteTotalityFieldFrontier = RouteTotality["fieldLineage"]["frontiers"][number];
+
+export type RouteTotalityFieldInspectorScope =
+  | { kind: "origin" }
+  | { kind: "occurrence"; occurrenceId: string };
 
 export type RouteTotalityFieldInspectorAttachment = {
   attachment: RouteTotalityFieldAttachment;
@@ -15,7 +20,7 @@ export type RouteTotalityFieldInspectorFrontier = {
 };
 
 export type RouteTotalityFieldInspectorGroup = {
-  occurrenceId: string;
+  occurrenceId: string | null;
   label: string;
   location: RouteTotalityLocation | null;
   attachments: RouteTotalityFieldInspectorAttachment[];
@@ -48,9 +53,9 @@ export function selectRouteTotalityFieldInspectorResult(
   totality: RouteTotality | null,
   layout: RouteTotalityLayout,
   origin: RouteTotalityFieldOriginFocus | null,
-  occurrenceId: string | null,
+  scope: RouteTotalityFieldInspectorScope,
 ): RouteTotalityFieldInspectorResult | null {
-  if (!totality || !occurrenceId) return null;
+  if (!totality) return null;
   if (totality.fieldLineage.status === "unavailable") {
     return {
       ...emptyResult("unavailable"),
@@ -59,44 +64,52 @@ export function selectRouteTotalityFieldInspectorResult(
   }
   if (!origin) return emptyResult("no-origin");
 
-  const targetNodeId = visibleNodeId(layout, `occurrence:${occurrenceId}`);
   const surfaceOccurrences = "occurrences" in totality.occurrenceSurface
     ? totality.occurrenceSurface.occurrences
     : [];
+  const targetNodeId = scope.kind === "occurrence"
+    ? visibleNodeId(layout, `occurrence:${scope.occurrenceId}`)
+    : null;
+  const matchingAttachments = uniqueById(totality.fieldLineage.attachments)
+    .filter((attachment) => sameOrigin(attachment.origin, origin))
+    .filter((attachment) => targetNodeId === null || visibleNodeId(layout, `occurrence:${attachment.occurrenceId}`) === targetNodeId);
+  const matchingFrontiers = uniqueById(totality.fieldLineage.frontiers)
+    .filter((frontier) => sameOrigin(frontier.origin, origin))
+    .filter((frontier) => targetNodeId === null
+      ? true
+      : frontier.occurrenceId !== null && visibleNodeId(layout, `occurrence:${frontier.occurrenceId}`) === targetNodeId);
+  const recordOccurrenceIds = new Set(matchingAttachments.map((attachment) => attachment.occurrenceId));
+  for (const frontier of matchingFrontiers) {
+    if (frontier.occurrenceId !== null) recordOccurrenceIds.add(frontier.occurrenceId);
+  }
   const matchingOccurrences = surfaceOccurrences
-    .filter((occurrence) => visibleNodeId(layout, `occurrence:${occurrence.id}`) === targetNodeId)
+    .filter((occurrence) => scope.kind === "occurrence"
+      ? visibleNodeId(layout, `occurrence:${occurrence.id}`) === targetNodeId
+      : recordOccurrenceIds.has(occurrence.id))
     .sort((left, right) => left.id.localeCompare(right.id));
-  const matchingAttachments = totality.fieldLineage.attachments
-    .filter((attachment) => sameOrigin(attachment.origin, origin) && visibleNodeId(layout, `occurrence:${attachment.occurrenceId}`) === targetNodeId)
-    .sort((left, right) => left.id.localeCompare(right.id));
-  const matchingFrontiers = totality.fieldLineage.frontiers
-    .filter((frontier) => sameOrigin(frontier.origin, origin)
-      && frontier.occurrenceId !== null
-      && visibleNodeId(layout, `occurrence:${frontier.occurrenceId}`) === targetNodeId)
-    .sort((left, right) => left.id.localeCompare(right.id));
-  const occurrenceIds = new Set([
-    ...matchingOccurrences.map((occurrence) => occurrence.id),
-    ...matchingAttachments.map((attachment) => attachment.occurrenceId),
-    ...matchingFrontiers.flatMap((frontier) => frontier.occurrenceId ? [frontier.occurrenceId] : []),
-  ]);
-  if (occurrenceIds.size === 0) occurrenceIds.add(occurrenceId);
+  const occurrenceIds = new Set<string | null>(matchingOccurrences.map((occurrence) => occurrence.id));
+  for (const occurrenceId of recordOccurrenceIds) occurrenceIds.add(occurrenceId);
+  if (scope.kind === "occurrence" && occurrenceIds.size === 0) occurrenceIds.add(scope.occurrenceId);
+  if (scope.kind === "origin" && matchingFrontiers.some((frontier) => frontier.occurrenceId === null)) occurrenceIds.add(null);
 
-  const groups = [...occurrenceIds].sort((left, right) => left.localeCompare(right)).map((id) => {
-    const occurrence = matchingOccurrences.find((candidate) => candidate.id === id);
-    const attachments = matchingAttachments
-      .filter((attachment) => attachment.occurrenceId === id)
-      .map((attachment) => ({ attachment, terminalCount: attachment.terminalIds.length }));
-    const frontiers = matchingFrontiers
-      .filter((frontier) => frontier.occurrenceId === id)
-      .map((frontier) => ({ frontier }));
-    return {
-      occurrenceId: id,
-      label: occurrence?.expression ?? occurrence?.name ?? id,
-      location: occurrence?.callSite ?? null,
-      attachments,
-      frontiers,
-    };
-  });
+  const groups = [...occurrenceIds]
+    .sort(compareOccurrenceIds)
+    .map((occurrenceId) => {
+      const occurrence = occurrenceId === null
+        ? undefined
+        : matchingOccurrences.find((candidate) => candidate.id === occurrenceId);
+      return {
+        occurrenceId,
+        label: occurrenceId === null ? "Evidence path" : occurrence?.expression ?? occurrence?.name ?? occurrenceId,
+        location: occurrence?.callSite ?? null,
+        attachments: matchingAttachments
+          .filter((attachment) => attachment.occurrenceId === occurrenceId)
+          .map((attachment) => ({ attachment, terminalCount: attachment.terminalIds.length })),
+        frontiers: matchingFrontiers
+          .filter((frontier) => frontier.occurrenceId === occurrenceId)
+          .map((frontier) => ({ frontier })),
+      };
+    });
   const attachments = groups.flatMap((group) => group.attachments);
   const frontiers = groups.flatMap((group) => group.frontiers);
   const status = frontiers.length > 0 || (totality.fieldLineage.status === "partial" && attachments.length > 0)
@@ -107,12 +120,51 @@ export function selectRouteTotalityFieldInspectorResult(
   return { status, unavailableReason: null, groups, attachments, frontiers };
 }
 
+export function selectRouteTotalityFieldFrontierLabels(
+  totality: RouteTotality | null,
+  origin: RouteTotalityFieldOriginFocus | null,
+  edges: readonly RouteTotalityDisplayLayoutEdge[],
+): ReadonlyMap<string, string> {
+  if (!totality || !origin) return new Map();
+  const frontiers = uniqueById(totality.fieldLineage.frontiers)
+    .filter((frontier) => sameOrigin(frontier.origin, origin));
+  const labelsByEdgeId = new Map<string, Set<string>>();
+  for (const edge of edges) {
+    const relationLabel = edge.edge.label.trim() || "Evidence path";
+    for (const frontier of frontiers) {
+      if (!frontier.evidencePathRelationIds.includes(edge.id)) continue;
+      const location = frontier.location ?? frontier.proof[0]?.locations[0] ?? edge.edge.locations[0] ?? null;
+      const label = `Field continuity stopped — ${relationLabel} — ${routeTotalityFieldFrontierReason(frontier.reason)} — ${routeTotalityLocationLabel(location)}`;
+      const labels = labelsByEdgeId.get(edge.id) ?? new Set<string>();
+      labels.add(label);
+      labelsByEdgeId.set(edge.id, labels);
+    }
+  }
+  return new Map([...labelsByEdgeId.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([edgeId, labels]) => [edgeId, [...labels].sort((left, right) => left.localeCompare(right)).join(" · ")]));
+}
+
 export function routeTotalityFieldFrontierReason(reason: RouteTotalityFieldFrontier["reason"]): string {
   return FRONTIER_REASON_LABELS[reason];
 }
 
 function emptyResult(status: RouteTotalityFieldInspectorResult["status"]): RouteTotalityFieldInspectorResult {
   return { status, unavailableReason: null, groups: [], attachments: [], frontiers: [] };
+}
+
+function uniqueById<T extends { id: string }>(records: readonly T[]): T[] {
+  const byId = new Map<string, T>();
+  for (const record of records) {
+    if (!byId.has(record.id)) byId.set(record.id, record);
+  }
+  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function compareOccurrenceIds(left: string | null, right: string | null): number {
+  if (left === null) return right === null ? 0 : -1;
+  if (right === null) return 1;
+  return left.localeCompare(right);
 }
 
 function sameOrigin(

@@ -24,7 +24,7 @@ export function RouteTotalityFieldSections(props: {
         </Show>
         <Show when={result().status === "proven" || result().status === "partial"}>
           <Show when={result().attachments.length > 0} fallback={<p>No proven fields reach this occurrence.</p>}>
-            <For each={result().groups}>{(group) => <FieldGroup group={group} onOpenSource={props.onOpenSource} />}</For>
+            <For each={result().groups.filter((group) => group.attachments.length > 0)}>{(group) => <FieldGroup group={group} onOpenSource={props.onOpenSource} />}</For>
           </Show>
         </Show>
       </section>
@@ -71,7 +71,7 @@ function FieldFrontierGroup(props: {
       <For each={props.group.frontiers}>{(item) => {
         const location = item.frontier.location ?? item.frontier.proof[0]?.locations[0] ?? null;
         return <article class="route-totality-field-item">
-          <strong><code>{item.frontier.field?.label ?? "Field continuity"}</code></strong>
+          <Show when={item.frontier.field}>{(field) => <strong><code>{field().label}</code></strong>}</Show>
           <span>{routeTotalityFieldFrontierReason(item.frontier.reason)}</span>
           <Show when={location} fallback={<span>No exact stop location was returned.</span>}>
             {(stopLocation) => <button type="button" onClick={() => props.onOpenSource(sourceTargetForLocation(stopLocation()))}>
@@ -87,8 +87,10 @@ function FieldFrontierGroup(props: {
 function FieldGroupHeading(props: { group: RouteTotalityFieldInspectorGroup }) {
   return <header class="route-totality-field-group-heading">
     <strong>{props.group.label}</strong>
-    <Show when={props.group.location} fallback={<small>Original occurrence · {props.group.occurrenceId}</small>}>
-      {(location) => <small>Call site · {formatLocation(location())}</small>}
+    <Show when={props.group.occurrenceId !== null}>
+      <Show when={props.group.location} fallback={<small>Original occurrence · {props.group.occurrenceId}</small>}>
+        {(location) => <small>Call site · {formatLocation(location())}</small>}
+      </Show>
     </Show>
   </header>;
 }

@@ -37,6 +37,7 @@ export function DisplayTotalityEdge(props: {
   fieldFocused: boolean;
   fieldActive: boolean;
   fieldFrontier: boolean;
+  fieldFrontierLabel: string | null;
   hidden: boolean;
   onSelect: (selection: RouteInvestigationEdgeSelection) => void;
   onRegister: (element: SVGGElement) => void;
@@ -61,14 +62,18 @@ export function DisplayTotalityEdge(props: {
     tabindex={props.hidden ? -1 : 0}
     aria-hidden={props.hidden ? "true" : undefined}
     aria-pressed={props.selected}
-    aria-label={`Select ${props.edge.edge.family} edge ${props.edge.edge.label || props.edge.edge.kind}${props.active ? " · in emphasized reach" : props.frontier ? " · partial frontier" : ""}`}
+    aria-label={props.fieldFocused && props.fieldFrontier && props.fieldFrontierLabel
+      ? props.fieldFrontierLabel
+      : `Select ${props.edge.edge.family} edge ${props.edge.edge.label || props.edge.edge.kind}${props.active ? " · in emphasized reach" : props.frontier ? " · partial frontier" : ""}`}
     onPointerDown={(event) => event.stopPropagation()}
     onClick={(event) => { event.stopPropagation(); props.onSelect(props.selection); }}
     onKeyDown={(event) => selectOnKey(event, props.selection, props.onSelect)}
   >
     <path class="route-totality-edge-hit" d={path()} />
     <path class="route-totality-edge-line" d={path()} />
-    <title>{props.edge.edge.label || props.edge.edge.kind} · {props.edge.edge.detail} · {props.edge.edge.locations[0] ? routeTotalityLocationLabel(props.edge.edge.locations[0]) : "Location unavailable"}</title>
+    <title>{props.fieldFocused && props.fieldFrontier && props.fieldFrontierLabel
+      ? props.fieldFrontierLabel
+      : `${props.edge.edge.label || props.edge.edge.kind} · ${props.edge.edge.detail} · ${props.edge.edge.locations[0] ? routeTotalityLocationLabel(props.edge.edge.locations[0]) : "Location unavailable"}`}</title>
   </g>;
 }
 

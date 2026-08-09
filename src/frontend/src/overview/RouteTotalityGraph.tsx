@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, onCleanup, untrack } from "soli
 import type { RouteTotality } from "../../../api/contracts";
 import type { HiddenComponentPolicy } from "../../../api/hidden-component-policy";
 import { layoutRouteTotality, routeTotalityPayloadIdentity, type RouteTotalityLayout, type RouteTotalityLayoutNode } from "./route-totality-model";
-import { routeInvestigationSelectionForNode, type RouteInvestigationSelection } from "./route-investigation-selection";
+import { routeInvestigationSelectionForNode, sameRouteInvestigationSelection, type RouteInvestigationSelection } from "./route-investigation-selection";
 import { RouteTotalityInspector } from "./RouteTotalityInspector";
 import { buildRouteTotalityInspectorRecord } from "./route-totality-inspector-model";
 import { buildRouteTotalityAdjacency, buildRouteTotalityEmphasis, type RouteTotalityEmphasisMode } from "./route-totality-emphasis";
@@ -19,8 +19,9 @@ import { DEFAULT_ROUTE_TOTALITY_CAMERA, createRouteTotalityCamera } from "./rout
 import { emphasisModeForSelection, persistedSelection, reconcileRouteTotalityState, selectionFromPersisted, buildRouteTotalityLedger, renderableRouteTotalityAnnotations, routeTotalityDisplayBounds, type RouteTotalityInvestigationStateChange } from "./route-totality-graph-state";
 import { RouteTotalityViewport } from "./RouteTotalityViewport";
 import { createRouteTotalityGraphActions } from "./route-totality-graph-actions";
-import { fieldOriginFocusForOrigin, hasRouteTotalityFieldOrigin, selectRouteTotalityFieldFocus, type RouteTotalityFieldOriginFocus } from "./route-totality-field-lineage-model";
-import { selectRouteTotalityFieldInspectorResult } from "./route-totality-field-inspector-model";
+import { hasRouteTotalityFieldOrigin, selectRouteTotalityFieldFocus, type RouteTotalityFieldOriginFocus } from "./route-totality-field-lineage-model";
+import { selectRouteTotalityFieldFrontierLabels, selectRouteTotalityFieldInspectorResult, type RouteTotalityFieldInspectorScope } from "./route-totality-field-inspector-model";
+import { routeTotalityFieldInspectorScopeForSelection } from "./route-totality-field-inspector-scope";
 import { DEFAULT_ROUTE_TOTALITY_SURFACE_LAYOUT_SETTINGS } from "./route-totality-surface-layout";
 import { createTopologyLayoutDebug } from "./topology-layout-debug";
 import { createRouteContextContinuityUiState } from "./route-context-continuity-state";
@@ -65,6 +66,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   const initialSelection = untrack(() => selectionFromPersisted(props.selection ?? null, layout()));
   const [selection, setSelection] = createSignal<RouteInvestigationSelection>(initialSelection);
   const [activeFieldOrigin, setActiveFieldOrigin] = createSignal<RouteTotalityFieldOriginFocus | null>(null);
+  const [fieldInspectorScope, setFieldInspectorScope] = createSignal<RouteTotalityFieldInspectorScope | null>(null);
   const [showEvidenceDetail, setShowEvidenceDetail] = createSignal(false);
   const [emphasisMode, setEmphasisMode] = createSignal<RouteTotalityEmphasisMode | null>(untrack(() => emphasisModeForSelection(initialSelection)));
   const [isolated, setIsolated] = createSignal(untrack(() => Boolean(props.isolated && emphasisModeForSelection(initialSelection) !== null)));
@@ -72,6 +74,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   let svg: SVGSVGElement | undefined;
   let previousIdentity = "";
   let previousPayloadIdentity = "";
+  let previousGenericUiMode: GenericUiMode | undefined;
   let previousScopeKey: string | null | undefined;
   let skipControlledSync = false;
   let skipControlledCameraSync = false;
@@ -88,6 +91,11 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     };
     if (nextCamera !== undefined) change.camera = nextCamera;
     props.onInvestigationStateChange(change);
+  };
+  const setFieldInspectorScopeForSelection = (next: Exclude<RouteInvestigationSelection, null>) => {
+    const nextFieldScope = routeTotalityFieldInspectorScopeForSelection(props.totality, next, activeFieldOrigin());
+    setActiveFieldOrigin(nextFieldScope.origin);
+    setFieldInspectorScope(nextFieldScope.scope);
   };
   const cameraController = createRouteTotalityCamera({
     initialCamera: untrack(() => props.camera ? { ...props.camera } : null),
@@ -111,9 +119,11 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     const scopeKey = props.scopeKey ?? props.totality?.route.key ?? null;
     const scopeChanged = !initialPayload && scopeKey !== previousScopeKey;
     const payloadChanged = !initialPayload && payloadIdentity !== previousPayloadIdentity;
+    const rendererChanged = !initialPayload && effectiveGenericUiMode() !== previousGenericUiMode;
     if (identity === previousIdentity && scopeKey === previousScopeKey) return;
     previousIdentity = identity;
     previousPayloadIdentity = payloadIdentity;
+    previousGenericUiMode = effectiveGenericUiMode();
     previousScopeKey = scopeKey;
     skipControlledSync = false;
     skipControlledCameraSync = false;
@@ -137,12 +147,18 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     applyLocalInvestigationState(reconciliation.selection, reconciliation.isolated);
     const nextFieldOrigin = initialPayload
       ? null
-      : scopeChanged || payloadChanged
+      : scopeChanged || payloadChanged || rendererChanged
         ? null
         : untrack(() => activeFieldOrigin());
-    setActiveFieldOrigin(nextFieldOrigin && hasRouteTotalityFieldOrigin(props.totality, nextFieldOrigin)
+    const validFieldOrigin = nextFieldOrigin && hasRouteTotalityFieldOrigin(props.totality, nextFieldOrigin)
       ? nextFieldOrigin
-      : null);
+      : null;
+    setActiveFieldOrigin(validFieldOrigin);
+    if (!validFieldOrigin) setFieldInspectorScope(null);
+    else if (initialPayload || scopeChanged || payloadChanged || rendererChanged) setFieldInspectorScope({ kind: "origin" });
+    if (scopeChanged || payloadChanged || rendererChanged) {
+      skipControlledSync = props.selection !== undefined || props.isolated !== undefined;
+    }
 
     if (scopeChanged) {
       skipControlledSync = props.selection !== undefined || props.isolated !== undefined;
@@ -181,10 +197,8 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     });
     setEmphasisMode(reconciliation.emphasisMode);
     applyLocalInvestigationState(reconciliation.selection, reconciliation.isolated);
-    if (reconciliation.selection?.target === "node") {
-      const focus = fieldOriginFocusForSelection(props.totality, reconciliation.selection);
-      if (reconciliation.selection.kind === "origin") setActiveFieldOrigin(focus);
-    }
+    if (reconciliation.selection) setFieldInspectorScopeForSelection(reconciliation.selection);
+    else setFieldInspectorScope(untrack(() => activeFieldOrigin()) ? { kind: "origin" } : null);
     if (reconciliation.needsCorrection) {
       skipControlledSync = props.selection !== undefined || props.isolated !== undefined;
       emitInvestigationState(reconciliation.selection, reconciliation.isolated);
@@ -193,7 +207,10 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
 
   createEffect(() => {
     const focus = activeFieldOrigin();
-    if (focus && !hasRouteTotalityFieldOrigin(props.totality, focus)) setActiveFieldOrigin(null);
+    if (focus && !hasRouteTotalityFieldOrigin(props.totality, focus)) {
+      setActiveFieldOrigin(null);
+      setFieldInspectorScope(null);
+    }
   });
 
   createEffect(() => {
@@ -229,6 +246,11 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     emphasisMode(),
   ));
   const fieldFocus = createMemo(() => selectRouteTotalityFieldFocus(props.totality, layout(), activeFieldOrigin()));
+  const fieldFrontierLabels = createMemo(() => selectRouteTotalityFieldFrontierLabels(
+    props.totality,
+    activeFieldOrigin(),
+    [...displayLayout().edges, ...displayLayout().evidenceEdges],
+  ));
   const fieldEvidenceNodeIds = createMemo(() => new Set([
     ...fieldFocus().activeNodeIds,
     ...fieldFocus().frontierNodeIds,
@@ -303,8 +325,8 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   const selectedRecord = createMemo(() => buildRouteTotalityInspectorRecord(props.totality, layout(), selection()));
   const selectedFieldResult = createMemo(() => {
     const record = selectedRecord();
-    return record?.kind === "occurrence"
-      ? selectRouteTotalityFieldInspectorResult(props.totality, layout(), activeFieldOrigin(), record.selection.recordId)
+    return record
+      ? selectRouteTotalityFieldInspectorResult(props.totality, layout(), activeFieldOrigin(), fieldInspectorScope() ?? { kind: "origin" })
       : null;
   });
   const ledgerItems = createMemo(() => buildRouteTotalityLedger(props.totality, layout()));
@@ -329,14 +351,22 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     resetCamera: cameraController.reset,
   });
   const selectWithFieldFocus = (next: Exclude<RouteInvestigationSelection, null>) => {
-    const focus = fieldOriginFocusForSelection(props.totality, next);
-    if (next.target === "node" && next.kind === "origin") setActiveFieldOrigin(focus);
+    const willClearSelection = sameRouteInvestigationSelection(selection(), next);
+    if (willClearSelection) setFieldInspectorScope(activeFieldOrigin() ? { kind: "origin" } : null);
+    else setFieldInspectorScopeForSelection(next);
     actions.select(next);
   };
   const selectFromInspectorWithFieldFocus = (next: Exclude<RouteInvestigationSelection, null>) => {
-    const focus = fieldOriginFocusForSelection(props.totality, next);
-    if (next.target === "node" && next.kind === "origin") setActiveFieldOrigin(focus);
+    setFieldInspectorScopeForSelection(next);
     actions.selectFromInspector(next);
+  };
+  const clearFieldFocus = () => {
+    setActiveFieldOrigin(null);
+    setFieldInspectorScope(null);
+  };
+  const clearSelectionWithFieldFocus = () => {
+    if (activeFieldOrigin()) setFieldInspectorScope({ kind: "origin" });
+    actions.clearSelection();
   };
   const copyLayoutDebugState = async () => {
     const current = displayLayout();
@@ -381,7 +411,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
       hiddenUiNodeCount={layout().uiProjection.hiddenNodeIds.size}
       availableHiddenUiNodeCount={layout().uiProjection.availableHiddenNodeCount}
       onGenericUiMode={props.onGenericUiMode}
-      onClearFieldFocus={() => setActiveFieldOrigin(null)}
+      onClearFieldFocus={clearFieldFocus}
       onZoomOut={() => cameraController.zoomAt(camera().scale / 1.25, undefined, true)}
       onReset={actions.reset}
       onZoomIn={() => cameraController.zoomAt(camera().scale * 1.25, undefined, true)}
@@ -416,6 +446,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         evidenceVisible={evidenceVisible()}
         selection={selection()}
         fieldFocus={fieldFocus()}
+        fieldFrontierLabels={fieldFrontierLabels()}
         emphasis={emphasis()}
         isolated={isolated()}
         forcesVisible={layoutDebug.forcesVisible()}
@@ -440,7 +471,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         emphasisMode={emphasisMode()}
         isolated={isolated()}
         findings={findingSummary()}
-        onClear={actions.clearSelection}
+        onClear={clearSelectionWithFieldFocus}
         onSelect={selectFromInspectorWithFieldFocus}
         onEmphasize={actions.emphasize}
         onClearEmphasis={actions.clearEmphasis}
@@ -458,12 +489,4 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
 
 function round(value: number): number {
   return Math.round(value * 1000) / 1000;
-}
-
-function fieldOriginFocusForSelection(
-  totality: RouteTotality | null,
-  selection: RouteInvestigationSelection,
-): RouteTotalityFieldOriginFocus | null {
-  if (!selection || selection.target !== "node" || selection.kind !== "origin") return null;
-  return fieldOriginFocusForOrigin(totality, selection.recordId, selection.originRole);
 }

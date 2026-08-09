@@ -47,6 +47,7 @@ export type RouteTotalityViewportProps = {
   evidenceVisible: boolean;
   selection: RouteInvestigationSelection;
   fieldFocus: RouteTotalityFieldFocusModel;
+  fieldFrontierLabels: ReadonlyMap<string, string>;
   emphasis: RouteTotalityEmphasis;
   isolated: boolean;
   forcesVisible: boolean;
@@ -113,7 +114,7 @@ export function RouteTotalityViewport(props: RouteTotalityViewportProps) {
           const edge = displayEdge.edge;
           const target = routeInvestigationSelectionForEdge(edge);
           const withinFocus = props.emphasis.focusNodeIds.has(edge.from) && props.emphasis.focusNodeIds.has(edge.to);
-          return <DisplayTotalityEdge edge={displayEdge} selection={target} selected={sameRouteInvestigationSelection(props.selection, target)} emphasisActive={props.emphasis.active} active={props.emphasis.activeLayoutEdgeIds.has(edge.id)} secondary={props.emphasis.secondaryLayoutEdgeIds.has(edge.id)} frontier={props.emphasis.frontierLayoutEdgeIds.has(edge.id)} fieldFocused={Boolean(props.fieldFocus.origin)} fieldActive={props.fieldFocus.activeEdgeIds.has(edge.id)} fieldFrontier={props.fieldFocus.frontierEdgeIds.has(edge.id)} hidden={props.isolated && !props.emphasis.focusEdgeIds.has(edge.id) && !withinFocus} onSelect={props.onSelect} onRegister={(element) => props.onRegisterMark(target.graphId, element)} />;
+          return <DisplayTotalityEdge edge={displayEdge} selection={target} selected={sameRouteInvestigationSelection(props.selection, target)} emphasisActive={props.emphasis.active} active={props.emphasis.activeLayoutEdgeIds.has(edge.id)} secondary={props.emphasis.secondaryLayoutEdgeIds.has(edge.id)} frontier={props.emphasis.frontierLayoutEdgeIds.has(edge.id)} fieldFocused={Boolean(props.fieldFocus.origin)} fieldActive={props.fieldFocus.activeEdgeIds.has(edge.id)} fieldFrontier={props.fieldFocus.frontierEdgeIds.has(edge.id)} fieldFrontierLabel={props.fieldFrontierLabels.get(edge.id) ?? null} hidden={props.isolated && !props.emphasis.focusEdgeIds.has(edge.id) && !withinFocus} onSelect={props.onSelect} onRegister={(element) => props.onRegisterMark(target.graphId, element)} />;
         }}</For></g>
         <g class="route-totality-bridge-edges" aria-label="Cross-layer handoffs"><For each={props.displayLayout.bridges}>{(bridge) => <DisplayTotalityBridgeEdge bridge={bridge} visible={Boolean(bridge.fromNode && bridge.toNode) && (props.evidenceVisible || props.emphasis.active || (props.fieldFocus.origin !== null && (props.fieldFocus.activeBridgeIds.has(bridge.bridge.bridge.id) || props.fieldFocus.frontierBridgeIds.has(bridge.bridge.bridge.id))))} active={props.emphasis.activeBridgeIds.has(bridge.bridge.bridge.id)} frontier={props.emphasis.frontierBridgeIds.has(bridge.bridge.bridge.id)} fieldFocused={Boolean(props.fieldFocus.origin)} fieldActive={props.fieldFocus.activeBridgeIds.has(bridge.bridge.bridge.id)} fieldFrontier={props.fieldFocus.frontierBridgeIds.has(bridge.bridge.bridge.id)} hidden={props.isolated && (!bridge.fromNode || !bridge.toNode || !props.emphasis.focusNodeIds.has(bridge.fromNode.id) || !props.emphasis.focusNodeIds.has(bridge.toNode.id))} />}</For></g>
         <RouteContextContinuityOverlay
