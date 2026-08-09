@@ -75,7 +75,10 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   let previousIdentity = "";
   let previousPayloadIdentity = "";
   let previousGenericUiMode: GenericUiMode | undefined;
+  let previousHiddenComponentPolicyFingerprint = "";
   let previousScopeKey: string | null | undefined;
+  let previousControlledSelectionIdentity: string | null = null;
+  let hasPreviousControlledSelectionIdentity = false;
   let skipControlledSync = false;
   let skipControlledCameraSync = false;
 
@@ -93,7 +96,11 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     props.onInvestigationStateChange(change);
   };
   const setFieldInspectorScopeForSelection = (next: Exclude<RouteInvestigationSelection, null>) => {
-    const nextFieldScope = routeTotalityFieldInspectorScopeForSelection(props.totality, next, activeFieldOrigin());
+    const nextFieldScope = routeTotalityFieldInspectorScopeForSelection(
+      props.totality,
+      next,
+      untrack(() => activeFieldOrigin()),
+    );
     setActiveFieldOrigin(nextFieldScope.origin);
     setFieldInspectorScope(nextFieldScope.scope);
   };
@@ -111,19 +118,23 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
 
   createEffect(() => {
     const payloadIdentity = routeTotalityPayloadIdentity(props.totality, props.generation);
+    const hiddenPolicyFingerprint = hiddenComponentPolicyFingerprint(props.hiddenComponentPolicy);
     const identity = JSON.stringify([
       payloadIdentity,
       effectiveGenericUiMode(),
+      hiddenPolicyFingerprint,
     ]);
     const initialPayload = previousIdentity === "";
     const scopeKey = props.scopeKey ?? props.totality?.route.key ?? null;
     const scopeChanged = !initialPayload && scopeKey !== previousScopeKey;
     const payloadChanged = !initialPayload && payloadIdentity !== previousPayloadIdentity;
     const rendererChanged = !initialPayload && effectiveGenericUiMode() !== previousGenericUiMode;
+    const policyChanged = !initialPayload && hiddenPolicyFingerprint !== previousHiddenComponentPolicyFingerprint;
     if (identity === previousIdentity && scopeKey === previousScopeKey) return;
     previousIdentity = identity;
     previousPayloadIdentity = payloadIdentity;
     previousGenericUiMode = effectiveGenericUiMode();
+    previousHiddenComponentPolicyFingerprint = hiddenPolicyFingerprint;
     previousScopeKey = scopeKey;
     skipControlledSync = false;
     skipControlledCameraSync = false;
@@ -147,7 +158,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     applyLocalInvestigationState(reconciliation.selection, reconciliation.isolated);
     const nextFieldOrigin = initialPayload
       ? null
-      : scopeChanged || payloadChanged || rendererChanged
+      : scopeChanged || payloadChanged || rendererChanged || policyChanged
         ? null
         : untrack(() => activeFieldOrigin());
     const validFieldOrigin = nextFieldOrigin && hasRouteTotalityFieldOrigin(props.totality, nextFieldOrigin)
@@ -155,8 +166,8 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
       : null;
     setActiveFieldOrigin(validFieldOrigin);
     if (!validFieldOrigin) setFieldInspectorScope(null);
-    else if (initialPayload || scopeChanged || payloadChanged || rendererChanged) setFieldInspectorScope({ kind: "origin" });
-    if (scopeChanged || payloadChanged || rendererChanged) {
+    else if (initialPayload || scopeChanged || payloadChanged || rendererChanged || policyChanged) setFieldInspectorScope({ kind: "origin" });
+    if (scopeChanged || payloadChanged || rendererChanged || policyChanged) {
       skipControlledSync = props.selection !== undefined || props.isolated !== undefined;
     }
 
@@ -176,6 +187,15 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   createEffect(() => {
     const controlledSelection = props.selection;
     const controlledIsolation = props.isolated;
+    const controlledSelectionIdentity = controlledSelection?.graphId ?? null;
+    const controlledSelectionChanged = controlledSelection !== undefined
+      && (!hasPreviousControlledSelectionIdentity || controlledSelectionIdentity !== previousControlledSelectionIdentity);
+    if (controlledSelection === undefined) {
+      hasPreviousControlledSelectionIdentity = false;
+    } else {
+      hasPreviousControlledSelectionIdentity = true;
+      previousControlledSelectionIdentity = controlledSelectionIdentity;
+    }
     if (skipControlledSync) {
       skipControlledSync = false;
       return;
@@ -197,8 +217,10 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     });
     setEmphasisMode(reconciliation.emphasisMode);
     applyLocalInvestigationState(reconciliation.selection, reconciliation.isolated);
-    if (reconciliation.selection) setFieldInspectorScopeForSelection(reconciliation.selection);
-    else setFieldInspectorScope(untrack(() => activeFieldOrigin()) ? { kind: "origin" } : null);
+    if (controlledSelectionChanged) {
+      if (reconciliation.selection) setFieldInspectorScopeForSelection(reconciliation.selection);
+      else setFieldInspectorScope(untrack(() => activeFieldOrigin()) ? { kind: "origin" } : null);
+    }
     if (reconciliation.needsCorrection) {
       skipControlledSync = props.selection !== undefined || props.isolated !== undefined;
       emitInvestigationState(reconciliation.selection, reconciliation.isolated);
@@ -324,9 +346,9 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   const displayAnnotations = createMemo(() => renderableRouteTotalityAnnotations(displayLayout(), evidenceVisible()));
   const selectedRecord = createMemo(() => buildRouteTotalityInspectorRecord(props.totality, layout(), selection()));
   const selectedFieldResult = createMemo(() => {
-    const record = selectedRecord();
-    return record
-      ? selectRouteTotalityFieldInspectorResult(props.totality, layout(), activeFieldOrigin(), fieldInspectorScope() ?? { kind: "origin" })
+    const scope = fieldInspectorScope();
+    return scope
+      ? selectRouteTotalityFieldInspectorResult(props.totality, layout(), activeFieldOrigin(), scope)
       : null;
   });
   const ledgerItems = createMemo(() => buildRouteTotalityLedger(props.totality, layout()));
@@ -489,4 +511,13 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
 
 function round(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function hiddenComponentPolicyFingerprint(policy: HiddenComponentPolicy): string {
+  return JSON.stringify({
+    enabledByDefault: policy.enabledByDefault,
+    include: policy.include,
+    exclude: policy.exclude,
+    configPath: policy.configPath,
+  });
 }

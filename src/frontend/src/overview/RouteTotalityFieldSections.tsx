@@ -12,7 +12,7 @@ export function RouteTotalityFieldSections(props: {
   return <Show when={props.result}>
     {(result) => <>
       <section class="route-totality-inspector-section route-totality-field-section">
-        <h3>Source fields through this occurrence <span>{result().attachments.length}</span></h3>
+        <h3>{fieldSectionHeading(result().scope)} <span>{result().attachments.length}</span></h3>
         <Show when={result().status === "no-origin"}>
           <p>Select an origin to show proven fields.</p>
         </Show>
@@ -20,10 +20,10 @@ export function RouteTotalityFieldSections(props: {
           <p>{result().unavailableReason ?? "Field lineage is unavailable for this route."}</p>
         </Show>
         <Show when={result().status === "no-fields"}>
-          <p>No proven fields reach this occurrence.</p>
+          <p>{noProvenFieldsMessage(result())}</p>
         </Show>
         <Show when={result().status === "proven" || result().status === "partial"}>
-          <Show when={result().attachments.length > 0} fallback={<p>No proven fields reach this occurrence.</p>}>
+          <Show when={result().attachments.length > 0} fallback={<p>{noProvenFieldsMessage(result())}</p>}>
             <For each={result().groups.filter((group) => group.attachments.length > 0)}>{(group) => <FieldGroup group={group} onOpenSource={props.onOpenSource} />}</For>
           </Show>
         </Show>
@@ -98,4 +98,16 @@ function FieldGroupHeading(props: { group: RouteTotalityFieldInspectorGroup }) {
 function formatLocation(location: RouteTotalityLocation) {
   const span = `${location.span.startLine}:${location.span.startColumn}–${location.span.endLine}:${location.span.endColumn}`;
   return `${location.file}:${location.line}:${location.column} · ${span}`;
+}
+
+function fieldSectionHeading(scope: RouteTotalityFieldInspectorResult["scope"]): string {
+  return scope.kind === "origin"
+    ? "Source fields from this origin"
+    : "Source fields through this occurrence";
+}
+
+function noProvenFieldsMessage(result: RouteTotalityFieldInspectorResult): string {
+  return result.scope.kind === "origin"
+    ? "No proven fields continue from this origin."
+    : "No proven fields reach this occurrence.";
 }

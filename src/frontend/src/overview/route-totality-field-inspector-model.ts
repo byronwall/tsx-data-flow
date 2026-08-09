@@ -30,6 +30,8 @@ export type RouteTotalityFieldInspectorGroup = {
 export type RouteTotalityFieldInspectorResult = {
   status: "no-origin" | "unavailable" | "no-fields" | "proven" | "partial";
   unavailableReason: string | null;
+  scope: RouteTotalityFieldInspectorScope;
+  targetOccurrenceId: string | null;
   groups: RouteTotalityFieldInspectorGroup[];
   attachments: RouteTotalityFieldInspectorAttachment[];
   frontiers: RouteTotalityFieldInspectorFrontier[];
@@ -58,11 +60,11 @@ export function selectRouteTotalityFieldInspectorResult(
   if (!totality) return null;
   if (totality.fieldLineage.status === "unavailable") {
     return {
-      ...emptyResult("unavailable"),
+      ...emptyResult("unavailable", scope),
       unavailableReason: totality.fieldLineage.unavailableReason,
     };
   }
-  if (!origin) return emptyResult("no-origin");
+  if (!origin) return emptyResult("no-origin", scope);
 
   const surfaceOccurrences = "occurrences" in totality.occurrenceSurface
     ? totality.occurrenceSurface.occurrences
@@ -86,7 +88,7 @@ export function selectRouteTotalityFieldInspectorResult(
     .filter((occurrence) => scope.kind === "occurrence"
       ? visibleNodeId(layout, `occurrence:${occurrence.id}`) === targetNodeId
       : recordOccurrenceIds.has(occurrence.id))
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .sort((left, right) => compareCodePoint(left.id, right.id));
   const occurrenceIds = new Set<string | null>(matchingOccurrences.map((occurrence) => occurrence.id));
   for (const occurrenceId of recordOccurrenceIds) occurrenceIds.add(occurrenceId);
   if (scope.kind === "occurrence" && occurrenceIds.size === 0) occurrenceIds.add(scope.occurrenceId);
@@ -117,7 +119,15 @@ export function selectRouteTotalityFieldInspectorResult(
     : attachments.length > 0
       ? "proven"
       : "no-fields";
-  return { status, unavailableReason: null, groups, attachments, frontiers };
+  return {
+    status,
+    unavailableReason: null,
+    scope,
+    targetOccurrenceId: scope.kind === "occurrence" ? scope.occurrenceId : null,
+    groups,
+    attachments,
+    frontiers,
+  };
 }
 
 export function selectRouteTotalityFieldFrontierLabels(
@@ -130,7 +140,7 @@ export function selectRouteTotalityFieldFrontierLabels(
     .filter((frontier) => sameOrigin(frontier.origin, origin));
   const labelsByEdgeId = new Map<string, Set<string>>();
   for (const edge of edges) {
-    const relationLabel = edge.edge.label.trim() || "Evidence path";
+    const relationLabel = edge.edge.label.trim() || edge.edge.kind.trim() || "Evidence path";
     for (const frontier of frontiers) {
       if (!frontier.evidencePathRelationIds.includes(edge.id)) continue;
       const location = frontier.location ?? frontier.proof[0]?.locations[0] ?? edge.edge.locations[0] ?? null;
@@ -141,16 +151,27 @@ export function selectRouteTotalityFieldFrontierLabels(
     }
   }
   return new Map([...labelsByEdgeId.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([edgeId, labels]) => [edgeId, [...labels].sort((left, right) => left.localeCompare(right)).join(" · ")]));
+    .sort(([left], [right]) => compareCodePoint(left, right))
+    .map(([edgeId, labels]) => [edgeId, [...labels].sort(compareCodePoint).join(" · ")]));
 }
 
 export function routeTotalityFieldFrontierReason(reason: RouteTotalityFieldFrontier["reason"]): string {
   return FRONTIER_REASON_LABELS[reason];
 }
 
-function emptyResult(status: RouteTotalityFieldInspectorResult["status"]): RouteTotalityFieldInspectorResult {
-  return { status, unavailableReason: null, groups: [], attachments: [], frontiers: [] };
+function emptyResult(
+  status: RouteTotalityFieldInspectorResult["status"],
+  scope: RouteTotalityFieldInspectorScope,
+): RouteTotalityFieldInspectorResult {
+  return {
+    status,
+    unavailableReason: null,
+    scope,
+    targetOccurrenceId: scope.kind === "occurrence" ? scope.occurrenceId : null,
+    groups: [],
+    attachments: [],
+    frontiers: [],
+  };
 }
 
 function uniqueById<T extends { id: string }>(records: readonly T[]): T[] {
@@ -158,13 +179,18 @@ function uniqueById<T extends { id: string }>(records: readonly T[]): T[] {
   for (const record of records) {
     if (!byId.has(record.id)) byId.set(record.id, record);
   }
-  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
+  return [...byId.values()].sort((left, right) => compareCodePoint(left.id, right.id));
 }
 
 function compareOccurrenceIds(left: string | null, right: string | null): number {
   if (left === null) return right === null ? 0 : -1;
   if (right === null) return 1;
-  return left.localeCompare(right);
+  return compareCodePoint(left, right);
+}
+
+function compareCodePoint(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
 }
 
 function sameOrigin(
