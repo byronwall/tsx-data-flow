@@ -18,6 +18,16 @@ export type ComponentPropBindingContext = {
   boundary: RouteTotalityAnchorIndex["occurrenceAnchors"][number] | null;
 };
 
+export function componentBoundaryFrontierOccurrenceId(currentOccurrenceId: string | null): string | null {
+  return currentOccurrenceId;
+}
+
+export function componentPropBoundarySemanticKey(
+  relation: Pick<EvidenceSlice["relations"][number], "id" | "kind" | "from" | "to" | "status" | "proof">,
+): string {
+  return relation.id;
+}
+
 export function componentPropBindingContext(
   sourceElementId: string,
   target: EvidenceSlice["elements"][number] | undefined,
@@ -32,11 +42,15 @@ export function componentPropBindingContext(
   cancellation.throwIfCancelled();
   if (!target) return null;
   const boundaryGroups = componentPropBoundaryGroups(sourceElementId, outgoing, elementsById, cancellation);
-  const provenBoundaryGroups = boundaryGroups.filter((group) => group.relations.every((candidate) => isFullyProvenRelation(candidate, cancellation)));
-  const boundaryAnchors = boundaryGroups.length === 1 && provenBoundaryGroups.length === 1
+  const provenBoundaryCounts = boundaryGroups.map((group) => distinctProvenBoundaryRelations(group.relations, cancellation).length);
+  const boundaryCount = boundaryGroups.length > 1
+    ? boundaryGroups.length
+    : provenBoundaryCounts[0] ?? 0;
+  const completeBoundaryGroups = boundaryGroups.filter((group) => group.relations.every((candidate) => isFullyProvenRelation(candidate, cancellation)));
+  const boundaryAnchors = boundaryGroups.length === 1 && completeBoundaryGroups.length === 1 && boundaryCount === 1
     ? anchors.occurrenceAnchorsByEvidenceElementId.get(boundaryGroups[0].targetId) ?? []
     : [];
-  const boundary = boundaryGroups.length === 1 && provenBoundaryGroups.length === 1 && boundaryAnchors.length === 1
+  const boundary = boundaryGroups.length === 1 && completeBoundaryGroups.length === 1 && boundaryCount === 1 && boundaryAnchors.length === 1
     ? boundaryAnchors[0]
     : null;
   const sourceKind = elementsById.get(sourceElementId)?.kind;
@@ -59,14 +73,14 @@ export function componentPropBindingContext(
     : sourceKind === "component-prop-binding" ? sourceElementId : null;
   cancellation.throwIfCancelled();
   return {
-    boundaryCount: boundaryGroups.length,
-    occurrenceAnchorCount: boundaryGroups.length === 1 && provenBoundaryGroups.length === 1
+    boundaryCount,
+    occurrenceAnchorCount: boundaryGroups.length === 1 && completeBoundaryGroups.length === 1 && boundaryCount === 1
       ? boundaryAnchors.length
-      : boundaryGroups.length,
+      : boundaryCount,
     receiverCount: receiverCandidates.length,
     receiverRootProven,
     bindingIncomplete: bindingElementId === null
-      ? provenBoundaryGroups.length !== boundaryGroups.length || receiverRelations.length !== receiverCandidates.length
+      ? completeBoundaryGroups.length !== boundaryGroups.length || receiverRelations.length !== receiverCandidates.length
       : componentPropBindingEvidenceIncomplete(
         bindingElementId,
         relationsByFrom,
@@ -74,7 +88,7 @@ export function componentPropBindingContext(
         elementsById,
         gapsByFrom,
         cancellation,
-      ) || provenBoundaryGroups.length !== boundaryGroups.length || receiverRelations.length !== receiverCandidates.length,
+      ) || completeBoundaryGroups.length !== boundaryGroups.length || receiverRelations.length !== receiverCandidates.length,
     boundary,
   };
 }
@@ -95,6 +109,9 @@ export function componentPropBindingReadiness(
   if (boundaryGroups.length !== 1) return boundaryGroups.length > 1 ? "ambiguous" : "partial";
   const boundaryGroup = boundaryGroups[0];
   if (boundaryGroup.targetId !== boundaryRelation.to) return "partial";
+  const provenBoundaryRelations = distinctProvenBoundaryRelations(boundaryGroup.relations, cancellation);
+  if (provenBoundaryRelations.length > 1) return "ambiguous";
+  if (provenBoundaryRelations.length === 0) return "partial";
   if (!boundaryGroup.relations.every((candidate) => isFullyProvenRelation(candidate, cancellation))) return "partial";
   const boundaryAnchors = anchors.occurrenceAnchorsByEvidenceElementId.get(boundaryRelation.to) ?? [];
   if (boundaryAnchors.length === 0) return "missing";
@@ -189,12 +206,28 @@ export function provenComponentPropBoundaries(
   const values: EvidenceSlice["relations"][number][] = [];
   for (const group of componentPropBoundaryGroups(sourceElementId, outgoing, elementsById, cancellation)) {
     cancellation.throwIfCancelled();
-    const proven = group.relations.filter((candidate) => isFullyProvenRelation(candidate, cancellation));
-    if (proven.length === 0) continue;
-    values.push(proven.slice().sort((left, right) => left.id.localeCompare(right.id))[0]);
+    if (!group.relations.every((candidate) => isFullyProvenRelation(candidate, cancellation))) continue;
+    const proven = distinctProvenBoundaryRelations(group.relations, cancellation);
+    if (proven.length === 1) values.push(proven[0]);
   }
   cancellation.throwIfCancelled();
   return values;
+}
+
+function distinctProvenBoundaryRelations(
+  relations: readonly EvidenceSlice["relations"][number][],
+  cancellation: AnalysisCancellationToken,
+): EvidenceSlice["relations"][number][] {
+  cancellation.throwIfCancelled();
+  const unique = new Map<string, EvidenceSlice["relations"][number]>();
+  for (const relation of relations) {
+    cancellation.throwIfCancelled();
+    if (!isFullyProvenRelation(relation, cancellation)) continue;
+    const key = componentPropBoundarySemanticKey(relation);
+    if (!unique.has(key)) unique.set(key, relation);
+  }
+  cancellation.throwIfCancelled();
+  return [...unique.values()];
 }
 
 type ComponentPropBoundaryGroup = {

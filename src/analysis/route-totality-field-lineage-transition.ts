@@ -165,26 +165,7 @@ export function classifyRouteTotalityFieldTransition(
       return { kind: "preserve" };
     }
     case "field-input": {
-      const fieldInputs = provenRelationsOfKind(context.outgoingRelations, "field-input", context.cancellation);
-      if (fieldInputs.length !== 1) return { kind: "stop", reason: "ambiguous-target" };
-      if (context.hasField
-        && context.currentFieldElementId !== relation.from
-        && context.componentPropReceiverElementId !== relation.from) {
-        return { kind: "stop", reason: "identity-lost" };
-      }
-      if (target.kind === "index-read") {
-        if (target.operationKind !== "index-read") return { kind: "stop", reason: "unsupported-relation" };
-        const index = classifyIndexReadMetadata(context.indexMetadata);
-        if (index.kind === "accepted") return { kind: "field-input" };
-        if (index.kind === "dynamic") return { kind: "stop", reason: "dynamic-index" };
-        return { kind: "stop", reason: "partial-proof" };
-      }
-      if (target.kind !== "field-read" || target.operationKind !== "field-read") {
-        return { kind: "stop", reason: "unsupported-relation" };
-      }
-      if (context.staticNamedField === null) return { kind: "stop", reason: "partial-proof" };
-      if (!context.staticNamedField) return { kind: "stop", reason: "unsupported-relation" };
-      return { kind: "field-input" };
+      return classifyFieldInputTransition(context);
     }
     case "pack-field": {
       if (target.kind !== "object-pack" || target.operationKind !== "object-pack") {
@@ -251,6 +232,38 @@ export function classifyRouteTotalityFieldTransition(
     default:
       return { kind: "stop", reason: "unsupported-relation" };
   }
+}
+
+function classifyFieldInputTransition(
+  context: FieldLineageTransitionContext,
+): FieldLineageTransition {
+  const { relation, source, target } = context;
+  if (!source || !target) return { kind: "stop", reason: "partial-proof" };
+  const fieldInputs = provenRelationsOfKind(context.outgoingRelations, "field-input", context.cancellation);
+  if (fieldInputs.length !== 1) return { kind: "stop", reason: "ambiguous-target" };
+  const scalarCarrier = SCALAR_CARRIERS.has(source.kind);
+  const exactComponentReceiver = context.componentPropReceiverElementId === relation.from;
+  if (!scalarCarrier && !exactComponentReceiver) {
+    return { kind: "stop", reason: context.hasField ? "unsupported-transform" : "unsupported-relation" };
+  }
+  if (context.hasField
+    && context.currentFieldElementId !== relation.from
+    && context.componentPropReceiverElementId !== relation.from) {
+    return { kind: "stop", reason: "identity-lost" };
+  }
+  if (target.kind === "index-read") {
+    if (target.operationKind !== "index-read") return { kind: "stop", reason: "unsupported-relation" };
+    const index = classifyIndexReadMetadata(context.indexMetadata);
+    if (index.kind === "accepted") return { kind: "field-input" };
+    if (index.kind === "dynamic") return { kind: "stop", reason: "dynamic-index" };
+    return { kind: "stop", reason: "partial-proof" };
+  }
+  if (target.kind !== "field-read" || target.operationKind !== "field-read") {
+    return { kind: "stop", reason: "unsupported-relation" };
+  }
+  if (context.staticNamedField === null) return { kind: "stop", reason: "partial-proof" };
+  if (!context.staticNamedField) return { kind: "stop", reason: "unsupported-relation" };
+  return { kind: "field-input" };
 }
 
 export function isFullyProvenElement(

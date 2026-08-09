@@ -163,6 +163,7 @@ export class ProgramEvidenceCollectorJsxSupport extends ProgramEvidenceCollector
     ownerId: string | null,
   ): void {
     if (!node.expression) return;
+    if (this.ts.isJsxAttribute(node.parent)) return;
     const valueId = this.expression(node.expression, ownerId);
     const opening = jsxOpeningAncestor(this.ts, node);
     if (!opening) return;

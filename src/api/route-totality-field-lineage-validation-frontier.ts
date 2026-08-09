@@ -1,6 +1,9 @@
 import type { AnalysisCancellationToken } from "../analysis/cancellation";
 import { cancellableStableSort } from "../analysis/cancellable-stable-sort";
-import { hasRouteTotalityFieldGap } from "../analysis/route-totality-field-lineage-truncation";
+import {
+  canonicalRouteTotalityFieldGap,
+  hasRouteTotalityFieldGap,
+} from "../analysis/route-totality-field-lineage-truncation";
 import {
   classifyRouteTotalityFieldTransition,
   isFullyProvenElement,
@@ -79,6 +82,12 @@ function validateEvidenceTruncatedFrontier(
   if (!gap) {
     addIssue(issues, [...path, "gapId"], "evidence-truncated frontier gap must exist exactly once");
     return;
+  }
+  const canonicalGap = gap.from
+    ? canonicalRouteTotalityFieldGap(gap.from, evidence.gapsByFrom, cancellation)
+    : null;
+  if (!canonicalGap || canonicalGap.id !== gap.id) {
+    addIssue(issues, [...path, "gapId"], "evidence-truncated frontier must use the lexicographically canonical gap id");
   }
   if (!frontier.stoppedAtElementId || gap.from !== frontier.stoppedAtElementId) {
     addIssue(issues, [...path, "stoppedAtElementId"], "truncation frontier stopped element must equal its exact gap source");

@@ -36,6 +36,18 @@ export function hasRouteTotalityFieldGap<T extends { from: string | null }>(
   return false;
 }
 
+export function canonicalRouteTotalityFieldGap<T extends { from: string | null; id: string }>(
+  elementId: string,
+  gapsByFrom: ReadonlyMap<string, readonly T[]>,
+  cancellation: AnalysisCancellationToken,
+): T | null {
+  cancellation.throwIfCancelled();
+  const matches = (gapsByFrom.get(elementId) ?? []).filter((gap) => gap.from === elementId);
+  const sorted = cancellableStableSort(matches, (left, right) => left.id.localeCompare(right.id), cancellation);
+  cancellation.throwIfCancelled();
+  return sorted[0] ?? null;
+}
+
 export function recordRouteTotalityFieldTruncations(
   state: TraversalState,
   gapsByFrom: ReadonlyMap<string, readonly EvidenceSlice["gaps"][number][]>,

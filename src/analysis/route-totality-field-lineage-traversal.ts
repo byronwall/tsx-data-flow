@@ -9,6 +9,7 @@ import { addAttachment, type AttachmentAccumulator } from "./route-totality-fiel
 import {
   componentPropBindingContext,
   componentPropBindingReadiness,
+  componentBoundaryFrontierOccurrenceId,
   lastFieldSegment,
   provenComponentPropBoundaries,
 } from "./route-totality-field-lineage-component-binding";
@@ -110,24 +111,6 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
           cancellation,
         ).find((candidate) => candidate.to === relation.to);
         if (canonicalBoundary && canonicalBoundary.id !== relation.id) continue;
-      }
-      if (relation.kind === "component-prop-binding" && source?.kind !== "component-prop-binding") {
-        const boundary = outgoing.find((candidate) =>
-          candidate.kind === "component-prop"
-            && candidate.from === state.currentElementId
-            && elementsById.get(candidate.to)?.kind === "component-occurrence",
-        );
-        if (!boundary || componentPropBindingReadiness(
-          state.currentElementId,
-          boundary,
-          outgoing,
-          relationsByFrom,
-          relationsByTo,
-          elementsById,
-          gapsByFrom,
-          anchors,
-          cancellation,
-        ) !== "ready") continue;
       }
       const rawTarget = target ? provider.facts.getElement(target.id) : undefined;
       const targetField = target ? fieldForTarget(rawTarget, target, cancellation) : null;
@@ -260,11 +243,10 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
             cancellation,
           );
           if (readiness !== "ready") {
-            const boundaryAnchors = anchors.occurrenceAnchorsByEvidenceElementId.get(target?.id ?? "") ?? [];
-            const boundaryAnchor = boundaryAnchors.length === 1 ? boundaryAnchors[0] : undefined;
-            const frontierState = boundaryAnchor
-              ? { ...state, currentOccurrenceId: boundaryAnchor.endpoint.id }
-              : state;
+            const frontierState = {
+              ...state,
+              currentOccurrenceId: componentBoundaryFrontierOccurrenceId(state.currentOccurrenceId),
+            };
             addStopFrontier(
               frontierState,
               relation,

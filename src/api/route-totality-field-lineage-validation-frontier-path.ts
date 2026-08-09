@@ -1,5 +1,6 @@
 import type { AnalysisCancellationToken } from "../analysis/cancellation";
 import { hasRouteTotalityFieldGap } from "../analysis/route-totality-field-lineage-truncation";
+import { componentBoundaryFrontierOccurrenceId } from "../analysis/route-totality-field-lineage-component-binding";
 import {
   classifyRouteTotalityFieldTransition,
   isFullyProvenElement,
@@ -129,8 +130,13 @@ export function validateFieldLineageFrontierPath(
   if (!frontier.field || fieldIndex !== frontier.field.elementIds.length || fieldIndex === 0) {
     addIssue(issues, [...path, "field"], "field frontier path must carry every exact field element");
   }
-  if (frontier.occurrenceId !== currentOccurrenceId) {
+  const expectedFrontierOccurrenceId = componentBoundaryFrontierOccurrenceId(currentOccurrenceId);
+  if (frontier.occurrenceId !== expectedFrontierOccurrenceId) {
     addIssue(issues, [...path, "occurrenceId"], "field frontier must retain its exact current occurrence");
+  }
+  const finalElementId = elementIds.at(-1);
+  if (finalElementId && hasRouteTotalityFieldGap(finalElementId, evidence.gapsByFrom, cancellation)) {
+    addIssue(issues, [...path, "evidencePathElementIds", elementIds.length - 1], "ordinary field frontier cannot end at an evidence gap");
   }
   validateFrontierStop(
     frontier,
