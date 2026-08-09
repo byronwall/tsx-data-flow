@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
   NO_ANALYSIS_CANCELLATION,
   type AnalysisCancellationToken,
@@ -10,7 +9,7 @@ import type {
   RouteRenderOccurrence,
   RouteTerminalOccurrence,
 } from "./route-occurrence-surface";
-import type { SourceLocation } from "./scope-seam";
+import { normalizeFile, type SourceLocation } from "./scope-seam";
 
 export type RouteTotalityOccurrenceAnchor = {
   endpoint: RouteRenderOccurrence;
@@ -309,7 +308,7 @@ function terminalEvidenceCandidates(
 }
 
 function sameLocation(left: SourceLocation, right: SourceLocation): boolean {
-  return path.normalize(left.file) === path.normalize(right.file)
+  return normalizeFile(left.file) === normalizeFile(right.file)
     && left.line === right.line
     && left.column === right.column
     && left.span.startLine === right.span.startLine
