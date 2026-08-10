@@ -28,6 +28,10 @@ export type ProgramProofKind =
   | "host-api"
   | "resource-boundary"
   | "carrier-boundary"
+  | "awaited-call-alias"
+  | "direct-snapshot-member"
+  | "expression-body-return"
+  | "solid-show-render-prop"
   | "context-continuity"
   | "partial-classification"
   | "http-bridge";

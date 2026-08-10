@@ -170,6 +170,7 @@ class OccurrenceScanner {
 
   private scanFramework(node: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement, opening: TypeScript.JsxOpeningLikeElement, name: string, context: RouteScanContext, depth: number) {
     const kind = frameworkKind(name);
+    const showRenderProp = exactSolidShowRenderProp(this.builder.ts, this.builder.checker, opening);
     const marker = kind === "collection" ? "collection" : kind === "portal" ? "single" : kind === "unsupported-ownership" ? "unknown" : "conditional";
     const sourceName = name === "For" ? "each" : "when";
     const sourceAttribute = opening.attributes.properties.find((property) => this.builder.ts.isJsxAttribute(property) && property.name.getText() === sourceName);
@@ -184,7 +185,13 @@ class OccurrenceScanner {
     if (kind === "collection" && !sourceBacked) this.builder.omit("unsupported-syntax", `<${name}> has no source-backed collection expression.`, sourceExpression ?? opening);
     if (condition?.outcome !== "falsey" && this.builder.ts.isJsxElement(node)) for (const child of node.children) {
       const childContext = withBoundary(context, boundary.id, condition?.outcome === "unknown" ? marker : "single");
-      if (this.builder.ts.isJsxExpression(child) && child.expression && (this.builder.ts.isArrowFunction(child.expression) || this.builder.ts.isFunctionExpression(child.expression))) this.scanFunction(child.expression, childContext, depth);
+      if (this.builder.ts.isJsxExpression(child) && child.expression && (this.builder.ts.isArrowFunction(child.expression) || this.builder.ts.isFunctionExpression(child.expression))) {
+        if (showRenderProp === child.expression) {
+          const text = child.expression.getText(child.expression.getSourceFile());
+          this.builder.addTerminal("render-expression", childContext, child.expression, text, text);
+        }
+        this.scanFunction(child.expression, childContext, depth);
+      }
       else this.scanJsxChild(child, childContext, depth);
     }
     const fallback = opening.attributes.properties.find((property) => this.builder.ts.isJsxAttribute(property) && property.name.getText() === "fallback");
@@ -289,6 +296,33 @@ function markersFor(current: Array<"conditional" | "collection">, marker: RouteO
 function isUnknownType(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
   const text = safeTypeText(checker, node);
   return text === "any" || text === "unknown";
+}
+
+/** Return one direct render function for one compiler-resolved Solid Show. */
+function exactSolidShowRenderProp(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  opening: TypeScript.JsxOpeningLikeElement,
+): TypeScript.ArrowFunction | null {
+  if (!ts.isJsxOpeningElement(opening) || !ts.isJsxElement(opening.parent)) return null;
+  if (importModuleFor(ts, checker, opening.tagName) !== "solid-js" || hasSpreadAttribute(ts, opening)) return null;
+  const resolved = resolvedSymbol(ts, checker, opening.tagName);
+  if (!resolved || resolved.symbol.getName() !== "Show") return null;
+  const when = opening.attributes.properties.filter((property): property is TypeScript.JsxAttribute =>
+    ts.isJsxAttribute(property) && ts.isIdentifier(property.name) && property.name.text === "when",
+  );
+  if (when.length !== 1 || !when[0].initializer || !ts.isJsxExpression(when[0].initializer)
+    || !when[0].initializer.expression || !ts.isCallExpression(when[0].initializer.expression)) {
+    return null;
+  }
+  const children = opening.parent.children.filter((child) =>
+    !ts.isJsxText(child) || child.getText(child.getSourceFile()).trim().length > 0,
+  );
+  if (children.length !== 1 || !ts.isJsxExpression(children[0])) return null;
+  const renderProp = children[0].expression;
+  if (!renderProp || !ts.isArrowFunction(renderProp) || renderProp.parameters.length !== 1) return null;
+  const parameter = renderProp.parameters[0];
+  return parameter.dotDotDotToken || parameter.questionToken || parameter.initializer ? null : renderProp;
 }
 
 function containsJsx(ts: typeof TypeScript, node: TypeScript.Node) {

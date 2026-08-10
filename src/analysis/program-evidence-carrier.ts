@@ -62,6 +62,12 @@ type ContextRead = {
   function: FunctionInfo;
 };
 
+type ShowRenderProp = {
+  show: TypeScript.JsxOpeningLikeElement;
+  when: TypeScript.JsxAttribute;
+  renderProp: TypeScript.ArrowFunction;
+};
+
 const CARRIER: ProgramRelationKind = "carrier";
 
 /**
@@ -220,12 +226,14 @@ function collectSnapshotReturnCarriers(
     const declaration = snapshotCall.target?.declaration;
     if (!declaration?.body) continue;
     const storeVariables = variables.filter((variable) => {
-      const initializer = initializerExpression(context.ts, variable);
+      const initializer = directAwaitedCall(context.ts, variable);
       return nearestFunctionNode(context.ts, variable) === declaration
         && Boolean(firstIdentifier(context.ts, variable.name))
-        && Boolean(initializer && context.ts.isCallExpression(initializer) && isNamedTarget(context, initializer, "readStore"));
+        && Boolean(initializer && isExactReadStoreCall(context, initializer));
     });
     for (const variable of storeVariables) {
+      const readStoreCall = directAwaitedCall(context.ts, variable);
+      const readStore = readStoreCall ? calls.find((call) => call.node === readStoreCall) : null;
       const storeSymbolId = context.symbolId(firstIdentifier(context.ts, variable.name)!);
       if (!storeSymbolId) continue;
       const directSpreadReturn = returns.find((statement) => {
@@ -240,7 +248,15 @@ function collectSnapshotReturnCarriers(
       });
       const storeId = context.elementFor(variable, "alias");
       const returnId = directSpreadReturn ? context.elementFor(directSpreadReturn, "return") : null;
-      if (!storeId || !returnId || !directSpreadReturn) continue;
+      if (!readStore || !storeId || !returnId || !directSpreadReturn) continue;
+      addCarrier(
+        context,
+        readStore.id,
+        storeId,
+        [readStore.node, variable],
+        "The compiler-resolved direct awaited readStore call initializes this exact store alias.",
+        "awaited-call-alias",
+      );
       addCarrier(
         context,
         storeId,
@@ -373,18 +389,186 @@ function collectContextMemberCarriers(
         "RouteContextContinuity proves one Provider value member, one useContext read, and this exact consumer occurrence.",
         "context-continuity",
       );
+      addDirectSnapshotMemberCarrier(context, consumer.call, calls);
     }
   }
 }
 
-function isNamedTarget(
+/** Connect one direct context snapshot member to its immediate method call. */
+function addDirectSnapshotMemberCarrier(
   context: CarrierContext,
-  expression: TypeScript.Expression,
-  name: string,
+  consumer: CallExpressionInfo,
+  calls: readonly CallExpressionInfo[],
+): void {
+  const member = directPropertyReceiver(context.ts, consumer.node);
+  if (!member || !context.symbolId(member.name)) return;
+  const method = directPropertyReceiver(context.ts, member);
+  if (!method || !context.symbolId(method.name)) return;
+  const invocation = method.parent;
+  if (!context.ts.isCallExpression(invocation) || invocation.expression !== method) return;
+  const memberId = context.elementFor(member, "field-read");
+  const invocationId = context.elementFor(invocation, "call");
+  if (!memberId || !invocationId) return;
+  addCarrier(
+    context,
+    memberId,
+    invocationId,
+    [consumer.node, member, method, invocation],
+    "The exact context snapshot member feeds its immediate compiler-resolved method call without an alias, spread, computed key, or rename.",
+    "direct-snapshot-member",
+  );
+  const owner = nearestFunction(context, invocation);
+  if (!owner || owner.declaration.body !== invocation) return;
+  for (const caller of calls) {
+    if (caller.target?.id !== owner.id) continue;
+    const showRenderProp = exactShowRenderProp(context, caller.node);
+    if (!showRenderProp) continue;
+    addCarrier(
+      context,
+      invocationId,
+      caller.id,
+      [invocation, owner.declaration, caller.node, showRenderProp.show, showRenderProp.when],
+      "The compiler-resolved Show condition receives the exact expression-bodied function result from this direct snapshot member path.",
+      "expression-body-return",
+    );
+    addShowRenderPropCarriers(context, caller, showRenderProp);
+  }
+}
+
+/** Bridge one resolved Solid Show condition to its one direct render function. */
+function addShowRenderPropCarriers(
+  context: CarrierContext,
+  condition: CallExpressionInfo,
+  renderProp: ShowRenderProp,
+): void {
+  const renderPropId = context.elementFor(renderProp.renderProp, "literal");
+  if (!renderPropId) return;
+  addCarrier(
+    context,
+    condition.id,
+    renderPropId,
+    [condition.node, renderProp.show, renderProp.when, renderProp.renderProp],
+    "The compiler-resolved Solid Show condition supplies this exact direct JSX child render function.",
+    "solid-show-render-prop",
+  );
+}
+
+function exactShowRenderProp(
+  context: CarrierContext,
+  condition: TypeScript.CallExpression,
+): ShowRenderProp | null {
+  const when = exactShowWhenAttribute(context, condition);
+  if (!when) return null;
+  const show = openingForAttribute(context.ts, when);
+  if (!show || !isSolidShow(context, show) || !hasOneStaticShowWhen(context.ts, show, when)) return null;
+  const renderProp = singleShowRenderProp(context.ts, show);
+  return renderProp ? { show, when, renderProp: renderProp.renderProp } : null;
+}
+
+function exactShowWhenAttribute(
+  context: CarrierContext,
+  condition: TypeScript.CallExpression,
+): TypeScript.JsxAttribute | null {
+  const expression = condition.parent;
+  if (!context.ts.isJsxExpression(expression) || expression.expression !== condition) return null;
+  const attribute = expression.parent;
+  if (!context.ts.isJsxAttribute(attribute)
+    || attribute.initializer !== expression
+    || !context.ts.isIdentifier(attribute.name)
+    || attribute.name.text !== "when") {
+    return null;
+  }
+  return attribute;
+}
+
+function isSolidShow(
+  context: CarrierContext,
+  opening: TypeScript.JsxOpeningLikeElement,
 ): boolean {
-  if (!context.ts.isCallExpression(expression)) return false;
-  const target = context.targetFunction(expression.expression);
-  return Boolean(target && target.name === name && context.symbolId(expression.expression));
+  if (context.moduleFor(opening.tagName) !== "solid-js" || !context.symbolId(opening.tagName)) return false;
+  let symbol = context.checker.getSymbolAtLocation(opening.tagName);
+  if (!symbol) return false;
+  try {
+    if (symbol.flags & context.ts.SymbolFlags.Alias) symbol = context.checker.getAliasedSymbol(symbol);
+  } catch {
+    return false;
+  }
+  return symbol.getName() === "Show";
+}
+
+function hasOneStaticShowWhen(
+  ts: typeof TypeScript,
+  show: TypeScript.JsxOpeningLikeElement,
+  expected: TypeScript.JsxAttribute,
+): boolean {
+  let count = 0;
+  for (const property of show.attributes.properties) {
+    if (ts.isJsxSpreadAttribute(property)) return false;
+    if (!ts.isJsxAttribute(property) || !ts.isIdentifier(property.name) || property.name.text !== "when") continue;
+    if (property !== expected) return false;
+    count += 1;
+  }
+  return count === 1;
+}
+
+function singleShowRenderProp(
+  ts: typeof TypeScript,
+  show: TypeScript.JsxOpeningLikeElement,
+): Pick<ShowRenderProp, "renderProp"> | null {
+  if (!ts.isJsxOpeningElement(show) || !ts.isJsxElement(show.parent)) return null;
+  const children = show.parent.children.filter((child) =>
+    !ts.isJsxText(child) || child.getText(child.getSourceFile()).trim().length > 0,
+  );
+  if (children.length !== 1 || !ts.isJsxExpression(children[0])) return null;
+  const expression = children[0].expression;
+  if (!expression || !ts.isArrowFunction(expression) || expression.parameters.length !== 1) return null;
+  const parameter = expression.parameters[0];
+  if (parameter.dotDotDotToken || parameter.questionToken || parameter.initializer) {
+    return null;
+  }
+  return { renderProp: expression };
+}
+
+function openingForAttribute(
+  ts: typeof TypeScript,
+  attribute: TypeScript.JsxAttribute,
+): TypeScript.JsxOpeningLikeElement | null {
+  const attributes = attribute.parent;
+  if (!ts.isJsxAttributes(attributes)) return null;
+  const opening = attributes.parent;
+  return ts.isJsxOpeningElement(opening) || ts.isJsxSelfClosingElement(opening) ? opening : null;
+}
+
+function directPropertyReceiver(
+  ts: typeof TypeScript,
+  node: TypeScript.Expression,
+): TypeScript.PropertyAccessExpression | null {
+  const parent = node.parent;
+  return ts.isPropertyAccessExpression(parent) && parent.expression === node
+    ? parent
+    : null;
+}
+
+function directAwaitedCall(
+  ts: typeof TypeScript,
+  variable: TypeScript.VariableDeclaration,
+): TypeScript.CallExpression | null {
+  const initializer = variable.initializer;
+  if (!initializer || !ts.isAwaitExpression(initializer)) return null;
+  return ts.isCallExpression(initializer.expression) ? initializer.expression : null;
+}
+
+function isExactReadStoreCall(
+  context: CarrierContext,
+  call: TypeScript.CallExpression,
+): boolean {
+  const target = context.targetFunction(call.expression);
+  return Boolean(
+    target
+    && target.name === "readStore"
+    && isPath(target.declaration.getSourceFile(), context.root, "src/lib/soccer/store-persistence.ts")
+    && context.symbolId(call.expression),
+  );
 }
 
 function nearestFunction(context: CarrierContext, node: TypeScript.Node): FunctionInfo | null {
@@ -429,7 +613,7 @@ function addCarrier(
   to: string,
   nodes: readonly TypeScript.Node[],
   detail: string,
-  proofKind: "carrier-boundary" | "context-continuity" = "carrier-boundary",
+  proofKind: "carrier-boundary" | "awaited-call-alias" | "direct-snapshot-member" | "expression-body-return" | "solid-show-render-prop" | "context-continuity" = "carrier-boundary",
 ): void {
   const locations = nodes.map((node) => context.location(node));
   context.addRelation(
