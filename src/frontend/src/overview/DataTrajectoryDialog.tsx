@@ -112,6 +112,7 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
   });
   onMount(() => {
     const previousOverflow = document.body.style.overflow;
+    let wasOpen = false;
     const syncUrl = () => { if (window.location.pathname === "/") applyUrlState(window.location.search); };
     const keydown = (event: KeyboardEvent) => {
       if (!state().open) return;
@@ -127,7 +128,12 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     document.addEventListener("keydown", keydown);
     window.addEventListener("popstate", syncUrl);
     window.addEventListener(BROWSER_URL_CHANGE_EVENT, syncUrl);
-    createEffect(() => { document.body.style.overflow = state().open ? "hidden" : previousOverflow; if (state().open) queueMicrotask(() => dialog.querySelector<HTMLSelectElement>("select")?.focus()); });
+    createEffect(() => {
+      const open = state().open;
+      document.body.style.overflow = open ? "hidden" : previousOverflow;
+      if (open && !wasOpen) queueMicrotask(() => dialog.querySelector<HTMLSelectElement>("select")?.focus());
+      wasOpen = open;
+    });
     onCleanup(() => { document.removeEventListener("keydown", keydown); window.removeEventListener("popstate", syncUrl); window.removeEventListener(BROWSER_URL_CHANGE_EVENT, syncUrl); document.body.style.overflow = previousOverflow; detailController?.abort(); });
   });
   return <div ref={dialog} class="data-trajectory-modal" hidden={!state().open} role="dialog" aria-modal="true" aria-labelledby="data-trajectory-title">
