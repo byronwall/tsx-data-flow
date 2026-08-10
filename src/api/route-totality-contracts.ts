@@ -69,7 +69,7 @@ const routeRenderOccurrenceSchema = z.strictObject({
   definitionSourceIdentity: nonEmptyStringSchema,
   definitionCompilerIdentity: nonEmptyStringSchema,
   name: nonEmptyStringSchema,
-  expression: nonEmptyStringSchema.optional(),
+  expression: nonEmptyStringSchema,
   parentOccurrenceId: nonEmptyStringSchema.nullable(),
   renderParentId: nonEmptyStringSchema.nullable(),
   scopeId: nonEmptyStringSchema,
