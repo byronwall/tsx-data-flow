@@ -4,6 +4,8 @@ import type { EvidenceProof, EvidenceStatus } from "./scope-seam";
 
 export type ComponentBindingMetadata = {
   propName: string | null;
+  valueMode?: "whole-object" | "scalar-alias" | null;
+  sourceFieldName?: string | null;
   componentOccurrenceElementId: string | null;
   componentDefinitionId: string | null;
   parameterElementId: string | null;
@@ -68,12 +70,18 @@ export function componentBindingMetadataFromAttributes(
 ): ComponentBindingMetadata {
   return {
     propName: stringAttribute(attributes.propName),
+    valueMode: bindingValueMode(attributes.valueMode),
+    sourceFieldName: stringAttribute(attributes.sourceFieldName),
     componentOccurrenceElementId: stringAttribute(attributes.componentOccurrenceElementId),
     componentDefinitionId: stringAttribute(attributes.componentDefinitionId),
     parameterElementId: stringAttribute(attributes.parameterElementId),
     receiverElementId: stringAttribute(attributes.receiverElementId),
     candidateCount: candidateCountAttribute(attributes.candidateCount),
   };
+}
+
+function bindingValueMode(value: string | number | boolean | null | undefined): ComponentBindingMetadata["valueMode"] {
+  return value === "whole-object" || value === "scalar-alias" ? value : null;
 }
 
 export function componentBindingMetadataForElement(

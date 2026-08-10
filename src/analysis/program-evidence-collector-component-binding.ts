@@ -47,6 +47,8 @@ export class ProgramEvidenceCollectorComponentBindingSupport extends ProgramEvid
         pending.ownerId,
         {
           propName,
+          valueMode: componentPropValueMode(this.ts, pending.attribute),
+          sourceFieldName: componentPropSourceField(this.ts, pending.attribute),
           componentOccurrenceElementId: pending.occurrenceId,
           componentDefinitionId: pending.target.id,
           parameterElementId: receivers.length === 1 ? receivers[0].parameterId : null,
@@ -141,6 +143,30 @@ export class ProgramEvidenceCollectorComponentBindingSupport extends ProgramEvid
     this.checkCancellation();
     return receivers;
   }
+}
+
+function componentPropValueMode(
+  ts: typeof TypeScript,
+  attribute: TypeScript.JsxAttribute,
+): "whole-object" | "scalar-alias" | null {
+  const expression = attribute.initializer && ts.isJsxExpression(attribute.initializer)
+    ? attribute.initializer.expression
+    : null;
+  if (expression && ts.isCallExpression(expression)) return "whole-object";
+  if (expression && ts.isPropertyAccessExpression(expression) && ts.isCallExpression(expression.expression)) {
+    return "scalar-alias";
+  }
+  return null;
+}
+
+function componentPropSourceField(
+  ts: typeof TypeScript,
+  attribute: TypeScript.JsxAttribute,
+): string | null {
+  const expression = attribute.initializer && ts.isJsxExpression(attribute.initializer)
+    ? attribute.initializer.expression
+    : null;
+  return expression && ts.isPropertyAccessExpression(expression) ? expression.name.text : null;
 }
 
 function staticPropName(ts: typeof TypeScript, attribute: TypeScript.JsxAttribute): string | null {
