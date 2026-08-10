@@ -31,7 +31,7 @@ export function createRequestHandler(analysis: AnalysisService, frontendDist: st
       if (route === "/api/route-data" && req.method === "GET") {
         const routeRequestId = parseRouteRequestId(req, false);
         if (!routeRequestId.success) return sendError(res, 400, "invalid_route_request_id", routeRequestId.message);
-        const parsed = routeDataDetailRequestSchema.safeParse({ route: url.searchParams.get("route"), flow: url.searchParams.get("flow"), generation: url.searchParams.get("generation") ?? undefined });
+        const parsed = routeDataDetailRequestSchema.safeParse({ route: url.searchParams.get("route"), flow: url.searchParams.get("flow"), source: url.searchParams.get("source") ?? undefined, generation: url.searchParams.get("generation") ?? undefined });
         if (!parsed.success) return sendError(res, 400, "invalid_route_data_selection", "A route and trajectory key are required", parsed.error.issues);
         return void respond(req, res, (signal) => analysis.request({ kind: "route-data", ...parsed.data }, signal, routeRequestId.value ?? undefined), "Route data trajectory was not found or belongs to an older analysis generation.");
       }

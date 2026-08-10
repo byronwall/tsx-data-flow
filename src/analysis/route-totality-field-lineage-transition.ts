@@ -52,6 +52,7 @@ export type FieldLineageTransitionContext = {
   terminalAnchorCount: number;
   currentOccurrenceId: string | null;
   terminalOwnerOccurrenceId: string | null | undefined;
+  solidShowTerminalOccurrenceId: string | null;
   componentPropBoundaryCount?: number;
   componentPropOccurrenceAnchorCount?: number;
   componentPropBindingReceiverCount?: number;
@@ -68,7 +69,7 @@ export type FieldLineageTransition =
   | { kind: "component-prop" }
   | { kind: "component-prop-binding-start" }
   | { kind: "component-prop-binding-receiver" }
-  | { kind: "render-terminal" }
+  | { kind: "render-terminal"; occurrenceId: string }
   | { kind: "stop"; reason: FieldLineageStopReason };
 
 const SCALAR_CARRIERS = new Set([
@@ -245,13 +246,21 @@ export function classifyRouteTotalityFieldTransition(
       if (!context.hasField || (target.kind !== "render-terminal" && target.kind !== "dom-terminal")) {
         return { kind: "stop", reason: "unsupported-relation" };
       }
-      if (!context.currentOccurrenceId) return { kind: "stop", reason: "unmapped-occurrence" };
       if (context.terminalAnchorCount === 0) return { kind: "stop", reason: "unmapped-terminal" };
       if (context.terminalAnchorCount !== 1) return { kind: "stop", reason: "ambiguous-target" };
+      if (context.currentOccurrenceId && context.terminalOwnerOccurrenceId === context.currentOccurrenceId) {
+        return { kind: "render-terminal", occurrenceId: context.currentOccurrenceId };
+      }
+      if (!context.currentOccurrenceId
+        && context.solidShowTerminalOccurrenceId
+        && context.terminalOwnerOccurrenceId === context.solidShowTerminalOccurrenceId) {
+        return { kind: "render-terminal", occurrenceId: context.solidShowTerminalOccurrenceId };
+      }
+      if (!context.currentOccurrenceId) return { kind: "stop", reason: "unmapped-occurrence" };
       if (context.terminalOwnerOccurrenceId !== context.currentOccurrenceId) {
         return { kind: "stop", reason: "unmapped-terminal" };
       }
-      return { kind: "render-terminal" };
+      return { kind: "stop", reason: "unmapped-terminal" };
     }
     default:
       return { kind: "stop", reason: "unsupported-relation" };
@@ -263,7 +272,13 @@ function classifyFieldInputTransition(
 ): FieldLineageTransition {
   const { relation, source, target } = context;
   if (!source || !target) return { kind: "stop", reason: "partial-proof" };
-  const fieldInputs = provenRelationsOfKind(context.outgoingRelations, "field-input", context.cancellation);
+  const fieldInputs = provenRelationsBetween(
+    context.outgoingRelations,
+    relation.from,
+    relation.to,
+    "field-input",
+    context.cancellation,
+  );
   if (fieldInputs.length !== 1) return { kind: "stop", reason: "ambiguous-target" };
   const scalarCarrier = SCALAR_CARRIERS.has(source.kind);
   const exactComponentReceiver = context.componentPropReceiverElementId === relation.from;
@@ -291,12 +306,31 @@ function classifyFieldInputTransition(
 }
 
 function classifyCarrierTransition(context: FieldLineageTransitionContext): FieldLineageTransition {
-  if (context.hasField) return { kind: "stop", reason: "unsupported-transform" };
-  if (context.relation.proof.kind !== "carrier-boundary" && context.relation.proof.kind !== "context-continuity") {
+  if (
+    context.relation.proof.kind !== "carrier-boundary"
+    && context.relation.proof.kind !== "awaited-call-alias"
+    && context.relation.proof.kind !== "resource-boundary"
+    && context.relation.proof.kind !== "direct-snapshot-member"
+    && context.relation.proof.kind !== "expression-body-return"
+    && context.relation.proof.kind !== "solid-show-render-prop"
+    && context.relation.proof.kind !== "context-continuity"
+  ) {
     return { kind: "stop", reason: "partial-proof" };
   }
   if (provenRelationsBetween(context.outgoingRelations, context.relation.from, context.relation.to, "carrier", context.cancellation).length !== 1) {
     return { kind: "stop", reason: "ambiguous-target" };
+  }
+  if (context.relation.proof.kind === "solid-show-render-prop") {
+    return context.hasField
+      && context.source?.kind === "call"
+      && context.target?.kind === "literal"
+      ? { kind: "preserve" }
+      : { kind: "stop", reason: "unsupported-relation" };
+  }
+  if (context.hasField
+    && context.relation.proof.kind !== "direct-snapshot-member"
+    && context.relation.proof.kind !== "expression-body-return") {
+    return { kind: "stop", reason: "unsupported-transform" };
   }
   return isExactCarrierEndpoint(context)
     ? { kind: "preserve" }
@@ -319,10 +353,23 @@ function isExactCarrierEndpoint(context: FieldLineageTransitionContext): boolean
   if (!source || !target) return false;
   if (source.kind === "file-input" && target.kind === "call") return true;
   if (source.kind === "fetch-input" && target.kind === "call") return true;
-  if (source.kind === "call" && (target.kind === "call" || target.kind === "resource-input" || target.kind === "http-response")) return true;
+  if (source.kind === "call" && target.kind === "call") {
+    return context.relation.proof.kind === "carrier-boundary"
+      || context.relation.proof.kind === "expression-body-return";
+  }
+  if (source.kind === "call" && (target.kind === "resource-input" || target.kind === "http-response")) return true;
+  if (source.kind === "call" && target.kind === "alias") return context.relation.proof.kind === "awaited-call-alias";
   if (source.kind === "alias" && target.kind === "return") return true;
-  if (source.kind === "alias" && target.kind === "field-read" && context.targetFieldName === "latest") return true;
-  if (source.kind === "field-read" && context.sourceFieldName === "latest" && target.kind === "call") return true;
+  if (source.kind === "alias" && target.kind === "field-read" && context.targetFieldName === "latest") {
+    return context.relation.proof.kind === "resource-boundary";
+  }
+  if (source.kind === "field-read" && target.kind === "call") {
+    if (context.sourceFieldName === "latest") return context.relation.proof.kind === "context-continuity";
+    return context.relation.proof.kind === "direct-snapshot-member";
+  }
+  if (source.kind === "call" && target.kind === "literal") {
+    return context.relation.proof.kind === "solid-show-render-prop";
+  }
   return source.kind === "object-pack" && target.kind === "http-response";
 }
 

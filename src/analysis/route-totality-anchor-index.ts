@@ -41,6 +41,33 @@ export type RouteTotalityAnchorIndex = {
 };
 
 /**
+ * Return one Solid Show render-prop terminal anchor for one exact evidence terminal.
+ *
+ * The caller must already hold the exact Solid Show carrier proof. This does
+ * not infer a route owner from a definition, name, or broad route reach.
+ */
+export function solidShowRenderPropTerminalAnchor(
+  anchors: RouteTotalityAnchorIndex,
+  surface: RouteOccurrenceSurface,
+  evidenceElementId: string,
+  cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION,
+): RouteTotalityTerminalAnchor | null {
+  cancellation.throwIfCancelled();
+  const terminalAnchors = anchors.terminalAnchorsByEvidenceElementId.get(evidenceElementId) ?? [];
+  if (terminalAnchors.length !== 1) return null;
+  const anchor = terminalAnchors[0];
+  if (!anchor.endpoint.ownerOccurrenceId) return null;
+  let ownerCount = 0;
+  for (const occurrence of surface.occurrences) {
+    cancellation.throwIfCancelled();
+    if (occurrence.id === anchor.endpoint.ownerOccurrenceId && occurrence.scopeSeed === surface.scope.seed) {
+      ownerCount += 1;
+    }
+  }
+  return ownerCount === 1 ? anchor : null;
+}
+
+/**
  * Map source-backed evidence endpoints to exact route-surface endpoints.
  *
  * The forward arrays keep one bridge per route endpoint. Reverse maps keep all

@@ -119,6 +119,7 @@ export function buildRouteTotalityFieldLineage(
       relationsByTo,
       gapsByFrom,
       anchors,
+      surface,
       attachments,
       frontiers,
       carrierGaps,

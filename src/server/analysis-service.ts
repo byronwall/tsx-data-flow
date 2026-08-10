@@ -50,7 +50,7 @@ export type AnalysisOperation =
   | { kind: "file"; path: string }
   | { kind: "report"; view: string; path: string | null }
   | { kind: "refresh" }
-  | { kind: "route-data"; route: string; flow: string; generation?: number }
+  | { kind: "route-data"; route: string; flow: string; source?: string; generation?: number }
   | ({ kind: "source-excerpt" } & SourceExcerptRequest)
   | { kind: "markdown"; view: string; path: string | null };
 

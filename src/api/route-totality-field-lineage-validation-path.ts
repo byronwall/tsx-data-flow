@@ -12,6 +12,7 @@ import { addIssue, type ValidationIssue } from "./route-occurrence-validation-gr
 import {
   exactElement,
   exactRelation,
+  solidShowTerminalOccurrenceForElement,
   sameLocations,
   type AvailableSurface,
   type EvidenceElement,
@@ -138,6 +139,7 @@ export function validateFieldLineageAttachmentPath(
   let fieldIndex = 0;
   let currentFieldElementId: string | null = null;
   let componentPropReceiverElementId: string | null = null;
+  let solidShowRenderPropTerminal = false;
   let terminalAttachment = false;
   for (let index = 0; index < relationIds.length; index += 1) {
     cancellation.throwIfCancelled();
@@ -159,6 +161,9 @@ export function validateFieldLineageAttachmentPath(
     const occurrenceAnchors = surface.anchors.occurrenceAnchorsByEvidenceElementId.get(target.id) ?? [];
     const terminalAnchors = surface.anchors.terminalAnchorsByEvidenceElementId.get(target.id) ?? [];
     const terminal = terminalAnchors.length === 1 ? terminalAnchors[0].endpoint : undefined;
+    const solidShowTerminalOccurrenceId = solidShowRenderPropTerminal
+      ? solidShowTerminalOccurrenceForElement(surface, target.id, cancellation)
+      : null;
     const bindingContext = relation.kind === "component-prop-binding"
       ? componentPropBindingContext(source, target, evidence, surface, cancellation)
       : null;
@@ -171,6 +176,8 @@ export function validateFieldLineageAttachmentPath(
       hasField: fieldIndex > 0,
       isInitialOrigin: index === 0 && source.id === attachment.origin.elementId,
       staticNamedField: target.kind === "field-read" ? target.fieldName !== null : null,
+      sourceFieldName: source.fieldName,
+      targetFieldName: target.fieldName,
       indexMetadata: target.kind === "index-read" ? target.index : null,
       currentFieldElementId,
       componentPropReceiverElementId,
@@ -178,6 +185,7 @@ export function validateFieldLineageAttachmentPath(
       terminalAnchorCount: terminalAnchors.length,
       currentOccurrenceId,
       terminalOwnerOccurrenceId: terminal?.ownerOccurrenceId,
+      solidShowTerminalOccurrenceId,
       componentPropBoundaryCount: bindingContext?.boundaryCount,
       componentPropOccurrenceAnchorCount: bindingContext?.occurrenceAnchorCount,
       componentPropBindingReceiverCount: bindingContext?.receiverCount,
@@ -198,6 +206,11 @@ export function validateFieldLineageAttachmentPath(
       fieldIndex += 1;
       currentFieldElementId = target.id;
       componentPropReceiverElementId = null;
+      solidShowRenderPropTerminal = false;
+      continue;
+    }
+    if (transition.kind === "preserve") {
+      solidShowRenderPropTerminal = relation.kind === "carrier" && relation.proof.kind === "solid-show-render-prop";
       continue;
     }
     if (transition.kind === "component-prop-binding-start") {
@@ -208,6 +221,7 @@ export function validateFieldLineageAttachmentPath(
         currentOccurrenceId = boundary.occurrenceId;
       }
       componentPropReceiverElementId = null;
+      solidShowRenderPropTerminal = false;
       continue;
     }
     if (transition.kind === "component-prop-binding-receiver") {
@@ -218,6 +232,7 @@ export function validateFieldLineageAttachmentPath(
         addIssue(issues, [...path, "evidencePathRelationIds", index], "component-prop binding receiver must have one exact named field");
       }
       componentPropReceiverElementId = target.id;
+      solidShowRenderPropTerminal = false;
       continue;
     }
     if (transition.kind === "component-prop") {
@@ -226,6 +241,7 @@ export function validateFieldLineageAttachmentPath(
     }
     if (transition.kind === "render-terminal") {
       terminalAttachment = true;
+      currentOccurrenceId = transition.occurrenceId;
       const anchor = terminalAnchors[0];
       if (index !== relationIds.length - 1
         || !anchor
@@ -240,6 +256,9 @@ export function validateFieldLineageAttachmentPath(
   }
   if (!terminalAttachment || attachment.terminalIds.length !== 1) {
     addIssue(issues, [...path, "terminalIds"], "Milestone 1 field attachments require one exact render terminal");
+  }
+  if (terminalAttachment && currentOccurrenceId !== attachment.occurrenceId) {
+    addIssue(issues, [...path, "occurrenceId"], "field attachment occurrence must be the exact terminal owner occurrence");
   }
   if (occurrence?.parentOccurrenceId === null
     && (occurrence.scopeSeed !== availableSurface.scope.seed || occurrence.id !== surface.rootOccurrenceId)) {
@@ -302,6 +321,8 @@ function validateFieldInput(
     hasField: true,
     isInitialOrigin: false,
     staticNamedField: target.kind === "field-read" ? target.fieldName !== null : null,
+    sourceFieldName: source.fieldName,
+    targetFieldName: target.fieldName,
     indexMetadata: target.kind === "index-read" ? target.index : null,
     currentFieldElementId: from,
     componentPropReceiverElementId: null,
@@ -309,6 +330,7 @@ function validateFieldInput(
     terminalAnchorCount: 0,
     currentOccurrenceId: null,
     terminalOwnerOccurrenceId: undefined,
+    solidShowTerminalOccurrenceId: null,
     cancellation,
   });
   if (transition.kind !== "field-input") {

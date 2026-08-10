@@ -71,7 +71,7 @@ function perform(operation: AnalysisOperation, requestId: number, cancellation: 
     const report = cache.ensureBuilt();
     cancellation.throwIfCancelled();
     if (operation.generation !== undefined && operation.generation !== cache.generation()) return null;
-    const detail = buildRouteDataDetail(report, operation.route, operation.flow, cancellation);
+    const detail = buildRouteDataDetail(report, operation.route, operation.flow, operation.source ?? null, cancellation);
     cancellation.throwIfCancelled();
     if (!detail) return null;
     const response = routeDataDetailTransportResponseSchema.parse({ apiVersion: 1, analysisVersion: report.analysisVersion, generation: cache.generation(), generatedAt: report.generatedAt, data: detail });

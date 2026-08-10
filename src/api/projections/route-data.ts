@@ -5,6 +5,7 @@ import { stableHash } from "../../analysis/route-discovery";
 import { buildExhaustiveRouteGraph } from "../../analysis/route-data-trajectories";
 import { routeSinkKey } from "../../analysis/route-data";
 import { routeTotalityForRoute } from "../../analysis/route-data-session";
+import type { RouteTotalitySelectedSource } from "../../analysis/route-totality-selected-source";
 import { projectRouteTotality } from "./route-totality";
 import {
   NO_ANALYSIS_CANCELLATION,
@@ -56,7 +57,13 @@ export function buildRouteDataInventory(report: AnalysisReport, cancellation: An
   return inventory;
 }
 
-export function buildRouteDataDetail(report: AnalysisReport, routeKey: string, trajectoryKey: string, cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION): RouteDataDetail | null {
+export function buildRouteDataDetail(
+  report: AnalysisReport,
+  routeKey: string,
+  trajectoryKey: string,
+  selectedSourceKey: string | null = null,
+  cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION,
+): RouteDataDetail | null {
   cancellation.throwIfCancelled();
   const inventory = buildRouteDataInventory(report, cancellation);
   cancellation.throwIfCancelled();
@@ -75,6 +82,9 @@ export function buildRouteDataDetail(report: AnalysisReport, routeKey: string, t
   const evidenceIds = new Set(operations.flatMap((operation) => operation.sourceExpressionIds));
   const evidence = uniqueById(report.routeData.evidence.filter((item) => evidenceIds.has(item.id)));
   const terminals = report.routeData.terminals.filter((terminal) => trajectory.terminalIds.includes(terminal.id));
+  const routeSources = inventory.sources.filter((source) => route.sourceMethodKeys.includes(source.key));
+  if (selectedSourceKey && !route.sourceMethodKeys.includes(selectedSourceKey)) return null;
+  const selectedSource = selectedTotalitySource(selectedSourceKey, routeSources, report.routeData.evidence);
   const sourceNodes = trajectory.sourceValueIds.map((id) => {
     const value = values.find((item) => item.id === id);
     const operation = operations.find((item) => item.key === value?.sourceOperationKey);
@@ -86,14 +96,13 @@ export function buildRouteDataDetail(report: AnalysisReport, routeKey: string, t
   const terminalNodes = terminals.map((terminal) => ({ id: terminal.id, kind: "terminal" as const, label: terminal.label, file: terminal.file, line: terminal.line, group: "render" as const, parentId: null, role: "terminal" as const }));
   const nodes = [...sourceNodes, ...componentNodes, ...terminalNodes];
   const edges = componentContext.edges;
-  const routeSources = inventory.sources.filter((source) => route.sourceMethodKeys.includes(source.key));
   const exhaustiveGraph = annotateGraphSources(
     routeGraph(report, analysisRoute.key, analysisRoute.sinkIds),
     routeSources,
     evidence,
     operations,
   );
-  const totality = projectRouteTotality(routeTotalityForRoute(report.routeData, routeKey, cancellation) ?? undefined, cancellation);
+  const totality = projectRouteTotality(routeTotalityForRoute(report.routeData, routeKey, selectedSource, cancellation) ?? undefined, cancellation);
   cancellation.throwIfCancelled();
   const detail: RouteDataDetail = {
     route, trajectory, operations, values, shapes: report.routeData.shapes.filter((shape) => shapeIds.has(shape.id)),
@@ -103,6 +112,45 @@ export function buildRouteDataDetail(report: AnalysisReport, routeKey: string, t
   };
   cancellation.throwIfCancelled();
   return detail;
+}
+
+function selectedTotalitySource(
+  sourceKey: string | null,
+  sources: RouteDataInventory["sources"],
+  evidence: AnalysisReport["routeData"]["evidence"],
+): RouteTotalitySelectedSource | null {
+  if (!sourceKey) return null;
+  const sourceMatches = sources.filter((source) => source.key === sourceKey);
+  if (sourceMatches.length !== 1) return { key: sourceKey, evidence: null };
+  const evidenceMatches = evidence.filter((item) => item.id === sourceMatches[0].evidenceId);
+  const [match] = evidenceMatches;
+  if (!match || !evidenceMatches.every((item) => sameEvidenceLocation(item, match))) {
+    return { key: sourceKey, evidence: null };
+  }
+  return {
+    key: sourceKey,
+    evidence: {
+      id: match.id,
+      file: match.file,
+      line: match.line,
+      column: match.column,
+      span: match.span,
+    },
+  };
+}
+
+function sameEvidenceLocation(
+  left: AnalysisReport["routeData"]["evidence"][number],
+  right: AnalysisReport["routeData"]["evidence"][number],
+): boolean {
+  return left.id === right.id
+    && left.file === right.file
+    && left.line === right.line
+    && left.column === right.column
+    && left.span.startLine === right.span.startLine
+    && left.span.startColumn === right.span.startColumn
+    && left.span.endLine === right.span.endLine
+    && left.span.endColumn === right.span.endColumn;
 }
 
 type ComponentContextOrigin = "hierarchy" | "rendered";

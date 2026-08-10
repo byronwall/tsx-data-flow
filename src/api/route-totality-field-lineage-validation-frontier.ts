@@ -15,6 +15,7 @@ import {
   exactElement,
   exactGap,
   exactRelation,
+  solidShowTerminalOccurrenceForElement,
   sameLocations,
   type EvidenceGap,
   type EvidenceIndexes,
@@ -155,6 +156,7 @@ function validateCanonicalTruncationPath(
   let fieldIndex = 0;
   let currentFieldElementId: string | null = null;
   let componentPropReceiverElementId: string | null = null;
+  let solidShowRenderPropTerminal = false;
   for (let index = 0; index < relationIds.length; index += 1) {
     cancellation.throwIfCancelled();
     const relation = exactRelation(evidence, relationIds[index]);
@@ -174,6 +176,9 @@ function validateCanonicalTruncationPath(
     const occurrenceAnchors = surface.anchors.occurrenceAnchorsByEvidenceElementId.get(target.id) ?? [];
     const terminalAnchors = surface.anchors.terminalAnchorsByEvidenceElementId.get(target.id) ?? [];
     const terminal = terminalAnchors.length === 1 ? terminalAnchors[0].endpoint : undefined;
+    const solidShowTerminalOccurrenceId = solidShowRenderPropTerminal
+      ? solidShowTerminalOccurrenceForElement(surface, target.id, cancellation)
+      : null;
     const bindingContext = relation.kind === "component-prop-binding"
       ? componentPropBindingContext(source, target, evidence, surface, cancellation)
       : null;
@@ -186,6 +191,8 @@ function validateCanonicalTruncationPath(
       hasField: fieldIndex > 0,
       isInitialOrigin: index === 0 && source.id === frontier.origin.elementId,
       staticNamedField: target.kind === "field-read" ? target.fieldName !== null : null,
+      sourceFieldName: source.fieldName,
+      targetFieldName: target.fieldName,
       indexMetadata: target.kind === "index-read" ? target.index : null,
       currentFieldElementId,
       componentPropReceiverElementId,
@@ -193,6 +200,7 @@ function validateCanonicalTruncationPath(
       terminalAnchorCount: terminalAnchors.length,
       currentOccurrenceId,
       terminalOwnerOccurrenceId: terminal?.ownerOccurrenceId,
+      solidShowTerminalOccurrenceId,
       componentPropBoundaryCount: bindingContext?.boundaryCount,
       componentPropOccurrenceAnchorCount: bindingContext?.occurrenceAnchorCount,
       componentPropBindingReceiverCount: bindingContext?.receiverCount,
@@ -215,6 +223,11 @@ function validateCanonicalTruncationPath(
       fieldIndex += 1;
       currentFieldElementId = target.id;
       componentPropReceiverElementId = null;
+      solidShowRenderPropTerminal = false;
+      continue;
+    }
+    if (transition.kind === "preserve") {
+      solidShowRenderPropTerminal = relation.kind === "carrier" && relation.proof.kind === "solid-show-render-prop";
       continue;
     }
     if (transition.kind === "component-prop-binding-start") {
@@ -225,6 +238,7 @@ function validateCanonicalTruncationPath(
         currentOccurrenceId = boundary.occurrenceId;
       }
       componentPropReceiverElementId = null;
+      solidShowRenderPropTerminal = false;
       continue;
     }
     if (transition.kind === "component-prop-binding-receiver") {
@@ -235,6 +249,7 @@ function validateCanonicalTruncationPath(
         addIssue(issues, [...path, "evidencePathRelationIds", index], "component-prop binding receiver must have one exact named field");
       }
       componentPropReceiverElementId = target.id;
+      solidShowRenderPropTerminal = false;
       continue;
     }
   }

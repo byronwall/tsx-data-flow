@@ -11,6 +11,7 @@ import { addIssue, type ValidationIssue } from "./route-occurrence-validation-gr
 import {
   exactElement,
   exactRelation,
+  solidShowTerminalOccurrenceForElement,
   sameLocations,
   type EvidenceIndexes,
   type EvidenceElement,
@@ -60,6 +61,7 @@ export function validateFieldLineageFrontierPath(
   let fieldIndex = 0;
   let currentFieldElementId: string | null = null;
   let componentPropReceiverElementId: string | null = null;
+  let solidShowRenderPropTerminal = false;
   for (let index = 0; index < relationIds.length; index += 1) {
     cancellation.throwIfCancelled();
     const relation = exactRelation(evidence, relationIds[index]);
@@ -88,6 +90,7 @@ export function validateFieldLineageFrontierPath(
       currentFieldElementId,
       componentPropReceiverElementId,
       cancellation,
+      solidShowRenderPropTerminal,
     );
     if (transition.kind === "stop" || transition.kind === "component-prop" || transition.kind === "render-terminal") {
       addIssue(issues, [...path, "evidencePathRelationIds", index], "field frontier path must contain only accepted identity-preserving transitions");
@@ -105,6 +108,11 @@ export function validateFieldLineageFrontierPath(
       fieldIndex += 1;
       currentFieldElementId = target.id;
       componentPropReceiverElementId = null;
+      solidShowRenderPropTerminal = false;
+      continue;
+    }
+    if (transition.kind === "preserve") {
+      solidShowRenderPropTerminal = relation.kind === "carrier" && relation.proof.kind === "solid-show-render-prop";
       continue;
     }
     if (transition.kind === "component-prop-binding-start") {
@@ -115,6 +123,7 @@ export function validateFieldLineageFrontierPath(
         currentOccurrenceId = boundary.occurrenceId;
       }
       componentPropReceiverElementId = null;
+      solidShowRenderPropTerminal = false;
       continue;
     }
     if (transition.kind === "component-prop-binding-receiver") {
@@ -125,6 +134,7 @@ export function validateFieldLineageFrontierPath(
         addIssue(issues, [...path, "field"], "component-prop binding cannot rename an existing field");
       }
       componentPropReceiverElementId = target.id;
+      solidShowRenderPropTerminal = false;
     }
   }
   if (!frontier.field || fieldIndex !== frontier.field.elementIds.length || fieldIndex === 0) {
@@ -145,6 +155,7 @@ export function validateFieldLineageFrontierPath(
     surface,
     currentFieldElementId,
     componentPropReceiverElementId,
+    solidShowRenderPropTerminal,
     path,
     issues,
     cancellation,
@@ -165,10 +176,14 @@ function classifyPathTransition(
   currentFieldElementId: string | null,
   componentPropReceiverElementId: string | null,
   cancellation: AnalysisCancellationToken,
+  solidShowRenderPropTerminal: boolean,
 ) {
   const occurrenceAnchors = target ? surface.anchors.occurrenceAnchorsByEvidenceElementId.get(target.id) ?? [] : [];
   const terminalAnchors = target ? surface.anchors.terminalAnchorsByEvidenceElementId.get(target.id) ?? [] : [];
   const terminal = terminalAnchors.length === 1 ? terminalAnchors[0].endpoint : undefined;
+  const solidShowTerminalOccurrenceId = solidShowRenderPropTerminal && target
+    ? solidShowTerminalOccurrenceForElement(surface, target.id, cancellation)
+    : null;
   const bindingContext = relation.kind === "component-prop-binding" && target
     ? componentPropBindingContext(source, target, evidence, surface, cancellation)
     : null;
@@ -181,6 +196,8 @@ function classifyPathTransition(
     hasField,
     isInitialOrigin,
     staticNamedField: target?.kind === "field-read" ? target.fieldName !== null : null,
+    sourceFieldName: source.fieldName,
+    targetFieldName: target?.fieldName ?? null,
     indexMetadata: target?.kind === "index-read" ? target.index : null,
     currentFieldElementId,
     componentPropReceiverElementId,
@@ -188,6 +205,7 @@ function classifyPathTransition(
     terminalAnchorCount: terminalAnchors.length,
     currentOccurrenceId,
     terminalOwnerOccurrenceId: terminal?.ownerOccurrenceId,
+    solidShowTerminalOccurrenceId,
     componentPropBoundaryCount: bindingContext?.boundaryCount,
     componentPropOccurrenceAnchorCount: bindingContext?.occurrenceAnchorCount,
     componentPropBindingReceiverCount: bindingContext?.receiverCount,
@@ -206,13 +224,14 @@ function validateFrontierStop(
   surface: SurfaceIndexes,
   currentFieldElementId: string | null,
   componentPropReceiverElementId: string | null,
+  solidShowRenderPropTerminal: boolean,
   path: Array<string | number>,
   issues: ValidationIssue[],
   cancellation: AnalysisCancellationToken,
 ): void {
   cancellation.throwIfCancelled();
   if (frontier.stoppedAtRelationId === null) {
-    addIssue(issues, [...path, "stoppedAtRelationId"], "ordinary field frontier requires its exact stopped relation");
+    validateUncontinuedFrontierStop(frontier, elementIds, evidence, path, issues, cancellation);
     return;
   }
   const relation = exactRelation(evidence, frontier.stoppedAtRelationId);
@@ -238,6 +257,7 @@ function validateFrontierStop(
     currentFieldElementId,
     componentPropReceiverElementId,
     cancellation,
+    solidShowRenderPropTerminal,
   );
   const targetAlreadySeen = Boolean(target && elementIds.includes(target.id));
   if (targetAlreadySeen && transition.kind !== "stop") {
@@ -281,6 +301,7 @@ function validateFrontierStop(
       relationIds: [...frontier.evidencePathRelationIds],
       partial: false,
       componentPropReceiver: null,
+      solidShowRenderPropTerminal,
       carrier: true,
     };
     const elementMap = new Map<string, EvidenceElement>();
@@ -299,8 +320,49 @@ function validateFrontierStop(
       addIssue(issues, [...path, "proof"], "field frontier proof must match its exact stop path");
     }
   }
-  if (frontier.reason === "identity-lost" && !targetAlreadySeen) {
+  if (frontier.reason === "identity-lost" && !targetAlreadySeen && transition.kind !== "stop") {
     addIssue(issues, [...path, "reason"], "identity-lost frontier must stop at an already visited exact element");
+  }
+}
+
+function validateUncontinuedFrontierStop(
+  frontier: FieldFrontier,
+  elementIds: readonly string[],
+  evidence: EvidenceIndexes,
+  path: Array<string | number>,
+  issues: ValidationIssue[],
+  cancellation: AnalysisCancellationToken,
+): void {
+  cancellation.throwIfCancelled();
+  const source = exactElement(evidence, elementIds.at(-1) ?? "");
+  if (!source) {
+    addIssue(issues, [...path, "stoppedAtElementId"], "uncontinued field frontier requires its exact final evidence element");
+    return;
+  }
+  if (frontier.stoppedAtElementId !== source.id) {
+    addIssue(issues, [...path, "stoppedAtElementId"], "uncontinued field frontier must stop at its final accepted evidence element");
+  }
+  if ((evidence.outgoing.get(source.id) ?? []).length !== 0) {
+    addIssue(issues, [...path, "stoppedAtRelationId"], "uncontinued field frontier requires no indexed outgoing relation");
+  }
+  if (frontier.reason !== "unsupported-relation") {
+    addIssue(issues, [...path, "reason"], "uncontinued field frontier must report an unsupported relation");
+  }
+  if (!frontier.location || !sameLocations([frontier.location], [source.location], cancellation)) {
+    addIssue(issues, [...path, "location"], "uncontinued field frontier location must match its exact final element");
+  }
+  const expectedProof = [{
+    kind: "route-totality-field-frontier",
+    detail: "No indexed relation continues from this exact field-carrying state.",
+    locations: [source.location],
+    status: "proven" as const,
+  }];
+  if (frontier.proof.length !== expectedProof.length
+    || frontier.proof.some((proof, index) => proof.kind !== expectedProof[index].kind
+      || proof.detail !== expectedProof[index].detail
+      || proof.status !== expectedProof[index].status
+      || !sameLocations(proof.locations, expectedProof[index].locations, cancellation))) {
+    addIssue(issues, [...path, "proof"], "uncontinued field frontier proof must match its exact final element");
   }
 }
 

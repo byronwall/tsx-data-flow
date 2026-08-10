@@ -290,7 +290,7 @@ const routeDataDetailBaseShape = {
 };
 export const routeDataDetailTransportSchema = z.strictObject({ ...routeDataDetailBaseShape, hiddenComponentPolicy: hiddenComponentPolicySchema, totality: routeTotalityStructureSchema.nullable(), shadowEvidence: routeShadowEvidenceSchema.nullable().optional() });
 export const routeDataDetailSchema = z.strictObject({ ...routeDataDetailBaseShape, hiddenComponentPolicy: hiddenComponentPolicySchema, totality: routeTotalitySchema.nullable(), shadowEvidence: routeShadowEvidenceSchema.nullable().optional() });
-export const routeDataDetailRequestSchema = z.strictObject({ route: z.string().trim().min(1), flow: z.string().trim().min(1), generation: z.coerce.number().int().nonnegative().optional() });
+export const routeDataDetailRequestSchema = z.strictObject({ route: z.string().trim().min(1), flow: z.string().trim().min(1), source: z.string().trim().min(1).optional(), generation: z.coerce.number().int().nonnegative().optional() });
 export const routeDataDetailResponseSchema = apiMetadataSchema.extend({ data: routeDataDetailSchema });
 export const routeDataDetailTransportResponseSchema = apiMetadataSchema.extend({ data: routeDataDetailTransportSchema });
 export const SOURCE_EXCERPT_MAX_PATH_LENGTH = 512;

@@ -4,27 +4,25 @@ import type { EvidenceSlice } from "./evidence-slice";
 import type { EvidenceRelationProvider } from "./evidence-relation-provider";
 import type { ProgramElement } from "./program-evidence";
 import { indexReadMetadataFromElement } from "./program-index-read-metadata";
-import type { RouteTotalityAnchorIndex } from "./route-totality-anchor-index";
-import { addAttachment, type AttachmentAccumulator } from "./route-totality-field-lineage-attachment";
+import {
+  solidShowRenderPropTerminalAnchor,
+  type RouteTotalityAnchorIndex,
+} from "./route-totality-anchor-index";
+import { type AttachmentAccumulator } from "./route-totality-field-lineage-attachment";
 import {
   componentPropBindingContext,
-  componentPropBindingReadiness,
-  componentBoundaryFrontierOccurrenceId,
-  lastFieldSegment,
   provenComponentPropBoundaries,
 } from "./route-totality-field-lineage-component-binding";
 import { addFrontier, makeFrontier, type FrontierAccumulator } from "./route-totality-field-lineage-frontier";
 import { hasRouteTotalityFieldLineageId } from "./route-totality-field-lineage-index";
 import {
-  appendField,
   comparePath,
   compareTraversal,
   lastLocation,
-  nextState,
-  proofsForStop,
   traversalKey,
   type TraversalState,
 } from "./route-totality-field-lineage-support";
+import { advanceRouteTotalityFieldTransition } from "./route-totality-field-lineage-transition-advance";
 import { fieldForTarget } from "./route-totality-field-lineage-target-field";
 import {
   recordRouteTotalityFieldTruncations,
@@ -35,7 +33,7 @@ import {
   isFullyProvenElement,
   isFullyProvenProof,
 } from "./route-totality-field-lineage-transition";
-import type { RouteTotalityFieldFrontierReason } from "./route-totality-field-lineage";
+import type { RouteOccurrenceSurface } from "./route-occurrence-surface";
 
 export type RouteTotalityFieldTraversalInput = {
   provider: EvidenceRelationProvider;
@@ -46,6 +44,7 @@ export type RouteTotalityFieldTraversalInput = {
   relationsByTo: ReadonlyMap<string, readonly EvidenceSlice["relations"][number][]>;
   gapsByFrom: ReadonlyMap<string, readonly EvidenceSlice["gaps"][number][]>;
   anchors: RouteTotalityAnchorIndex;
+  surface: RouteOccurrenceSurface;
   attachments: Map<string, AttachmentAccumulator>;
   frontiers: FrontierAccumulator;
   carrierGaps: string[];
@@ -63,6 +62,7 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
     relationsByTo,
     gapsByFrom,
     anchors,
+    surface,
     attachments,
     frontiers,
     carrierGaps,
@@ -79,6 +79,7 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
     relationIds: [],
     partial: false,
     componentPropReceiver: null,
+    solidShowRenderPropTerminal: false,
     carrier: false,
   }];
   const best = new Map<string, TraversalState>();
@@ -99,6 +100,10 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
     best.set(stateKey, state);
     if (recordRouteTotalityFieldTruncations(state, gapsByFrom, truncations, cancellation)) continue;
     const outgoing = relationsByFrom.get(state.currentElementId) ?? [];
+    if (outgoing.length === 0) {
+      addUncontinuedFieldFrontier(state, elementsById, frontiers, cancellation);
+      continue;
+    }
 
     for (const relation of outgoing) {
       cancellation.throwIfCancelled();
@@ -121,6 +126,9 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
       const occurrenceAnchors = target ? anchors.occurrenceAnchorsByEvidenceElementId.get(target.id) ?? [] : [];
       const terminalAnchors = target ? anchors.terminalAnchorsByEvidenceElementId.get(target.id) ?? [] : [];
       const terminal = terminalAnchors.length === 1 ? terminalAnchors[0].endpoint : undefined;
+      const solidShowTerminal = target && state.solidShowRenderPropTerminal
+        ? solidShowRenderPropTerminalAnchor(anchors, surface, target.id, cancellation)
+        : null;
       const bindingContext = relation.kind === "component-prop-binding"
         ? componentPropBindingContext(
           state.currentElementId,
@@ -152,6 +160,7 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
         terminalAnchorCount: terminalAnchors.length,
         currentOccurrenceId: state.currentOccurrenceId,
         terminalOwnerOccurrenceId: terminal?.ownerOccurrenceId,
+        solidShowTerminalOccurrenceId: solidShowTerminal?.endpoint.ownerOccurrenceId ?? null,
         componentPropBoundaryCount: bindingContext?.boundaryCount,
         componentPropOccurrenceAnchorCount: bindingContext?.occurrenceAnchorCount,
         componentPropBindingReceiverCount: bindingContext?.receiverCount,
@@ -161,154 +170,54 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
         componentPropBindingIncomplete: bindingContext?.bindingIncomplete,
         cancellation,
       });
-      if (transition.kind === "stop") {
-        if (!state.field) {
-          carrierGaps.push(`Carrier path stopped at ${target?.location.file ?? relation.proof.locations[0]?.file ?? "unknown"}:${target?.location.line ?? relation.proof.locations[0]?.line ?? 0} (${transition.reason}).`);
-        }
-        addStopFrontier(state, relation, target, transition.reason, elementsById, frontiers, cancellation);
-        continue;
-      }
-      if (!target) continue;
-      if (hasRouteTotalityFieldLineageId(state.elementIds, target.id, cancellation)) {
-        addStopFrontier(state, relation, target, "identity-lost", elementsById, frontiers, cancellation);
-        continue;
-      }
-      if (transition.kind === "preserve") {
-        const next = nextState(state, target, relation, state.field, state.currentOccurrenceId, cancellation);
-        recordRouteTotalityFieldTruncations(next, gapsByFrom, truncations, cancellation);
-        queue.push(next);
-        continue;
-      }
-      if (transition.kind === "component-prop-binding-start") {
-        const boundary = bindingContext?.boundary;
-        if (!boundary) {
-          addStopFrontier(state, relation, target, "partial-proof", elementsById, frontiers, cancellation);
-          continue;
-        }
-        const next = nextState(
-          state,
-          target,
-          relation,
-          state.field,
-          boundary.endpoint.id,
-          cancellation,
-          null,
-        );
-        recordRouteTotalityFieldTruncations(next, gapsByFrom, truncations, cancellation);
-        queue.push(next);
-        continue;
-      }
-      if (transition.kind === "component-prop-binding-receiver") {
-        if (state.field && target?.fieldName !== lastFieldSegment(state.field)) {
-          addStopFrontier(state, relation, target, "renamed-prop", elementsById, frontiers, cancellation);
-          continue;
-        }
-        if (!target?.fieldName) {
-          addStopFrontier(state, relation, target, "partial-proof", elementsById, frontiers, cancellation);
-          continue;
-        }
-        const next = nextState(
-          state,
-          target,
-          relation,
-          state.field,
-          state.currentOccurrenceId,
-          cancellation,
-          { elementId: target.id, propName: target.fieldName },
-        );
-        recordRouteTotalityFieldTruncations(next, gapsByFrom, truncations, cancellation);
-        queue.push(next);
-        continue;
-      }
-      if (transition.kind === "field-input") {
-        if (!targetField) {
-          addStopFrontier(state, relation, target, "partial-proof", elementsById, frontiers, cancellation);
-          continue;
-        }
-        const nextField = state.field
-          ? appendField(
-            state.field,
-            targetField,
-            cancellation,
-          )
-          : targetField;
-        const next = nextState(state, target, relation, nextField, state.currentOccurrenceId, cancellation, null);
-        recordRouteTotalityFieldTruncations(next, gapsByFrom, truncations, cancellation);
-        queue.push(next);
-        continue;
-      }
-      if (transition.kind === "component-prop") {
-        if (state.field) {
-          const readiness = componentPropBindingReadiness(
-            state.currentElementId,
-            relation,
-            outgoing,
-            relationsByFrom,
-            relationsByTo,
-            elementsById,
-            gapsByFrom,
-            anchors,
-            cancellation,
-          );
-          if (readiness !== "ready") {
-            const frontierState = {
-              ...state,
-              currentOccurrenceId: componentBoundaryFrontierOccurrenceId(state.currentOccurrenceId),
-            };
-            addStopFrontier(
-              frontierState,
-              relation,
-              target,
-              readiness === "ambiguous" ? "ambiguous-target" : "partial-proof",
-              elementsById,
-              frontiers,
-              cancellation,
-            );
-          }
-        }
-        continue;
-      }
-      if (transition.kind === "render-terminal") {
-        const terminalEndpoint = terminalAnchors[0]?.endpoint;
-        if (!state.field || !state.currentOccurrenceId || !terminalEndpoint) continue;
-        const next = nextState(state, target, relation, state.field, state.currentOccurrenceId, cancellation);
-        addAttachment(
-          attachments,
-          originIdentity,
-          state.field,
-          state.currentOccurrenceId,
-          terminalEndpoint.id,
-          next,
-          cancellation,
-        );
-      }
+      advanceRouteTotalityFieldTransition({
+        state,
+        relation,
+        target,
+        transition,
+        targetField,
+        bindingContext,
+        terminalId: terminalAnchors.length === 1 ? terminalAnchors[0].endpoint.id : null,
+        outgoing,
+        relationsByFrom,
+        relationsByTo,
+        elementsById,
+        gapsByFrom,
+        anchors,
+        attachments,
+        frontiers,
+        carrierGaps,
+        truncations,
+        queue,
+        cancellation,
+      });
     }
   }
 }
 
-function addStopFrontier(
+function addUncontinuedFieldFrontier(
   state: TraversalState,
-  relation: EvidenceSlice["relations"][number],
-  target: EvidenceSlice["elements"][number] | undefined,
-  reason: RouteTotalityFieldFrontierReason,
   elementsById: ReadonlyMap<string, EvidenceSlice["elements"][number]>,
   frontiers: FrontierAccumulator,
   cancellation: AnalysisCancellationToken,
 ): void {
   cancellation.throwIfCancelled();
   if (!state.field) return;
-  const stopProof = proofsForStop(state, relation, elementsById, target, cancellation).map((proof) => reason === "partial-proof"
-    ? { ...proof, status: "partial" as const }
-    : proof);
+  const location = lastLocation(state, elementsById, cancellation) ?? state.field.location;
   addFrontier(frontiers, makeFrontier(
     state.origin,
     state.field,
     state.currentOccurrenceId,
-    reason,
-    target?.id ?? null,
-    relation.id,
-    target?.location ?? relation.proof.locations[0] ?? lastLocation(state, elementsById, cancellation),
-    stopProof,
+    "unsupported-relation",
+    state.currentElementId,
+    null,
+    location,
+    [{
+      kind: "route-totality-field-frontier",
+      detail: "No indexed relation continues from this exact field-carrying state.",
+      locations: [location],
+      status: "proven",
+    }],
     state,
     null,
     cancellation,

@@ -27,6 +27,7 @@ export type PathState = {
   relationIds: string[];
   partial: boolean;
   componentPropReceiver: ComponentPropReceiverState | null;
+  solidShowRenderPropTerminal: boolean;
   carrier: boolean;
 };
 
@@ -83,6 +84,7 @@ export function nextState(
   cancellation: AnalysisCancellationToken,
   componentPropReceiver: ComponentPropReceiverState | null = state.componentPropReceiver,
   carrier = state.carrier || relation.kind === "carrier" || relation.kind === "http-bridge",
+  solidShowRenderPropTerminal = state.solidShowRenderPropTerminal,
 ): TraversalState {
   cancellation.throwIfCancelled();
   const elementIds = copyIds(state.elementIds, [target.id], cancellation);
@@ -97,6 +99,7 @@ export function nextState(
     relationIds,
     partial: false,
     componentPropReceiver,
+    solidShowRenderPropTerminal,
     carrier,
   };
 }
@@ -147,6 +150,7 @@ export function traversalKey(state: TraversalState): string {
     currentElementId: state.currentElementId,
     currentOccurrenceId: state.currentOccurrenceId,
     componentPropReceiver: state.componentPropReceiver,
+    solidShowRenderPropTerminal: state.solidShowRenderPropTerminal,
     carrier: state.carrier,
     field: state.field?.elementIds ?? [],
   });

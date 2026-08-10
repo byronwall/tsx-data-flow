@@ -34,6 +34,10 @@ import {
   unavailableRouteTotalityFieldLineage,
   type RouteTotalityFieldLineage,
 } from "./route-totality-field-lineage";
+import {
+  mergeSelectedRouteSource,
+  type RouteTotalitySelectedSource,
+} from "./route-totality-selected-source";
 import type { RouteRecord } from "./route-data";
 import {
   buildSolidRouteContextContinuity,
@@ -195,11 +199,12 @@ export function buildRouteTotalityRecords(
   routes: readonly RouteRecord[],
   provider: EvidenceRelationProvider,
   candidates: readonly ScopeCandidate[],
+  selectedSource: RouteTotalitySelectedSource | null = null,
   cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION,
 ): RouteTotalityRecord[] {
   return routes.map((route) => {
     cancellation.throwIfCancelled();
-    return buildRouteTotalityRecord(ts, program, root, route, provider, candidates, cancellation);
+    return buildRouteTotalityRecord(ts, program, root, route, provider, candidates, selectedSource, cancellation);
   });
 }
 
@@ -210,6 +215,7 @@ function buildRouteTotalityRecord(
   route: RouteRecord,
   provider: EvidenceRelationProvider,
   candidates: readonly ScopeCandidate[],
+  selectedSource: RouteTotalitySelectedSource | null,
   cancellation: AnalysisCancellationToken,
 ): RouteTotalityRecord {
   cancellation.throwIfCancelled();
@@ -229,7 +235,10 @@ function buildRouteTotalityRecord(
     ? buildSolidRouteContextContinuity(ts, program, root, occurrenceSurface, cancellation)
     : unavailableContextContinuity(occurrenceSurface.reason);
   cancellation.throwIfCancelled();
-  const evidenceSlice = buildEvidenceSlice(provider, seed, cancellation);
+  const normalEvidenceSlice = buildEvidenceSlice(provider, seed, cancellation);
+  const evidenceSlice = isUnavailable(normalEvidenceSlice)
+    ? normalEvidenceSlice
+    : mergeSelectedRouteSource(provider, normalEvidenceSlice, selectedSource, cancellation);
   cancellation.throwIfCancelled();
   const bridges = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice)
     ? buildRouteTotalityBridges(evidenceSlice, occurrenceSurface, cancellation)

@@ -3,6 +3,7 @@ import { cancellableStableSort } from "../analysis/cancellable-stable-sort";
 import type { EvidenceSlice as DomainEvidenceSlice } from "../analysis/evidence-slice";
 import {
   buildRouteTotalityAnchorIndex,
+  solidShowRenderPropTerminalAnchor,
   type RouteTotalityAnchorIndex,
 } from "../analysis/route-totality-anchor-index";
 import type { RouteOccurrenceSurface as DomainRouteOccurrenceSurface } from "../analysis/route-occurrence-surface";
@@ -34,6 +35,7 @@ export type EvidenceIndexes = {
 };
 
 export type SurfaceIndexes = {
+  surface: AvailableSurface;
   occurrencesById: ReadonlyMap<string, readonly SurfaceOccurrence[]>;
   terminalsById: ReadonlyMap<string, readonly SurfaceTerminal[]>;
   definitionIds: ReadonlySet<string>;
@@ -88,7 +90,23 @@ export function indexSurface(
   );
   const rootOccurrenceId = exactRootOccurrenceId(surface, anchors, evidence, cancellation);
   cancellation.throwIfCancelled();
-  return { occurrencesById, terminalsById, definitionIds, anchors, rootOccurrenceId };
+  return { surface, occurrencesById, terminalsById, definitionIds, anchors, rootOccurrenceId };
+}
+
+/** Resolve one Solid Show owner only from one exact terminal anchor. */
+export function solidShowTerminalOccurrenceForElement(
+  surface: SurfaceIndexes,
+  evidenceElementId: string,
+  cancellation: AnalysisCancellationToken,
+): string | null {
+  cancellation.throwIfCancelled();
+  const anchor = solidShowRenderPropTerminalAnchor(
+    surface.anchors,
+    surface.surface as unknown as DomainRouteOccurrenceSurface,
+    evidenceElementId,
+    cancellation,
+  );
+  return anchor?.endpoint.ownerOccurrenceId ?? null;
 }
 
 export function exactElement(evidence: EvidenceIndexes, id: string): EvidenceElement | undefined {
