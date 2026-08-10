@@ -1,21 +1,27 @@
 import { For, Show } from "solid-js";
-import type { RouteTotality } from "../../../api/contracts";
+import type { RouteDataDetail, RouteTotality } from "../../../api/contracts";
 import type { RouteTotalityCountSummary, RouteTotalityGraphSummary } from "./route-totality-model";
 import type { RouteTotalityLedgerSection } from "./route-totality-graph-state";
 import { DisplayLegendMark } from "./RouteTotalityDisplayMarks";
 import { RouteTotalityCoverageLedger } from "./RouteTotalityCoverageLedger";
+import { RouteTotalityEvidenceSection } from "./RouteTotalityEvidenceSection";
+import type { RouteTotalityFieldInspectorResult } from "./route-totality-field-inspector-model";
+import type { SourceEvidenceTarget } from "./source-evidence-model";
 
 export function RouteTotalityOverview(props: {
   totality: RouteTotality | null;
+  shadowEvidence: RouteDataDetail["shadowEvidence"];
   summary: RouteTotalityGraphSummary;
   counts: readonly RouteTotalityCountSummary[];
   evidenceVisible: boolean;
   evidenceDetailEnabled: boolean;
   evidenceNodeCount: number;
   ledgerItems: readonly RouteTotalityLedgerSection[];
+  fieldResult: RouteTotalityFieldInspectorResult | null;
   startSelectionAvailable: boolean;
   onSelectStart: () => void;
   onToggleEvidence: () => void;
+  onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
 }) {
   return <div class="route-totality-overview">
     <header class="route-totality-overview-header">
@@ -44,6 +50,7 @@ export function RouteTotalityOverview(props: {
       </div>
     </section>
     <RouteTotalityCoverageLedger items={props.ledgerItems} inspector />
+    <RouteTotalityEvidenceSection shadowEvidence={props.shadowEvidence} totality={props.totality} selected={null} fieldResult={props.fieldResult} onOpenSource={props.onOpenSource} />
   </div>;
 }
 

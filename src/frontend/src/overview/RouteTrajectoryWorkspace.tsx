@@ -2,7 +2,6 @@ import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import type { RouteDataDetail } from "../../../api/contracts";
 import { DataTrajectoryCanvas } from "./DataTrajectoryCanvas";
 import { RouteFlowGraph } from "./RouteFlowGraph";
-import { RouteShadowEvidenceGraph } from "./RouteShadowEvidenceGraph";
 import { RouteTotalityGraph } from "./RouteTotalityGraph";
 import { TrajectoryInspector } from "./TrajectoryInspector";
 import { TrajectorySourceDialog } from "./TrajectorySourceDialog";
@@ -19,7 +18,7 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; gener
   const [sourceContextTargets, setSourceContextTargets] = createSignal<SourceEvidenceTarget[]>([]);
   const [packets, setPackets] = createSignal<TrajectoryPacket[]>([]);
   const [packetOpen, setPacketOpen] = createSignal(false);
-  const renderer = createMemo(() => props.state.trajectoryRenderer ?? "current");
+  const renderer = createMemo<"current" | "totality">(() => props.state.trajectoryRenderer === "experimental" ? "totality" : props.state.trajectoryRenderer ?? "current");
   const expanded = createMemo(() => new Set(props.state.expand));
   const selected = createMemo(() => props.detail.operations.find((item) => item.key === props.state.item) ?? null);
   const isolated = createMemo(() => isolatedOperations(props.detail, props.state.item));
@@ -80,28 +79,27 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; gener
   const openTrajectory = () => props.onState({ view: "trajectory", item: props.detail.operations[0]?.key ?? null });
   const currentRenderer = () => renderer() === "current";
   const totalityRenderer = () => renderer() === "totality";
-  const changeRenderer = (next: "current" | "experimental" | "totality") => {
+  const changeRenderer = (next: "current" | "totality") => {
     if (renderer() === next) return;
     props.onState({ trajectoryRenderer: next, totalitySelection: null, graphCamera: null, isolate: false });
   };
-  const activateRenderer = (event: KeyboardEvent, next: "current" | "experimental" | "totality") => {
+  const activateRenderer = (event: KeyboardEvent, next: "current" | "totality") => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     changeRenderer(next);
   };
   return <div class="route-trajectory-workspace" classList={{ "route-flow-open": !currentRenderer() || props.state.view === "context", "route-totality-open": totalityRenderer() }}>
     <main>
-      <div class="route-trajectory-renderer-toggle" role="group" aria-label="Route trajectory renderer"><span>Renderer</span><button type="button" aria-pressed={currentRenderer()} onClick={() => changeRenderer("current")} onKeyDown={(event) => activateRenderer(event, "current")}>Current workspace</button><button type="button" aria-pressed={renderer() === "experimental"} onClick={() => changeRenderer("experimental")} onKeyDown={(event) => activateRenderer(event, "experimental")}>Experimental proof graph</button><button type="button" aria-pressed={totalityRenderer()} onClick={() => changeRenderer("totality")} onKeyDown={(event) => activateRenderer(event, "totality")}>Route totality</button></div>
+      <div class="route-trajectory-renderer-toggle" role="group" aria-label="Route trajectory renderer"><span>Renderer</span><button type="button" aria-pressed={currentRenderer()} onClick={() => changeRenderer("current")} onKeyDown={(event) => activateRenderer(event, "current")}>Current workspace</button><button type="button" aria-pressed={totalityRenderer()} onClick={() => changeRenderer("totality")} onKeyDown={(event) => activateRenderer(event, "totality")}>Route totality</button></div>
       <div class="route-trajectory-main-content">
-        <Show when={totalityRenderer()} fallback={<Show when={!currentRenderer()} fallback={<Show when={props.state.view === "context"} fallback={<>
+        <Show when={totalityRenderer()} fallback={<Show when={props.state.view === "context"} fallback={<>
           <Show when={props.state.isolate && isolated().incomingStub}><div class="trajectory-boundary-stub incoming">← {isolated().incomingStub?.label}</div></Show>
           <DataTrajectoryCanvas detail={displayDetail()} selectedKey={props.state.item} expanded={expanded()} isolated={props.state.isolate} zoom={props.state.zoom ?? 1} onSelect={(item) => props.onState({ item })} onPreview={setPreview} onToggleExpand={toggleExpand} onOpenEvidence={openEvidence} onZoom={(zoom) => props.onState({ zoom })} />
           <Show when={props.state.isolate && isolated().outgoingStub}><div class="trajectory-boundary-stub outgoing">{isolated().outgoingStub?.label} →</div></Show>
         </>}><RouteFlowGraph detail={props.detail} sourceKey={props.state.source} genericUiMode={props.state.genericUi} revealResetKey={`${props.state.open}:${props.generation}:${props.detail.route.key}:${props.detail.trajectory.key}`} onSource={(source) => props.onState({ source, item: null, expand: [], isolate: false, pan: null, zoom: null }, true)} onGenericUiMode={(genericUi) => props.onState({ genericUi })} onOpenEvidence={openTrajectory} onOpenSource={openEvidence} /></Show>}>
-          <RouteShadowEvidenceGraph evidence={props.detail.shadowEvidence ?? null} />
-        </Show>}>
           <RouteTotalityGraph
             totality={props.detail.totality}
+            shadowEvidence={props.detail.shadowEvidence}
             selectedSourceEvidence={selectedSourceEvidence()}
             generation={props.generation}
             hiddenComponentPolicy={props.detail.hiddenComponentPolicy}

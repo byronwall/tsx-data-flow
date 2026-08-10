@@ -83,7 +83,7 @@ export function serializeTrajectoryUrlState(state: TrajectoryUrlState, current =
   if (state.pan) params.set("pan", `${round(state.pan.x)},${round(state.pan.y)}`);
   if (state.zoom) params.set("zoom", String(round(state.zoom)));
   if (state.packet) params.set("packet", state.packet);
-  if (state.trajectoryRenderer !== undefined) params.set("trajectoryRenderer", state.trajectoryRenderer);
+  if (state.trajectoryRenderer !== undefined) params.set("trajectoryRenderer", state.trajectoryRenderer === "experimental" ? "totality" : state.trajectoryRenderer);
   if (state.totalitySelection) params.set("totalitySelection", `${state.totalitySelection.kind}:${state.totalitySelection.graphId}`);
   if (state.graphCamera) {
     const camera = normalizeGraphCamera(state.graphCamera);
@@ -98,7 +98,7 @@ export function normalizeTrajectoryUrlState(state: TrajectoryUrlState): Trajecto
     ...EMPTY_TRAJECTORY_STATE,
     ...state,
     expand: [...new Set(state.expand)],
-    trajectoryRenderer: state.trajectoryRenderer ?? "current",
+    trajectoryRenderer: state.trajectoryRenderer === "experimental" ? "totality" : state.trajectoryRenderer ?? "current",
     totalitySelection: state.totalitySelection ?? null,
     graphCamera: state.graphCamera ? normalizeGraphCamera(state.graphCamera) : null,
     contextFocus: state.contextFocus ?? null,
@@ -273,7 +273,7 @@ export function reconcileTrajectoryDetailState(state: TrajectoryUrlState, detail
 }
 
 function parseRenderer(value: string): TrajectoryRenderer {
-  return value === "experimental" || value === "totality" ? value : "current";
+  return value === "experimental" || value === "totality" ? "totality" : "current";
 }
 
 function parseTotalitySelection(value: string): TrajectoryTotalitySelection | null {
