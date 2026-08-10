@@ -14,6 +14,7 @@ import {
 } from "./route-totality-display-layout";
 import {
   routeTotalityDisplayNodeLabel,
+  routeTotalityDisplayFieldSummaryOffset,
   routeTotalityDisplayNodeSummary,
   type RouteTotalityDisplayZoom,
 } from "./route-totality-display-labels";
@@ -107,6 +108,7 @@ export function DisplayTotalityNode(props: {
   const centerX = () => props.node.width / 2;
   const centerY = () => props.node.height / 2;
   const labelScale = () => Math.max(.001, props.labelRenderScale);
+  const fieldSummaryOffset = () => routeTotalityDisplayFieldSummaryOffset(props.node);
   return <g
     ref={props.onRegister}
     data-route-selection={props.selection.graphId}
@@ -155,7 +157,7 @@ export function DisplayTotalityNode(props: {
     <Show when={props.fieldFocused && props.node.node.kind === "occurrence" && fieldSummary()}>
       <text
         class="route-totality-node-summary route-totality-node-field-summary"
-        x={(centerX() + props.node.radius + 5) * labelScale()}
+        x={(centerX() + props.node.radius + 5 + fieldSummaryOffset() / labelScale()) * labelScale()}
         y={(centerY() + 17) * labelScale()}
         transform={`scale(${1 / labelScale()})`}
       >{fieldSummary()}</text>

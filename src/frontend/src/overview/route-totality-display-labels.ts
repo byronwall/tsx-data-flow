@@ -12,6 +12,8 @@ export const DEFAULT_ROUTE_TOTALITY_VISIBLE_LABELS = 30;
 const LABEL_BUDGET_STEP = 15;
 const LABEL_ZOOM_STEP = 1.25;
 const ALL_LABELS_ZOOM_STEP = 5;
+const FIELD_LABEL_CHARACTER_WIDTH = 8;
+const FIELD_LABEL_GAP = 8;
 
 export function routeTotalityDisplayZoomLevel(scale: number): RouteTotalityDisplayZoom {
   if (scale >= 2.5) return "high";
@@ -86,6 +88,11 @@ export function routeTotalityDisplayNodeSummary(
   zoom: RouteTotalityDisplayZoom,
 ): string {
   return routeTotalityNodeSummary(node.node, toRouteTotalityZoom(zoom));
+}
+
+export function routeTotalityDisplayFieldSummaryOffset(node: RouteTotalityDisplayLayoutNode): number {
+  const label = clip(routeTotalityDisplayNodeLabel(node, "low"), 24);
+  return label.length * FIELD_LABEL_CHARACTER_WIDTH + FIELD_LABEL_GAP;
 }
 
 export function routeTotalityDisplayShowsExactEvidence(zoom: RouteTotalityDisplayZoom): boolean {
