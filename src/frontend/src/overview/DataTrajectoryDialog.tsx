@@ -71,7 +71,10 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     setNotice(restored.notice);
     lastUrlOpen = next.open;
     if (!sameTrajectoryUrlState(state(), next)) setState(next);
-    if (!sameTrajectoryUrlState(parseTrajectoryUrlState(search), next) && typeof window !== "undefined") commitBrowserUrl(serializeTrajectoryUrlState(next, search), true);
+    const legacyRenderer = new URLSearchParams(search).get("trajectoryRenderer") === "experimental";
+    if ((legacyRenderer || !sameTrajectoryUrlState(parseTrajectoryUrlState(search), next)) && typeof window !== "undefined") {
+      commitBrowserUrl(serializeTrajectoryUrlState(next, search), true);
+    }
   };
   const selectRoute = (routeKey: string) => {
     const flow = selectCheapestTrajectoryForRoute(props.inventory, routeKey);
@@ -128,6 +131,9 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     document.addEventListener("keydown", keydown);
     window.addEventListener("popstate", syncUrl);
     window.addEventListener(BROWSER_URL_CHANGE_EVENT, syncUrl);
+    if (new URLSearchParams(window.location.search).get("trajectoryRenderer") === "experimental") {
+      commitBrowserUrl(serializeTrajectoryUrlState(state(), window.location.search), true);
+    }
     createEffect(() => {
       const open = state().open;
       document.body.style.overflow = open ? "hidden" : previousOverflow;

@@ -12,10 +12,8 @@ import type {
   RouteTotalityLayoutNode,
   RouteTotalitySelection,
 } from "./route-totality-model";
-import type { RouteTotalityDisplayAnnotation } from "./route-totality-display-model";
 import type {
   RouteTotalityDisplayLayout,
-  RouteTotalityDisplayLayoutAnnotation,
   RouteTotalityDisplayLayoutBridge,
   RouteTotalityDisplayLayoutEdge,
   RouteTotalityDisplayLayoutNode,
@@ -249,58 +247,14 @@ function omissionGroupDetail(source: string, reason: string | null, named: numbe
   return `${affected} affected item${affected === 1 ? "" : "s"} · ${source}`;
 }
 
-type RenderableDisplayAnnotation = Omit<RouteTotalityDisplayLayoutAnnotation, "x" | "y"> & { x: number; y: number };
-
-export function renderableRouteTotalityAnnotations(
-  display: RouteTotalityDisplayLayout,
-  evidenceVisible: boolean,
-): RenderableDisplayAnnotation[] {
-  if (!evidenceVisible) return [];
-  const allAnnotations: RouteTotalityDisplayLayoutAnnotation[] = [
-    ...display.annotations,
-    ...display.model.routeGlobalGaps.map((annotation) => ({
-      annotation,
-      anchorNode: null,
-      anchorNodes: [],
-      x: null,
-      y: null,
-    })),
-  ];
-  let unanchoredIndex = 0;
-  return allAnnotations
-    .flatMap((item) => {
-      const needsExplicitLane = (
-        item.annotation.attachment !== "direct"
-        || item.annotation.scope === "route-global"
-        || item.x === null
-        || item.y === null
-      );
-      if (needsExplicitLane) {
-        const rendered = { ...item, x: 28, y: display.height + 56 + unanchoredIndex * 42 };
-        unanchoredIndex += 1;
-        return [rendered];
-      }
-      if (item.x !== null && item.y !== null) {
-        return [{ ...item, x: item.x, y: item.y }];
-      }
-      return [];
-    });
-}
-
 export function routeTotalityDisplayBounds(
   display: RouteTotalityDisplayLayout,
-  evidenceVisible: boolean,
-  annotations: readonly RenderableDisplayAnnotation[],
   boundaryStubs: readonly RouteTotalityBoundaryStub[] = [],
 ): { width: number; height: number } {
-  const nodes = evidenceVisible ? [...display.nodes, ...display.evidenceNodes] : [...display.nodes];
   const bounds = { maxX: 0, maxY: 0 };
-  for (const node of nodes) includePoint(bounds, node.x + node.width + 48, node.y + node.height + 42);
-  for (const item of annotations) includePoint(bounds, item.x + 420, item.y + 42);
-  const edges = evidenceVisible ? [...display.edges, ...display.evidenceEdges] : [...display.edges];
-  for (const edge of edges) includeEdgeGeometry(bounds, edge);
+  for (const node of display.nodes) includePoint(bounds, node.x + node.width + 48, node.y + node.height + 42);
+  for (const edge of display.edges) includeEdgeGeometry(bounds, edge);
   for (const bridge of display.bridges) {
-    if (!evidenceVisible) continue;
     includeBridgeGeometry(bounds, bridge);
   }
   for (const stub of boundaryStubs) {
@@ -343,53 +297,6 @@ function includeNodeGeometry(
 function includePoint(bounds: { maxX: number; maxY: number }, x: number, y: number): void {
   bounds.maxX = Math.max(bounds.maxX, x);
   bounds.maxY = Math.max(bounds.maxY, y);
-}
-
-export function routeTotalityDisplayInteractionLayout(
-  display: RouteTotalityDisplayLayout,
-  evidenceVisible: boolean,
-  bounds: { width: number; height: number },
-): RouteTotalityLayout {
-  const displayNodes = evidenceVisible ? [...display.nodes, ...display.evidenceNodes] : [...display.nodes];
-  const nodes = displayNodes.map((displayNode) => ({
-    ...displayNode.node,
-    x: displayNode.x,
-    y: displayNode.y,
-    width: displayNode.width,
-    height: displayNode.height,
-  }));
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  const displayEdges = evidenceVisible ? [...display.edges, ...display.evidenceEdges] : [...display.edges];
-  const edges = displayEdges.flatMap((displayEdge) => {
-    const fromNode = nodesById.get(displayEdge.edge.from);
-    const toNode = nodesById.get(displayEdge.edge.to);
-    return fromNode && toNode ? [{ ...displayEdge.edge, fromNode, toNode }] : [];
-  });
-  return {
-    ...display.model.layout,
-    nodes,
-    edges,
-    primaryNodeIds: display.nodes.map((node) => node.id),
-    evidenceNodeIds: evidenceVisible ? display.evidenceNodes.map((node) => node.id) : [],
-    width: bounds.width,
-    height: bounds.height,
-  };
-}
-
-export function selectionForRouteTotalityDisplayAnnotation(
-  annotation: RouteTotalityDisplayAnnotation,
-  layout: RouteTotalityLayout,
-): RouteInvestigationSelection {
-  const layoutNodes = layout.nodes as RouteTotalityLayoutNode[];
-  const originId = annotation.kind === "origin"
-    ? annotation.anchorIds.find((id) => layoutNodes.some((node) => node.id === id && node.kind === "origin"))
-    : undefined;
-  const node = layoutNodes.find((candidate) => candidate.id === (originId ?? annotation.anchorNodeId));
-  return node ? routeInvestigationSelectionForNode(node) : null;
-}
-
-export function routeTotalityDisplayEvidenceLaneY(layout: RouteTotalityDisplayLayout): number {
-  return Math.max(34, Math.min(...layout.evidenceNodes.map((node) => node.y)) - 18);
 }
 
 type AvailableEvidence = Exclude<RouteTotality["evidenceSlice"], { status: "unavailable" }>;

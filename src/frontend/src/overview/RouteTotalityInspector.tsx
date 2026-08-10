@@ -29,9 +29,6 @@ export function RouteTotalityInspector(props: {
   shadowEvidence: RouteDataDetail["shadowEvidence"];
   summary: RouteTotalityGraphSummary;
   counts: readonly RouteTotalityCountSummary[];
-  evidenceVisible: boolean;
-  evidenceDetailEnabled: boolean;
-  evidenceNodeCount: number;
   ledgerItems: readonly RouteTotalityLedgerSection[];
   startSelectionAvailable: boolean;
   selected: Accessor<RouteTotalityInspectorRecord | null>;
@@ -49,7 +46,6 @@ export function RouteTotalityInspector(props: {
   onContextSelect: (selection: RouteTotalityInspectorSelection) => void;
   findings: RouteTotalityFindingSummary;
   onSelectStart: () => void;
-  onToggleEvidence: () => void;
   contextUi: RouteContextContinuityUiState;
 }) {
   return <aside class="route-totality-inspector" aria-label="Route totality proof inspector">
@@ -59,7 +55,7 @@ export function RouteTotalityInspector(props: {
         onOpenSource={props.onOpenSource}
         onSelect={props.onContextSelect}
       />
-      <Show when={props.selected()} fallback={<RouteTotalityOverview totality={props.totality} shadowEvidence={props.shadowEvidence} summary={props.summary} counts={props.counts} evidenceVisible={props.evidenceVisible} evidenceDetailEnabled={props.evidenceDetailEnabled} evidenceNodeCount={props.evidenceNodeCount} ledgerItems={props.ledgerItems} startSelectionAvailable={props.startSelectionAvailable} fieldResult={props.fieldResult} onSelectStart={props.onSelectStart} onToggleEvidence={props.onToggleEvidence} onOpenSource={props.onOpenSource} />}>
+      <Show when={props.selected()} fallback={<RouteTotalityOverview totality={props.totality} shadowEvidence={props.shadowEvidence} summary={props.summary} counts={props.counts} ledgerItems={props.ledgerItems} startSelectionAvailable={props.startSelectionAvailable} fieldResult={props.fieldResult} onSelectStart={props.onSelectStart} onOpenSource={props.onOpenSource} />}>
         {(record) => <>
           <header class="route-totality-inspector-header">
             <div>

@@ -8,13 +8,8 @@ import type {
 import type { ComponentTopologyForceVector, ComponentTopologyLayoutSettings, ComponentTopologyLayoutStep } from "./component-topology-layout";
 import { layoutRouteTotalitySurface } from "./route-totality-surface-layout";
 
-const EVIDENCE_NODE_RADIUS = 5;
-const EVIDENCE_COLUMN_GAP = 210;
-const EVIDENCE_ROW_GAP = 52;
-const EVIDENCE_COLUMNS = 6;
 const PADDING_X = 24;
 const PADDING_Y = 24;
-const EVIDENCE_GAP = 96;
 const ANNOTATION_GAP = 24;
 const ANNOTATION_ROW_STEP = 38;
 
@@ -78,13 +73,8 @@ export function layoutRouteTotalityDisplay(
   const surfaceDepths = layoutDepths(model.surfaceNodes, model.surfaceEdges);
   const surface = placeSurfaceNodes(model.surfaceNodes, model.surfaceEdges, surfaceDepths, options);
   const surfaceNodes = surface.nodes;
-  const evidenceNodes = placeEvidenceNodes(model.evidenceNodes, surfaceNodes);
-  const allNodeById = new Map([
-    ...surfaceNodes.map((node) => [node.id, node] as const),
-    ...evidenceNodes.map((node) => [node.id, node] as const),
-  ]);
+  const allNodeById = new Map(surfaceNodes.map((node) => [node.id, node] as const));
   const edges = layoutEdges(model.surfaceEdges, allNodeById);
-  const evidenceEdges = layoutEdges(model.evidenceEdges, allNodeById);
   const bridges = model.bridges.map((bridge) => Object.freeze({
     bridge,
     fromNode: allNodeById.get(bridge.fromId) ?? null,
@@ -106,9 +96,9 @@ export function layoutRouteTotalityDisplay(
   return Object.freeze({
     model,
     nodes: freezeArray(surfaceNodes),
-    evidenceNodes: freezeArray(evidenceNodes),
+    evidenceNodes: freezeArray([]),
     edges: freezeArray(edges),
-    evidenceEdges: freezeArray(evidenceEdges),
+    evidenceEdges: freezeArray([]),
     bridges: freezeArray(bridges),
     annotations: freezeArray(annotations),
     forces: surface.forces,
@@ -173,40 +163,6 @@ function placeSurfaceNodes(
     })];
   });
   return { nodes: placedNodes, forces: surface.forces };
-}
-
-function placeEvidenceNodes(
-  nodes: readonly RouteTotalityDisplayNode[],
-  surfaceNodes: readonly RouteTotalityDisplayLayoutNode[],
-): RouteTotalityDisplayLayoutNode[] {
-  if (!nodes.length) return [];
-  const top = Math.max(
-    PADDING_Y,
-    ...surfaceNodes.map((node) => node.y + node.height),
-  ) + EVIDENCE_GAP;
-  const ordered = nodes
-    .slice()
-    .sort((left, right) => (
-      left.node.y - right.node.y
-      || left.node.x - right.node.x
-      || left.node.id.localeCompare(right.node.id)
-    ));
-  return ordered.map((displayNode, index) => {
-      const column = index % EVIDENCE_COLUMNS;
-      const row = Math.floor(index / EVIDENCE_COLUMNS);
-      return Object.freeze({
-        id: displayNode.id,
-        node: displayNode.node,
-        layer: displayNode.layer,
-        depth: column,
-        degree: 0,
-        radius: EVIDENCE_NODE_RADIUS,
-        x: PADDING_X + column * EVIDENCE_COLUMN_GAP,
-        y: top + row * EVIDENCE_ROW_GAP,
-        width: EVIDENCE_NODE_RADIUS * 2,
-        height: EVIDENCE_NODE_RADIUS * 2,
-      });
-    });
 }
 
 function layoutEdges(

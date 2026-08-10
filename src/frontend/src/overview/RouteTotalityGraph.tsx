@@ -16,7 +16,7 @@ import { RouteTotalityControls } from "./RouteTotalityControls";
 import { ComponentTopologyDebugControls } from "./ComponentTopologyDebugControls";
 import type { GenericUiMode, TrajectoryGraphCamera, TrajectoryTotalitySelection } from "./trajectory-url-state";
 import { DEFAULT_ROUTE_TOTALITY_CAMERA, createRouteTotalityCamera } from "./route-totality-camera";
-import { emphasisModeForSelection, persistedSelection, reconcileRouteTotalityState, selectionFromPersisted, buildRouteTotalityLedger, renderableRouteTotalityAnnotations, routeTotalityDisplayBounds, type RouteTotalityInvestigationStateChange } from "./route-totality-graph-state";
+import { emphasisModeForSelection, persistedSelection, reconcileRouteTotalityState, selectionFromPersisted, buildRouteTotalityLedger, routeTotalityDisplayBounds, type RouteTotalityInvestigationStateChange } from "./route-totality-graph-state";
 import { RouteTotalityViewport } from "./RouteTotalityViewport";
 import { createRouteTotalityGraphActions } from "./route-totality-graph-actions";
 import { hasRouteTotalityFieldOrigin, selectRouteTotalityFieldFocus, type RouteTotalityFieldOriginFocus } from "./route-totality-field-lineage-model";
@@ -73,7 +73,6 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   const [selection, setSelection] = createSignal<RouteInvestigationSelection>(initialSelection);
   const [activeFieldOrigin, setActiveFieldOrigin] = createSignal<RouteTotalityFieldOriginFocus | null>(null);
   const [fieldInspectorScope, setFieldInspectorScope] = createSignal<RouteTotalityFieldInspectorScope | null>(null);
-  const [showEvidenceDetail, setShowEvidenceDetail] = createSignal(false);
   const [emphasisMode, setEmphasisMode] = createSignal<RouteTotalityEmphasisMode | null>(untrack(() => emphasisModeForSelection(initialSelection)));
   const [isolated, setIsolated] = createSignal(untrack(() => Boolean(props.isolated && emphasisModeForSelection(initialSelection) !== null)));
   const markRefs = new Map<string, SVGGElement>();
@@ -146,7 +145,6 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     previousScopeKey = scopeKey;
     skipControlledSync = false;
     skipControlledCameraSync = false;
-    setShowEvidenceDetail(false);
     cameraController.cancelPan();
     if (scopeChanged) {
       cameraController.cancelPendingCommit();
@@ -284,12 +282,6 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   });
 
   const displayZoom = createMemo<RouteTotalityDisplayZoom>(() => routeTotalityDisplayZoomLevel(camera().scale));
-  const evidenceVisible = createMemo(() => {
-    const current = selection();
-    return showEvidenceDetail()
-      || current?.kind === "evidence-element"
-      || (current?.target === "edge" && current.source === "evidence-slice");
-  });
   const compactCounts = createMemo(() => COMPACT_COUNT_KEYS.flatMap((key) => {
     const item = layout().summary.countSummaries.find((summary) => summary.key === key);
     return item ? [item] : [];
@@ -305,23 +297,18 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   const fieldFrontierLabels = createMemo(() => selectRouteTotalityFieldFrontierLabels(
     props.totality,
     activeFieldOrigin(),
-    [...displayLayout().edges, ...displayLayout().evidenceEdges],
+    displayLayout().edges,
   ));
   const visibleDisplayNodes = createMemo(() => {
-    const display = displayLayout();
-    if (evidenceVisible()) return [...display.nodes, ...display.evidenceNodes];
-    return [...display.nodes];
+    return [...displayLayout().nodes];
   });
   const visibleDisplayEdges = createMemo(() => {
-    const display = displayLayout();
-    if (evidenceVisible()) return [...display.edges, ...display.evidenceEdges];
-    return [...display.edges];
+    return [...displayLayout().edges];
   });
   const displayLabelIds = createMemo(() => selectRouteTotalityDisplayLabelIds(
     visibleDisplayNodes(),
     {
       cameraScale: camera().scale,
-      includeEvidence: evidenceVisible(),
       selectedNodeIds: selection()?.target === "node" ? new Set([selection()!.graphId]) : new Set(),
       focusedNodeIds: new Set([
         ...emphasis().focusNodeIds,
@@ -338,15 +325,10 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
       fieldSummaryNodeIds: new Set(fieldFocus().summariesByNodeId.keys()),
     },
   ));
-  const baseDisplayBounds = createMemo(() => routeTotalityDisplayBounds(
-    displayLayout(),
-    evidenceVisible(),
-    renderableRouteTotalityAnnotations(displayLayout(), evidenceVisible()),
-    [],
-  ));
+  const baseDisplayBounds = createMemo(() => routeTotalityDisplayBounds(displayLayout()));
   const boundaryStubLayout = createMemo<RouteTotalityLayout>(() => {
     const display = displayLayout();
-    const displayNodes = (evidenceVisible() ? [...display.nodes, ...display.evidenceNodes] : [...display.nodes]).map((displayNode) => ({
+    const displayNodes = display.nodes.map((displayNode) => ({
       ...displayNode.node,
       x: displayNode.x,
       y: displayNode.y,
@@ -365,11 +347,8 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     : []);
   const displayBounds = createMemo(() => routeTotalityDisplayBounds(
     displayLayout(),
-    evidenceVisible(),
-    renderableRouteTotalityAnnotations(displayLayout(), evidenceVisible()),
     boundaryStubs(),
   ));
-  const displayAnnotations = createMemo(() => renderableRouteTotalityAnnotations(displayLayout(), evidenceVisible()));
   const selectedRecord = createMemo(() => buildRouteTotalityInspectorRecord(props.totality, layout(), selection()));
   const selectedFieldResult = createMemo(() => {
     const scope = fieldInspectorScope();
@@ -487,13 +466,11 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         displayBounds={displayBounds()}
         visibleDisplayNodes={visibleDisplayNodes()}
         visibleDisplayEdges={visibleDisplayEdges()}
-        displayAnnotations={displayAnnotations()}
         boundaryStubs={boundaryStubs()}
         displayLabelIds={displayLabelIds()}
         displayZoom={displayZoom()}
         camera={camera()}
         cameraController={cameraController}
-        evidenceVisible={evidenceVisible()}
         selection={selection()}
         fieldFocus={fieldFocus()}
         fieldFrontierLabels={fieldFrontierLabels()}
@@ -511,9 +488,6 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         shadowEvidence={props.shadowEvidence}
         summary={layout().summary}
         counts={compactCounts()}
-        evidenceVisible={evidenceVisible()}
-        evidenceDetailEnabled={showEvidenceDetail()}
-        evidenceNodeCount={displayModel().counts.evidenceNodeCount}
         ledgerItems={ledgerItems()}
         startSelectionAvailable={layout().summary.status !== "unavailable" && Boolean(startSelection())}
         selected={selectedRecord}
@@ -531,7 +505,6 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         onOpenSource={props.onOpenSource ?? (() => undefined)}
         onContextSelect={selectFromInspectorWithFieldFocus}
         onSelectStart={() => { const target = startSelection(); if (target) selectWithFieldFocus(target); }}
-        onToggleEvidence={() => setShowEvidenceDetail((value) => !value)}
         contextUi={contextUi}
       />
     </div>

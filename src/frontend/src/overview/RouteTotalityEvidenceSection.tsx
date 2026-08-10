@@ -20,7 +20,7 @@ export function RouteTotalityEvidenceSection(props: {
     props.fieldResult,
   ));
   return <section class="route-totality-inspector-section route-totality-evidence-section">
-    <h3>Evidence <span>{shadowStatusLabel(model().shadow.status)}</span></h3>
+    <h3>Evidence <span>{shadowStatusLabel(model().shadow.status)} · {evidenceSourceLabel(model().shadow.source)}</span></h3>
     <Show when={model().shadow.status !== "missing"} fallback={<p>No retained shadow evidence was returned for this route.</p>}>
       <p class="route-totality-evidence-note">Retained proof is summarized here. The full evidence graph is not rendered.</p>
       <dl class="route-totality-evidence-counts">
@@ -137,6 +137,10 @@ function EvidenceLocation(props: {
 
 function shadowStatusLabel(status: ReturnType<typeof buildRouteTotalityEvidenceModel>["shadow"]["status"]) {
   return status === "missing" ? "missing" : status;
+}
+
+function evidenceSourceLabel(source: ReturnType<typeof buildRouteTotalityEvidenceModel>["shadow"]["source"]) {
+  return source === "route-totality" ? "route proof" : source;
 }
 
 function formatLocation(location: { file: string; line: number; column: number }) {

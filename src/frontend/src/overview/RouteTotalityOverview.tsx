@@ -13,14 +13,10 @@ export function RouteTotalityOverview(props: {
   shadowEvidence: RouteDataDetail["shadowEvidence"];
   summary: RouteTotalityGraphSummary;
   counts: readonly RouteTotalityCountSummary[];
-  evidenceVisible: boolean;
-  evidenceDetailEnabled: boolean;
-  evidenceNodeCount: number;
   ledgerItems: readonly RouteTotalityLedgerSection[];
   fieldResult: RouteTotalityFieldInspectorResult | null;
   startSelectionAvailable: boolean;
   onSelectStart: () => void;
-  onToggleEvidence: () => void;
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
 }) {
   return <div class="route-totality-overview">
@@ -30,7 +26,6 @@ export function RouteTotalityOverview(props: {
       <p>{overviewMessage(props.totality, props.summary)}</p>
       <div class="route-totality-overview-actions">
         <button type="button" disabled={!props.startSelectionAvailable} onClick={() => props.onSelectStart()}>Select first route entry</button>
-        <button type="button" aria-pressed={props.evidenceDetailEnabled} onClick={() => props.onToggleEvidence()}>{props.evidenceDetailEnabled ? "Hide evidence detail" : "Show evidence detail"}</button>
       </div>
     </header>
     <section class="route-totality-inspector-section">
@@ -39,7 +34,6 @@ export function RouteTotalityOverview(props: {
         <For each={props.counts}>{(count) => <div><dt>{count.label}</dt><dd>{count.text}</dd></div>}</For>
         <Show when={props.totality?.bridgeCounts}>{(counts) => <div><dt>Proven handoffs</dt><dd>{counts().proven}/{counts().total}</dd></div>}</Show>
       </dl>
-      <p>{props.evidenceVisible ? "Evidence detail is visible." : `${props.evidenceNodeCount} evidence marks are hidden.`}</p>
       <Show when={props.summary.status !== "complete"}><p class="route-totality-overview-note">{props.summary.note}</p></Show>
     </section>
     <section class="route-totality-inspector-section">

@@ -2,14 +2,36 @@ import type { RouteShadowEvidence, RouteTotality } from "../../../api/contracts"
 import type { RouteTotalityFieldInspectorResult } from "./route-totality-field-inspector-model";
 import type { RouteTotalityInspectorRecord } from "./route-totality-inspector-model";
 
-type ShadowNode = RouteShadowEvidence["nodes"][number];
-type ShadowEdge = RouteShadowEvidence["edges"][number];
-type ShadowGap = RouteShadowEvidence["gaps"][number];
-type ShadowLocation = NonNullable<ShadowNode["location"]>;
+type ShadowLocation = NonNullable<RouteShadowEvidence["nodes"][number]["location"]>;
 type RouteEvidence = Extract<RouteTotality["evidenceSlice"], { elements: unknown[] }>;
 type RouteEvidenceElement = RouteEvidence["elements"][number];
 type RouteEvidenceRelation = RouteEvidence["relations"][number];
 type RouteEvidenceGap = RouteEvidence["gaps"][number];
+
+export type EvidenceNodeRecord = {
+  id: string;
+  role: string;
+  kind: string;
+  label: string;
+  location: ShadowLocation | null;
+};
+
+export type EvidenceEdgeRecord = {
+  id: string;
+  from: string;
+  to: string;
+  kind: string;
+  proof: { kind: string; detail: string; locations: readonly ShadowLocation[] };
+};
+
+export type EvidenceGapRecord = {
+  id: string;
+  from: string | null;
+  to: string | null;
+  label: string;
+  reason: string;
+  location: ShadowLocation | null;
+};
 
 export type EvidencePathStep = {
   role: string;
@@ -19,10 +41,11 @@ export type EvidencePathStep = {
 
 export type ShadowEvidenceModel = {
   status: RouteShadowEvidence["status"] | "missing";
-  nodes: readonly ShadowNode[];
+  source: "shadow" | "route-totality" | "missing";
+  nodes: readonly EvidenceNodeRecord[];
   path: readonly EvidencePathStep[];
-  edges: readonly ShadowEdge[];
-  gaps: readonly ShadowGap[];
+  edges: readonly EvidenceEdgeRecord[];
+  gaps: readonly EvidenceGapRecord[];
 };
 
 export type RouteEvidenceFocus = {
@@ -52,16 +75,19 @@ export function buildRouteTotalityEvidenceModel(
   selected: RouteTotalityInspectorRecord | null,
   fieldResult: RouteTotalityFieldInspectorResult | null,
 ): RouteTotalityEvidenceModel {
+  const routeEvidence = availableRouteEvidence(totality);
   const shadow = shadowEvidence
     ? {
       status: shadowEvidence.status,
-      nodes: shadowEvidence.nodes,
+      source: "shadow" as const,
+      nodes: shadowEvidence.nodes.map((node) => ({ ...node, location: node.location })),
       path: meaningfulShadowPath(shadowEvidence),
-      edges: shadowEvidence.edges,
-      gaps: shadowEvidence.gaps,
+      edges: shadowEvidence.edges.map((edge) => ({ ...edge, proof: { ...edge.proof, locations: edge.proof.locations } })),
+      gaps: shadowEvidence.gaps.map((gap) => ({ ...gap })),
     }
-    : { status: "missing" as const, nodes: [], path: [], edges: [], gaps: [] };
-  const routeEvidence = availableRouteEvidence(totality);
+    : routeEvidence
+      ? routeEvidenceFallback(totality, routeEvidence)
+      : { status: "missing" as const, source: "missing" as const, nodes: [], path: [], edges: [], gaps: [] };
   if (!routeEvidence) {
     return {
       shadow,
@@ -112,6 +138,62 @@ export function buildRouteTotalityEvidenceModel(
 
 function availableRouteEvidence(totality: RouteTotality | null): RouteEvidence | null {
   return totality && "elements" in totality.evidenceSlice ? totality.evidenceSlice : null;
+}
+
+function routeEvidenceFallback(totality: RouteTotality | null, evidence: RouteEvidence): ShadowEvidenceModel {
+  const elements = [...evidence.elements].sort((left, right) => Number(left.index ?? 0) - Number(right.index ?? 0));
+  return {
+    status: totality?.status === "partial" ? "partial" : "proven",
+    source: "route-totality",
+    nodes: elements.map((element) => ({
+      id: element.id,
+      role: routeElementRole(element),
+      kind: element.kind,
+      label: element.label,
+      location: element.location,
+    })),
+    path: meaningfulRoutePath(elements),
+    edges: evidence.relations
+      .filter((relation) => relation.status === "proven")
+      .map((relation) => ({
+        id: relation.id,
+        from: relation.from,
+        to: relation.to,
+        kind: relation.kind,
+        proof: { kind: relation.proof.kind, detail: relation.proof.detail, locations: relation.proof.locations },
+      })),
+    gaps: evidence.gaps.map((gap) => ({
+      id: gap.id,
+      from: gap.from,
+      to: gap.to,
+      label: gap.label,
+      reason: gap.reason,
+      location: gap.location,
+    })),
+  };
+}
+
+function routeElementRole(element: RouteEvidenceElement): string {
+  return element.originRoles[0] ?? element.terminalRoles[0] ?? (element.boundary ? "boundary" : element.kind);
+}
+
+function meaningfulRoutePath(elements: readonly RouteEvidenceElement[]): EvidencePathStep[] {
+  const meaningful = elements.filter((element, index) => (
+    index === 0
+    || index === elements.length - 1
+    || element.originRoles.length > 0
+    || element.terminalRoles.length > 0
+    || Boolean(element.boundary)
+    || /boundary|component|occurrence|resource|context|prop|query|response|return|render|terminal|handoff/i.test(`${element.kind} ${element.label}`)
+  ));
+  const compact = meaningful.length <= 10
+    ? meaningful
+    : Array.from({ length: 10 }, (_, index) => meaningful[Math.round(index * (meaningful.length - 1) / 9)]);
+  return deduplicatePath(compact.map((element) => ({
+    role: humanize(routeElementRole(element)),
+    label: element.label,
+    location: element.location,
+  })));
 }
 
 function addSelectionEvidenceIds(
@@ -182,12 +264,12 @@ function meaningfulShadowPath(evidence: RouteShadowEvidence): EvidencePathStep[]
   return deduplicatePath(path);
 }
 
-function isMeaningfulNode(node: ShadowNode): boolean {
+function isMeaningfulNode(node: RouteShadowEvidence["nodes"][number]): boolean {
   const value = (node.kind + " " + node.label).toLowerCase();
   return /boundary|component|occurrence|resource|context|prop|query|response|return|render|terminal|handoff/.test(value);
 }
 
-function nodeLocation(evidence: RouteShadowEvidence, node: ShadowNode): ShadowLocation | null {
+function nodeLocation(evidence: RouteShadowEvidence, node: RouteShadowEvidence["nodes"][number]): ShadowLocation | null {
   if (node.location) return node.location;
   if (node.role === "origin") return evidence.origin?.occurrence.location ?? evidence.origin?.definition.location ?? null;
   if (node.role === "terminal") return evidence.terminal?.location ?? null;
