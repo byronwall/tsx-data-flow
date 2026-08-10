@@ -25,7 +25,10 @@ import { routeTotalityFieldInspectorScopeForSelection } from "./route-totality-f
 import { DEFAULT_ROUTE_TOTALITY_SURFACE_LAYOUT_SETTINGS } from "./route-totality-surface-layout";
 import { createTopologyLayoutDebug } from "./topology-layout-debug";
 import { createRouteContextContinuityUiState } from "./route-context-continuity-state";
-import { exactRouteTotalityOriginForSource } from "./route-totality-source-focus";
+import {
+  exactRouteTotalityOriginForSource,
+  exactRouteTotalityOriginSelection,
+} from "./route-totality-source-focus";
 
 const COMPACT_COUNT_KEYS = ["origins", "occurrences", "boundaries", "terminals", "evidenceRelations", "evidenceGaps"] as const;
 
@@ -81,6 +84,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   let previousScopeKey: string | null | undefined;
   let previousControlledSelectionIdentity: string | null = null;
   let hasPreviousControlledSelectionIdentity = false;
+  let previousSourceFocusIdentity: string | null = null;
   let skipControlledSync = false;
   let skipControlledCameraSync = false;
 
@@ -240,8 +244,28 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
 
   createEffect(() => {
     const origin = exactRouteTotalityOriginForSource(props.totality, props.selectedSourceEvidence);
+    const evidence = props.selectedSourceEvidence;
+    if (!origin || !evidence) {
+      previousSourceFocusIdentity = null;
+      setActiveFieldOrigin(null);
+      setFieldInspectorScope(null);
+      return;
+    }
+    const focusIdentity = [props.scopeKey ?? props.totality?.route.key ?? "", evidence.id, origin.elementId, origin.role].join(":");
+    if (focusIdentity === previousSourceFocusIdentity) return;
+    previousSourceFocusIdentity = focusIdentity;
     setActiveFieldOrigin(origin);
-    setFieldInspectorScope(origin ? { kind: "origin" } : null);
+    if (props.selection !== null && props.selection !== undefined) {
+      const currentSelection = selection();
+      if (currentSelection) setFieldInspectorScopeForSelection(currentSelection);
+      else setFieldInspectorScope({ kind: "origin" });
+      return;
+    }
+    setFieldInspectorScope({ kind: "origin" });
+    const sourceSelection = exactRouteTotalityOriginSelection(layout(), origin);
+    if (!sourceSelection) return;
+    setEmphasisMode("both");
+    emitInvestigationState(sourceSelection, false);
   });
 
   createEffect(() => {
@@ -371,6 +395,8 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     selection()?.target === "node" ? { kind: "node", id: selection()!.graphId } : selection()?.target === "edge" ? { kind: "edge", id: selection()!.graphId } : null,
   ));
   const startSelection = createMemo<Exclude<RouteInvestigationSelection, null> | null>(() => {
+    const selectedSourceEntry = exactRouteTotalityOriginSelection(layout(), activeFieldOrigin());
+    if (selectedSourceEntry) return selectedSourceEntry;
     const entry = (layout().nodes as RouteTotalityLayoutNode[]).find((node) => node.kind === "origin")
       ?? (layout().nodes as RouteTotalityLayoutNode[]).find((node) => node.kind === "occurrence")
       ?? (layout().nodes as RouteTotalityLayoutNode[]).find((node) => node.kind === "terminal");

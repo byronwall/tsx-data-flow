@@ -1,4 +1,9 @@
 import type { RouteDataDetail, RouteTotality } from "../../../api/contracts";
+import {
+  routeInvestigationSelectionForNode,
+  type RouteInvestigationSelection,
+} from "./route-investigation-selection";
+import type { RouteTotalityLayout, RouteTotalityLayoutNode } from "./route-totality-model";
 
 type RouteDataSourceEvidence = RouteDataDetail["evidence"][number];
 type AvailableEvidence = Extract<RouteTotality["evidenceSlice"], { elements: unknown[] }>;
@@ -20,6 +25,28 @@ export function exactRouteTotalityOriginForSource(
   return matches.length === 1
     ? { elementId: matches[0].elementId, role: matches[0].role }
     : null;
+}
+
+/**
+ * Select only the one visible origin mark for an already proven source origin.
+ *
+ * The layout may contain several origin roles for one evidence element. Keep the
+ * role in the match so the controlled selection cannot attach by label or ID
+ * prefix alone.
+ */
+export function exactRouteTotalityOriginSelection(
+  layout: RouteTotalityLayout,
+  origin: RouteTotalitySourceFocus,
+): RouteInvestigationSelection {
+  if (!origin) return null;
+  const matches = (layout.nodes as RouteTotalityLayoutNode[]).filter((node) => (
+    node.kind === "origin"
+    && "elementId" in node.record
+    && "role" in node.record
+    && node.record.elementId === origin.elementId
+    && node.record.role === origin.role
+  ));
+  return matches.length === 1 ? routeInvestigationSelectionForNode(matches[0]) : null;
 }
 
 function exactLocation(
