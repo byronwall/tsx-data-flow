@@ -627,5 +627,7 @@ function addCarrier(
 }
 
 function isPath(file: TypeScript.SourceFile, root: string, expected: string): boolean {
-  return path.relative(root, file.fileName).replaceAll(path.sep, "/") === expected;
+  const target = path.resolve(file.fileName);
+  return target === path.resolve(root, expected)
+    || target === path.resolve(root, "app", expected);
 }

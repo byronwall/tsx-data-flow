@@ -203,7 +203,7 @@ function hasSnapshotBody(
     const expression = unwrap(context.ts, property.expression);
     if (!context.ts.isAwaitExpression(expression) || !context.ts.isCallExpression(expression.expression)) continue;
     const target = context.calls.find((call) => call.node === expression.expression)?.target;
-    if (target && isExactSnapshotTarget(context, target.declaration) && routePathForSource(context, target.declaration.getSourceFile()) === "src/lib/soccer/store.ts") return true;
+    if (target && isExactSnapshotTarget(context, target.declaration) && normalizedSourcePath(context, target.declaration.getSourceFile()) === "src/lib/soccer/store.ts") return true;
   }
   return false;
 }
@@ -270,7 +270,8 @@ function routePathForHandler(
   context: HttpBridgeEvidenceContext,
   declaration: TypeScript.FunctionLikeDeclaration,
 ): string | null {
-  const relative = routePathForSource(context, declaration.getSourceFile());
+  const relative = normalizedSourcePath(context, declaration.getSourceFile());
+  if (!relative) return null;
   if (!relative.startsWith("src/routes/")) return null;
   const withoutExtension = relative.replace(/\.(?:tsx?|jsx?)$/, "");
   const route = withoutExtension.slice("src/routes/".length);
@@ -284,8 +285,11 @@ function routePathForHandler(
   return pathValue === "/" ? "/" : pathValue;
 }
 
-function routePathForSource(context: HttpBridgeEvidenceContext, file: TypeScript.SourceFile): string {
-  return path.relative(context.root, file.fileName).replaceAll(path.sep, "/");
+/** Normalize one exact source-root layout without accepting arbitrary suffixes. */
+function normalizedSourcePath(context: HttpBridgeEvidenceContext, file: TypeScript.SourceFile): string | null {
+  const relative = path.relative(context.root, file.fileName).replaceAll(path.sep, "/");
+  if (relative.startsWith("src/")) return relative;
+  return relative.startsWith("app/src/") ? relative.slice("app/".length) : null;
 }
 
 function handlerMethod(declaration: TypeScript.FunctionLikeDeclaration): string | null {
