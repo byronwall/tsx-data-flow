@@ -281,6 +281,7 @@ function validateFrontierStop(
       relationIds: [...frontier.evidencePathRelationIds],
       partial: false,
       componentPropReceiver: null,
+      carrier: true,
     };
     const elementMap = new Map<string, EvidenceElement>();
     for (const [id, values] of evidence.elementsById) {

@@ -27,6 +27,7 @@ export type PathState = {
   relationIds: string[];
   partial: boolean;
   componentPropReceiver: ComponentPropReceiverState | null;
+  carrier: boolean;
 };
 
 export type TraversalState = PathState & {
@@ -81,6 +82,7 @@ export function nextState(
   occurrenceId: string | null,
   cancellation: AnalysisCancellationToken,
   componentPropReceiver: ComponentPropReceiverState | null = state.componentPropReceiver,
+  carrier = state.carrier || relation.kind === "carrier" || relation.kind === "http-bridge",
 ): TraversalState {
   cancellation.throwIfCancelled();
   const elementIds = copyIds(state.elementIds, [target.id], cancellation);
@@ -95,6 +97,7 @@ export function nextState(
     relationIds,
     partial: false,
     componentPropReceiver,
+    carrier,
   };
 }
 
@@ -144,6 +147,7 @@ export function traversalKey(state: TraversalState): string {
     currentElementId: state.currentElementId,
     currentOccurrenceId: state.currentOccurrenceId,
     componentPropReceiver: state.componentPropReceiver,
+    carrier: state.carrier,
     field: state.field?.elementIds ?? [],
   });
 }

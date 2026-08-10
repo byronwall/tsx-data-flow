@@ -43,6 +43,8 @@ export type FieldLineageTransitionContext = {
   hasField: boolean;
   isInitialOrigin: boolean;
   staticNamedField: boolean | null;
+  sourceFieldName?: string | null;
+  targetFieldName?: string | null;
   indexMetadata: ProgramIndexReadMetadata | null;
   currentFieldElementId: string | null;
   componentPropReceiverElementId: string | null;
@@ -127,6 +129,12 @@ export function classifyRouteTotalityFieldTransition(
         return { kind: "stop", reason: "ambiguous-target" };
       }
       return { kind: "preserve" };
+    }
+    case "carrier": {
+      return classifyCarrierTransition(context);
+    }
+    case "http-bridge": {
+      return classifyHttpBridgeTransition(context);
     }
     case "argument-binding": {
       if (!ARGUMENT_SOURCES.has(source.kind) || target.kind !== "parameter") {
@@ -280,6 +288,42 @@ function classifyFieldInputTransition(
   if (context.staticNamedField === null) return { kind: "stop", reason: "partial-proof" };
   if (!context.staticNamedField) return { kind: "stop", reason: "unsupported-relation" };
   return { kind: "field-input" };
+}
+
+function classifyCarrierTransition(context: FieldLineageTransitionContext): FieldLineageTransition {
+  if (context.hasField) return { kind: "stop", reason: "unsupported-transform" };
+  if (context.relation.proof.kind !== "carrier-boundary" && context.relation.proof.kind !== "context-continuity") {
+    return { kind: "stop", reason: "partial-proof" };
+  }
+  if (provenRelationsBetween(context.outgoingRelations, context.relation.from, context.relation.to, "carrier", context.cancellation).length !== 1) {
+    return { kind: "stop", reason: "ambiguous-target" };
+  }
+  return isExactCarrierEndpoint(context)
+    ? { kind: "preserve" }
+    : { kind: "stop", reason: "unsupported-relation" };
+}
+
+function classifyHttpBridgeTransition(context: FieldLineageTransitionContext): FieldLineageTransition {
+  if (context.hasField) return { kind: "stop", reason: "unsupported-transform" };
+  if (context.source?.kind !== "http-response" || context.target?.kind !== "resource-input") {
+    return { kind: "stop", reason: "unsupported-relation" };
+  }
+  if (context.relation.proof.kind !== "http-bridge") return { kind: "stop", reason: "partial-proof" };
+  return provenRelationsBetween(context.outgoingRelations, context.relation.from, context.relation.to, "http-bridge", context.cancellation).length === 1
+    ? { kind: "preserve" }
+    : { kind: "stop", reason: "ambiguous-target" };
+}
+
+function isExactCarrierEndpoint(context: FieldLineageTransitionContext): boolean {
+  const { source, target } = context;
+  if (!source || !target) return false;
+  if (source.kind === "file-input" && target.kind === "call") return true;
+  if (source.kind === "fetch-input" && target.kind === "call") return true;
+  if (source.kind === "call" && (target.kind === "call" || target.kind === "resource-input" || target.kind === "http-response")) return true;
+  if (source.kind === "alias" && target.kind === "return") return true;
+  if (source.kind === "alias" && target.kind === "field-read" && context.targetFieldName === "latest") return true;
+  if (source.kind === "field-read" && context.sourceFieldName === "latest" && target.kind === "call") return true;
+  return source.kind === "object-pack" && target.kind === "http-response";
 }
 
 export function isFullyProvenElement(

@@ -101,6 +101,7 @@ export function buildRouteTotalityFieldLineage(
   const rootOccurrenceId = routeTotalityFieldRootOccurrenceId(anchors, surface, elementsById, cancellation);
   const attachments = new Map<string, AttachmentAccumulator>();
   const frontiers: FrontierAccumulator = { emitted: new Map(), omittedIds: new Set() };
+  const carrierGaps: string[] = [];
   const truncations = new Map<string, TruncatedTraversalState>();
   const origins = cancellableStableSort(slice.origins, compareOrigin, cancellation);
 
@@ -120,6 +121,7 @@ export function buildRouteTotalityFieldLineage(
       anchors,
       attachments,
       frontiers,
+      carrierGaps,
       truncations,
       cancellation,
     });
@@ -133,7 +135,7 @@ export function buildRouteTotalityFieldLineage(
     frontiers,
     cancellation,
   );
-  return projectRouteTotalityFieldLineageResult(
+  const result = projectRouteTotalityFieldLineageResult(
     slice,
     surface,
     attachments,
@@ -142,6 +144,10 @@ export function buildRouteTotalityFieldLineage(
     relationsById,
     cancellation,
   );
+  const omissions = [...result.omissions, ...new Set(carrierGaps)];
+  return omissions.length === result.omissions.length
+    ? result
+    : { ...result, status: "partial", omissions };
 }
 
 export function unavailableRouteTotalityFieldLineage(reason: string): RouteTotalityFieldLineage {

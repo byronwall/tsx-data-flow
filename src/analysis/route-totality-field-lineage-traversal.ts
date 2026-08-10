@@ -48,6 +48,7 @@ export type RouteTotalityFieldTraversalInput = {
   anchors: RouteTotalityAnchorIndex;
   attachments: Map<string, AttachmentAccumulator>;
   frontiers: FrontierAccumulator;
+  carrierGaps: string[];
   truncations: Map<string, TruncatedTraversalState>;
   cancellation: AnalysisCancellationToken;
 };
@@ -64,6 +65,7 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
     anchors,
     attachments,
     frontiers,
+    carrierGaps,
     truncations,
     cancellation,
   } = input;
@@ -77,6 +79,7 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
     relationIds: [],
     partial: false,
     componentPropReceiver: null,
+    carrier: false,
   }];
   const best = new Map<string, TraversalState>();
 
@@ -140,6 +143,8 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
         hasField: state.field !== null,
         isInitialOrigin: state.currentElementId === origin.elementId && state.elementIds.length === 1,
         staticNamedField: target?.kind === "field-read" ? targetField !== null : null,
+        sourceFieldName: source?.fieldName ?? null,
+        targetFieldName: target?.fieldName ?? null,
         indexMetadata,
         currentFieldElementId: state.field?.elementIds.at(-1) ?? null,
         componentPropReceiverElementId: state.componentPropReceiver?.elementId ?? null,
@@ -157,6 +162,9 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
         cancellation,
       });
       if (transition.kind === "stop") {
+        if (!state.field) {
+          carrierGaps.push(`Carrier path stopped at ${target?.location.file ?? relation.proof.locations[0]?.file ?? "unknown"}:${target?.location.line ?? relation.proof.locations[0]?.line ?? 0} (${transition.reason}).`);
+        }
         addStopFrontier(state, relation, target, transition.reason, elementsById, frontiers, cancellation);
         continue;
       }
