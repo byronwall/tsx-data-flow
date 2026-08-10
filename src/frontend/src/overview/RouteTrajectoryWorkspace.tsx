@@ -26,6 +26,10 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; gener
   const displayDetail = createMemo<RouteDataDetail>(() => props.state.isolate ? { ...props.detail, operations: isolated().operations } : props.detail);
   const activePacket = createMemo(() => packets().find((packet) => packet.id === props.state.packet) ?? packets()[0] ?? null);
   const sourceTargets = createMemo(() => routeSourceEvidenceTargets(props.detail, props.state.item));
+  const selectedSourceEvidence = createMemo(() => {
+    const source = props.detail.sources.find((item) => item.key === props.state.source);
+    return source ? props.detail.evidence.find((item) => item.id === source.evidenceId) ?? null : null;
+  });
   const sourceDialogTargets = createMemo(() => mergeSourceTargets(sourceContextTargets(), sourceTargets()));
   onMount(() => {
     const restored = readPackets(window.localStorage); setPackets(restored);
@@ -98,6 +102,7 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; gener
         </Show>}>
           <RouteTotalityGraph
             totality={props.detail.totality}
+            selectedSourceEvidence={selectedSourceEvidence()}
             generation={props.generation}
             hiddenComponentPolicy={props.detail.hiddenComponentPolicy}
             genericUiMode={props.state.genericUi}

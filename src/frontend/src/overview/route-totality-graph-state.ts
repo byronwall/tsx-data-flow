@@ -296,6 +296,7 @@ export function routeTotalityDisplayBounds(
   focusedFieldPath?: {
     nodeIds: ReadonlySet<string>;
     edgeIds: ReadonlySet<string>;
+    bridgeIds?: ReadonlySet<string>;
   },
 ): { width: number; height: number } {
   const nodes = evidenceVisible
@@ -309,6 +310,7 @@ export function routeTotalityDisplayBounds(
     : [...display.edges, ...display.evidenceEdges.filter((edge) => focusedFieldPath?.edgeIds.has(edge.id))];
   for (const edge of edges) includePath(bounds, routeTotalityDisplayEdgePath(edge));
   for (const bridge of display.bridges) {
+    if (!evidenceVisible && !focusedFieldPath?.bridgeIds?.has(bridge.bridge.bridge.id)) continue;
     const path = routeTotalityDisplayBridgePath(bridge);
     if (path) includePath(bounds, path);
   }
