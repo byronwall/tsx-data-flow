@@ -3,6 +3,7 @@ import { isFullyProvenElement, isFullyProvenRelation } from "./route-totality-fi
 import type { EvidenceProof, EvidenceStatus } from "./scope-seam";
 
 export type ComponentBindingMetadata = {
+  propName: string | null;
   componentOccurrenceElementId: string | null;
   componentDefinitionId: string | null;
   parameterElementId: string | null;
@@ -66,6 +67,7 @@ export function componentBindingMetadataFromAttributes(
   attributes: ComponentBindingAttributes,
 ): ComponentBindingMetadata {
   return {
+    propName: stringAttribute(attributes.propName),
     componentOccurrenceElementId: stringAttribute(attributes.componentOccurrenceElementId),
     componentDefinitionId: stringAttribute(attributes.componentDefinitionId),
     parameterElementId: stringAttribute(attributes.parameterElementId),

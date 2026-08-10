@@ -69,7 +69,7 @@ export function traverseRouteTotalityFieldOrigin(input: RouteTotalityFieldTraver
     truncations,
     cancellation,
   } = input;
-  const originIdentity = { elementId: origin.elementId, role: origin.role };
+  const originIdentity = { elementId: origin.elementId, role: origin.role, selectedEvidenceId: null };
   const queue: TraversalState[] = [{
     origin: originIdentity,
     currentElementId: origin.elementId,

@@ -79,6 +79,16 @@ export const SUPPORTED_LAZY_RELATION_KINDS: readonly ProgramRelationKind[] = [
   "effect-input",
   "http-bridge",
   "carrier",
+  "collection-element",
+  "callback-parameter",
+  "predicate-return",
+  "find-result",
+  "function-return",
+  "function-call",
+  "show-when",
+  "show-render-parameter",
+  "accessor-call",
+  "consumer-value",
 ];
 
 /** No generated relation kind is silently omitted by the current provider. */

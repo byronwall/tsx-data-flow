@@ -31,6 +31,7 @@ export function projectRouteTotalityFieldLineage(
       occurrences: lineage.counts.occurrences,
       terminals: lineage.counts.terminals,
       frontiers: lineage.counts.frontiers,
+      transformations: lineage.counts.transformations,
     },
     omissions,
     transformations: sortedProject(lineage.transformations, (left, right) => left.id.localeCompare(right.id), projectTransformation, cancellation),
@@ -84,6 +85,9 @@ function projectTransformation(
     kind: transformation.kind,
     fromElementIds: copyIds(transformation.fromElementIds, cancellation),
     toElementIds: copyIds(transformation.toElementIds, cancellation),
+    evidenceRelationIds: copyIds(transformation.evidenceRelationIds, cancellation),
+    supportingElementIds: copyIds(transformation.supportingElementIds, cancellation),
+    supportingRelationIds: copyIds(transformation.supportingRelationIds, cancellation),
     locations: projectSourceLocations(transformation.locations, cancellation),
     proof: projectProofs(transformation.proof, cancellation),
     status: transformation.status,
@@ -114,6 +118,8 @@ function projectFrontier(
     evidencePathRelationIds: copyIds(frontier.evidencePathRelationIds, cancellation),
     location: frontier.location ? projectLocation(frontier.location) : null,
     proof: projectProofs(frontier.proof, cancellation),
+    missingTransformationKind: frontier.missingTransformationKind,
+    transformationIds: copyIds(frontier.transformationIds, cancellation),
   };
 }
 

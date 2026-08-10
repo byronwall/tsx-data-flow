@@ -83,7 +83,7 @@ export class ProgramEvidenceCollectorDeclarations extends ProgramEvidenceCollect
       symbolId,
       null,
       null,
-      component || handler ? "partial" : "proven",
+      handler ? "partial" : "proven",
       proof(
         symbolId ? "compiler-symbol" : "ast-node",
         "The source declaration identifies a function entry.",

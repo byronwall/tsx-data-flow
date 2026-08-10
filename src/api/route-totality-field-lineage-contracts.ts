@@ -41,6 +41,7 @@ const fieldSegmentSchema = z.strictObject({
 const fieldOriginSchema = z.strictObject({
   elementId: nonEmptyStringSchema,
   role: originRoleSchema,
+  selectedEvidenceId: nonEmptyStringSchema.nullable(),
 });
 const fieldSchema = z.strictObject({
   elementIds: z.array(nonEmptyStringSchema).min(1),
@@ -50,6 +51,8 @@ const fieldSchema = z.strictObject({
 });
 const fieldConsumerSchema = z.strictObject({
   id: nonEmptyStringSchema,
+  elementId: nonEmptyStringSchema,
+  occurrenceElementId: nonEmptyStringSchema,
   kind: z.enum(["render", "condition", "handler"]),
   label: nonEmptyStringSchema,
   occurrenceId: nonEmptyStringSchema,
@@ -61,6 +64,9 @@ const fieldTransformationSchema = z.strictObject({
   kind: nonEmptyStringSchema,
   fromElementIds: z.array(nonEmptyStringSchema),
   toElementIds: z.array(nonEmptyStringSchema),
+  evidenceRelationIds: z.array(nonEmptyStringSchema).min(1),
+  supportingElementIds: z.array(nonEmptyStringSchema),
+  supportingRelationIds: z.array(nonEmptyStringSchema),
   locations: z.array(sourceLocationSchema).min(1),
   proof: z.array(evidenceProofSchema).min(1),
   status: evidenceStatusSchema,
@@ -109,6 +115,8 @@ export const routeTotalityFieldLineageSchema = z.strictObject({
     evidencePathRelationIds: z.array(nonEmptyStringSchema),
     location: sourceLocationSchema.nullable(),
     proof: z.array(evidenceProofSchema),
+    missingTransformationKind: nonEmptyStringSchema.nullable(),
+    transformationIds: z.array(nonEmptyStringSchema),
   })),
   counts: z.strictObject({
     origins: z.number().int().nonnegative(),
@@ -116,6 +124,7 @@ export const routeTotalityFieldLineageSchema = z.strictObject({
     occurrences: z.number().int().nonnegative(),
     terminals: z.number().int().nonnegative(),
     frontiers: z.number().int().nonnegative(),
+    transformations: z.number().int().nonnegative(),
   }),
   omissions: z.array(nonEmptyStringSchema),
   transformations: z.array(fieldTransformationSchema),

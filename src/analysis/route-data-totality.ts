@@ -34,7 +34,10 @@ import {
   unavailableRouteTotalityFieldLineage,
   type RouteTotalityFieldLineage,
 } from "./route-totality-field-lineage";
-import { buildSelectedRouteTotalityFieldProof } from "./route-totality-field-proof";
+import {
+  buildSelectedRouteTotalityFieldProof,
+  SELECTED_ORIGIN_UNAVAILABLE_REASON,
+} from "./route-totality-field-proof";
 import {
   mergeSelectedRouteSource,
   type RouteTotalitySelectedSource,
@@ -245,12 +248,12 @@ function buildRouteTotalityRecord(
     ? buildRouteTotalityBridges(evidenceSlice, occurrenceSurface, cancellation)
     : [];
   const selectedProof = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice) && selectedSource
-    ? buildSelectedRouteTotalityFieldProof(ts, program, route, evidenceSlice, occurrenceSurface, selectedSource, cancellation)
+    ? buildSelectedRouteTotalityFieldProof(ts, program, root, provider, route, evidenceSlice, occurrenceSurface, selectedSource, cancellation)
     : null;
-  // Exact ledger queries replace lineage only when their compiler predicate
-  // applies. Other selected sources retain the prior bounded lineage policy.
   const fieldLineage = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice)
-    ? selectedProof ?? buildRouteTotalityFieldLineage(provider, evidenceSlice, occurrenceSurface, cancellation)
+    ? selectedSource
+      ? selectedProof ?? unavailableRouteTotalityFieldLineage(SELECTED_ORIGIN_UNAVAILABLE_REASON)
+      : buildRouteTotalityFieldLineage(provider, evidenceSlice, occurrenceSurface, cancellation)
     : unavailableRouteTotalityFieldLineage(
       isUnavailable(occurrenceSurface)
         ? occurrenceSurface.reason

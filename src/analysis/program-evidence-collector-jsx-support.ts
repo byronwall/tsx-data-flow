@@ -1,6 +1,6 @@
 import * as TypeScript from "typescript";
 import type { ProgramElementKind } from "./program-evidence";
-import { ProgramEvidenceCollectorComponentBindingSupport } from "./program-evidence-collector-component-binding";
+import { ProgramEvidenceCollectorFieldTransferSupport } from "./program-evidence-collector-field-transfers";
 import {
   firstBindingIdentifier,
   isExitStatusAssignment,
@@ -10,7 +10,7 @@ import {
   proof,
 } from "./program-evidence-support";
 
-export class ProgramEvidenceCollectorJsxSupport extends ProgramEvidenceCollectorComponentBindingSupport {
+export class ProgramEvidenceCollectorJsxSupport extends ProgramEvidenceCollectorFieldTransferSupport {
   protected collectNodes(file: TypeScript.SourceFile): void {
     const visit = (node: TypeScript.Node, ownerId: string | null) => {
       this.noteAstUnit();
@@ -233,6 +233,7 @@ export class ProgramEvidenceCollectorJsxSupport extends ProgramEvidenceCollector
 
   protected connectCalls(): void {
     this.connectComponentPropBindings();
+    this.connectFieldTransfers();
     for (const call of this.calls) {
       this.checkCancellation();
       if (call.target) {

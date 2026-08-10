@@ -1,6 +1,11 @@
 import { NO_ANALYSIS_CANCELLATION, type AnalysisCancellationToken } from "../analysis/cancellation";
 import { MAX_FRONTIERS } from "../analysis/route-totality-field-lineage-frontier";
 import { isFullyProvenElement, isFullyProvenProof } from "../analysis/route-totality-field-lineage-transition";
+import {
+  EXACT_FIELD_TRANSFER_KINDS,
+  verifyExactFieldTransfer,
+} from "../analysis/route-totality-field-transfer-verifier";
+import { SELECTED_ORIGIN_UNAVAILABLE_REASON } from "../analysis/route-totality-field-proof";
 import type { RouteTotality } from "./route-totality-contracts";
 import { addIssue, type ValidationIssue } from "./route-occurrence-validation-graph";
 import { validateFieldLineageFrontierStop } from "./route-totality-field-lineage-validation-frontier";
@@ -91,13 +96,13 @@ function validateUnavailable(
   if (!lineage.unavailableReason) {
     addIssue(issues, ["fieldLineage", "unavailableReason"], "unavailable field lineage requires a reason");
   }
-  if (!unavailableInputs) {
+  if (!unavailableInputs && lineage.unavailableReason !== SELECTED_ORIGIN_UNAVAILABLE_REASON) {
     addIssue(issues, ["fieldLineage", "status"], "available route inputs cannot produce unavailable field lineage");
   }
   if (lineage.attachments.length > 0 || lineage.frontiers.length > 0) {
     addIssue(issues, ["fieldLineage"], "unavailable field lineage cannot contain attachments or frontiers");
   }
-  for (const key of ["origins", "fields", "occurrences", "terminals", "frontiers"] as const) {
+  for (const key of ["origins", "fields", "occurrences", "terminals", "frontiers", "transformations"] as const) {
     cancellation.throwIfCancelled();
     if (lineage.counts[key] !== 0) addIssue(issues, ["fieldLineage", "counts", key], "unavailable field lineage must have zero counts");
   }
@@ -126,6 +131,9 @@ function validateAttachments(
     if (ids.has(attachment.id)) addIssue(issues, [...path, "id"], `duplicate field attachment id "${attachment.id}"`);
     ids.add(attachment.id);
     const originElement = validateOrigin(attachment.origin, evidence, [...path, "origin"], issues, cancellation);
+    if (attachment.transformationIds.length > 0 && attachment.origin.selectedEvidenceId === null) {
+      addIssue(issues, [...path, "origin", "selectedEvidenceId"], "ledger origin must carry the exact selected route-data evidence id");
+    }
     const occurrence = validateOccurrence(
       attachment.occurrenceId,
       evidence,
@@ -156,6 +164,14 @@ function validateTransformations(
   lineage: RouteTotality["fieldLineage"], evidence: EvidenceIndexes, issues: ValidationIssue[], cancellation: AnalysisCancellationToken,
 ): void {
   const seen = new Set<string>();
+  const graph = {
+    element: (id: string) => exactElement(evidence, id),
+    relation: (id: string) => {
+      const values = evidence.relationsById.get(id) ?? [];
+      return values.length === 1 ? values[0] : undefined;
+    },
+    outgoing: (id: string) => evidence.outgoing.get(id) ?? [],
+  };
   for (let index = 0; index < lineage.transformations.length; index += 1) {
     cancellation.throwIfCancelled();
     const value = lineage.transformations[index];
@@ -172,6 +188,8 @@ function validateTransformations(
     for (const id of [...value.fromElementIds, ...value.toElementIds]) {
       if (!exactElement(evidence, id) || !isFullyProvenElement(exactElement(evidence, id), cancellation)) addIssue(issues, path, "ledger transformations must reference fully proven evidence elements");
     }
+    const verification = verifyExactFieldTransfer(value, graph, cancellation);
+    if (!verification.ok) addIssue(issues, path, verification.detail);
   }
 }
 
@@ -197,8 +215,12 @@ function validateLedgerAttachment(
     if (index > 0 && steps[index - 1]!.toElementIds[0] !== step.fromElementIds[0]) addIssue(issues, [...path, "transformationIds", index], "ledger transfers must form one contiguous exact chain");
   }
   if (steps[0]!.fromElementIds[0] !== attachment.origin.elementId) addIssue(issues, [...path, "origin"], "ledger chain must start at the selected exact origin");
+  if (steps.length !== EXACT_FIELD_TRANSFER_KINDS.length
+    || steps.some((step, index) => step.kind !== EXACT_FIELD_TRANSFER_KINDS[index])) {
+    addIssue(issues, [...path, "transformationIds"], "attachment must reference one ordered C01-C12 transfer chain");
+  }
   const fieldIds = attachment.field.elementIds;
-  if (fieldIds.length !== 2 || !steps.some((step) => step.toElementIds[0] === fieldIds[0]) || !steps.some((step) => step.toElementIds[0] === fieldIds[1])) {
+  if (fieldIds.length !== 3 || !fieldIds.every((id) => steps.some((step) => step.fromElementIds[0] === id || step.toElementIds[0] === id))) {
     addIssue(issues, [...path, "field"], "ledger chain must contain each exact field read");
   }
   const expected = `${attachment.field.segments[0]?.value}[*].${attachment.field.segments[2]?.value}`;
@@ -207,14 +229,17 @@ function validateLedgerAttachment(
   }
   const consumer = attachment.consumer;
   const last = steps.at(-1)!;
-  const consumerElement = consumer ? exactElement(evidence, last.toElementIds[0]) : undefined;
-  if (!consumer || !consumerElement || consumer.occurrenceId !== attachment.occurrenceId || !sameLocations([consumer.location], [consumerElement.location], cancellation) || !occurrence) {
+  const consumerElement = consumer ? exactElement(evidence, consumer.elementId) : undefined;
+  const consumerOccurrence = consumer ? exactElement(evidence, consumer.occurrenceElementId) : undefined;
+  if (!consumer || !consumerElement || !consumerOccurrence || last.toElementIds[0] === consumer.elementId
+    || consumer.occurrenceId !== attachment.occurrenceId || !sameLocations([consumer.location], [consumerElement.location], cancellation) || !occurrence) {
     addIssue(issues, [...path, "consumer"], "ledger consumer must be the exact expression owned by this occurrence");
     return;
   }
   const anchor = endpointOccurrenceAnchors(surface.anchors, occurrence.id, cancellation)[0];
-  const owner = anchor ? exactElement(evidence, anchor.evidenceElementId) : undefined;
-  if (!owner || !contains(owner.location, consumer.location)) addIssue(issues, [...path, "consumer"], "consumer expression must be inside the exact call-site occurrence anchor");
+  if (!anchor || anchor.evidenceElementId !== consumer.occurrenceElementId || !contains(consumerOccurrence.location, consumer.location)) {
+    addIssue(issues, [...path, "consumer"], "consumer expression must belong to the exact anchored call-site occurrence");
+  }
   const terminal = attachment.terminalIds.length === 1 ? surface.terminalsById.get(attachment.terminalIds[0]) ?? [] : [];
   if (terminal.length !== 1 || !endpointTerminalAnchors(surface.anchors, attachment.terminalIds[0], cancellation).length) {
     addIssue(issues, [...path, "terminalIds"], "ledger attachment requires one exact route render terminal anchor");
@@ -245,7 +270,14 @@ function validateFrontiers(
     ids.add(frontier.id);
     validateOrigin(frontier.origin, evidence, [...path, "origin"], issues, cancellation);
     if (!frontier.field) {
-      addIssue(issues, [...path, "field"], "Milestone 1 field frontiers require the last exact field identity");
+      const isCarrierFrontier = frontier.origin.role === "filesystem"
+        && frontier.origin.selectedEvidenceId !== null
+        && frontier.reason === "partial-proof"
+        && frontier.missingTransformationKind !== null
+        && EXACT_FIELD_TRANSFER_KINDS.includes(frontier.missingTransformationKind as typeof EXACT_FIELD_TRANSFER_KINDS[number])
+        && frontier.occurrenceId === null
+        && frontier.transformationIds.length <= EXACT_FIELD_TRANSFER_KINDS.length;
+      if (!isCarrierFrontier) addIssue(issues, [...path, "field"], "a null-field frontier requires one typed selected-source C01-C12 failure");
     } else {
       validateFieldLineageField(
         frontier.field,
@@ -261,7 +293,7 @@ function validateFrontiers(
     if (frontier.occurrenceId !== null) {
       validateOccurrence(frontier.occurrenceId, evidence, undefined, surface, [...path, "occurrenceId"], issues, cancellation);
     }
-    validateFieldLineageFrontierStop(frontier, evidence, surface, path, issues, cancellation);
+    if (frontier.field) validateFieldLineageFrontierStop(frontier, evidence, surface, path, issues, cancellation);
   }
   cancellation.throwIfCancelled();
 }

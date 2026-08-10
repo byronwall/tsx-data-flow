@@ -28,6 +28,7 @@ export const evidenceProofSchema = z.strictObject({
   status: evidenceStatusSchema,
 });
 export const componentBindingMetadataSchema = z.strictObject({
+  propName: nonEmptyStringSchema.nullable(),
   componentOccurrenceElementId: nonEmptyStringSchema.nullable(),
   componentDefinitionId: nonEmptyStringSchema.nullable(),
   parameterElementId: nonEmptyStringSchema.nullable(),

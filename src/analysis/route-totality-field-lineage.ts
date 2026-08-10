@@ -30,6 +30,8 @@ export type RouteTotalityFieldSegment = {
 
 export type RouteTotalityFieldConsumer = {
   id: string;
+  elementId: string;
+  occurrenceElementId: string;
   kind: "render" | "condition" | "handler";
   label: string;
   occurrenceId: string;
@@ -42,6 +44,9 @@ export type RouteTotalityFieldTransformation = {
   kind: string;
   fromElementIds: string[];
   toElementIds: string[];
+  evidenceRelationIds: string[];
+  supportingElementIds: string[];
+  supportingRelationIds: string[];
   locations: SourceLocation[];
   proof: EvidenceProof[];
   status: "proven" | "partial" | "unsupported";
@@ -57,6 +62,7 @@ export type RouteTotalityField = {
 export type RouteTotalityFieldOrigin = {
   elementId: string;
   role: OriginRole;
+  selectedEvidenceId: string | null;
 };
 
 export type RouteTotalityFieldAttachment = {
@@ -93,6 +99,8 @@ export type RouteTotalityFieldFrontier = {
   evidencePathRelationIds: string[];
   location: SourceLocation | null;
   proof: EvidenceProof[];
+  missingTransformationKind: string | null;
+  transformationIds: string[];
 };
 
 export type RouteTotalityFieldLineage = {
@@ -106,6 +114,7 @@ export type RouteTotalityFieldLineage = {
     occurrences: number;
     terminals: number;
     frontiers: number;
+    transformations: number;
   };
   omissions: string[];
   transformations: RouteTotalityFieldTransformation[];
@@ -181,7 +190,7 @@ export function unavailableRouteTotalityFieldLineage(reason: string): RouteTotal
     unavailableReason: reason,
     attachments: [],
     frontiers: [],
-    counts: { origins: 0, fields: 0, occurrences: 0, terminals: 0, frontiers: 0 },
+    counts: { origins: 0, fields: 0, occurrences: 0, terminals: 0, frontiers: 0, transformations: 0 },
     omissions: [reason],
     transformations: [],
   };

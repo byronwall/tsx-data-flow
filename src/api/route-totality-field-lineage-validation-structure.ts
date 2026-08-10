@@ -34,8 +34,9 @@ export function validateFieldLineageCounts(
     occurrences: occurrences.size,
     terminals: terminals.size,
     frontiers: lineage.frontiers.length,
+    transformations: lineage.transformations.length,
   };
-  for (const key of ["origins", "fields", "occurrences", "terminals", "frontiers"] as const) {
+  for (const key of ["origins", "fields", "occurrences", "terminals", "frontiers", "transformations"] as const) {
     cancellation.throwIfCancelled();
     if (lineage.counts[key] !== expected[key]) {
       addIssue(issues, ["fieldLineage", "counts", key], `count must equal ${expected[key]}`);

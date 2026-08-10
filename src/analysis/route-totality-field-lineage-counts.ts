@@ -8,6 +8,7 @@ export function lineageCounts(
   attachments: readonly RouteTotalityFieldAttachment[],
   frontiers: readonly RouteTotalityFieldFrontier[],
   cancellation: AnalysisCancellationToken,
+  transformationCount = 0,
 ) {
   cancellation.throwIfCancelled();
   const origins = new Set<string>();
@@ -34,5 +35,6 @@ export function lineageCounts(
     occurrences: occurrences.size,
     terminals: terminals.size,
     frontiers: frontiers.length,
+    transformations: transformationCount,
   };
 }

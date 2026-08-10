@@ -37,11 +37,11 @@ export function fieldOriginFocusForOrigin(
     .map((attachment) => attachment.origin)
     .concat(totality.fieldLineage.frontiers.map((frontier) => frontier.origin))
     .find((candidate) => candidate.elementId === elementId && candidate.role === role);
-  if (origin) return { elementId: origin.elementId, role: origin.role };
+  if (origin) return { elementId: origin.elementId, role: origin.role, selectedEvidenceId: origin.selectedEvidenceId };
   const evidenceOrigin = "origins" in totality.evidenceSlice
     ? totality.evidenceSlice.origins.find((candidate) => candidate.elementId === elementId && candidate.role === role && candidate.status === "proven")
     : undefined;
-  return evidenceOrigin ? { elementId: evidenceOrigin.elementId, role: evidenceOrigin.role } : null;
+  return evidenceOrigin ? { elementId: evidenceOrigin.elementId, role: evidenceOrigin.role, selectedEvidenceId: null } : null;
 }
 
 export function hasRouteTotalityFieldOrigin(
@@ -155,10 +155,11 @@ function emptyFieldFocusModel(origin: RouteTotalityFieldOriginFocus | null): Rou
 }
 
 function sameOrigin(
-  left: { elementId: string; role: string },
+  left: { elementId: string; role: string; selectedEvidenceId?: string | null },
   right: RouteTotalityFieldOriginFocus,
 ): boolean {
-  return left.elementId === right.elementId && left.role === right.role;
+  return left.elementId === right.elementId && left.role === right.role
+    && (left.selectedEvidenceId === undefined || left.selectedEvidenceId === right.selectedEvidenceId);
 }
 
 function fieldOriginLabel(totality: RouteTotality, origin: RouteTotalityFieldOriginFocus): string {

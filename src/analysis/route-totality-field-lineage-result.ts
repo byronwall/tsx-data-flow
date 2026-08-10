@@ -52,7 +52,7 @@ export function projectRouteTotalityFieldLineageResult(
     unavailableReason: null,
     attachments: sortedAttachments,
     frontiers: sortedFrontiers,
-    counts: lineageCounts(sortedAttachments, sortedFrontiers, cancellation),
+    counts: lineageCounts(sortedAttachments, sortedFrontiers, cancellation, 0),
     omissions,
     transformations: [],
   };

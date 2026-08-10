@@ -39,7 +39,7 @@ export function createRouteDataTotalitySession(
   return {
     get(routeKey, selectedSource, cancellation = NO_ANALYSIS_CANCELLATION) {
       cancellation.throwIfCancelled();
-      const cacheKey = `${routeKey}\u0000${selectedSource?.key ?? ""}`;
+      const cacheKey = `${routeKey}\u0000${selectedSourceCacheKey(selectedSource)}`;
       const retained = recordsBySelection.get(cacheKey);
       if (retained) return retained;
       const route = routesByKey.get(routeKey);
@@ -52,6 +52,24 @@ export function createRouteDataTotalitySession(
       return attached;
     },
   };
+}
+
+function selectedSourceCacheKey(selectedSource: RouteTotalitySelectedSource | null): string {
+  if (!selectedSource) return "";
+  const evidence = selectedSource.evidence;
+  return evidence
+    ? JSON.stringify([
+        selectedSource.key,
+        evidence.id,
+        evidence.file,
+        evidence.line,
+        evidence.column,
+        evidence.span.startLine,
+        evidence.span.startColumn,
+        evidence.span.endLine,
+        evidence.span.endColumn,
+      ])
+    : JSON.stringify([selectedSource.key, null]);
 }
 
 export function registerRouteDataTotalitySession(

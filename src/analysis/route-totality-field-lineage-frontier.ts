@@ -63,6 +63,8 @@ export function makeFrontier(
     evidencePathRelationIds,
     location,
     proof,
+    missingTransformationKind: null,
+    transformationIds: [],
   };
 }
 
