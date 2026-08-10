@@ -61,6 +61,7 @@ function selectedSourceCacheKey(selectedSource: RouteTotalitySelectedSource | nu
     ? JSON.stringify([
         selectedSource.key,
         evidence.id,
+        evidence.elementId,
         evidence.file,
         evidence.line,
         evidence.column,

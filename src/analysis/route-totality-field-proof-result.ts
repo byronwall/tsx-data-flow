@@ -1,6 +1,11 @@
 import type { AnalysisCancellationToken } from "./cancellation";
 import type { EvidenceProof, ProgramElement, ProgramRelation, SourceLocation } from "./scope-seam";
-import { stableHash } from "./scope-seam";
+import {
+  fieldAttachmentId,
+  fieldConsumerId,
+  fieldFrontierId,
+  fieldTransformationId,
+} from "./route-totality-field-lineage-id";
 import type {
   RouteTotalityFieldAttachment,
   RouteTotalityFieldFrontier,
@@ -12,11 +17,11 @@ import type { ExactFieldTransferKind } from "./route-totality-field-transfer-ver
 
 export type FieldProofResultInput = {
   origin: RouteTotalityFieldOrigin;
-  games: ProgramElement;
+  collectionField: ProgramElement;
   collectionElement: ProgramElement;
-  field: ProgramElement;
+  consumerField: ProgramElement;
   occurrence: ProgramElement;
-  titleValue: ProgramElement;
+  consumerValue: ProgramElement;
   binding: ProgramElement;
   occurrenceId: string;
   terminalId: string;
@@ -27,30 +32,31 @@ export type FieldProofResultInput = {
 export function provenFieldProof(input: FieldProofResultInput, cancellation: AnalysisCancellationToken): RouteTotalityFieldLineage {
   const locations = uniqueLocations([
     ...input.transformations.flatMap((item) => item.locations),
-    input.titleValue.location,
+    input.consumerValue.location,
   ], cancellation);
   const consumer = {
-    id: stableId("consumer", [input.occurrence.id, input.titleValue.id, input.binding.id]),
-    elementId: input.titleValue.id,
+    id: "",
+    elementId: input.consumerValue.id,
     occurrenceElementId: input.occurrence.id,
     kind: "render" as const,
-    label: `${input.occurrence.label}.title`,
+    label: `${input.occurrence.label}.${input.binding.componentBinding!.propName}`,
     occurrenceId: input.occurrenceId,
     routeTerminalId: input.terminalId,
-    location: input.titleValue.location,
+    location: input.consumerValue.location,
   };
+  consumer.id = fieldConsumerId(consumer);
   const attachment: RouteTotalityFieldAttachment = {
-    id: stableId("attachment", [input.origin.elementId, input.games.id, input.collectionElement.id, input.field.id, input.occurrenceId, consumer.id]),
+    id: "",
     origin: input.origin,
     field: {
-      elementIds: [input.games.id, input.collectionElement.id, input.field.id],
+      elementIds: [input.collectionField.id, input.collectionElement.id, input.consumerField.id],
       segments: [
-        { kind: "property", value: input.games.fieldName! },
+        { kind: "property", value: input.collectionField.fieldName! },
         { kind: "collection-element", value: "*" },
-        { kind: "property", value: input.field.fieldName! },
+        { kind: "property", value: input.consumerField.fieldName! },
       ],
-      label: `${input.games.fieldName}[*].${input.field.fieldName}`,
-      location: input.field.location,
+      label: `${input.collectionField.fieldName}[*].${input.consumerField.fieldName}`,
+      location: input.consumerField.location,
     },
     occurrenceId: input.occurrenceId,
     terminalIds: [input.terminalId],
@@ -63,6 +69,16 @@ export function provenFieldProof(input: FieldProofResultInput, cancellation: Ana
     transformationIds: input.transformations.map((item) => item.id),
     transformationKinds: input.transformations.map((item) => item.kind),
   };
+  attachment.id = fieldAttachmentId({
+    origin: attachment.origin,
+    fieldElementIds: attachment.field.elementIds,
+    occurrenceId: attachment.occurrenceId,
+    terminalIds: attachment.terminalIds,
+    consumerId: attachment.consumer?.id ?? null,
+    transformationIds: attachment.transformationIds,
+    evidencePathElementIds: attachment.evidencePathElementIds,
+    evidencePathRelationIds: attachment.evidencePathRelationIds,
+  });
   return {
     status: input.partial ? "partial" : "complete",
     unavailableReason: null,
@@ -81,14 +97,15 @@ export function failedFieldProof(
   accepted: readonly RouteTotalityFieldTransformation[],
   detail: string,
   cancellation: AnalysisCancellationToken,
+  reason: RouteTotalityFieldFrontier["reason"] = "partial-proof",
 ): RouteTotalityFieldLineage {
   const locations = current ? uniqueLocations([current.location], cancellation) : [];
   const frontier: RouteTotalityFieldFrontier = {
-    id: stableId("frontier", [origin.elementId, current?.id ?? "none", missingTransformationKind, detail]),
+    id: "",
     origin,
     field: null,
     occurrenceId: null,
-    reason: "partial-proof",
+    reason,
     gapId: null,
     stoppedAtElementId: current?.id ?? origin.elementId,
     stoppedAtRelationId: null,
@@ -99,6 +116,17 @@ export function failedFieldProof(
     missingTransformationKind,
     transformationIds: accepted.map((item) => item.id),
   };
+  frontier.id = fieldFrontierId({
+    origin: frontier.origin,
+    fieldElementIds: [],
+    occurrenceId: frontier.occurrenceId,
+    reason: frontier.reason,
+    gapId: frontier.gapId,
+    stoppedAtElementId: frontier.stoppedAtElementId,
+    stoppedAtRelationId: frontier.stoppedAtRelationId,
+    missingTransformationKind: frontier.missingTransformationKind,
+    transformationIds: frontier.transformationIds,
+  });
   return {
     status: "partial",
     unavailableReason: null,
@@ -121,7 +149,14 @@ export function fieldTransformation(
 ): RouteTotalityFieldTransformation {
   const locations = uniqueLocations(relations.flatMap((relation) => relation.proof.locations), cancellation);
   return {
-    id: stableId("transformation", [kind, from.id, to.id, ...relations.map((item) => item.id), ...supportingRelations.map((item) => item.id)]),
+    id: fieldTransformationId({
+      kind,
+      fromElementIds: [from.id],
+      toElementIds: [to.id],
+      evidenceRelationIds: relations.map((item) => item.id),
+      supportingElementIds: supportingElements.map((item) => item.id),
+      supportingRelationIds: supportingRelations.map((item) => item.id),
+    }),
     kind,
     fromElementIds: [from.id],
     toElementIds: [to.id],
@@ -136,10 +171,6 @@ export function fieldTransformation(
 
 function proof(detail: string, locations: SourceLocation[], status: "proven" | "partial" = "proven"): EvidenceProof {
   return { kind: "route-totality-field-transfer", detail, locations, status };
-}
-
-function stableId(kind: string, values: readonly string[]): string {
-  return `route-totality-field-${kind}:${stableHash(JSON.stringify(values))}`;
 }
 
 function uniqueLocations(locations: readonly SourceLocation[], cancellation: AnalysisCancellationToken): SourceLocation[] {

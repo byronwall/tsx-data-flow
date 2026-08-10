@@ -97,6 +97,7 @@ export const routeTotalityFieldLineageSchema = z.strictObject({
     occurrenceId: nonEmptyStringSchema.nullable(),
     reason: z.enum([
       "partial-proof",
+      "budget-exhausted",
       "identity-lost",
       "ambiguous-target",
       "unsupported-relation",

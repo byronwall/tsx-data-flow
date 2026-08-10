@@ -80,7 +80,8 @@ export function buildRouteDataDetail(
     ...(operation.consumerHandoff ? [operation.consumerHandoff.outputShapeId] : []),
   ]));
   const evidenceIds = new Set(operations.flatMap((operation) => operation.sourceExpressionIds));
-  const evidence = uniqueById(report.routeData.evidence.filter((item) => evidenceIds.has(item.id)));
+  const evidence = uniqueById(report.routeData.evidence.filter((item) => evidenceIds.has(item.id)))
+    .map(projectRouteDataEvidence);
   const terminals = report.routeData.terminals.filter((terminal) => trajectory.terminalIds.includes(terminal.id));
   const routeSources = inventory.sources.filter((source) => route.sourceMethodKeys.includes(source.key));
   if (selectedSourceKey && !route.sourceMethodKeys.includes(selectedSourceKey)) return null;
@@ -124,13 +125,14 @@ function selectedTotalitySource(
   if (sourceMatches.length !== 1) return { key: sourceKey, evidence: null };
   const evidenceMatches = evidence.filter((item) => item.id === sourceMatches[0].evidenceId);
   const [match] = evidenceMatches;
-  if (!match || !evidenceMatches.every((item) => sameEvidenceLocation(item, match))) {
+  if (!match || !match.programElementId || !evidenceMatches.every((item) => sameEvidenceIdentity(item, match))) {
     return { key: sourceKey, evidence: null };
   }
   return {
     key: sourceKey,
     evidence: {
       id: match.id,
+      elementId: match.programElementId,
       file: match.file,
       line: match.line,
       column: match.column,
@@ -139,11 +141,12 @@ function selectedTotalitySource(
   };
 }
 
-function sameEvidenceLocation(
+function sameEvidenceIdentity(
   left: AnalysisReport["routeData"]["evidence"][number],
   right: AnalysisReport["routeData"]["evidence"][number],
 ): boolean {
   return left.id === right.id
+    && left.programElementId === right.programElementId
     && left.file === right.file
     && left.line === right.line
     && left.column === right.column
@@ -151,6 +154,13 @@ function sameEvidenceLocation(
     && left.span.startColumn === right.span.startColumn
     && left.span.endLine === right.span.endLine
     && left.span.endColumn === right.span.endColumn;
+}
+
+function projectRouteDataEvidence(
+  evidence: AnalysisReport["routeData"]["evidence"][number],
+): Omit<typeof evidence, "programElementId"> {
+  const { programElementId: _programElementId, ...projected } = evidence;
+  return projected;
 }
 
 type ComponentContextOrigin = "hierarchy" | "rendered";

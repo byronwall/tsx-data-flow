@@ -6,6 +6,12 @@ import type { EvidenceSlice } from "./evidence-slice";
 import { toSliceElement, toSliceRelation } from "./evidence-slice-normalization";
 import type { ProgramElement, ProgramRelation } from "./scope-seam";
 import type { RouteTotalitySelectedSource } from "./route-totality-selected-source";
+import type { CompactProgramFact } from "./program-evidence-compact-facts";
+
+export type SelectedFilesystemInputResolution =
+  | { kind: "exact"; element: ProgramElement }
+  | { kind: "ambiguous"; element: ProgramElement }
+  | { kind: "unresolved" };
 
 /** Exact compiler-node and provider-backed evidence lookup. Labels never join identity. */
 export class RouteTotalityFieldProofIndex {
@@ -85,16 +91,18 @@ export class RouteTotalityFieldProofIndex {
     };
   }
 
-  selectedFilesystemInput(evidence: NonNullable<RouteTotalitySelectedSource["evidence"]>): ProgramElement | null {
-    const matches: ProgramElement[] = [];
+  selectedFilesystemInput(evidence: NonNullable<RouteTotalitySelectedSource["evidence"]>): SelectedFilesystemInputResolution {
+    const exactFact = this.provider.facts.getFact(evidence.elementId);
+    const exactElement = this.byId(evidence.elementId);
+    if (!exactFact || !exactElement || !isSelectedFileInputFact(exactFact)
+      || locationKey(exactFact.location) !== selectedLocationKey(evidence)) return { kind: "unresolved" };
+    const matches: string[] = [];
     for (const fact of this.provider.facts.fileCandidates(evidence.file)) {
-      if (fact.kind !== "file-input" || fact.confidence !== "proven" || fact.proofKind !== "host-api"
-        || fact.attributes.operation !== "readFile" || fact.attributes.module !== "node:fs/promises"
-        || locationKey(fact.location) !== `${evidence.file}:${evidence.span.startLine}:${evidence.span.startColumn}:${evidence.span.endLine}:${evidence.span.endColumn}`) continue;
-      const element = this.byId(fact.id);
-      if (element) matches.push(element);
+      if (!isSelectedFileInputFact(fact) || locationKey(fact.location) !== selectedLocationKey(evidence)) continue;
+      matches.push(fact.id);
     }
-    return matches.length === 1 ? matches[0] : null;
+    if (matches.length === 1 && matches[0] === evidence.elementId) return { kind: "exact", element: exactElement };
+    return matches.includes(evidence.elementId) ? { kind: "ambiguous", element: exactElement } : { kind: "unresolved" };
   }
 
   private addElement(element: ProgramElement): void {
@@ -113,6 +121,15 @@ export class RouteTotalityFieldProofIndex {
     values.push(relation);
     this.relationsByFrom.set(relation.from, values);
   }
+}
+
+function isSelectedFileInputFact(fact: CompactProgramFact | undefined): boolean {
+  return Boolean(fact && fact.kind === "file-input" && fact.confidence === "proven" && fact.proofKind === "host-api"
+    && fact.attributes.operation === "readFile" && fact.attributes.module === "node:fs/promises");
+}
+
+function selectedLocationKey(evidence: NonNullable<RouteTotalitySelectedSource["evidence"]>): string {
+  return `${evidence.file}:${evidence.span.startLine}:${evidence.span.startColumn}:${evidence.span.endLine}:${evidence.span.endColumn}`;
 }
 
 function locationKey(location: ProgramElement["location"]): string {

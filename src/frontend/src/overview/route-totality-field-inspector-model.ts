@@ -39,6 +39,7 @@ export type RouteTotalityFieldInspectorResult = {
 
 const FRONTIER_REASON_LABELS: Record<RouteTotalityFieldFrontier["reason"], string> = {
   "partial-proof": "Partial proof",
+  "budget-exhausted": "Budget exhausted",
   "identity-lost": "Identity lost",
   "ambiguous-target": "Ambiguous target",
   "unsupported-relation": "Unsupported relation",

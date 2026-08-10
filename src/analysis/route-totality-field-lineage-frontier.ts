@@ -1,5 +1,5 @@
 import type { AnalysisCancellationToken } from "./cancellation";
-import { stableHash } from "./scope-seam";
+import { fieldFrontierId } from "./route-totality-field-lineage-id";
 import type {
   RouteTotalityFieldFrontier,
   RouteTotalityFieldFrontierReason,
@@ -44,14 +44,8 @@ export function makeFrontier(
   const evidencePathElementIds = copyPathIds(path?.elementIds ?? [], cancellation);
   const evidencePathRelationIds = copyPathIds(path?.relationIds ?? [], cancellation);
   cancellation.throwIfCancelled();
-  return {
-    id: `route-totality-field-frontier:${stableHash(JSON.stringify({
-      origin,
-      field: field?.elementIds ?? [],
-      occurrenceId,
-      reason,
-      stoppedAtElementId,
-    }))}`,
+  const frontier: RouteTotalityFieldFrontier = {
+    id: "",
     origin: { ...origin },
     field: field ? { elementIds, segments, label: field.label } : null,
     occurrenceId,
@@ -66,6 +60,18 @@ export function makeFrontier(
     missingTransformationKind: null,
     transformationIds: [],
   };
+  frontier.id = fieldFrontierId({
+    origin: frontier.origin,
+    fieldElementIds: frontier.field?.elementIds ?? [],
+    occurrenceId: frontier.occurrenceId,
+    reason: frontier.reason,
+    gapId: frontier.gapId,
+    stoppedAtElementId: frontier.stoppedAtElementId,
+    stoppedAtRelationId: frontier.stoppedAtRelationId,
+    missingTransformationKind: frontier.missingTransformationKind,
+    transformationIds: frontier.transformationIds,
+  });
+  return frontier;
 }
 
 /** Keep the lexically first bounded set and remember every dropped identity. */

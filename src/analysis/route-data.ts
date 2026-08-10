@@ -74,6 +74,8 @@ export interface RouteDataEvidence {
   compilerIdentity: string | null;
   confidence: RouteEvidenceConfidence;
   unknownReason: string | null;
+  /** Internal exact link from route evidence to one compiler-backed program element. */
+  programElementId?: string | null;
 }
 export interface RouteDataBoundary { kind: "query" | "resource" | "component" | "prop" | "context" | "call"; label: string }
 export interface RouteDataOperationOwner { label: string; file: string; line: number }
@@ -180,7 +182,13 @@ export function analyzeRouteData(
     const candidateGroups = selected.map((candidate) => [candidate]);
     for (const group of candidateGroups) {
       const candidate = group[0];
-      const sources = group.map((item) => evidenceForLegacyCandidate(ts, checker, root, item));
+      const sources = group.map((item) => {
+        const evidenceValue = evidenceForLegacyCandidate(ts, checker, root, item);
+        return {
+          ...evidenceValue,
+          programElementId: exactFileInputElementId(provider, item.node, evidenceValue.file, item.kind),
+        };
+      });
       const source = sources[0];
       const shapeNode = candidate.shapeNode ?? candidate.node;
       const outputType = safeTypeAt(checker, shapeNode);
@@ -285,6 +293,28 @@ export function analyzeRouteData(
     ),
   );
   return routeData;
+}
+
+function exactFileInputElementId(
+  provider: ReturnType<typeof createLazyProgramEvidenceProvider>,
+  node: TypeScript.Node,
+  file: string,
+  operationKind: string,
+): string | null {
+  if (operationKind !== "read") return null;
+  const start = node.getStart(node.getSourceFile());
+  const end = node.getEnd();
+  const matches = provider.facts.fileCandidates(file).filter((fact) => (
+    fact.kind === "file-input"
+    && fact.confidence === "proven"
+    && fact.proofKind === "host-api"
+    && fact.attributes.operation === "readFile"
+    && fact.attributes.module === "node:fs/promises"
+    && fact.nodeStart === start
+    && fact.nodeEnd === end
+    && fact.nodeKind === node.kind
+  ));
+  return matches.length === 1 ? matches[0].id : null;
 }
 
 export function routeSinkKey(sink: Pick<Sink, "file" | "id">) {

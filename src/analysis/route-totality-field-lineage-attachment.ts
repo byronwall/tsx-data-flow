@@ -1,7 +1,7 @@
 import type { AnalysisCancellationToken } from "./cancellation";
 import type { EvidenceSlice } from "./evidence-slice";
 import type { RouteOccurrenceSurface } from "./route-occurrence-surface";
-import { stableHash } from "./scope-seam";
+import { fieldAttachmentId } from "./route-totality-field-lineage-id";
 import type {
   RouteTotalityField,
   RouteTotalityFieldAttachment,
@@ -59,13 +59,8 @@ export function projectAttachment(
   const evidencePathElementIds = copyIds(attachment.path.elementIds, cancellation);
   const evidencePathRelationIds = copyIds(attachment.path.relationIds, cancellation);
   cancellation.throwIfCancelled();
-  return {
-    id: `route-totality-field-attachment:${stableHash(JSON.stringify({
-      origin: attachment.origin,
-      field: attachment.field.elementIds,
-      occurrenceId: attachment.occurrenceId,
-      terminalId: attachment.terminalId,
-    }))}`,
+  const result: RouteTotalityFieldAttachment = {
+    id: "",
     origin: { ...attachment.origin },
     field,
     occurrenceId: attachment.occurrenceId,
@@ -84,6 +79,17 @@ export function projectAttachment(
     transformationIds: [],
     transformationKinds: [],
   };
+  result.id = fieldAttachmentId({
+    origin: result.origin,
+    fieldElementIds: result.field.elementIds,
+    occurrenceId: result.occurrenceId,
+    terminalIds: result.terminalIds,
+    consumerId: null,
+    transformationIds: result.transformationIds,
+    evidencePathElementIds: result.evidencePathElementIds,
+    evidencePathRelationIds: result.evidencePathRelationIds,
+  });
+  return result;
 }
 
 function projectField(field: FieldState, cancellation: AnalysisCancellationToken): RouteTotalityField {

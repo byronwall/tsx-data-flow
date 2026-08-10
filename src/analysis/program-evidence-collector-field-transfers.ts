@@ -1,6 +1,7 @@
 import * as TypeScript from "typescript";
 import { ProgramEvidenceCollectorComponentBindingSupport } from "./program-evidence-collector-component-binding";
 import { asFunctionLike, nodeKey, proof, unwrap } from "./program-evidence-support";
+import { exactCallbackReturnExpression } from "./program-callback-return";
 
 /** Collect compiler-backed facts for exact collection and JSX field transfers. */
 export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenceCollectorComponentBindingSupport {
@@ -28,7 +29,7 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
       || callback.parameters[0].dotDotDotToken
       || callback.parameters[0].questionToken
       || callback.parameters[0].initializer) return;
-    const returned = this.directReturnedExpression(callback);
+    const returned = exactCallbackReturnExpression(this.ts, callback);
     const parameterSymbol = this.checker.getSymbolAtLocation(callback.parameters[0].name);
     if (!returned || !parameterSymbol) return;
     const predicateReads = this.directParameterReads(returned, parameterSymbol);
@@ -168,14 +169,6 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
         this.addRelation(fieldId, valueId, "consumer-value", [this.location(child), this.location(value)], proof("jsx-consumer-value", "This exact field read participates in this exact JSX prop value expression.", [this.location(child), this.location(value)]), "proven");
       });
     }
-  }
-
-  private directReturnedExpression(callback: TypeScript.ArrowFunction): TypeScript.Expression | null {
-    if (!this.ts.isBlock(callback.body)) return unwrap(this.ts, callback.body);
-    const returns = callback.body.statements.filter((statement): statement is TypeScript.ReturnStatement => (
-      this.ts.isReturnStatement(statement) && Boolean(statement.expression)
-    ));
-    return returns.length === 1 && returns[0].expression ? unwrap(this.ts, returns[0].expression) : null;
   }
 
   private directParameterReads(expression: TypeScript.Expression, parameter: TypeScript.Symbol): TypeScript.PropertyAccessExpression[] {

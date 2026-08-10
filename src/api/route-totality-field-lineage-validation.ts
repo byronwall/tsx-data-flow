@@ -1,10 +1,14 @@
 import { NO_ANALYSIS_CANCELLATION, type AnalysisCancellationToken } from "../analysis/cancellation";
 import { MAX_FRONTIERS } from "../analysis/route-totality-field-lineage-frontier";
-import { isFullyProvenElement, isFullyProvenProof } from "../analysis/route-totality-field-lineage-transition";
+import { isFullyProvenElement } from "../analysis/route-totality-field-lineage-transition";
 import {
   EXACT_FIELD_TRANSFER_KINDS,
-  verifyExactFieldTransfer,
 } from "../analysis/route-totality-field-transfer-verifier";
+import {
+  fieldAttachmentId,
+  fieldConsumerId,
+  fieldFrontierId,
+} from "../analysis/route-totality-field-lineage-id";
 import { SELECTED_ORIGIN_UNAVAILABLE_REASON } from "../analysis/route-totality-field-proof";
 import type { RouteTotality } from "./route-totality-contracts";
 import { addIssue, type ValidationIssue } from "./route-occurrence-validation-graph";
@@ -13,14 +17,12 @@ import {
   availableEvidence,
   availableSurface,
   endpointOccurrenceAnchors,
-  endpointTerminalAnchors,
   exactElement,
   fullyProvenOrigin,
   hasPartialInputs,
   indexEvidence,
   indexSurface,
   isUnavailable,
-  sameLocations,
   type AvailableSurface,
   type EvidenceElement,
   type EvidenceIndexes,
@@ -30,6 +32,10 @@ import {
   type SurfaceIndexes,
   type SurfaceOccurrence,
 } from "./route-totality-field-lineage-validation-index";
+import {
+  validateLedgerAttachment,
+  validateLedgerTransformations,
+} from "./route-totality-field-lineage-validation-ledger";
 import {
   validateFieldLineageAttachmentPath,
   validateFieldLineageAttachmentProof,
@@ -78,7 +84,7 @@ export function validateRouteTotalityFieldLineage(
   const evidenceIndexes = indexEvidence(evidence, cancellation);
   const surfaceIndexes = indexSurface(evidence, surface, cancellation);
   validateFieldLineageCounts(lineage, issues, cancellation);
-  validateTransformations(lineage, evidenceIndexes, issues, cancellation);
+  validateLedgerTransformations(lineage, evidenceIndexes, issues, cancellation);
   validateAttachments(lineage.attachments, lineage.transformations, evidenceIndexes, surface, surfaceIndexes, issues, cancellation);
   validateFrontiers(lineage.frontiers, evidenceIndexes, surfaceIndexes, issues, cancellation);
   validateStatus(lineage, hasPartialInputs(evidence, surface, cancellation), issues, cancellation);
@@ -130,6 +136,20 @@ function validateAttachments(
     validateStableFieldLineageId(attachments, index, path, issues);
     if (ids.has(attachment.id)) addIssue(issues, [...path, "id"], `duplicate field attachment id "${attachment.id}"`);
     ids.add(attachment.id);
+    const expectedAttachmentId = fieldAttachmentId({
+      origin: attachment.origin,
+      fieldElementIds: attachment.field.elementIds,
+      occurrenceId: attachment.occurrenceId,
+      terminalIds: attachment.terminalIds,
+      consumerId: attachment.consumer?.id ?? null,
+      transformationIds: attachment.transformationIds,
+      evidencePathElementIds: attachment.evidencePathElementIds,
+      evidencePathRelationIds: attachment.evidencePathRelationIds,
+    });
+    if (attachment.id !== expectedAttachmentId) addIssue(issues, [...path, "id"], "attachment id must equal its deterministic semantic identity");
+    if (attachment.consumer && attachment.consumer.id !== fieldConsumerId(attachment.consumer)) {
+      addIssue(issues, [...path, "consumer", "id"], "consumer id must equal its deterministic semantic identity");
+    }
     const originElement = validateOrigin(attachment.origin, evidence, [...path, "origin"], issues, cancellation);
     if (attachment.transformationIds.length > 0 && attachment.origin.selectedEvidenceId === null) {
       addIssue(issues, [...path, "origin", "selectedEvidenceId"], "ledger origin must carry the exact selected route-data evidence id");
@@ -160,98 +180,6 @@ function validateAttachments(
   cancellation.throwIfCancelled();
 }
 
-function validateTransformations(
-  lineage: RouteTotality["fieldLineage"], evidence: EvidenceIndexes, issues: ValidationIssue[], cancellation: AnalysisCancellationToken,
-): void {
-  const seen = new Set<string>();
-  const graph = {
-    element: (id: string) => exactElement(evidence, id),
-    relation: (id: string) => {
-      const values = evidence.relationsById.get(id) ?? [];
-      return values.length === 1 ? values[0] : undefined;
-    },
-    outgoing: (id: string) => evidence.outgoing.get(id) ?? [],
-  };
-  for (let index = 0; index < lineage.transformations.length; index += 1) {
-    cancellation.throwIfCancelled();
-    const value = lineage.transformations[index];
-    const path = ["fieldLineage", "transformations", index] as Array<string | number>;
-    validateStableFieldLineageId(lineage.transformations, index, path, issues);
-    if (seen.has(value.id)) addIssue(issues, [...path, "id"], "duplicate transformation id");
-    seen.add(value.id);
-    if (value.status !== "proven" || value.fromElementIds.length !== 1 || value.toElementIds.length !== 1 || value.locations.length === 0 || value.proof.length === 0) {
-      addIssue(issues, path, "each ledger transformation requires one proven exact source, target, and proof location");
-    }
-    for (const proof of value.proof) {
-      if (!isFullyProvenProof(proof) || !sameLocations(proof.locations, value.locations, cancellation)) addIssue(issues, [...path, "proof"], "ledger transformation proof must be fully proven and match its locations");
-    }
-    for (const id of [...value.fromElementIds, ...value.toElementIds]) {
-      if (!exactElement(evidence, id) || !isFullyProvenElement(exactElement(evidence, id), cancellation)) addIssue(issues, path, "ledger transformations must reference fully proven evidence elements");
-    }
-    const verification = verifyExactFieldTransfer(value, graph, cancellation);
-    if (!verification.ok) addIssue(issues, path, verification.detail);
-  }
-}
-
-function validateLedgerAttachment(
-  attachment: FieldAttachment,
-  transformations: readonly RouteTotality["fieldLineage"]["transformations"][number][],
-  occurrence: SurfaceOccurrence | undefined,
-  evidence: EvidenceIndexes,
-  surface: SurfaceIndexes,
-  path: Array<string | number>, issues: ValidationIssue[], cancellation: AnalysisCancellationToken,
-): void {
-  const byId = new Map(transformations.map((item) => [item.id, item]));
-  const unresolvedSteps = attachment.transformationIds.map((id) => byId.get(id));
-  if (unresolvedSteps.some((item) => !item) || unresolvedSteps.length === 0 || attachment.transformationKinds.length !== unresolvedSteps.length) {
-    addIssue(issues, [...path, "transformationIds"], "attachment must reference every exact ledger transfer");
-    return;
-  }
-  const steps = unresolvedSteps as NonNullable<typeof unresolvedSteps[number]>[];
-  for (let index = 0; index < steps.length; index += 1) {
-    cancellation.throwIfCancelled();
-    const step = steps[index]!;
-    if (attachment.transformationKinds[index] !== step.kind) addIssue(issues, [...path, "transformationKinds", index], "transformation kind must match its referenced ledger record");
-    if (index > 0 && steps[index - 1]!.toElementIds[0] !== step.fromElementIds[0]) addIssue(issues, [...path, "transformationIds", index], "ledger transfers must form one contiguous exact chain");
-  }
-  if (steps[0]!.fromElementIds[0] !== attachment.origin.elementId) addIssue(issues, [...path, "origin"], "ledger chain must start at the selected exact origin");
-  if (steps.length !== EXACT_FIELD_TRANSFER_KINDS.length
-    || steps.some((step, index) => step.kind !== EXACT_FIELD_TRANSFER_KINDS[index])) {
-    addIssue(issues, [...path, "transformationIds"], "attachment must reference one ordered C01-C12 transfer chain");
-  }
-  const fieldIds = attachment.field.elementIds;
-  if (fieldIds.length !== 3 || !fieldIds.every((id) => steps.some((step) => step.fromElementIds[0] === id || step.toElementIds[0] === id))) {
-    addIssue(issues, [...path, "field"], "ledger chain must contain each exact field read");
-  }
-  const expected = `${attachment.field.segments[0]?.value}[*].${attachment.field.segments[2]?.value}`;
-  if (attachment.field.segments.length !== 3 || attachment.field.segments[1]?.kind !== "collection-element" || attachment.field.segments[1]?.value !== "*" || attachment.field.label !== expected) {
-    addIssue(issues, [...path, "field"], "ledger field must use exact property, collection-element, property segments");
-  }
-  const consumer = attachment.consumer;
-  const last = steps.at(-1)!;
-  const consumerElement = consumer ? exactElement(evidence, consumer.elementId) : undefined;
-  const consumerOccurrence = consumer ? exactElement(evidence, consumer.occurrenceElementId) : undefined;
-  if (!consumer || !consumerElement || !consumerOccurrence || last.toElementIds[0] === consumer.elementId
-    || consumer.occurrenceId !== attachment.occurrenceId || !sameLocations([consumer.location], [consumerElement.location], cancellation) || !occurrence) {
-    addIssue(issues, [...path, "consumer"], "ledger consumer must be the exact expression owned by this occurrence");
-    return;
-  }
-  const anchor = endpointOccurrenceAnchors(surface.anchors, occurrence.id, cancellation)[0];
-  if (!anchor || anchor.evidenceElementId !== consumer.occurrenceElementId || !contains(consumerOccurrence.location, consumer.location)) {
-    addIssue(issues, [...path, "consumer"], "consumer expression must belong to the exact anchored call-site occurrence");
-  }
-  const terminal = attachment.terminalIds.length === 1 ? surface.terminalsById.get(attachment.terminalIds[0]) ?? [] : [];
-  if (terminal.length !== 1 || !endpointTerminalAnchors(surface.anchors, attachment.terminalIds[0], cancellation).length) {
-    addIssue(issues, [...path, "terminalIds"], "ledger attachment requires one exact route render terminal anchor");
-  }
-}
-
-function contains(owner: { file: string; span: { startLine: number; startColumn: number; endLine: number; endColumn: number } }, child: { file: string; span: { startLine: number; startColumn: number; endLine: number; endColumn: number } }): boolean {
-  return owner.file === child.file
-    && (owner.span.startLine < child.span.startLine || owner.span.startLine === child.span.startLine && owner.span.startColumn <= child.span.startColumn)
-    && (owner.span.endLine > child.span.endLine || owner.span.endLine === child.span.endLine && owner.span.endColumn >= child.span.endColumn);
-}
-
 function validateFrontiers(
   frontiers: readonly FieldFrontier[],
   evidence: EvidenceIndexes,
@@ -268,11 +196,23 @@ function validateFrontiers(
     validateStableFieldLineageId(frontiers, index, path, issues);
     if (ids.has(frontier.id)) addIssue(issues, [...path, "id"], `duplicate field frontier id "${frontier.id}"`);
     ids.add(frontier.id);
+    const expectedFrontierId = fieldFrontierId({
+      origin: frontier.origin,
+      fieldElementIds: frontier.field?.elementIds ?? [],
+      occurrenceId: frontier.occurrenceId,
+      reason: frontier.reason,
+      gapId: frontier.gapId,
+      stoppedAtElementId: frontier.stoppedAtElementId,
+      stoppedAtRelationId: frontier.stoppedAtRelationId,
+      missingTransformationKind: frontier.missingTransformationKind,
+      transformationIds: frontier.transformationIds,
+    });
+    if (frontier.id !== expectedFrontierId) addIssue(issues, [...path, "id"], "frontier id must equal its deterministic semantic identity");
     validateOrigin(frontier.origin, evidence, [...path, "origin"], issues, cancellation);
     if (!frontier.field) {
       const isCarrierFrontier = frontier.origin.role === "filesystem"
         && frontier.origin.selectedEvidenceId !== null
-        && frontier.reason === "partial-proof"
+        && (frontier.reason === "partial-proof" || frontier.reason === "budget-exhausted" || frontier.reason === "ambiguous-target")
         && frontier.missingTransformationKind !== null
         && EXACT_FIELD_TRANSFER_KINDS.includes(frontier.missingTransformationKind as typeof EXACT_FIELD_TRANSFER_KINDS[number])
         && frontier.occurrenceId === null

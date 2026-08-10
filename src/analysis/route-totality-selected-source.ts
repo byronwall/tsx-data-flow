@@ -26,6 +26,7 @@ export type RouteTotalitySelectedSource = {
   key: string;
   evidence: {
     id: string;
+    elementId: string;
     file: string;
     line: number;
     column: number;
@@ -84,6 +85,10 @@ function selectedInput(
 ): SelectedInputResult {
   const evidence = selected.evidence;
   if (!evidence) return { kind: "gap", reason: "unresolved-symbol", label: "The selected source has no exact evidence location." };
+  const exact = provider.facts.getElement(evidence.elementId);
+  if (!exact || !matchesSelectedFileInput(exact, evidence)) {
+    return { kind: "gap", reason: "unresolved-symbol", label: "The selected evidence id has no exact filesystem input element." };
+  }
   const matchesById = new Map<string, IndexedProgramElement>();
   for (const fact of provider.facts.fileCandidates(evidence.file)) {
     cancellation.throwIfCancelled();
@@ -92,7 +97,7 @@ function selectedInput(
     if (element && matchesSelectedFileInput(element, evidence)) matchesById.set(element.id, element);
   }
   const matches = [...matchesById.values()];
-  if (matches.length === 1) return { kind: "input", input: matches[0] };
+  if (matches.length === 1 && matches[0].id === evidence.elementId) return { kind: "input", input: exact };
   return matches.length === 0
     ? { kind: "gap", reason: "unresolved-symbol", label: "No proven filesystem input matches the selected source evidence." }
     : { kind: "gap", reason: "ambiguous-target", label: "Multiple proven filesystem inputs match the selected source evidence." };

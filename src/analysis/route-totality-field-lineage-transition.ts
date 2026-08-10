@@ -7,6 +7,7 @@ import { NO_ANALYSIS_CANCELLATION, type AnalysisCancellationToken } from "./canc
 
 export type FieldLineageStopReason =
   | "partial-proof"
+  | "budget-exhausted"
   | "identity-lost"
   | "ambiguous-target"
   | "unsupported-relation"
