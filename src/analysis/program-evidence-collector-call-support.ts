@@ -13,6 +13,7 @@ import {
   firstBindingIdentifier,
   isKnownGlobal,
   isResourceFactory,
+  nodeKey,
   proof,
 } from "./program-evidence-support";
 
@@ -95,11 +96,11 @@ export class ProgramEvidenceCollectorCallSupport extends ProgramEvidenceCollecto
       const symbolId = this.symbolId(binding);
       if (symbolId) this.resourceBySymbol.set(symbolId, resourceId);
     }
-    const loader = initializer.arguments[0];
+    const loader = initializer.arguments[1];
     this.httpResources.push({
       node: initializer,
       elementId: resourceId,
-      loaderTargetId: loader ? this.targetFunction(loader)?.id ?? null : null,
+      loaderTargetId: loader ? this.functionsByNode.get(nodeKey(this.root, loader))?.id ?? null : null,
     });
     if (loader) {
       const loaderId = this.expression(loader, ownerId);
@@ -365,6 +366,7 @@ export class ProgramEvidenceCollectorCallSupport extends ProgramEvidenceCollecto
         );
       },
       addRelation: (...args) => this.addRelation(...args),
+      expression: (value, valueOwnerId) => this.expression(value, valueOwnerId),
       gap: (...args) => this.gap(...args),
       addHttpFetch: (fetch) => this.httpFetches.push(fetch),
       addHttpResponse: (response) => this.httpResponses.push(response),

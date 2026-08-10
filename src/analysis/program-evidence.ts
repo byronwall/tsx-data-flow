@@ -27,6 +27,8 @@ export type ProgramProofKind =
   | "component-prop-binding"
   | "host-api"
   | "resource-boundary"
+  | "carrier-boundary"
+  | "context-continuity"
   | "partial-classification"
   | "http-bridge";
 export type ProgramProof = {
@@ -116,7 +118,8 @@ export type ProgramRelationKind =
   | "resource-loader"
   | "resource-result"
   | "effect-input"
-  | "http-bridge";
+  | "http-bridge"
+  | "carrier";
 export type ProgramEvidenceGapReason =
   | "unsupported-syntax"
   | "dynamic-dispatch"

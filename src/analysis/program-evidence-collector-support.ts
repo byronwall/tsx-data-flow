@@ -23,12 +23,8 @@ import {
   expandLocation,
   type CompactProgramFact,
 } from "./program-evidence-compact-facts";
-import {
-  connectProgramHttpBridges,
-  hydrateProgramFact,
-  hydratedFactsForIds,
-  releaseProgramEvidenceTransientState,
-} from "./program-evidence-hydration";
+import { hydrateProgramFact, releaseProgramEvidenceTransientState } from "./program-evidence-hydration";
+import { connectProgramEvidenceTransport, reconcileProgramHttpBridgeGap } from "./program-evidence-collector-transport";
 import type { RelationSink } from "./program-evidence-relation-loading";
 import type {
   HttpBridgeFetch,
@@ -59,6 +55,7 @@ import {
   isEffectName,
   isFrameworkCall,
   locationFor,
+  nodeKey,
   relative,
   proof,
   stableId,
@@ -331,35 +328,17 @@ export class ProgramEvidenceCollectorSupport {
     );
   }
 
-  protected connectHttpBridges(): void {
-    connectProgramHttpBridges({
-      checkCancellation: () => this.checkCancellation(),
-      ts: this.ts,
-      checker: this.checker,
-      elements: this.elementsForHttpBridges(),
-      fetches: this.httpFetches,
-      calls: this.calls,
-      resources: this.httpResources,
-      responses: this.httpResponses,
-      requestParameterIds: this.parametersBySymbol,
-      symbolId: (node) => this.symbolId(node),
-      location: (node) => this.location(node),
-      addRelation: (...args) => this.addRelation(...args),
-      reconcileGap: (fetchId) => this.reconcileHttpBridgeGap(fetchId),
+  protected connectProgramEvidenceTransport(): void {
+    connectProgramEvidenceTransport({
+      ts: this.ts, checker: this.checker, root: this.root, files: this.files, facts: this.facts,
+      calls: this.calls, handlers: [...this.functionsById.values()], parameters: this.parametersBySymbol,
+      fetches: this.httpFetches, resources: this.httpResources, responses: this.httpResponses,
+      checkCancellation: () => this.checkCancellation(), symbolId: (node) => this.symbolId(node), moduleFor: (node) => this.moduleFor(node),
+      elementFor: (node, kind) => this.elementIdsByNodeKind.get(`${locationKey(this.location(node))}:${kind}`) ?? null, targetFunction: (node) => this.targetFunction(node),
+      functionForNode: (node) => this.functionsByNode.get(nodeKey(this.root, node)) ?? null, location: (node) => this.location(node),
+      hydrateFact: (fact) => this.hydrateFact(fact), addRelation: (...args) => this.addRelation(...args),
+      reconcileGap: (fetchId) => reconcileProgramHttpBridgeGap(this.gaps, fetchId),
     });
-  }
-
-  protected reconcileHttpBridgeGap(fetchId: string): void {
-    for (let index = this.gaps.length - 1; index >= 0; index -= 1) {
-      const gap = this.gaps[index];
-      if (
-        gap.from === fetchId &&
-        gap.reason === "external-code" &&
-        gap.detail.startsWith("Static proof stops at the external response body;")
-      ) {
-        this.gaps.splice(index, 1);
-      }
-    }
   }
 
   protected elementFor(node: TypeScript.Node, kind: ProgramElementKind): string {
@@ -576,17 +555,6 @@ export class ProgramEvidenceCollectorSupport {
     this.collectionStats.relation.locationCalls += 1;
     this.collectionStats.relation.locationElapsedMs += performance.now() - started;
     return location;
-  }
-
-  private elementsForHttpBridges(): ProgramElement[] {
-    const ids = new Set<string>();
-    for (const call of this.calls) {
-      if (call.target) ids.add(call.target.id);
-    }
-    for (const parameterId of this.parametersBySymbol.values()) {
-      ids.add(parameterId);
-    }
-    return hydratedFactsForIds(this.facts, ids, (fact) => this.hydrateFact(fact));
   }
 
   protected buildIndexes(elements: ProgramElement[]): ProgramEvidenceIndexes {

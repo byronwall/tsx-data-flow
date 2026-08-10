@@ -57,6 +57,7 @@ export type ProgramEvidenceBoundaryContext = {
     proof: ProgramProof,
     confidence: EvidenceConfidence,
   ) => void;
+  expression: (node: TypeScript.Expression, ownerId: string | null) => string;
   gap: (
     from: string,
     direction: "forward" | "backward",
@@ -99,6 +100,18 @@ export function processProgramCallBoundary(
       ),
       "proven",
     );
+    context.addRelation(
+      inputId,
+      callId,
+      "carrier",
+      [context.location(node)],
+      proof(
+        "carrier-boundary",
+        "The compiler-resolved network call has one exact forward carrier endpoint.",
+        [context.location(node)],
+      ),
+      "proven",
+    );
     if (name === "fetch") context.addHttpFetch({ node, elementId: inputId, ownerId });
     context.gap(
       inputId,
@@ -125,6 +138,18 @@ export function processProgramCallBoundary(
       proof(
         "host-api",
         "The filesystem call is the exact file input boundary.",
+        [context.location(node)],
+      ),
+      "proven",
+    );
+    context.addRelation(
+      inputId,
+      callId,
+      "carrier",
+      [context.location(node)],
+      proof(
+        "carrier-boundary",
+        "The compiler-resolved filesystem call has one exact forward carrier endpoint.",
         [context.location(node)],
       ),
       "proven",
@@ -191,7 +216,7 @@ export function processProgramCallBoundary(
       ),
       "proven",
     );
-  } else if (isHttpResponse(ts, node)) {
+  } else if (isHttpResponse(ts, node, context.checker)) {
     const terminalId = context.specialInput(
       node,
       "http-response",
@@ -201,6 +226,21 @@ export function processProgramCallBoundary(
       "The response API identifies an HTTP response terminal.",
     );
     context.addHttpResponse({ node, elementId: terminalId, ownerId });
+    const body = node.arguments[0];
+    if (body) {
+      context.addRelation(
+        context.expression(body, ownerId),
+        terminalId,
+        "carrier",
+        [context.location(body), context.location(node)],
+        proof(
+          "carrier-boundary",
+          "The exact Response.json body is connected to its HTTP response endpoint.",
+          [context.location(body), context.location(node)],
+        ),
+        "proven",
+      );
+    }
     context.addRelation(
       callId,
       terminalId,

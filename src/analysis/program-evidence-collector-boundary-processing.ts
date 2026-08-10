@@ -41,6 +41,22 @@ export class ProgramEvidenceCollectorBoundaryProcessing extends ProgramEvidenceC
       ),
       "proven",
     );
+    const resourceId = this.resourceBySymbol.get(this.symbolId(node.expression) ?? "");
+    const resourceAliasId = this.variablesBySymbol.get(this.symbolId(node.expression) ?? "");
+    if (resourceId && resourceAliasId && node.name.text === "latest") {
+      this.addRelation(
+        resourceAliasId,
+        fieldId,
+        "carrier",
+        [this.location(node.expression), this.location(node)],
+        proof(
+          "resource-boundary",
+          "The exact resource.latest accessor is the compiler-resolved result of this createResource binding.",
+          [this.location(node.expression), this.location(node)],
+        ),
+        "proven",
+      );
+    }
     const environmentBase = propertyBase(this.ts, node, [
       "process.env",
       "import.meta.env",

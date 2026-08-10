@@ -1,3 +1,4 @@
+import path from "node:path";
 import * as TypeScript from "typescript";
 import type {
   ProgramElement,
@@ -29,12 +30,14 @@ export type HttpBridgeResponse = {
 };
 
 export type HttpBridgeEvidenceContext = {
+  root: string;
   checkCancellation: () => void;
   ts: typeof TypeScript;
   checker: TypeScript.TypeChecker;
   elements: readonly ProgramElement[];
   fetches: readonly HttpBridgeFetch[];
   calls: readonly HttpBridgeCall[];
+  handlers: readonly { id: string; declaration: TypeScript.FunctionLikeDeclaration }[];
   resources: readonly HttpBridgeResource[];
   responses: readonly HttpBridgeResponse[];
   requestParameterIds: ReadonlyMap<string, string>;
@@ -64,7 +67,7 @@ type RouteGuard = {
   pathNormalization: TypeScript.VariableDeclaration;
 };
 
-/** Match only compiler-linked handlers under a static method/path guard. */
+/** Match only compiler-linked handlers for one static method/path tuple. */
 export function collectHttpBridgeEvidence(
   context: HttpBridgeEvidenceContext,
 ): HttpBridgeEvidence[] {
@@ -76,13 +79,21 @@ export function collectHttpBridgeEvidence(
   }
   const handlerCalls = context.calls.filter((call) => {
     context.checkCancellation();
-    const target = call.target;
-    return Boolean(
-      context.ts.isCallExpression(call.node)
-      && target
-      && elementsById.get(target.id)?.kind === "handler-entry"
-      && hasRequestParameterProof(context, target.declaration),
-    );
+      const target = call.target;
+      const targetElement = target ? elementsById.get(target.id) : undefined;
+      return Boolean(
+        context.ts.isCallExpression(call.node)
+        && target
+        && (targetElement?.kind === "handler-entry" || targetElement?.kind === "function-entry")
+        && handlerMethod(target.declaration) !== null
+        && hasRequestParameterProof(context, target.declaration),
+      );
+  });
+  const directHandlers = context.handlers.filter((handler) => {
+    const element = elementsById.get(handler.id);
+    return (element?.kind === "handler-entry" || element?.kind === "function-entry")
+      && handlerMethod(handler.declaration) !== null
+      && routePathForHandler(context, handler.declaration) !== null;
   });
   const matches: HttpBridgeEvidence[] = [];
   const seen = new Set<string>();
@@ -92,15 +103,30 @@ export function collectHttpBridgeEvidence(
     const clientRequest = staticFetchRequest(context.ts, fetch.node);
     if (!clientRequest || !fetch.ownerId) continue;
 
-    const handlerCandidates = handlerCalls.flatMap((call) => {
+    const handlerCandidates = [
+      ...handlerCalls.flatMap((call) => {
       context.checkCancellation();
       const target = call.target;
       if (!target || !context.ts.isCallExpression(call.node)) return [];
       const guard = routeGuardForCall(context, call.node);
-      if (!guard || guard.method !== clientRequest.method || guard.path !== clientRequest.path) return [];
+      const routePath = routePathForHandler(context, target.declaration);
+      const methodMatches = guard
+        ? guard.method === clientRequest.method && guard.path === clientRequest.path
+        : handlerMethod(target.declaration) === clientRequest.method && routePath === clientRequest.path;
+      if (!methodMatches) return [];
       const response = responseForHandler(context, target.id);
       return response ? [{ call, target, guard, response }] : [];
-    });
+      }),
+      ...directHandlers.flatMap((target) => {
+        context.checkCancellation();
+        const routePath = routePathForHandler(context, target.declaration);
+        if (routePath !== clientRequest.path || handlerMethod(target.declaration) !== clientRequest.method) return [];
+        const response = responseForHandler(context, target.id);
+        return response ? [{ call: null, target, guard: null, response }] : [];
+      }),
+    ].filter((candidate, index, candidates) => candidates.findIndex((other) =>
+      other.target.id === candidate.target.id && other.response.elementId === candidate.response.elementId,
+    ) === index);
     const resourceCandidates = context.resources.filter((resource) => {
       context.checkCancellation();
       return resource.loaderTargetId !== null && resource.loaderTargetId === fetch.ownerId;
@@ -110,26 +136,29 @@ export function collectHttpBridgeEvidence(
     const [{ call, target, guard, response }] = handlerCandidates;
     const [resource] = resourceCandidates;
 
-    const key = `${response.elementId}:${resource.elementId}:${call.node.getStart(call.node.getSourceFile())}`;
+    const key = `${response.elementId}:${resource.elementId}:${call ? call.node.getStart(call.node.getSourceFile()) : target.declaration.getStart(target.declaration.getSourceFile())}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
     const locations = [
       context.location(fetch.node),
-      context.location(guard.pathNormalization),
-      context.location(guard.condition),
-      context.location(guard.methodComparison),
-      context.location(guard.pathComparison),
+      ...(guard ? [
+        context.location(guard.pathNormalization),
+        context.location(guard.condition),
+        context.location(guard.methodComparison),
+        context.location(guard.pathComparison),
+      ] : []),
       context.location(target.declaration),
-      context.location(call.node),
+      ...(call ? [context.location(call.node)] : []),
       context.location(response.node),
       context.location(resource.node),
     ];
     const proof: ProgramProof = {
       kind: "http-bridge",
       detail:
-        `Exact normalized HTTP bridge: the root-relative client fetch and server route guard both resolve to ${clientRequest.method} ${clientRequest.path}; ` +
-        "the compiler-resolved handler call and response body connect to the resource declaration.",
+        `Exact normalized HTTP bridge tuple: ${clientRequest.method} ${clientRequest.path} client fetch, `
+        + (guard ? "compiler-resolved route guard" : "compiler-resolved route declaration")
+        + ", one handler response body, and one createResource input.",
       locations,
     };
     matches.push({ from: response.elementId, to: resource.elementId, clientFetchId: fetch.elementId, locations, proof });
@@ -146,16 +175,46 @@ function responseForHandler(
     context.checkCancellation();
     return response.ownerId === handlerId && isResponseBody(context.ts, response.node);
   });
-  return responses.length === 1 ? responses[0] : null;
+  if (responses.length === 1) return responses[0];
+  const snapshotResponses = responses.filter((response) => hasSnapshotBody(context, response.node));
+  return snapshotResponses.length === 1 ? snapshotResponses[0] : null;
 }
 
 function isResponseBody(
   ts: typeof TypeScript,
   node: TypeScript.CallExpression,
 ): boolean {
-  return ts.isPropertyAccessExpression(node.expression)
-    && node.expression.name.text === "end"
-    && node.arguments.length > 0;
+  if (!ts.isPropertyAccessExpression(node.expression) || node.arguments.length === 0) return false;
+  if (node.expression.name.text === "end") return true;
+  return node.expression.name.text === "json"
+    && ts.isIdentifier(node.expression.expression)
+    && node.expression.expression.text === "Response";
+}
+
+function hasSnapshotBody(
+  context: HttpBridgeEvidenceContext,
+  node: TypeScript.CallExpression,
+): boolean {
+  const body = objectLiteral(context.ts, node.arguments[0]);
+  if (!body) return false;
+  for (const property of body.properties) {
+    context.checkCancellation();
+    if (!context.ts.isSpreadAssignment(property)) continue;
+    const expression = unwrap(context.ts, property.expression);
+    if (!context.ts.isAwaitExpression(expression) || !context.ts.isCallExpression(expression.expression)) continue;
+    const target = context.calls.find((call) => call.node === expression.expression)?.target;
+    if (target && isExactSnapshotTarget(context, target.declaration) && routePathForSource(context, target.declaration.getSourceFile()) === "src/lib/soccer/store.ts") return true;
+  }
+  return false;
+}
+
+function isExactSnapshotTarget(
+  context: HttpBridgeEvidenceContext,
+  declaration: TypeScript.FunctionLikeDeclaration,
+): boolean {
+  const parent = declaration.parent;
+  if (!context.ts.isVariableDeclaration(parent) || !context.ts.isIdentifier(parent.name)) return false;
+  return parent.name.text === "getSnapshot";
 }
 
 function hasRequestParameterProof(
@@ -169,7 +228,7 @@ function hasRequestParameterProof(
       const symbolId = context.symbolId(binding);
       const parameterId = symbolId ? context.requestParameterIds.get(symbolId) : null;
       const evidence = parameterId ? elementForId(context, parameterId) : null;
-      if (evidence?.kind === "parameter" && evidence.attributes.originRole === "request") return true;
+      if (evidence?.kind === "parameter" && (evidence.attributes.originRole === "request" || evidence.attributes.originRole === "event")) return true;
     }
   }
   return false;
@@ -205,6 +264,41 @@ function staticFetchRequest(
   if (path === null) return null;
   const normalizedMethod = normalizeMethod(method);
   return normalizedMethod ? { method: normalizedMethod, path } : null;
+}
+
+function routePathForHandler(
+  context: HttpBridgeEvidenceContext,
+  declaration: TypeScript.FunctionLikeDeclaration,
+): string | null {
+  const relative = routePathForSource(context, declaration.getSourceFile());
+  if (!relative.startsWith("src/routes/")) return null;
+  const withoutExtension = relative.replace(/\.(?:tsx?|jsx?)$/, "");
+  const route = withoutExtension.slice("src/routes/".length);
+  if (!route.startsWith("api/")) return null;
+  const segments = route.split("/").filter(Boolean);
+  if (segments.at(-1) === "index") segments.pop();
+  const pathValue = `/${segments.map((segment) => segment
+    .replace(/^\[\.\.\.(.+)\]$/, ":$1*")
+    .replace(/^\[(.+)\]$/, ":$1"))
+    .join("/")}`;
+  return pathValue === "/" ? "/" : pathValue;
+}
+
+function routePathForSource(context: HttpBridgeEvidenceContext, file: TypeScript.SourceFile): string {
+  return path.relative(context.root, file.fileName).replaceAll(path.sep, "/");
+}
+
+function handlerMethod(declaration: TypeScript.FunctionLikeDeclaration): string | null {
+  const name = declaration.name?.getText(declaration.getSourceFile()) ?? "";
+  return /^[A-Z]+$/.test(name) ? name : null;
+}
+
+function objectLiteral(
+  ts: typeof TypeScript,
+  node: TypeScript.Expression | undefined,
+): TypeScript.ObjectLiteralExpression | null {
+  const expression = node ? unwrap(ts, node) : null;
+  return expression && ts.isObjectLiteralExpression(expression) ? expression : null;
 }
 
 function staticFetchMethod(

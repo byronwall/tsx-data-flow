@@ -63,6 +63,7 @@ export function hydratedFactsForIds(
 
 export function connectProgramHttpBridges(context: {
   checkCancellation: () => void;
+  root: string;
   ts: typeof TypeScript;
   checker: TypeScript.TypeChecker;
   elements: readonly ProgramElement[];
@@ -73,6 +74,10 @@ export function connectProgramHttpBridges(context: {
       id: string;
       declaration: TypeScript.FunctionLikeDeclaration;
     } | null;
+  }[];
+  handlers: readonly {
+    id: string;
+    declaration: TypeScript.FunctionLikeDeclaration;
   }[];
   resources: readonly HttpBridgeResource[];
   responses: readonly HttpBridgeResponse[];

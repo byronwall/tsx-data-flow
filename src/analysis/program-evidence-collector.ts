@@ -125,7 +125,7 @@ export class ProgramEvidenceCollector extends ProgramEvidenceCollectorJsxSupport
     this.checkCancellation();
     this.measurePhase("connectPendingReferences", this.references.length, () => this.connectPendingReferences());
     this.checkCancellation();
-    this.measurePhase("connectHttpBridges", this.calls.length + this.httpFetches.length, () => this.connectHttpBridges());
+    this.measurePhase("connectHttpBridges", this.calls.length + this.httpFetches.length, () => this.connectProgramEvidenceTransport());
     this.checkCancellation();
     this.sourceFactsCollected = true;
   }

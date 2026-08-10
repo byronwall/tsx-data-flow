@@ -205,9 +205,20 @@ export function isExit(name: string, node: TypeScript.CallExpression) {
   return lastName(name) === "exit" && /process\.exit$/.test(node.expression.getText());
 }
 
-export function isHttpResponse(ts: typeof TypeScript, node: TypeScript.CallExpression) {
+export function isHttpResponse(
+  ts: typeof TypeScript,
+  node: TypeScript.CallExpression,
+  checker?: TypeScript.TypeChecker,
+) {
   const receiver = thisReceiver(ts, node.expression);
   const name = ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : "";
+  if (
+    ts.isPropertyAccessExpression(node.expression)
+    && node.expression.name.text === "json"
+    && ts.isIdentifier(node.expression.expression)
+    && node.expression.expression.text === "Response"
+    && checker?.getSymbolAtLocation(node.expression.expression)
+  ) return true;
   return Boolean(receiver && /^(end|json|send|write|writeHead|redirect)$/.test(name) && /^(res|response|reply)$/i.test(receiver.getText()));
 }
 
