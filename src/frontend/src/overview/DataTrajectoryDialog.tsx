@@ -22,15 +22,15 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
   const detailSelection = createMemo(() => {
     const current = state();
     return current.open && current.mode === "detail" && current.route && current.flow
-      ? JSON.stringify([current.route, current.flow, props.generation])
+      ? JSON.stringify([current.route, current.flow, props.generation, current.source])
       : null;
   });
   const [detail, { refetch }] = createResource(detailSelection, (key) => {
     detailController?.abort();
     const controller = new AbortController();
     detailController = controller;
-    const [route, flow, generation] = JSON.parse(key) as [string, string, number];
-    return fetchRouteData(route, flow, generation, controller.signal).finally(() => {
+    const [route, flow, generation, source] = JSON.parse(key) as [string, string, number, string | null];
+    return fetchRouteData(route, flow, generation, source, controller.signal).finally(() => {
       if (detailController === controller) detailController = null;
     });
   });

@@ -69,13 +69,15 @@ function cancelRouteRequest(requestId: string) {
   } catch { /* ignore a synchronous fetch failure */ }
 }
 
-export const fetchRouteData = async (route: string, flow: string, generation: number, signal?: AbortSignal) => {
+export const fetchRouteData = async (route: string, flow: string, generation: number, source: string | null, signal?: AbortSignal) => {
   latestAnalysisGeneration = generation;
   const requestId = createRouteRequestId();
   const cancel = () => cancelRouteRequest(requestId);
   signal?.addEventListener("abort", cancel, { once: true });
   try {
-    return await fetchParsed(`/api/route-data?route=${encodeURIComponent(route)}&flow=${encodeURIComponent(flow)}&generation=${generation}`, routeDataDetailResponseSchema, {
+    const params = new URLSearchParams({ route, flow, generation: String(generation) });
+    if (source) params.set("source", source);
+    return await fetchParsed(`/api/route-data?${params.toString()}`, routeDataDetailResponseSchema, {
       signal,
       headers: { [ROUTE_REQUEST_ID_HEADER]: requestId },
     });
