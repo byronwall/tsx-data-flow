@@ -30,7 +30,7 @@ export function makeFrontier(
 ): RouteTotalityFieldFrontier {
   cancellation.throwIfCancelled();
   const elementIds: string[] = [];
-  const segments: Array<{ kind: "property" | "string-index" | "numeric-index"; value: string }> = [];
+  const segments: Array<{ kind: "property" | "string-index" | "numeric-index" | "collection-element"; value: string }> = [];
   if (field) {
     for (const elementId of field.elementIds) {
       cancellation.throwIfCancelled();

@@ -55,6 +55,11 @@ function FieldGroup(props: {
           <button type="button" onClick={() => props.onOpenSource(sourceTargetForLocation(location))}>
             <code>Field read · {formatLocation(location)}</code><span>Open exact code</span>
           </button>
+          <Show when={item.attachment.consumer}>
+            {(consumer) => <button type="button" onClick={() => props.onOpenSource(sourceTargetForLocation(consumer().location))}>
+              <code>Consumer · {consumer().label} · {formatLocation(consumer().location)}</code><span>Open exact code</span>
+            </button>}
+          </Show>
         </article>;
       }}</For>
     </div>

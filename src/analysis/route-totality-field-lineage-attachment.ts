@@ -79,6 +79,10 @@ export function projectAttachment(
       status: "proven",
     }],
     locations,
+    consumer: null,
+    alias: null,
+    transformationIds: [],
+    transformationKinds: [],
   };
 }
 

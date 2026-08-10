@@ -34,6 +34,7 @@ import {
   unavailableRouteTotalityFieldLineage,
   type RouteTotalityFieldLineage,
 } from "./route-totality-field-lineage";
+import { buildSelectedRouteTotalityFieldProof } from "./route-totality-field-proof";
 import {
   mergeSelectedRouteSource,
   type RouteTotalitySelectedSource,
@@ -244,7 +245,9 @@ function buildRouteTotalityRecord(
     ? buildRouteTotalityBridges(evidenceSlice, occurrenceSurface, cancellation)
     : [];
   const fieldLineage = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice)
-    ? buildRouteTotalityFieldLineage(provider, evidenceSlice, occurrenceSurface, cancellation)
+    ? selectedSource
+      ? buildSelectedRouteTotalityFieldProof(route, evidenceSlice, occurrenceSurface, selectedSource, cancellation)
+      : buildRouteTotalityFieldLineage(provider, evidenceSlice, occurrenceSurface, cancellation)
     : unavailableRouteTotalityFieldLineage(
       isUnavailable(occurrenceSurface)
         ? occurrenceSurface.reason

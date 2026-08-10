@@ -54,6 +54,7 @@ export function projectRouteTotalityFieldLineageResult(
     frontiers: sortedFrontiers,
     counts: lineageCounts(sortedAttachments, sortedFrontiers, cancellation),
     omissions,
+    transformations: [],
   };
 }
 

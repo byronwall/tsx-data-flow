@@ -140,6 +140,7 @@ function validateAttachments(
       true,
       attachment.evidencePathElementIds,
       attachment.evidencePathRelationIds,
+      attachment.transformationKinds.length > 0,
     );
     validateFieldLineageAttachmentProof(attachment, [...path, "proof"], issues, cancellation);
     validateSortedFieldLineageIds(attachment.terminalIds, [...path, "terminalIds"], "terminal", issues, cancellation);

@@ -24,8 +24,26 @@ import type { RouteOccurrenceSurface } from "./route-occurrence-surface";
 import type { EvidenceProof, OriginRole, SourceLocation } from "./scope-seam";
 
 export type RouteTotalityFieldSegment = {
-  kind: "property" | "string-index" | "numeric-index";
+  kind: "property" | "string-index" | "numeric-index" | "collection-element";
   value: string;
+};
+
+export type RouteTotalityFieldConsumer = {
+  id: string;
+  kind: "render" | "condition" | "handler";
+  label: string;
+  occurrenceId: string;
+  routeTerminalId: string | null;
+  location: SourceLocation;
+};
+
+export type RouteTotalityFieldTransformation = {
+  id: string;
+  kind: string;
+  fromElementIds: string[];
+  toElementIds: string[];
+  locations: SourceLocation[];
+  status: "proven" | "partial" | "unsupported";
 };
 
 export type RouteTotalityField = {
@@ -50,6 +68,10 @@ export type RouteTotalityFieldAttachment = {
   evidencePathRelationIds: string[];
   proof: EvidenceProof[];
   locations: SourceLocation[];
+  consumer: RouteTotalityFieldConsumer | null;
+  alias: string | null;
+  transformationIds: string[];
+  transformationKinds: string[];
 };
 
 export type RouteTotalityFieldFrontierReason = FieldLineageStopReason
@@ -85,6 +107,7 @@ export type RouteTotalityFieldLineage = {
     frontiers: number;
   };
   omissions: string[];
+  transformations: RouteTotalityFieldTransformation[];
 };
 
 /** Build the bounded, exact named-field projection for one route. */
@@ -159,5 +182,6 @@ export function unavailableRouteTotalityFieldLineage(reason: string): RouteTotal
     frontiers: [],
     counts: { origins: 0, fields: 0, occurrences: 0, terminals: 0, frontiers: 0 },
     omissions: [reason],
+    transformations: [],
   };
 }

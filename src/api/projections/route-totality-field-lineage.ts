@@ -33,6 +33,7 @@ export function projectRouteTotalityFieldLineage(
       frontiers: lineage.counts.frontiers,
     },
     omissions,
+    transformations: sortedProject(lineage.transformations, (left, right) => left.id.localeCompare(right.id), projectTransformation, cancellation),
   };
 }
 
@@ -63,6 +64,28 @@ function projectAttachment(
     evidencePathRelationIds: pathRelationIds,
     proof: projectProofs(attachment.proof, cancellation),
     locations,
+    consumer: attachment.consumer ? {
+      ...attachment.consumer,
+      location: projectLocation(attachment.consumer.location),
+    } : null,
+    alias: attachment.alias,
+    transformationIds: copyIds(attachment.transformationIds, cancellation),
+    transformationKinds: copyIds(attachment.transformationKinds, cancellation),
+  };
+}
+
+function projectTransformation(
+  transformation: RouteTotalityFieldLineage["transformations"][number],
+  cancellation: AnalysisCancellationToken,
+) {
+  cancellation.throwIfCancelled();
+  return {
+    id: transformation.id,
+    kind: transformation.kind,
+    fromElementIds: copyIds(transformation.fromElementIds, cancellation),
+    toElementIds: copyIds(transformation.toElementIds, cancellation),
+    locations: projectSourceLocations(transformation.locations, cancellation),
+    status: transformation.status,
   };
 }
 
@@ -119,11 +142,11 @@ function projectProofs(proofs: DomainEvidenceProof[], cancellation: AnalysisCanc
 }
 
 function projectSegments(
-  segments: readonly { kind: "property" | "string-index" | "numeric-index"; value: string }[],
+  segments: readonly { kind: "property" | "string-index" | "numeric-index" | "collection-element"; value: string }[],
   cancellation: AnalysisCancellationToken,
 ) {
   cancellation.throwIfCancelled();
-  const projected: Array<{ kind: "property" | "string-index" | "numeric-index"; value: string }> = [];
+  const projected: Array<{ kind: "property" | "string-index" | "numeric-index" | "collection-element"; value: string }> = [];
   for (const segment of segments) {
     cancellation.throwIfCancelled();
     projected.push({ kind: segment.kind, value: segment.value });

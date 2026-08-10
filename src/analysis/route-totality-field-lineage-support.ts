@@ -69,7 +69,8 @@ export function fieldLabel(
     cancellation.throwIfCancelled();
     if (segment.kind === "property") label = label ? `${label}.${segment.value}` : segment.value;
     else if (segment.kind === "string-index") label = `${label}[${JSON.stringify(segment.value)}]`;
-    else label = `${label}[${segment.value}]`;
+    else if (segment.kind === "numeric-index") label = `${label}[${segment.value}]`;
+    else label = `${label}[*]`;
   }
   cancellation.throwIfCancelled();
   return label;

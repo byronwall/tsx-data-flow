@@ -39,19 +39,25 @@ export function validateFieldLineageField(
   includesLocation: boolean,
   evidencePathElementIds: readonly string[] = [],
   evidencePathRelationIds: readonly string[] = [],
+  allowDetachedSegments = false,
 ): void {
   cancellation.throwIfCancelled();
-  if (field.elementIds.length !== field.segments.length) {
-    addIssue(issues, path, "field element and segment counts must match");
-  }
+  const fieldElementCount = field.segments.filter((segment) => segment.kind !== "collection-element").length;
+  if (field.elementIds.length !== fieldElementCount) addIssue(issues, path, "field element and segment counts must match non-collection segments");
   if (field.elementIds.length === 0) addIssue(issues, [...path, "elementIds"], "field requires at least one element");
   let expectedLabel = "";
+  let elementIndex = 0;
   for (let index = 0; index < field.segments.length; index += 1) {
     cancellation.throwIfCancelled();
     const segment = field.segments[index];
-    const element = exactElement(evidence, field.elementIds[index]);
+    if (segment.kind === "collection-element") {
+      if (segment.value !== "*") addIssue(issues, [...path, "segments", index], "collection element segments must use the wildcard value");
+      continue;
+    }
+    const element = exactElement(evidence, field.elementIds[elementIndex]);
     if (!element) {
-      addIssue(issues, [...path, "elementIds", index], "field element must exist exactly once in the evidence slice");
+      addIssue(issues, [...path, "elementIds", elementIndex], "field element must exist exactly once in the evidence slice");
+      elementIndex += 1;
       continue;
     }
     let validSegment = false;
@@ -72,12 +78,12 @@ export function validateFieldLineageField(
         && element.operationKind === "index-read";
     }
     if (!validSegment) {
-      addIssue(issues, [...path, "elementIds", index], "field element must match one exact fully proven compiler-backed field or literal index read");
+      addIssue(issues, [...path, "elementIds", elementIndex], "field element must match one exact fully proven compiler-backed field or literal index read");
     }
-    if (index > 0) {
+    if (elementIndex > 0 && !allowDetachedSegments) {
       validateFieldInput(
-        field.elementIds[index - 1],
-        field.elementIds[index],
+        field.elementIds[elementIndex - 1],
+        field.elementIds[elementIndex],
         evidence,
         [...path, "elementIds", index],
         issues,
@@ -86,6 +92,7 @@ export function validateFieldLineageField(
         evidencePathRelationIds,
       );
     }
+    elementIndex += 1;
   }
   expectedLabel = fieldLabel(field.segments, cancellation);
   if (field.label !== expectedLabel) addIssue(issues, [...path, "label"], "field label must be built from exact field segments");
@@ -141,6 +148,9 @@ export function validateFieldLineageAttachmentPath(
   let componentPropReceiverElementId: string | null = null;
   let solidShowRenderPropTerminal = false;
   let terminalAttachment = false;
+  const ledgerFieldElementIds = attachment.transformationKinds.length > 0
+    ? attachment.field.elementIds.filter((elementId) => elementIds.includes(elementId))
+    : attachment.field.elementIds;
   for (let index = 0; index < relationIds.length; index += 1) {
     cancellation.throwIfCancelled();
     const relation = exactRelation(evidence, relationIds[index]);
@@ -200,7 +210,7 @@ export function validateFieldLineageAttachmentPath(
       continue;
     }
     if (transition.kind === "field-input") {
-      if (fieldIndex >= attachment.field.elementIds.length || target.id !== attachment.field.elementIds[fieldIndex]) {
+      if (fieldIndex >= ledgerFieldElementIds.length || target.id !== ledgerFieldElementIds[fieldIndex]) {
         addIssue(issues, [...path, "field"], "field elements must occur in the exact accepted path order");
       }
       fieldIndex += 1;
@@ -251,7 +261,7 @@ export function validateFieldLineageAttachmentPath(
       }
     }
   }
-  if (fieldIndex !== attachment.field.elementIds.length || fieldIndex === 0) {
+  if (fieldIndex !== ledgerFieldElementIds.length || fieldIndex === 0) {
     addIssue(issues, [...path, "field"], "attachment path must carry every exact field element");
   }
   if (!terminalAttachment || attachment.terminalIds.length !== 1) {
