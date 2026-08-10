@@ -306,27 +306,15 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     activeFieldOrigin(),
     [...displayLayout().edges, ...displayLayout().evidenceEdges],
   ));
-  const fieldEvidenceNodeIds = createMemo(() => new Set([
-    ...fieldFocus().activeNodeIds,
-    ...fieldFocus().frontierNodeIds,
-  ]));
-  const fieldEvidenceEdgeIds = createMemo(() => new Set([
-    ...fieldFocus().activeEdgeIds,
-    ...fieldFocus().frontierEdgeIds,
-  ]));
-  const fieldEvidenceBridgeIds = createMemo(() => new Set([
-    ...fieldFocus().activeBridgeIds,
-    ...fieldFocus().frontierBridgeIds,
-  ]));
   const visibleDisplayNodes = createMemo(() => {
     const display = displayLayout();
     if (evidenceVisible()) return [...display.nodes, ...display.evidenceNodes];
-    return [...display.nodes, ...display.evidenceNodes.filter((node) => fieldEvidenceNodeIds().has(node.id))];
+    return [...display.nodes];
   });
   const visibleDisplayEdges = createMemo(() => {
     const display = displayLayout();
     if (evidenceVisible()) return [...display.edges, ...display.evidenceEdges];
-    return [...display.edges, ...display.evidenceEdges.filter((edge) => fieldEvidenceEdgeIds().has(edge.id))];
+    return [...display.edges];
   });
   const displayLabelIds = createMemo(() => selectRouteTotalityDisplayLabelIds(
     visibleDisplayNodes(),
@@ -346,6 +334,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         ...fieldFocus().activeNodeIds,
         ...fieldFocus().frontierNodeIds,
       ]),
+      fieldSummaryNodeIds: new Set(fieldFocus().summariesByNodeId.keys()),
     },
   ));
   const baseDisplayBounds = createMemo(() => routeTotalityDisplayBounds(
@@ -353,10 +342,10 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     evidenceVisible(),
     renderableRouteTotalityAnnotations(displayLayout(), evidenceVisible()),
     [],
-    { nodeIds: fieldEvidenceNodeIds(), edgeIds: fieldEvidenceEdgeIds(), bridgeIds: fieldEvidenceBridgeIds() },
   ));
   const boundaryStubLayout = createMemo<RouteTotalityLayout>(() => {
-    const displayNodes = [...displayLayout().nodes, ...displayLayout().evidenceNodes].map((displayNode) => ({
+    const display = displayLayout();
+    const displayNodes = (evidenceVisible() ? [...display.nodes, ...display.evidenceNodes] : [...display.nodes]).map((displayNode) => ({
       ...displayNode.node,
       x: displayNode.x,
       y: displayNode.y,
@@ -378,7 +367,6 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     evidenceVisible(),
     renderableRouteTotalityAnnotations(displayLayout(), evidenceVisible()),
     boundaryStubs(),
-    { nodeIds: fieldEvidenceNodeIds(), edgeIds: fieldEvidenceEdgeIds(), bridgeIds: fieldEvidenceBridgeIds() },
   ));
   const displayAnnotations = createMemo(() => renderableRouteTotalityAnnotations(displayLayout(), evidenceVisible()));
   const selectedRecord = createMemo(() => buildRouteTotalityInspectorRecord(props.totality, layout(), selection()));

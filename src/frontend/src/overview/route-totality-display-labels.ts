@@ -35,6 +35,7 @@ export function selectRouteTotalityDisplayLabelIds(
     focusedNodeIds?: ReadonlySet<string>;
     participantNodeIds?: ReadonlySet<string>;
     nearbyNodeIds?: ReadonlySet<string>;
+    fieldSummaryNodeIds?: ReadonlySet<string>;
     includeEvidence?: boolean;
     limit?: number;
   } = {},
@@ -43,6 +44,7 @@ export function selectRouteTotalityDisplayLabelIds(
   const focusedNodeIds = options.focusedNodeIds ?? new Set<string>();
   const participantNodeIds = options.participantNodeIds ?? new Set<string>();
   const nearbyNodeIds = options.nearbyNodeIds ?? new Set<string>();
+  const fieldSummaryNodeIds = options.fieldSummaryNodeIds ?? new Set<string>();
   const candidates = nodes.filter((node) => options.includeEvidence || node.layer === "surface");
   const limit = Math.max(
     selectedNodeIds.size + focusedNodeIds.size,
@@ -57,9 +59,14 @@ export function selectRouteTotalityDisplayLabelIds(
     || left.id.localeCompare(right.id)
   ));
   const visible = new Set<string>();
+  const occupied: LabelBox[] = [];
   for (const node of ranked) {
-    if (visible.size >= limit) break;
+    const priority = labelPriority(node, selectedNodeIds, focusedNodeIds, participantNodeIds, nearbyNodeIds);
+    if (visible.size >= limit && priority > 1) break;
+    const box = labelBox(node, fieldSummaryNodeIds.has(node.id));
+    if (priority > 1 && occupied.some((other) => boxesOverlap(box, other))) continue;
     visible.add(node.id);
+    occupied.push(box);
   }
   for (const node of candidates) {
     if (selectedNodeIds.has(node.id) || focusedNodeIds.has(node.id)) visible.add(node.id);
@@ -98,6 +105,31 @@ function labelPriority(
   if (nearbyNodeIds.has(node.id)) return 3;
   if (node.layer === "surface") return node.depth === 0 ? 4 : 5;
   return 6;
+}
+
+type LabelBox = { left: number; top: number; right: number; bottom: number };
+
+function labelBox(node: RouteTotalityDisplayLayoutNode, hasFieldSummary: boolean): LabelBox {
+  const label = clip(routeTotalityDisplayNodeLabel(node, "low"), 24);
+  const left = node.x + node.width + 5;
+  const top = node.y + node.height / 2 - 8;
+  return {
+    left,
+    top,
+    right: left + Math.max(24, label.length * 7.5),
+    bottom: top + (hasFieldSummary ? 30 : 16),
+  };
+}
+
+function boxesOverlap(left: LabelBox, right: LabelBox): boolean {
+  return left.left < right.right
+    && left.right > right.left
+    && left.top < right.bottom
+    && left.bottom > right.top;
+}
+
+function clip(value: string, limit: number): string {
+  return value.length > limit ? value.slice(0, limit - 1) + "…" : value;
 }
 
 function toRouteTotalityZoom(zoom: RouteTotalityDisplayZoom): RouteTotalityZoom {

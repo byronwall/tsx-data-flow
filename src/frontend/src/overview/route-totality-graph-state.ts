@@ -16,10 +16,9 @@ import type { RouteTotalityDisplayAnnotation } from "./route-totality-display-mo
 import type {
   RouteTotalityDisplayLayout,
   RouteTotalityDisplayLayoutAnnotation,
-} from "./route-totality-display-layout";
-import {
-  routeTotalityDisplayBridgePath,
-  routeTotalityDisplayEdgePath,
+  RouteTotalityDisplayLayoutBridge,
+  RouteTotalityDisplayLayoutEdge,
+  RouteTotalityDisplayLayoutNode,
 } from "./route-totality-display-layout";
 import type { RouteTotalityBoundaryStub } from "./route-totality-boundary-stubs";
 import type {
@@ -293,26 +292,16 @@ export function routeTotalityDisplayBounds(
   evidenceVisible: boolean,
   annotations: readonly RenderableDisplayAnnotation[],
   boundaryStubs: readonly RouteTotalityBoundaryStub[] = [],
-  focusedFieldPath?: {
-    nodeIds: ReadonlySet<string>;
-    edgeIds: ReadonlySet<string>;
-    bridgeIds?: ReadonlySet<string>;
-  },
 ): { width: number; height: number } {
-  const nodes = evidenceVisible
-    ? [...display.nodes, ...display.evidenceNodes]
-    : [...display.nodes, ...display.evidenceNodes.filter((node) => focusedFieldPath?.nodeIds.has(node.id))];
+  const nodes = evidenceVisible ? [...display.nodes, ...display.evidenceNodes] : [...display.nodes];
   const bounds = { maxX: 0, maxY: 0 };
   for (const node of nodes) includePoint(bounds, node.x + node.width + 48, node.y + node.height + 42);
   for (const item of annotations) includePoint(bounds, item.x + 420, item.y + 42);
-  const edges = evidenceVisible
-    ? [...display.edges, ...display.evidenceEdges]
-    : [...display.edges, ...display.evidenceEdges.filter((edge) => focusedFieldPath?.edgeIds.has(edge.id))];
-  for (const edge of edges) includePath(bounds, routeTotalityDisplayEdgePath(edge));
+  const edges = evidenceVisible ? [...display.edges, ...display.evidenceEdges] : [...display.edges];
+  for (const edge of edges) includeEdgeGeometry(bounds, edge);
   for (const bridge of display.bridges) {
-    if (!evidenceVisible && !focusedFieldPath?.bridgeIds?.has(bridge.bridge.bridge.id)) continue;
-    const path = routeTotalityDisplayBridgePath(bridge);
-    if (path) includePath(bounds, path);
+    if (!evidenceVisible) continue;
+    includeBridgeGeometry(bounds, bridge);
   }
   for (const stub of boundaryStubs) {
     includePoint(bounds, stub.x1 + 24, stub.y1 + 24);
@@ -324,11 +313,31 @@ export function routeTotalityDisplayBounds(
   };
 }
 
-function includePath(bounds: { maxX: number; maxY: number }, path: string): void {
-  const values = path.match(/-?(?:\d+\.??\d*|\.\d+)/g)?.map(Number) ?? [];
-  for (let index = 0; index + 1 < values.length; index += 2) {
-    includePoint(bounds, values[index] + 18, values[index + 1] + 18);
-  }
+function includeEdgeGeometry(
+  bounds: { maxX: number; maxY: number },
+  edge: RouteTotalityDisplayLayoutEdge,
+): void {
+  includeNodeGeometry(bounds, edge.fromNode);
+  includeNodeGeometry(bounds, edge.toNode);
+  const offset = Math.abs(edge.edge.parallelIndex - (edge.edge.parallelCount - 1) / 2) * 14;
+  includePoint(bounds, Math.max(edge.fromNode.x, edge.toNode.x) + edge.fromNode.width + offset + 24, Math.max(edge.fromNode.y, edge.toNode.y) + edge.fromNode.height + offset + 24);
+}
+
+function includeBridgeGeometry(
+  bounds: { maxX: number; maxY: number },
+  bridge: RouteTotalityDisplayLayoutBridge,
+): void {
+  if (!bridge.fromNode || !bridge.toNode) return;
+  includeNodeGeometry(bounds, bridge.fromNode);
+  includeNodeGeometry(bounds, bridge.toNode);
+  includePoint(bounds, Math.max(bridge.fromNode.x, bridge.toNode.x) + 48, Math.max(bridge.fromNode.y, bridge.toNode.y) + 48);
+}
+
+function includeNodeGeometry(
+  bounds: { maxX: number; maxY: number },
+  node: Pick<RouteTotalityDisplayLayoutNode, "x" | "y" | "width" | "height">,
+): void {
+  includePoint(bounds, node.x + node.width + 18, node.y + node.height + 18);
 }
 
 function includePoint(bounds: { maxX: number; maxY: number }, x: number, y: number): void {

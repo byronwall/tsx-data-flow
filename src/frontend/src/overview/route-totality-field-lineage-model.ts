@@ -1,5 +1,5 @@
 import type { RouteTotality } from "../../../api/contracts";
-import type { RouteTotalityLayout } from "./route-totality-model";
+import type { RouteTotalityLayout, RouteTotalityLayoutEdge, RouteTotalityLayoutNode } from "./route-totality-model";
 
 export type RouteTotalityFieldOriginFocus = RouteTotality["fieldLineage"]["attachments"][number]["origin"];
 type RouteTotalityFieldAttachment = RouteTotality["fieldLineage"]["attachments"][number];
@@ -86,12 +86,12 @@ export function selectRouteTotalityFieldFocus(
   for (const attachment of attachments) {
     const occurrenceNodeId = visibleNodeId(layout, `occurrence:${attachment.occurrenceId}`);
     addSummary(summaries, occurrenceNodeId, attachment.field.label, attachment.terminalIds.length, true, false);
-    activeNodeIds.add(occurrenceNodeId);
+    addSurfaceRoutePath(layout, occurrenceNodeId, activeNodeIds, activeEdgeIds);
     addPathElements(activeNodeIds, attachment.evidencePathElementIds);
     addPathRelations(activeEdgeIds, attachment.evidencePathRelationIds);
     for (const terminalId of attachment.terminalIds) {
-      activeNodeIds.add(visibleNodeId(layout, `terminal:${terminalId}`));
-      activeEdgeIds.add(`render-terminal:${terminalId}`);
+      addSurfaceNode(layout, visibleNodeId(layout, `terminal:${terminalId}`), activeNodeIds);
+      addSurfaceEdge(layout, `render-terminal:${terminalId}`, activeEdgeIds);
     }
     addMatchingBridgeIds(
       totality.bridges,
@@ -109,6 +109,8 @@ export function selectRouteTotalityFieldFocus(
     if (!frontier.occurrenceId) continue;
     const occurrenceNodeId = visibleNodeId(layout, `occurrence:${frontier.occurrenceId}`);
     addSummary(summaries, occurrenceNodeId, null, 0, false, true);
+    addSurfaceRoutePath(layout, occurrenceNodeId, activeNodeIds, activeEdgeIds);
+    activeNodeIds.delete(occurrenceNodeId);
     frontierNodeIds.add(occurrenceNodeId);
     addMatchingBridgeIds(
       totality.bridges,
@@ -193,6 +195,72 @@ function addPathElements(nodeIds: Set<string>, elementIds: readonly string[]): v
 
 function addPathRelations(edgeIds: Set<string>, relationIds: readonly string[]): void {
   for (const relationId of relationIds) edgeIds.add(relationId);
+}
+
+function addSurfaceRoutePath(
+  layout: RouteTotalityLayout,
+  startNodeId: string,
+  nodeIds: Set<string>,
+  edgeIds: Set<string>,
+): void {
+  const nodesById = new Map((layout.nodes as RouteTotalityLayoutNode[]).map((node) => [node.id, node]));
+  let currentId: string | null = startNodeId;
+  const visited = new Set<string>();
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const current = nodesById.get(currentId);
+    if (!current || !isSurfaceNode(current)) break;
+    nodeIds.add(current.id);
+    const incoming = incomingSurfaceEdge(layout, current, nodesById);
+    if (!incoming) break;
+    edgeIds.add(incoming.id);
+    currentId = incoming.from;
+  }
+}
+
+function incomingSurfaceEdge(
+  layout: RouteTotalityLayout,
+  node: RouteTotalityLayoutNode,
+  nodesById: ReadonlyMap<string, RouteTotalityLayoutNode>,
+): RouteTotalityLayoutEdge | null {
+  const record = node.record;
+  const parentIds = "parentOccurrenceId" in record
+    ? [record.renderParentId, record.parentOccurrenceId].filter((id): id is string => Boolean(id))
+    : [];
+  const expectedFromIds = new Set(parentIds.flatMap((id) => [
+    `occurrence:${id}`,
+    `boundary:${id}`,
+  ]));
+  if (!expectedFromIds.size) return null;
+  return (layout.edges as RouteTotalityLayoutEdge[]).find((edge) => (
+    edge.to === node.id
+    && edge.status === "proven"
+    && edge.kind !== "render-terminal"
+    && nodesById.has(edge.from)
+    && expectedFromIds.has(edge.from)
+  )) ?? null;
+}
+
+function addSurfaceNode(
+  layout: RouteTotalityLayout,
+  nodeId: string,
+  nodeIds: Set<string>,
+): void {
+  const node = (layout.nodes as RouteTotalityLayoutNode[]).find((candidate) => candidate.id === nodeId);
+  if (node && isSurfaceNode(node)) nodeIds.add(nodeId);
+}
+
+function addSurfaceEdge(
+  layout: RouteTotalityLayout,
+  edgeId: string,
+  edgeIds: Set<string>,
+): void {
+  const edge = (layout.edges as RouteTotalityLayoutEdge[]).find((candidate) => candidate.id === edgeId);
+  if (edge && edge.status === "proven" && isSurfaceNode(edge.fromNode) && isSurfaceNode(edge.toNode)) edgeIds.add(edgeId);
+}
+
+function isSurfaceNode(node: RouteTotalityLayoutNode): boolean {
+  return node.kind === "occurrence" || node.kind === "framework-boundary" || node.kind === "terminal";
 }
 
 function addMatchingBridgeIds(
