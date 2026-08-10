@@ -62,6 +62,7 @@ const fieldTransformationSchema = z.strictObject({
   fromElementIds: z.array(nonEmptyStringSchema),
   toElementIds: z.array(nonEmptyStringSchema),
   locations: z.array(sourceLocationSchema).min(1),
+  proof: z.array(evidenceProofSchema).min(1),
   status: evidenceStatusSchema,
 });
 

@@ -43,6 +43,7 @@ export type RouteTotalityFieldTransformation = {
   fromElementIds: string[];
   toElementIds: string[];
   locations: SourceLocation[];
+  proof: EvidenceProof[];
   status: "proven" | "partial" | "unsupported";
 };
 

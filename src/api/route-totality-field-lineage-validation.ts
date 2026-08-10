@@ -1,6 +1,6 @@
 import { NO_ANALYSIS_CANCELLATION, type AnalysisCancellationToken } from "../analysis/cancellation";
 import { MAX_FRONTIERS } from "../analysis/route-totality-field-lineage-frontier";
-import { isFullyProvenElement } from "../analysis/route-totality-field-lineage-transition";
+import { isFullyProvenElement, isFullyProvenProof } from "../analysis/route-totality-field-lineage-transition";
 import type { RouteTotality } from "./route-totality-contracts";
 import { addIssue, type ValidationIssue } from "./route-occurrence-validation-graph";
 import { validateFieldLineageFrontierStop } from "./route-totality-field-lineage-validation-frontier";
@@ -8,12 +8,14 @@ import {
   availableEvidence,
   availableSurface,
   endpointOccurrenceAnchors,
+  endpointTerminalAnchors,
   exactElement,
   fullyProvenOrigin,
   hasPartialInputs,
   indexEvidence,
   indexSurface,
   isUnavailable,
+  sameLocations,
   type AvailableSurface,
   type EvidenceElement,
   type EvidenceIndexes,
@@ -71,7 +73,8 @@ export function validateRouteTotalityFieldLineage(
   const evidenceIndexes = indexEvidence(evidence, cancellation);
   const surfaceIndexes = indexSurface(evidence, surface, cancellation);
   validateFieldLineageCounts(lineage, issues, cancellation);
-  validateAttachments(lineage.attachments, evidenceIndexes, surface, surfaceIndexes, issues, cancellation);
+  validateTransformations(lineage, evidenceIndexes, issues, cancellation);
+  validateAttachments(lineage.attachments, lineage.transformations, evidenceIndexes, surface, surfaceIndexes, issues, cancellation);
   validateFrontiers(lineage.frontiers, evidenceIndexes, surfaceIndexes, issues, cancellation);
   validateStatus(lineage, hasPartialInputs(evidence, surface, cancellation), issues, cancellation);
   cancellation.throwIfCancelled();
@@ -106,6 +109,7 @@ function validateUnavailable(
 
 function validateAttachments(
   attachments: readonly FieldAttachment[],
+  transformations: readonly RouteTotality["fieldLineage"]["transformations"][number][],
   evidence: EvidenceIndexes,
   surface: AvailableSurface,
   surfaceIndexes: SurfaceIndexes,
@@ -131,33 +135,96 @@ function validateAttachments(
       issues,
       cancellation,
     );
-    validateFieldLineageField(
-      attachment.field,
-      evidence,
-      [...path, "field"],
-      issues,
-      cancellation,
-      true,
-      attachment.evidencePathElementIds,
-      attachment.evidencePathRelationIds,
-      attachment.transformationKinds.length > 0,
-    );
+    if (attachment.transformationIds.length > 0) {
+      validateLedgerAttachment(attachment, transformations, occurrence, evidence, surfaceIndexes, path, issues, cancellation);
+    } else {
+      validateFieldLineageField(attachment.field, evidence, [...path, "field"], issues, cancellation, true, attachment.evidencePathElementIds, attachment.evidencePathRelationIds);
+    }
     validateFieldLineageAttachmentProof(attachment, [...path, "proof"], issues, cancellation);
     validateSortedFieldLineageIds(attachment.terminalIds, [...path, "terminalIds"], "terminal", issues, cancellation);
-    validateFieldLineageAttachmentPath(
-      attachment,
-      originElement,
-      occurrence,
-      evidence,
-      surface,
-      surfaceIndexes,
-      path,
-      issues,
-      cancellation,
-    );
-    validateFieldLineageAttachmentTerminals(attachment, occurrence, evidence, surfaceIndexes, path, issues, cancellation);
+    if (attachment.transformationIds.length === 0) {
+      validateFieldLineageAttachmentPath(attachment, originElement, occurrence, evidence, surface, surfaceIndexes, path, issues, cancellation);
+    }
+    if (attachment.transformationIds.length === 0) {
+      validateFieldLineageAttachmentTerminals(attachment, occurrence, evidence, surfaceIndexes, path, issues, cancellation);
+    }
   }
   cancellation.throwIfCancelled();
+}
+
+function validateTransformations(
+  lineage: RouteTotality["fieldLineage"], evidence: EvidenceIndexes, issues: ValidationIssue[], cancellation: AnalysisCancellationToken,
+): void {
+  const seen = new Set<string>();
+  for (let index = 0; index < lineage.transformations.length; index += 1) {
+    cancellation.throwIfCancelled();
+    const value = lineage.transformations[index];
+    const path = ["fieldLineage", "transformations", index] as Array<string | number>;
+    validateStableFieldLineageId(lineage.transformations, index, path, issues);
+    if (seen.has(value.id)) addIssue(issues, [...path, "id"], "duplicate transformation id");
+    seen.add(value.id);
+    if (value.status !== "proven" || value.fromElementIds.length !== 1 || value.toElementIds.length !== 1 || value.locations.length === 0 || value.proof.length === 0) {
+      addIssue(issues, path, "each ledger transformation requires one proven exact source, target, and proof location");
+    }
+    for (const proof of value.proof) {
+      if (!isFullyProvenProof(proof) || !sameLocations(proof.locations, value.locations, cancellation)) addIssue(issues, [...path, "proof"], "ledger transformation proof must be fully proven and match its locations");
+    }
+    for (const id of [...value.fromElementIds, ...value.toElementIds]) {
+      if (!exactElement(evidence, id) || !isFullyProvenElement(exactElement(evidence, id), cancellation)) addIssue(issues, path, "ledger transformations must reference fully proven evidence elements");
+    }
+  }
+}
+
+function validateLedgerAttachment(
+  attachment: FieldAttachment,
+  transformations: readonly RouteTotality["fieldLineage"]["transformations"][number][],
+  occurrence: SurfaceOccurrence | undefined,
+  evidence: EvidenceIndexes,
+  surface: SurfaceIndexes,
+  path: Array<string | number>, issues: ValidationIssue[], cancellation: AnalysisCancellationToken,
+): void {
+  const byId = new Map(transformations.map((item) => [item.id, item]));
+  const unresolvedSteps = attachment.transformationIds.map((id) => byId.get(id));
+  if (unresolvedSteps.some((item) => !item) || unresolvedSteps.length === 0 || attachment.transformationKinds.length !== unresolvedSteps.length) {
+    addIssue(issues, [...path, "transformationIds"], "attachment must reference every exact ledger transfer");
+    return;
+  }
+  const steps = unresolvedSteps as NonNullable<typeof unresolvedSteps[number]>[];
+  for (let index = 0; index < steps.length; index += 1) {
+    cancellation.throwIfCancelled();
+    const step = steps[index]!;
+    if (attachment.transformationKinds[index] !== step.kind) addIssue(issues, [...path, "transformationKinds", index], "transformation kind must match its referenced ledger record");
+    if (index > 0 && steps[index - 1]!.toElementIds[0] !== step.fromElementIds[0]) addIssue(issues, [...path, "transformationIds", index], "ledger transfers must form one contiguous exact chain");
+  }
+  if (steps[0]!.fromElementIds[0] !== attachment.origin.elementId) addIssue(issues, [...path, "origin"], "ledger chain must start at the selected exact origin");
+  const fieldIds = attachment.field.elementIds;
+  if (fieldIds.length !== 2 || !steps.some((step) => step.toElementIds[0] === fieldIds[0]) || !steps.some((step) => step.toElementIds[0] === fieldIds[1])) {
+    addIssue(issues, [...path, "field"], "ledger chain must contain each exact field read");
+  }
+  const expected = `${attachment.field.segments[0]?.value}[*].${attachment.field.segments[2]?.value}`;
+  if (attachment.field.segments.length !== 3 || attachment.field.segments[1]?.kind !== "collection-element" || attachment.field.segments[1]?.value !== "*" || attachment.field.label !== expected) {
+    addIssue(issues, [...path, "field"], "ledger field must use exact property, collection-element, property segments");
+  }
+  const consumer = attachment.consumer;
+  const last = steps.at(-1)!;
+  const consumerElement = consumer ? exactElement(evidence, last.toElementIds[0]) : undefined;
+  if (!consumer || !consumerElement || consumer.occurrenceId !== attachment.occurrenceId || !sameLocations([consumer.location], [consumerElement.location], cancellation) || !occurrence) {
+    addIssue(issues, [...path, "consumer"], "ledger consumer must be the exact expression owned by this occurrence");
+    return;
+  }
+  const anchor = endpointOccurrenceAnchors(surface.anchors, occurrence.id, cancellation)[0];
+  const owner = anchor ? exactElement(evidence, anchor.evidenceElementId) : undefined;
+  if (!owner || !contains(owner.location, consumer.location)) addIssue(issues, [...path, "consumer"], "consumer expression must be inside the exact call-site occurrence anchor");
+  const terminal = attachment.terminalIds.length === 1 ? surface.terminalsById.get(attachment.terminalIds[0]) ?? [] : [];
+  if (terminal.length !== 1 || !endpointTerminalAnchors(surface.anchors, attachment.terminalIds[0], cancellation).length) {
+    addIssue(issues, [...path, "terminalIds"], "ledger attachment requires one exact route render terminal anchor");
+  }
+}
+
+function contains(owner: { file: string; span: { startLine: number; startColumn: number; endLine: number; endColumn: number } }, child: { file: string; span: { startLine: number; startColumn: number; endLine: number; endColumn: number } }): boolean {
+  return owner.file === child.file
+    && (owner.span.startLine < child.span.startLine || owner.span.startLine === child.span.startLine && owner.span.startColumn <= child.span.startColumn)
+    && (owner.span.endLine > child.span.endLine || owner.span.endLine === child.span.endLine && owner.span.endColumn >= child.span.endColumn);
 }
 
 function validateFrontiers(

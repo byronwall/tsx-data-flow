@@ -244,10 +244,13 @@ function buildRouteTotalityRecord(
   const bridges = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice)
     ? buildRouteTotalityBridges(evidenceSlice, occurrenceSurface, cancellation)
     : [];
+  const selectedProof = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice) && selectedSource
+    ? buildSelectedRouteTotalityFieldProof(ts, program, route, evidenceSlice, occurrenceSurface, selectedSource, cancellation)
+    : null;
+  // Exact ledger queries replace lineage only when their compiler predicate
+  // applies. Other selected sources retain the prior bounded lineage policy.
   const fieldLineage = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice)
-    ? selectedSource
-      ? buildSelectedRouteTotalityFieldProof(route, evidenceSlice, occurrenceSurface, selectedSource, cancellation)
-      : buildRouteTotalityFieldLineage(provider, evidenceSlice, occurrenceSurface, cancellation)
+    ? selectedProof ?? buildRouteTotalityFieldLineage(provider, evidenceSlice, occurrenceSurface, cancellation)
     : unavailableRouteTotalityFieldLineage(
       isUnavailable(occurrenceSurface)
         ? occurrenceSurface.reason

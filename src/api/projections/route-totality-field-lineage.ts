@@ -85,6 +85,7 @@ function projectTransformation(
     fromElementIds: copyIds(transformation.fromElementIds, cancellation),
     toElementIds: copyIds(transformation.toElementIds, cancellation),
     locations: projectSourceLocations(transformation.locations, cancellation),
+    proof: projectProofs(transformation.proof, cancellation),
     status: transformation.status,
   };
 }
