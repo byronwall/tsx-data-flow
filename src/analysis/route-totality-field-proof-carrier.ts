@@ -1,6 +1,6 @@
 import type { AnalysisCancellationToken } from "./cancellation";
 import type { RouteTotalityFieldProofIndex } from "./route-totality-field-proof-index";
-import { isExactSourceCarrierRelation } from "./route-totality-field-transfer-verifier";
+import { isExactSourceCarrierRelation } from "./route-totality-field-transfer-carrier-verifier";
 import type { ProgramElement, ProgramRelation } from "./scope-seam";
 
 export type FieldCarrierPath = { call: ProgramElement; relations: ProgramRelation[] };

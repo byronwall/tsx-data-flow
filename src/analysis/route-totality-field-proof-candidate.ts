@@ -71,12 +71,37 @@ export function discoverFieldProofCandidates(
       candidates.push(...candidatesForFind(ts, checker, root, index, target, node, cancellation));
     });
   }
-  return [...new Map(candidates.map((candidate) => [
-    `${candidate.targetKey}\0${candidate.findResult.id}\0${candidate.binding.id}\0${candidate.consumerField.id}\0${candidate.consumerValue.id}\0${candidate.occurrence.id}\0${candidate.renderTerminal.id}`,
-    candidate,
-  ])).values()]
+  return [...new Map(candidates.map((candidate) => [fullCandidateProofKey(candidate), candidate])).values()]
     .sort((left, right) => sourceOrder(left.findCall, right.findCall)
       || left.binding.id.localeCompare(right.binding.id));
+}
+
+function fullCandidateProofKey(candidate: FieldProofCandidate): string {
+  return [
+    candidate.targetKey,
+    candidate.snapshotCall.id,
+    candidate.collectionField.id,
+    candidate.collectionElement.id,
+    candidate.parameter.id,
+    candidate.parameterValue.id,
+    candidate.predicateField.id,
+    candidate.predicateResult.id,
+    candidate.findResult.id,
+    candidate.returnExpression.id,
+    candidate.accessorCall.id,
+    candidate.showBinding.id,
+    candidate.currentParameter.id,
+    candidate.currentCall.id,
+    candidate.consumerField.id,
+    candidate.consumerValue.id,
+    candidate.binding.id,
+    candidate.occurrence.id,
+    candidate.definition.id,
+    candidate.renderTerminal.id,
+    candidate.boundary?.binding.id ?? "",
+    candidate.boundary?.receiver?.id ?? "",
+    candidate.sourceField?.id ?? "",
+  ].join("\0");
 }
 
 function candidatesForFind(
@@ -237,17 +262,17 @@ function directConsumers(
       const initializer = attribute.initializer;
       const value = initializer && ts.isJsxExpression(initializer) ? initializer.expression : null;
       if (!value) continue;
-      const fieldConsumer = index.element(value, "field-consumer");
-      const recordedKind = fieldConsumer?.attributes?.consumerKind;
-      const kind = recordedKind === "condition" || recordedKind === "handler" || recordedKind === "render"
-        ? recordedKind
-        : tagName === "Show" && attribute.name.text === "when"
-        ? "condition"
-        : /^on[A-Z]/.test(attribute.name.text) ? "handler" : "render";
-      if (kind === "render" && tagName !== "A" && !fieldConsumer) continue;
       const reads = currentPropertyReads(ts, checker, value, parameter);
       for (const access of reads) {
         if (!ts.isCallExpression(access.expression)) continue;
+        const fieldConsumer = index.element(access, "field-consumer");
+        const recordedKind = fieldConsumer?.attributes?.consumerKind;
+        const kind = recordedKind === "condition" || recordedKind === "handler" || recordedKind === "render"
+          ? recordedKind
+          : tagName === "Show" && attribute.name.text === "when"
+          ? "condition"
+          : /^on[A-Z]/.test(attribute.name.text) ? "handler" : "render";
+        if (kind === "render" && tagName !== "A" && !fieldConsumer) continue;
         const handler = kind === "handler" ? resolveHandlerAction(ts, checker, root, access, value) : null;
         const valueElement = index.element(value, elementKindForExpression(ts, value)) ?? index.element(value, "literal");
         const owner = fieldConsumer?.ownerId ? index.byId(fieldConsumer.ownerId) : null;
@@ -294,10 +319,11 @@ function componentBoundaryConsumersForTarget(
     if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node)) return;
     const opening = ts.isJsxElement(node) ? node.openingElement : node;
     if (opening.tagName.getText(opening.getSourceFile()) !== target.componentName) return;
-    const attribute = opening.attributes.properties.find((item): item is TypeScript.JsxAttribute => (
+    const attributes = opening.attributes.properties.filter((item): item is TypeScript.JsxAttribute => (
       ts.isJsxAttribute(item) && ts.isIdentifier(item.name) && item.name.text === target.componentPropName
     ));
-    if (!attribute) return;
+    if (attributes.length !== 1) return;
+    const attribute = attributes[0];
     const bindings = index.elements(attribute, "component-prop-binding");
     for (const binding of bindings) {
       const boundary = resolveExactComponentBoundary(ts, checker, root, index, opening, attribute, binding);
@@ -491,6 +517,7 @@ function matchesTarget(consumer: CandidateConsumer, target: FieldProofTargetSele
     const attrs = consumer.binding?.attributes ?? {};
     if (selector.actionName !== undefined && attrs.actionName !== selector.actionName) return false;
     if (selector.argumentName !== undefined && attrs.argumentName !== selector.argumentName) return false;
+    if (selector.handlerReceiverName !== undefined && attrs.handlerReceiverName !== selector.handlerReceiverName) return false;
     if (selector.conditionOperator !== undefined && attrs.conditionOperator !== selector.conditionOperator) return false;
     if (selector.conditionLiteral !== undefined && attrs.conditionLiteral !== selector.conditionLiteral) return false;
     if (selector.nestedShow !== undefined && attrs.nestedShow !== selector.nestedShow) return false;
@@ -501,10 +528,18 @@ function matchesTarget(consumer: CandidateConsumer, target: FieldProofTargetSele
 
 function handlerIdentityMatches(consumer: ProgramElement, action: ResolvedHandlerAction): boolean {
   const attributes = consumer.attributes ?? {};
-  return attributes.handlerReceiverSymbol === action.receiverSymbolId
+  return typeof attributes.handlerReceiverName === "string"
+    && typeof attributes.handlerPayloadObject === "string"
+    && typeof attributes.handlerReceiverSymbol === "string"
+    && typeof attributes.handlerMethodSymbol === "string"
+    && typeof attributes.handlerCalleeSymbol === "string"
+    && typeof attributes.handlerActionArgumentSymbol === "string"
+    && attributes.handlerReceiverName === action.receiverName
+    && attributes.handlerPayloadObject === action.payloadObjectIdentity
+    && attributes.handlerReceiverSymbol === action.receiverSymbolId
     && attributes.handlerMethodSymbol === action.methodSymbolId
-    && sameOptionalIdentity(attributes.handlerCalleeSymbol, action.calleeSymbolId)
-    && sameOptionalIdentity(attributes.handlerActionArgumentSymbol, action.actionArgumentSymbolId)
+    && attributes.handlerCalleeSymbol === action.calleeSymbolId
+    && attributes.handlerActionArgumentSymbol === action.actionArgumentSymbolId
     && sameOptionalIdentity(attributes.handlerForwardedParameterSymbol, action.forwardedParameterSymbolId);
 }
 

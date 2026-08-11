@@ -1,16 +1,15 @@
 import * as TypeScript from "typescript";
-import { ProgramEvidenceCollectorComponentBindingSupport } from "./program-evidence-collector-component-binding";
-import { asFunctionLike, nodeKey, proof, unwrap } from "./program-evidence-support";
+import { ProgramEvidenceCollectorDirectConsumerSupport } from "./program-evidence-collector-direct-consumers";
+import { asFunctionLike, proof, unwrap } from "./program-evidence-support";
 import { exactCallbackReturnExpression } from "./program-callback-return";
 import { resolveHandlerAction, type ResolvedHandlerAction } from "./program-evidence-handler-resolution";
 import {
   componentConditionAttributes, componentConditionCollection, componentConditionExpression, componentConditionLabel,
-  conditionAttributes, conditionExpression as conditionExpressionFor, containsJsx, enclosingJsxOpening, enclosingJsxPropName,
-  hasJsxExpressionAncestor, isCollectionPredicate, propertyReads,
+  enclosingJsxOpening, enclosingJsxPropName, hasJsxExpressionAncestor, isCollectionPredicate,
 } from "./program-evidence-collector-field-consumer-support";
 
 /** Collect compiler-backed facts for exact collection and JSX field transfers. */
-export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenceCollectorComponentBindingSupport {
+export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenceCollectorDirectConsumerSupport {
   protected connectFieldTransfers(): void {
     for (const file of this.files) {
       this.checkCancellation();
@@ -119,6 +118,8 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
           argumentName: action.property,
           handlerReceiverSymbol: action.receiverSymbolId,
           handlerMethodSymbol: action.methodSymbolId,
+          handlerReceiverName: action.receiverName,
+          handlerPayloadObject: action.payloadObjectIdentity,
           handlerCalleeSymbol: action.calleeSymbolId,
           handlerActionArgumentSymbol: action.actionArgumentSymbolId,
           handlerForwardedParameterSymbol: action.forwardedParameterSymbolId,
@@ -303,106 +304,6 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
     }
   }
 
-  /** Record exact consumers that do not have an in-project component binding. */
-  private connectDirectConsumers(node: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement): void {
-    const opening = this.ts.isJsxElement(node) ? node.openingElement : node;
-    const tagName = opening.tagName.getText(opening.getSourceFile());
-    for (const attribute of opening.attributes.properties) {
-      if (!this.ts.isJsxAttribute(attribute) || !this.ts.isIdentifier(attribute.name)) continue;
-      const initializer = attribute.initializer;
-      const value = initializer && this.ts.isJsxExpression(initializer) ? initializer.expression : null;
-      if (!value) continue;
-      const attributeName = attribute.name.text;
-      const attributeLocation = this.location(attribute);
-      const componentBindingKey = `${attributeLocation.file}:${attributeLocation.span.startLine}:${attributeLocation.span.startColumn}:${attributeLocation.span.endLine}:${attributeLocation.span.endColumn}:component-prop-binding`;
-      const hasComponentBinding = this.elementIdsByNodeKind.has(componentBindingKey);
-      const handler = /^on[A-Z]/.test(attributeName);
-      const reads = propertyReads(this.ts, value);
-      if (reads.length === 0 || (this.targetFunction(opening.tagName) && containsJsx(this.ts, value))) continue;
-      const read = reads[0];
-      const conditionExpression = conditionExpressionFor(this.ts, read, value);
-      const condition = Boolean(conditionExpression);
-      if (!condition && !handler && this.targetFunction(opening.tagName) && hasComponentBinding) continue;
-      const actionRead = handler ? reads.find((candidate) => this.handlerAction(candidate, value)) ?? null : null;
-      const action = actionRead ? this.handlerAction(actionRead, value) : null;
-      if (handler && !action) continue;
-      const kind = condition ? "condition" : handler ? "handler" : "render";
-      const actionCall = action ? this.elementFor(action.call, "call") : null;
-      const consumerId = this.ensureElement(
-        value,
-        "field-consumer",
-        this.componentOwnerId(opening),
-        {
-          consumerKind: kind,
-          tagName,
-          propName: attributeName,
-          label: action ? `${action.name}.${action.property}` : `${tagName}.${attributeName}`,
-          ...(condition ? conditionAttributes(this.ts, conditionExpression!, node) : {}),
-          ...(action ? {
-            actionName: action.name,
-            argumentName: action.property,
-            handlerReceiverSymbol: action.receiverSymbolId,
-            handlerMethodSymbol: action.methodSymbolId,
-            handlerCalleeSymbol: action.calleeSymbolId,
-            handlerActionArgumentSymbol: action.actionArgumentSymbolId,
-            handlerForwardedParameterSymbol: action.forwardedParameterSymbolId,
-          } : {}),
-        },
-        this.symbolId(opening.tagName),
-        this.moduleFor(opening.tagName),
-        this.targetFunction(opening.tagName)?.id ?? null,
-        "proven",
-        proof(
-          condition ? "condition-consumer" : handler ? "handler-consumer" : "render-consumer",
-          "The compiler identifies one exact field expression at this consumer site.",
-          [this.location(read), this.location(value)],
-        ),
-      );
-      const consumerReads = actionRead ? [actionRead] : reads;
-      for (const fieldRead of consumerReads) {
-        this.addRelation(
-          this.elementFor(fieldRead, "field-read"),
-          consumerId,
-          "consumer-value",
-          [this.location(fieldRead), this.location(value)],
-          proof(
-            condition ? "condition-consumer" : handler ? "handler-consumer" : "render-consumer",
-            "The exact field expression is used by this occurrence-owned consumer.",
-            [this.location(fieldRead), this.location(value)],
-          ),
-          "proven",
-        );
-        if (actionCall) {
-          this.addRelation(
-            consumerId,
-            actionCall,
-            "argument",
-            [this.location(fieldRead), this.location(action!.call)],
-            proof("handler-consumer", "The exact handler field expression reaches the resolved action call.", [this.location(fieldRead), this.location(action!.call)]),
-            "proven",
-          );
-        }
-      }
-    }
-  }
-
-  private handlerAction(
-    read: TypeScript.PropertyAccessExpression,
-    value: TypeScript.Expression,
-  ): ResolvedHandlerAction | null {
-    return resolveHandlerAction(this.ts, this.checker, this.root, read, value);
-  }
-
-  private componentOwnerId(node: TypeScript.Node): string | null {
-    let current: TypeScript.Node | undefined = node;
-    while (current) {
-      const info = this.functionsByNode.get(nodeKey(this.root, current));
-      if (info?.component) return info.id;
-      current = current.parent;
-    }
-    return this.ownerId(node);
-  }
-
   private directParameterReads(expression: TypeScript.Expression, parameter: TypeScript.Symbol): TypeScript.PropertyAccessExpression[] {
     const matches: TypeScript.PropertyAccessExpression[] = [];
     this.visit(expression, (node) => {
@@ -446,16 +347,6 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
 
   private staticAttributeName(attribute: TypeScript.JsxAttribute): string | null {
     return this.ts.isIdentifier(attribute.name) ? attribute.name.text : null;
-  }
-
-  private ownerId(node: TypeScript.Node): string | null {
-    let current: TypeScript.Node | undefined = node;
-    while (current) {
-      const info = this.functionsByNode.get(nodeKey(this.root, current));
-      if (info) return info.id;
-      current = current.parent;
-    }
-    return null;
   }
 
   private visit(node: TypeScript.Node, callback: (node: TypeScript.Node) => void): void {

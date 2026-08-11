@@ -8,6 +8,7 @@ export type FieldProofConsumerSelector = {
   tagModule?: string;
   actionName?: string;
   argumentName?: string;
+  handlerReceiverName?: string;
   conditionOperator?: string;
   conditionLiteral?: string;
   nestedShow?: boolean;
@@ -135,6 +136,7 @@ export const DIRECT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
       directConsumer: true,
       actionName: "deleteGame",
       argumentName: "id",
+      handlerReceiverName: "data",
     },
   },
   {
@@ -191,7 +193,7 @@ export const COMPONENT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] 
     chain: "whole-object",
     componentName: "ScheduledGamePlanningDetails",
     componentPropName: "game",
-    consumer: { kind: "handler", label: "markAllAvailable.gameId", directConsumer: true, actionName: "markAllAvailable", argumentName: "gameId" },
+    consumer: { kind: "handler", label: "markAllAvailable.gameId", directConsumer: true, actionName: "markAllAvailable", argumentName: "gameId", handlerReceiverName: "data" },
   },
   {
     collectionFieldName: "games",
@@ -200,7 +202,7 @@ export const COMPONENT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] 
     chain: "whole-object",
     componentName: "ScheduledGamePlanningDetails",
     componentPropName: "game",
-    consumer: { kind: "handler", label: "setAvailability.gameId", directConsumer: true, actionName: "setAvailability", argumentName: "gameId" },
+    consumer: { kind: "handler", label: "setAvailability.gameId", directConsumer: true, actionName: "setAvailability", argumentName: "gameId", handlerReceiverName: "data" },
   },
   {
     collectionFieldName: "games",
@@ -259,6 +261,7 @@ export function fieldProofTargetKey(target: FieldProofTargetSelector): string {
       tagModule: target.consumer.tagModule ?? null,
       actionName: target.consumer.actionName ?? null,
       argumentName: target.consumer.argumentName ?? null,
+      handlerReceiverName: target.consumer.handlerReceiverName ?? null,
       conditionOperator: target.consumer.conditionOperator ?? null,
       conditionLiteral: target.consumer.conditionLiteral ?? null,
       nestedShow: target.consumer.nestedShow ?? null,

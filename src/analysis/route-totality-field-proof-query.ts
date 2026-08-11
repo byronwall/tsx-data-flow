@@ -5,7 +5,6 @@ import type { RouteTotalityFieldLineage, RouteTotalityFieldOrigin, RouteTotality
 import { discoverFieldProofCandidates, type FieldProofCandidate } from "./route-totality-field-proof-candidate";
 import { searchFieldCarrierPaths, type FieldCarrierPath } from "./route-totality-field-proof-carrier";
 import { RouteTotalityFieldProofIndex } from "./route-totality-field-proof-index";
-import type { ProgramElement } from "./scope-seam";
 import { failedFieldProof, mergeProvenFieldProofs, provenFieldProof } from "./route-totality-field-proof-result";
 import { fieldProofTargetKey, FIELD_PROOF_TARGETS } from "./route-totality-field-proof-policy";
 import { assembleFieldProofTransformations } from "./route-totality-field-proof-transformations";
@@ -191,48 +190,21 @@ function anchorCandidate(
     if (boundaryOccurrence) {
       const occurrence = anchors.occurrenceAnchorsByEvidenceElementId.get(boundaryOccurrence.id) ?? [];
       if (occurrence.length !== 1) return null;
-      if (candidate.renderTerminal) {
-        const indexed = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
-        const exactLocation = anchors.terminalAnchors
-          .filter((anchor) => sameLocation(anchor.endpoint.location, candidate.renderTerminal.location));
-        const terminal = indexed.length > 0 ? indexed : exactLocation;
-        if (terminal.length === 1) {
-          return { occurrenceId: occurrence[0].endpoint.id, terminalId: terminal[0].endpoint.id, evidenceElementId: terminal[0].evidenceElementId };
-        }
-        const exactSurfaceTerminals = surface.terminals.filter((item) => sameLocation(item.location, candidate.renderTerminal.location));
-        if (exactSurfaceTerminals.length === 1) {
-          return { occurrenceId: occurrence[0].endpoint.id, terminalId: exactSurfaceTerminals[0].id, evidenceElementId: candidate.renderTerminal.id };
-        }
-        const parentId = surface.occurrences.find((item) => item.id === occurrence[0].endpoint.id)?.parentOccurrenceId ?? null;
-        const containing = parentId
-          ? anchors.terminalAnchors.filter((anchor) => anchor.endpoint.ownerOccurrenceId === parentId)
-          : [];
-        return containing.length === 1
-          ? { occurrenceId: occurrence[0].endpoint.id, terminalId: containing[0].endpoint.id, evidenceElementId: containing[0].evidenceElementId }
-          : null;
-      }
-      const parentId = surface.occurrences.find((item) => item.id === occurrence[0].endpoint.id)?.parentOccurrenceId ?? null;
-      if (!parentId) return null;
-      const containing = anchors.terminalAnchors.filter((anchor) => anchor.endpoint.ownerOccurrenceId === parentId);
-      return containing.length === 1
-        ? { occurrenceId: occurrence[0].endpoint.id, terminalId: containing[0].endpoint.id, evidenceElementId: containing[0].evidenceElementId }
+      const terminal = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
+      return terminal.length === 1 && terminal[0].endpoint.ownerOccurrenceId === occurrence[0].endpoint.id
+        ? { occurrenceId: occurrence[0].endpoint.id, terminalId: terminal[0].endpoint.id, evidenceElementId: terminal[0].evidenceElementId }
         : null;
     }
     const terminal = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
-    return occurrences.length === 1 && terminal.length === 1
+    return occurrences.length === 1 && terminal.length === 1 && terminal[0].endpoint.ownerOccurrenceId === occurrences[0].id
       ? { occurrenceId: occurrences[0].id, terminalId: terminal[0].endpoint.id, evidenceElementId: terminal[0].evidenceElementId }
       : null;
   }
   const occurrence = anchors.occurrenceAnchorsByEvidenceElementId.get(candidate.occurrence.id) ?? [];
   const terminal = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
-  return occurrence.length === 1 && terminal.length === 1
+  return occurrence.length === 1 && terminal.length === 1 && terminal[0].endpoint.ownerOccurrenceId === occurrence[0].endpoint.id
     ? { occurrenceId: occurrence[0].endpoint.id, terminalId: terminal[0].endpoint.id, evidenceElementId: terminal[0].evidenceElementId }
     : null;
-}
-
-function sameLocation(left: ProgramElement["location"], right: ProgramElement["location"]): boolean {
-  return left.file === right.file && left.span.startLine === right.span.startLine && left.span.startColumn === right.span.startColumn
-    && left.span.endLine === right.span.endLine && left.span.endColumn === right.span.endColumn;
 }
 
 function sameCompilerIdentity(left: string, right: string): boolean {

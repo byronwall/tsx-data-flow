@@ -3,6 +3,7 @@ import type { RouteTotalityFieldTransformation } from "./route-totality-field-li
 import type { ComponentBindingMetadata } from "./program-component-binding-metadata";
 import type { EvidenceProof, EvidenceStatus, SourceLocation } from "./scope-seam";
 import { deriveComponentTargetPolicy, verifyComponentBoundaryPattern } from "./route-totality-field-transfer-component-verifier";
+import { verifyExactSourceCarrier } from "./route-totality-field-transfer-carrier-verifier";
 
 export const EXACT_FIELD_TRANSFER_KINDS = [
   "source-carrier",
@@ -168,10 +169,10 @@ export function deriveExactFieldTargetPolicy(
     .filter((element): element is FieldTransferElement => Boolean(element));
   const occurrence = metadata?.componentOccurrenceElementId
     ? graph.element(metadata.componentOccurrenceElementId)
-    : support.find((element) => element.kind === "component-definition");
+    : undefined;
   const definition = metadata?.componentDefinitionId
     ? graph.element(metadata.componentDefinitionId)
-    : support.find((element) => element.kind === "component-definition");
+    : undefined;
   const renderTerminals = transfers[11].supportingElementIds
     .map((id) => graph.element(id))
     .filter((element): element is FieldTransferElement => element?.kind === "render-terminal");
@@ -218,7 +219,7 @@ function verifySemantics(
   cancellation: AnalysisCancellationToken,
   policy: ExactFieldTargetPolicy | null,
 ): FieldTransferVerification {
-  if (kind === "source-carrier") return verifyCarrier(source, target, relations, graph);
+  if (kind === "source-carrier") return verifyExactSourceCarrier(source, target, relations, graph);
   if (kind === "property-read") return policyPattern(exactPattern(source, target, relations, ["field-input"], ["property-access"], "call", "field-read"), target, policy?.collectionFieldElementId, policy?.collectionFieldName, "C02");
   if (kind === "find-element") return exactPattern(source, target, relations, ["collection-element"], ["array-find-element"], "field-read", "collection-element");
   if (kind === "callback-parameter") return exactPattern(source, target, relations, ["callback-parameter"], ["array-find-callback"], "collection-element", "parameter");
@@ -233,47 +234,6 @@ function verifySemantics(
   if (kind === "component-property-read") return policyPattern(exactPattern(source, target, relations, ["field-input"], ["property-access"], "field-read", "field-read"), target, policy?.consumerFieldElementId, policy?.consumerFieldName, "component property read");
   if (kind === "component-boundary") return verifyComponentBoundaryPattern(source, target, relations, transfer, graph, cancellation, policy);
   return consumerPattern(source, target, relations, transfer, graph, cancellation, policy);
-}
-
-function verifyCarrier(
-  source: FieldTransferElement,
-  target: FieldTransferElement,
-  relations: readonly FieldTransferRelation[],
-  graph: FieldTransferGraph,
-): FieldTransferVerification {
-  if (source.kind !== "file-input" || !source.originRoles?.includes("filesystem") || target.kind !== "call") {
-    return failure("C01 requires one filesystem file-input and the last exact carrier call.");
-  }
-  for (const relation of relations) {
-    const relationSource = graph.element(relation.from);
-    const relationTarget = graph.element(relation.to);
-    if (relationSource && relationTarget && isExactSourceCarrierRelation(relationSource, relationTarget, relation)) continue;
-    return failure(`C01 rejects ${relation.kind}/${relation.proof.kind} carrier evidence.`);
-  }
-  return { ok: true };
-}
-
-/** Exact endpoint and proof matrix for the selected-source carrier lane. */
-export function isExactSourceCarrierRelation(
-  source: Pick<FieldTransferElement, "kind">,
-  target: Pick<FieldTransferElement, "kind">,
-  relation: Pick<FieldTransferRelation, "kind" | "proof">,
-): boolean {
-  if (relation.kind === "references" && relation.proof.kind === "ast-node") return source.kind === "call" && target.kind === "alias";
-  if (relation.kind === "references" && relation.proof.kind === "compiler-symbol") return source.kind === "alias" && target.kind === "value";
-  if (relation.kind === "return-expression" && relation.proof.kind === "return-expression") return source.kind === "value" && target.kind === "return";
-  if (relation.kind === "return-value" && relation.proof.kind === "return-expression") return source.kind === "return" && target.kind === "call";
-  if (relation.kind === "http-bridge" && relation.proof.kind === "http-bridge") return source.kind === "http-response" && target.kind === "resource-input";
-  if (relation.kind === "resource-result" && relation.proof.kind === "resource-boundary") return source.kind === "resource-input" && target.kind === "alias";
-  if (relation.kind !== "carrier") return false;
-  if (relation.proof.kind === "awaited-call-alias") return source.kind === "call" && target.kind === "alias";
-  if (relation.proof.kind === "resource-boundary") return source.kind === "alias" && target.kind === "field-read";
-  if (relation.proof.kind === "context-continuity") return source.kind === "field-read" && target.kind === "call";
-  if (relation.proof.kind !== "carrier-boundary") return false;
-  return source.kind === "file-input" && target.kind === "call"
-    || source.kind === "call" && target.kind === "call"
-    || source.kind === "alias" && target.kind === "return"
-    || source.kind === "call" && target.kind === "http-response";
 }
 
 function predicatePattern(
@@ -312,6 +272,9 @@ function consumerPattern(
     const kind = consumerKindOf(target) ?? (target.kind === "field-consumer" ? "render" : undefined);
     if (kind !== "condition" && kind !== "render" && kind !== "handler") {
       return failure("C12 requires a typed direct consumer kind.");
+    }
+    if (kind === "handler" && !completeHandlerIdentity(target)) {
+      return failure("C12 handlers require one non-null receiver, method, callee, payload, action, and forwarding identity.");
     }
     if (policy && (!policy.directConsumer || (consumerKindOf(target) && policy.consumerKind !== kind)
       || source.id !== policy.consumerFieldElementId || target.id !== policy.bindingElementId)) {
@@ -415,6 +378,23 @@ function consumerLabelOf(element: FieldTransferElement | undefined): string | nu
   if (typeof element.consumerLabel === "string") return element.consumerLabel;
   const value = element.attributes?.label;
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function completeHandlerIdentity(element: FieldTransferElement): boolean {
+  const identity = element.handlerIdentity;
+  const attributes = element.attributes ?? {};
+  const receiver = identity?.receiverSymbol ?? attributes.handlerReceiverSymbol;
+  const method = identity?.methodSymbol ?? attributes.handlerMethodSymbol;
+  const callee = identity?.calleeSymbol ?? attributes.handlerCalleeSymbol;
+  const action = identity?.actionArgumentSymbol ?? attributes.handlerActionArgumentSymbol;
+  const payload = attributes.handlerPayloadObject;
+  const forwarded = identity?.forwardedParameterSymbol ?? attributes.handlerForwardedParameterSymbol;
+  return typeof receiver === "string" && receiver.length > 0
+    && typeof method === "string" && method.length > 0
+    && typeof callee === "string" && callee.length > 0
+    && typeof action === "string" && action.length > 0
+    && typeof payload === "string" && payload.length > 0
+    && (forwarded === null || typeof forwarded === "string" && forwarded.length > 0);
 }
 
 function exactRelation(relation: FieldTransferRelation): boolean {

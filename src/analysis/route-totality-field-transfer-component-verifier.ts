@@ -31,7 +31,7 @@ export function deriveComponentTargetPolicy(
   const definition = metadata?.componentDefinitionId ? graph.element(metadata.componentDefinitionId) : undefined;
   const parameter = metadata?.parameterElementId ? graph.element(metadata.parameterElementId) : undefined;
   const sourceField = chain === "scalar-alias" ? graph.element(transfers[10].toElementIds[0]) : undefined;
-  const renderTerminal = support.find((element) => element.kind === "render-terminal");
+  const renderTerminals = support.filter((element) => element.kind === "render-terminal");
   const consumerKind = consumerKindOf(binding);
   if (!collection?.fieldName || !predicate?.fieldName || !consumerField?.fieldName || !binding || binding.kind !== "field-consumer"
     || !metadata || metadata.candidateCount !== 1 || !metadata.componentOccurrenceElementId || !metadata.componentDefinitionId
@@ -39,7 +39,7 @@ export function deriveComponentTargetPolicy(
     || !occurrence || occurrence.kind !== "component-occurrence" || !definition || definition.kind !== "component-definition"
     || !parameter || parameter.kind !== "parameter" || !occurrence.symbol || occurrence.symbol !== definition.symbol
     || metadata.receiverElementId !== receiver?.id || receiver.kind !== "field-read" || receiver.fieldName !== metadata.propName
-    || !renderTerminal || !consumerKind || (chain === "scalar-alias" && (!sourceField?.fieldName || metadata.valueMode !== "scalar-alias"))
+    || renderTerminals.length !== 1 || !consumerKind || (chain === "scalar-alias" && (!sourceField?.fieldName || metadata.valueMode !== "scalar-alias"))
     || (chain === "whole-object" && metadata.valueMode !== "whole-object")
     || boundaryRelations[0].from !== boundary.fromElementIds[0] || boundaryRelations[0].to !== boundaryBinding.id
     || boundaryRelations[1].from !== boundaryBinding.id || boundaryRelations[1].to !== receiver.id
@@ -65,7 +65,7 @@ export function deriveComponentTargetPolicy(
     componentSymbol: occurrence.symbol,
     componentLabel: definition.label,
     propName: metadata.propName ?? "",
-    renderTerminalElementId: renderTerminal.id,
+    renderTerminalElementId: renderTerminals[0].id,
     consumerKind,
     consumerLabel: consumerLabelOf(binding) ?? "",
     directConsumer: true,
@@ -91,8 +91,10 @@ export function verifyComponentBoundaryPattern(
   const receiver = graph.element(relations[1].to);
   const metadata = binding?.componentBinding;
   const support = transfer.supportingElementIds.map((id) => graph.element(id)).filter(Boolean) as FieldTransferElement[];
-  const occurrence = support.find((element) => element.kind === "component-occurrence");
-  const definition = support.find((element) => element.kind === "component-definition");
+  const occurrences = support.filter((element) => element.kind === "component-occurrence");
+  const definitions = support.filter((element) => element.kind === "component-definition");
+  const occurrence = occurrences.length === 1 ? occurrences[0] : undefined;
+  const definition = definitions.length === 1 ? definitions[0] : undefined;
   const parameter = metadata?.parameterElementId ? graph.element(metadata.parameterElementId) : undefined;
   const metadataOccurrence = metadata?.componentOccurrenceElementId ? graph.element(metadata.componentOccurrenceElementId) : undefined;
   const metadataDefinition = metadata?.componentDefinitionId ? graph.element(metadata.componentDefinitionId) : undefined;

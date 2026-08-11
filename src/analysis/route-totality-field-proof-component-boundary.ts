@@ -242,9 +242,9 @@ function declarationElementId(
 }
 
 function findRenderTerminal(index: RouteTotalityFieldProofIndex, valueId: string): ProgramElement | null {
-  const relation = index.outgoing(valueId).find((candidate) => candidate.kind === "render-terminal"
+  const relations = index.outgoing(valueId).filter((candidate) => candidate.kind === "render-terminal"
     && candidate.proof.kind === "jsx-tag" && candidate.status === "proven");
-  return relation ? index.byId(relation.to) : null;
+  return relations.length === 1 ? index.byId(relations[0].to) : null;
 }
 
 function conditionLabel(
@@ -324,7 +324,16 @@ function oneSourceDeclaration(root: string, symbol: TypeScript.Symbol | undefine
 function deduplicateConsumers(values: ExactComponentBoundaryConsumer[]): ExactComponentBoundaryConsumer[] {
   const seen = new Set<string>();
   return values.filter((value) => {
-    const key = `${value.field.getSourceFile().fileName}:${value.field.getStart()}:${value.kind}:${value.label}`;
+    const key = [
+      value.fieldElement.id,
+      value.valueElement.id,
+      value.terminal?.id ?? "",
+      value.kind,
+      value.label,
+      value.locationNode.getSourceFile().fileName,
+      value.locationNode.getStart(value.locationNode.getSourceFile()),
+      value.locationNode.getEnd(),
+    ].join("\0");
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

@@ -174,7 +174,8 @@ function validateExactConsumer(
     const terminalRecords = terminalId ? surface.terminalsById.get(terminalId) ?? [] : [];
     const terminalAnchors = terminalId ? endpointTerminalAnchors(surface.anchors, terminalId, cancellation) : [];
     if (!terminalId || consumer.routeTerminalId !== terminalId || terminalRecords.length !== 1
-      || terminalAnchors.length !== 1 || terminalAnchors[0].evidenceElementId !== policy.renderTerminalElementId) {
+      || terminalAnchors.length !== 1 || terminalAnchors[0].evidenceElementId !== policy.renderTerminalElementId
+      || terminalRecords[0].ownerOccurrenceId !== occurrence.id) {
       addIssue(issues, [...path, "terminalIds"], "direct consumer terminal must map to one exact compiler-backed render terminal");
     }
     return;
@@ -197,7 +198,8 @@ function validateExactConsumer(
   const terminalRecords = terminalId ? surface.terminalsById.get(terminalId) ?? [] : [];
   const terminalAnchors = terminalId ? endpointTerminalAnchors(surface.anchors, terminalId, cancellation) : [];
   if (!terminalId || consumer.routeTerminalId !== terminalId || terminalRecords.length !== 1
-    || terminalAnchors.length !== 1 || terminalAnchors[0].evidenceElementId !== policy.renderTerminalElementId) {
+    || terminalAnchors.length !== 1 || terminalAnchors[0].evidenceElementId !== policy.renderTerminalElementId
+    || terminalRecords[0].ownerOccurrenceId !== occurrence.id) {
     addIssue(issues, [...path, "terminalIds"], "consumer terminal must map to the exact compiler-backed render terminal");
   }
 }

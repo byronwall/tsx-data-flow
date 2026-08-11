@@ -5,10 +5,12 @@ export type ResolvedHandlerAction = {
   call: TypeScript.CallExpression;
   name: string;
   property: string;
+  receiverName: string;
+  payloadObjectIdentity: string;
   receiverSymbolId: string;
   methodSymbolId: string;
-  calleeSymbolId: string | null;
-  actionArgumentSymbolId: string | null;
+  calleeSymbolId: string;
+  actionArgumentSymbolId: string;
   forwardedParameterSymbolId: string | null;
 };
 
@@ -49,19 +51,24 @@ function directAction(
     || !ts.isStringLiteral(call.arguments[0]) || !ts.isObjectLiteralExpression(call.arguments[1])) return null;
   const receiverSymbolId = compilerSymbolId(ts, checker, root, call.expression.expression);
   const methodSymbolId = compilerSymbolId(ts, checker, root, call.expression.name);
-  if (!receiverSymbolId || !methodSymbolId) return null;
+  const calleeSymbolId = compilerSymbolId(ts, checker, root, call.expression);
+  const actionArgumentSymbolId = nodeIdentity(ts, root, call.arguments[0]);
+  const payloadObjectIdentity = nodeIdentity(ts, root, call.arguments[1]);
+  if (!receiverSymbolId || !methodSymbolId || !calleeSymbolId || !actionArgumentSymbolId || !payloadObjectIdentity) return null;
   const payload = call.arguments[1];
-  const payloadProperty = payload.properties.find((item) => ts.isPropertyAssignment(item)
+  const payloadProperties = payload.properties.filter((item) => ts.isPropertyAssignment(item)
     && ts.isIdentifier(item.name) && contains(item.initializer, read));
-  if (!payloadProperty || !ts.isPropertyAssignment(payloadProperty)) return null;
+  if (payloadProperties.length !== 1) return null;
   return {
     call,
     name: call.arguments[0].text,
     property,
+    receiverName: call.expression.expression.getText(call.getSourceFile()),
+    payloadObjectIdentity,
     receiverSymbolId,
     methodSymbolId,
-    calleeSymbolId: null,
-    actionArgumentSymbolId: null,
+    calleeSymbolId,
+    actionArgumentSymbolId,
     forwardedParameterSymbolId: null,
   };
 }
@@ -77,7 +84,10 @@ function forwardedAction(
   if (!ts.isIdentifier(outerCall.expression) || outerCall.arguments.length !== 1
     || !ts.isObjectLiteralExpression(outerCall.arguments[0])) return null;
   const helperSymbol = checker.getSymbolAtLocation(outerCall.expression);
-  const declaration = helperSymbol?.valueDeclaration ?? helperSymbol?.declarations?.find((item) => ts.isVariableDeclaration(item));
+  const declarations = helperSymbol?.declarations?.filter((item) => ts.isVariableDeclaration(item)) ?? [];
+  const declaration = helperSymbol?.valueDeclaration && ts.isVariableDeclaration(helperSymbol.valueDeclaration)
+    ? helperSymbol.valueDeclaration
+    : declarations.length === 1 ? declarations[0] : null;
   if (!declaration || !ts.isVariableDeclaration(declaration) || !declaration.initializer
     || (!ts.isArrowFunction(declaration.initializer) && !ts.isFunctionExpression(declaration.initializer))) return null;
   const helper = declaration.initializer;
@@ -86,9 +96,9 @@ function forwardedAction(
   const parameterSymbol = parameter ? checker.getSymbolAtLocation(parameter) : null;
   if (!parameter || !parameterSymbol) return null;
   const outerPayload = outerCall.arguments[0];
-  let resolved: ResolvedHandlerAction | null = null;
+  const matches: ResolvedHandlerAction[] = [];
   ts.forEachChild(helper.body, function visit(node): void {
-    if (resolved || !ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)
+    if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)
       || node.expression.name.text !== "run" || node.arguments.length !== 2
       || !ts.isStringLiteral(node.arguments[0]) || !ts.isIdentifier(node.arguments[1])
       || checker.getSymbolAtLocation(node.arguments[1]) !== parameterSymbol) {
@@ -98,22 +108,35 @@ function forwardedAction(
     const receiverSymbolId = compilerSymbolId(ts, checker, root, node.expression.expression);
     const methodSymbolId = compilerSymbolId(ts, checker, root, node.expression.name);
     const calleeSymbolId = compilerSymbolId(ts, checker, root, outerCall.expression);
-    if (!receiverSymbolId || !methodSymbolId || !calleeSymbolId) return;
-    const payloadProperty = outerPayload.properties.find((item) => ts.isPropertyAssignment(item)
+    const actionArgumentSymbolId = nodeIdentity(ts, root, node.arguments[0]);
+    const payloadObjectIdentity = nodeIdentity(ts, root, outerPayload);
+    const forwardedParameterSymbolId = compilerSymbolId(ts, checker, root, node.arguments[1]);
+    if (!receiverSymbolId || !methodSymbolId || !calleeSymbolId || !actionArgumentSymbolId || !payloadObjectIdentity || !forwardedParameterSymbolId) return;
+    const payloadProperties = outerPayload.properties.filter((item) => ts.isPropertyAssignment(item)
       && ts.isIdentifier(item.name) && item.name.text === property && contains(item.initializer, read));
-    if (!payloadProperty || !ts.isPropertyAssignment(payloadProperty)) return;
-    resolved = {
+    if (payloadProperties.length !== 1) return;
+    matches.push({
       call: node,
       name: node.arguments[0].text,
       property,
+      receiverName: node.expression.expression.getText(node.getSourceFile()),
+      payloadObjectIdentity,
       receiverSymbolId,
       methodSymbolId,
       calleeSymbolId,
-      actionArgumentSymbolId: null,
-      forwardedParameterSymbolId: compilerSymbolId(ts, checker, root, node.arguments[1]),
-    };
+      actionArgumentSymbolId,
+      forwardedParameterSymbolId,
+    });
   });
-  return resolved;
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function nodeIdentity(ts: typeof TypeScript, root: string, node: TypeScript.Node): string {
+  const source = node.getSourceFile();
+  const start = source.getLineAndCharacterOfPosition(node.getStart(source));
+  const end = source.getLineAndCharacterOfPosition(node.getEnd());
+  const relative = source.fileName.startsWith(`${root}/`) ? source.fileName.slice(root.length + 1) : source.fileName;
+  return `${relative}:${start.line + 1}:${start.character + 1}:${end.line + 1}:${end.character + 1}:${ts.SyntaxKind[node.kind]}`;
 }
 
 function contains(owner: TypeScript.Node, child: TypeScript.Node): boolean {
