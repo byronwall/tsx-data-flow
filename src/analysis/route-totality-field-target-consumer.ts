@@ -62,6 +62,7 @@ export function buildTargetConsumerDescriptor(
   if (kind === "condition" && !condition) return null;
   return {
     targetKey,
+    directConsumer: evidence.directConsumer,
     consumerKind: kind,
     consumerFieldElementId: evidence.consumerField.id,
     consumerValueElementId: evidence.consumerValue.id,
@@ -72,6 +73,16 @@ export function buildTargetConsumerDescriptor(
     handler,
     condition,
   };
+}
+
+/** Derive one declared target from compiler evidence without trusting a submitted target key. */
+export function deriveTargetConsumerDescriptor(
+  evidence: TargetConsumerEvidence,
+): RouteTotalityFieldTargetConsumer | null {
+  const matches = FIELD_PROOF_TARGETS
+    .map((target) => buildTargetConsumerDescriptor(fieldProofTargetKey(target), evidence))
+    .filter((descriptor): descriptor is RouteTotalityFieldTargetConsumer => descriptor !== null);
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function conditionIdentity(
@@ -105,6 +116,7 @@ function targetForKey(key: string): FieldProofTargetSelector | null {
 
 function matchesTargetChain(target: FieldProofTargetSelector, evidence: TargetConsumerEvidence): boolean {
   const expectedChain = target.chain ?? "direct";
+  if (evidence.directConsumer !== target.consumer.directConsumer) return false;
   if (evidence.consumerField.fieldName !== target.consumerFieldName) return false;
   if (expectedChain !== "direct") {
     if (!evidence.directConsumer || evidence.definition.label !== target.componentName) return false;

@@ -7,7 +7,7 @@ import type {
   FieldTransferRelation,
   FieldTransferVerification,
 } from "./route-totality-field-transfer-verifier";
-import { buildTargetConsumerDescriptor, sameTargetConsumerDescriptor } from "./route-totality-field-target-consumer";
+import { deriveTargetConsumerDescriptor, sameTargetConsumerDescriptor } from "./route-totality-field-target-consumer";
 
 export function deriveComponentTargetPolicy(
   transfers: readonly RouteTotalityFieldTransformation[],
@@ -53,7 +53,7 @@ export function deriveComponentTargetPolicy(
     && relation.to === renderTerminals[0]?.id && relation.kind === "render-terminal"
     && relation.proof.kind === "field-consumer-terminal" && exactRelation(relation)
     && uniqueRelation(relation, graph, NO_CANCEL));
-  const targetConsumer = buildTargetConsumerDescriptor(final.targetConsumer?.targetKey ?? "", {
+  const targetConsumer = deriveTargetConsumerDescriptor({
     consumerField,
     consumerValue: binding,
     binding,

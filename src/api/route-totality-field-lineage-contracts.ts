@@ -51,6 +51,7 @@ const fieldSchema = z.strictObject({
 });
 const targetConsumerSchema = z.strictObject({
   targetKey: nonEmptyStringSchema,
+  directConsumer: z.boolean(),
   consumerKind: z.enum(["render", "condition", "handler"]),
   consumerFieldElementId: nonEmptyStringSchema,
   consumerValueElementId: nonEmptyStringSchema,

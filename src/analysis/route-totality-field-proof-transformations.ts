@@ -4,7 +4,7 @@ import type { FieldProofCandidate } from "./route-totality-field-proof-candidate
 import type { FieldCarrierPath } from "./route-totality-field-proof-carrier";
 import type { RouteTotalityFieldProofIndex } from "./route-totality-field-proof-index";
 import { fieldTransformation } from "./route-totality-field-proof-result";
-import { buildTargetConsumerDescriptor } from "./route-totality-field-target-consumer";
+import { deriveTargetConsumerDescriptor } from "./route-totality-field-target-consumer";
 import type { ExactFieldTransferKind } from "./route-totality-field-transfer-verifier";
 import type { ProgramElement, ProgramRelation } from "./scope-seam";
 
@@ -161,7 +161,7 @@ function componentConsumerStep(
 }
 
 function targetConsumerDescriptor(candidate: FieldProofCandidate) {
-  return buildTargetConsumerDescriptor(candidate.targetKey, {
+  const descriptor = deriveTargetConsumerDescriptor({
     consumerField: candidate.consumerField,
     consumerValue: candidate.directConsumer ? candidate.binding : candidate.consumerValue,
     binding: candidate.binding,
@@ -170,6 +170,7 @@ function targetConsumerDescriptor(candidate: FieldProofCandidate) {
     renderTerminal: candidate.renderTerminal,
     directConsumer: candidate.directConsumer,
   });
+  return descriptor?.targetKey === candidate.targetKey ? descriptor : null;
 }
 
 function step(

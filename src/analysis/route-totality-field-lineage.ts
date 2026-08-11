@@ -44,6 +44,7 @@ export type RouteTotalityFieldConsumer = {
 
 export type RouteTotalityFieldTargetConsumer = {
   targetKey: string;
+  directConsumer: boolean;
   consumerKind: "render" | "condition" | "handler";
   consumerFieldElementId: string;
   consumerValueElementId: string;

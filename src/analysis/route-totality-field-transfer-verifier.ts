@@ -4,7 +4,7 @@ import type { ComponentBindingMetadata } from "./program-component-binding-metad
 import type { EvidenceProof, EvidenceStatus, SourceLocation } from "./scope-seam";
 import { deriveComponentTargetPolicy, verifyComponentBoundaryPattern } from "./route-totality-field-transfer-component-verifier";
 import { verifyExactSourceCarrier } from "./route-totality-field-transfer-carrier-verifier";
-import { buildTargetConsumerDescriptor, sameTargetConsumerDescriptor } from "./route-totality-field-target-consumer";
+import { deriveTargetConsumerDescriptor, sameTargetConsumerDescriptor } from "./route-totality-field-target-consumer";
 
 export const EXACT_FIELD_TRANSFER_KINDS = [
   "source-carrier",
@@ -219,7 +219,7 @@ export function deriveExactFieldTargetPolicy(
     || !containsLocation(renderTerminals[0].location, renderParameter.location)
     || (!directConsumer && !containsLocation(renderTerminals[0].location, occurrence.location))
     || !containsLocation(renderTerminals[0].location, consumerValue.location)) return null;
-  const targetConsumer = buildTargetConsumerDescriptor(transfers[11].targetConsumer?.targetKey ?? "", {
+  const targetConsumer = deriveTargetConsumerDescriptor({
     consumerField,
     consumerValue,
     binding,
