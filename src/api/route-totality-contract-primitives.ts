@@ -38,10 +38,12 @@ export const componentBindingMetadataSchema = z.strictObject({
   candidateCount: nonNegativeIntegerSchema.nullable(),
 });
 export const handlerIdentitySchema = z.strictObject({
+  receiverName: nonEmptyStringSchema,
   receiverSymbol: nonEmptyStringSchema,
   methodSymbol: nonEmptyStringSchema,
   calleeSymbol: nonEmptyStringSchema.nullable(),
   actionArgumentSymbol: nonEmptyStringSchema.nullable(),
+  payloadObject: nonEmptyStringSchema,
   forwardedParameterSymbol: nonEmptyStringSchema.nullable(),
 });
 const scopeDirectionSchema = z.enum(["forward", "backward", "both"]);

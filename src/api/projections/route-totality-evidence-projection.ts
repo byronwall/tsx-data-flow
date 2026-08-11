@@ -38,10 +38,12 @@ export function projectEvidenceSlice(slice: DomainEvidenceValue, cancellation: A
         : null,
       handlerIdentity: element.kind === "field-consumer" && element.attributes?.consumerKind === "handler"
         ? {
+          receiverName: String(element.attributes.handlerReceiverName ?? ""),
           receiverSymbol: String(element.attributes.handlerReceiverSymbol ?? ""),
           methodSymbol: String(element.attributes.handlerMethodSymbol ?? ""),
           calleeSymbol: typeof element.attributes.handlerCalleeSymbol === "string" ? element.attributes.handlerCalleeSymbol : null,
           actionArgumentSymbol: typeof element.attributes.handlerActionArgumentSymbol === "string" ? element.attributes.handlerActionArgumentSymbol : null,
+          payloadObject: String(element.attributes.handlerPayloadObject ?? ""),
           forwardedParameterSymbol: typeof element.attributes.handlerForwardedParameterSymbol === "string" ? element.attributes.handlerForwardedParameterSymbol : null,
         }
         : null,

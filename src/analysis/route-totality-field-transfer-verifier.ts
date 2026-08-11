@@ -45,10 +45,12 @@ export type FieldTransferElement = {
   location: SourceLocation;
   componentBinding: ComponentBindingMetadata | null;
   handlerIdentity?: {
+    receiverName: string;
     receiverSymbol: string;
     methodSymbol: string;
     calleeSymbol: string | null;
     actionArgumentSymbol: string | null;
+    payloadObject: string;
     forwardedParameterSymbol: string | null;
   } | null;
   consumerKind?: "render" | "condition" | "handler" | null;
@@ -167,17 +169,22 @@ export function deriveExactFieldTargetPolicy(
   const support = transfers[11].supportingElementIds
     .map((id) => graph.element(id))
     .filter((element): element is FieldTransferElement => Boolean(element));
-  const occurrence = metadata?.componentOccurrenceElementId
-    ? graph.element(metadata.componentOccurrenceElementId)
-    : undefined;
-  const definition = metadata?.componentDefinitionId
-    ? graph.element(metadata.componentDefinitionId)
-    : undefined;
+  const directConsumer = binding?.kind === "field-consumer";
+  const directDefinitions = support.filter((element) => element.kind === "component-definition");
+  const occurrence = directConsumer
+    ? directDefinitions.length === 1 ? directDefinitions[0] : undefined
+    : metadata?.componentOccurrenceElementId
+      ? graph.element(metadata.componentOccurrenceElementId)
+      : undefined;
+  const definition = directConsumer
+    ? directDefinitions.length === 1 ? directDefinitions[0] : undefined
+    : metadata?.componentDefinitionId
+      ? graph.element(metadata.componentDefinitionId)
+      : undefined;
   const renderTerminals = transfers[11].supportingElementIds
     .map((id) => graph.element(id))
     .filter((element): element is FieldTransferElement => element?.kind === "render-terminal");
   const renderParameter = graph.element(transfers[8].toElementIds[0]);
-  const directConsumer = binding?.kind === "field-consumer";
   const consumerKind = directConsumer ? consumerKindOf(binding) ?? "render" : "render";
   const consumerLabel = directConsumer ? consumerLabelOf(binding) ?? "" : `${occurrence?.label ?? ""}.${metadata?.propName ?? ""}`;
   if (!collection?.fieldName || !predicate?.fieldName || !consumerField?.fieldName || !consumerValue
@@ -201,7 +208,9 @@ export function deriveExactFieldTargetPolicy(
     componentDefinitionElementId: definition.id,
     componentSymbol: occurrence.symbol,
     componentLabel: occurrence.label,
-    propName: metadata?.propName ?? "",
+    propName: directConsumer && typeof binding.attributes?.propName === "string"
+      ? binding.attributes.propName
+      : metadata?.propName ?? "",
     renderTerminalElementId: renderTerminals[0].id,
     consumerKind: consumerKind as "render" | "condition" | "handler",
     consumerLabel: String(consumerLabel),
@@ -383,13 +392,17 @@ function consumerLabelOf(element: FieldTransferElement | undefined): string | nu
 function completeHandlerIdentity(element: FieldTransferElement): boolean {
   const identity = element.handlerIdentity;
   const attributes = element.attributes ?? {};
+  const receiverName = identity?.receiverName ?? attributes.handlerReceiverName;
   const receiver = identity?.receiverSymbol ?? attributes.handlerReceiverSymbol;
   const method = identity?.methodSymbol ?? attributes.handlerMethodSymbol;
   const callee = identity?.calleeSymbol ?? attributes.handlerCalleeSymbol;
   const action = identity?.actionArgumentSymbol ?? attributes.handlerActionArgumentSymbol;
-  const payload = attributes.handlerPayloadObject;
-  const forwarded = identity?.forwardedParameterSymbol ?? attributes.handlerForwardedParameterSymbol;
-  return typeof receiver === "string" && receiver.length > 0
+  const payload = identity?.payloadObject ?? attributes.handlerPayloadObject;
+  const forwarded = identity
+    ? identity.forwardedParameterSymbol
+    : attributes.handlerForwardedParameterSymbol;
+  return typeof receiverName === "string" && receiverName.length > 0
+    && typeof receiver === "string" && receiver.length > 0
     && typeof method === "string" && method.length > 0
     && typeof callee === "string" && callee.length > 0
     && typeof action === "string" && action.length > 0

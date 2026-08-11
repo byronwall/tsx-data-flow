@@ -24,15 +24,18 @@ export class ProgramEvidenceCollectorDirectConsumerSupport extends ProgramEviden
       const componentBindingKey = `${attributeLocation.file}:${attributeLocation.span.startLine}:${attributeLocation.span.startColumn}:${attributeLocation.span.endLine}:${attributeLocation.span.endColumn}:component-prop-binding`;
       const hasComponentBinding = this.elementIdsByNodeKind.has(componentBindingKey);
       const handler = /^on[A-Z]/.test(attributeName);
-      const reads = propertyReads(this.ts, value);
+      const reads = propertyReads(this.ts, value).filter((read) => !this.isComponentParameterRead(read));
       if (reads.length === 0 || (this.targetFunction(opening.tagName) && containsJsx(this.ts, value))) continue;
-      if (handler && reads.length !== 1) continue;
-      const read = reads[0];
+      const actions = handler ? reads.flatMap((read) => {
+        const action = resolveHandlerAction(this.ts, this.checker, this.root, read, value);
+        return action ? [{ action, read }] : [];
+      }) : [];
+      if (handler && actions.length !== 1) continue;
+      const read = handler ? actions[0].read : reads[0];
       const conditionValue = conditionExpression(this.ts, read, value);
       const condition = Boolean(conditionValue);
       if (!condition && !handler && this.targetFunction(opening.tagName) && hasComponentBinding) continue;
-      const action = handler ? resolveHandlerAction(this.ts, this.checker, this.root, read, value) : null;
-      if (handler && !action) continue;
+      const action = handler ? actions[0].action : null;
       const kind = condition ? "condition" : handler ? "handler" : "render";
       const actionCall = action ? this.elementFor(action.call, "call") : null;
       for (const fieldRead of handler ? [read] : reads) {
@@ -102,6 +105,20 @@ export class ProgramEvidenceCollectorDirectConsumerSupport extends ProgramEviden
       current = current.parent;
     }
     return this.ownerId(node);
+  }
+
+  /** Component-boundary collection owns exact reads rooted in one component parameter. */
+  private isComponentParameterRead(read: TypeScript.PropertyAccessExpression): boolean {
+    const ownerId = this.componentOwnerId(read);
+    const owner = ownerId ? this.functionsById.get(ownerId) : null;
+    const parameter = owner?.component && owner.declaration.parameters.length === 1
+      ? owner.declaration.parameters[0]
+      : null;
+    if (!parameter || !this.ts.isIdentifier(parameter.name)) return false;
+    let receiver: TypeScript.Expression = read.expression;
+    while (this.ts.isPropertyAccessExpression(receiver)) receiver = receiver.expression;
+    return this.ts.isIdentifier(receiver)
+      && this.checker.getSymbolAtLocation(receiver) === this.checker.getSymbolAtLocation(parameter.name);
   }
 
   protected ownerId(node: TypeScript.Node): string | null {
