@@ -26,6 +26,7 @@ const source: RouteDataInventory["sources"][number] = {
   ],
   totalFields: 3,
   evidenceId: "e:doc",
+  handoffFields: [],
 };
 
 afterEach(cleanup);
@@ -65,6 +66,7 @@ describe("trajectory source controls", () => {
       incomingCount: 1,
       outgoingCount: 1,
       depth: 2,
+      sourceIdentity: null,
       x: 0,
       y: 0,
       radius: 10,
@@ -75,6 +77,8 @@ describe("trajectory source controls", () => {
       { key: "resource", source: null, label: "modalInventory", detail: "modal resource", mode: "resource", pathCount: 0, targetId: "resource:modal", fields: [] },
     ];
 
+    const topology = { nodes: [node], edges: [], totals: { components: 1, contexts: 0, sources: 0, inferredEdges: 0 } };
+    const emptyProjection = { topology, hidden: [], uiRingsByNode: new Map(), hiddenNodeIds: new Set(), hiddenEdgeIds: new Set(), originalToVisibleAncestorIds: new Map() };
     render(() => <ComponentTopologyInspector
       lens={emptyLens()}
       selectedNode={node}
@@ -82,9 +86,20 @@ describe("trajectory source controls", () => {
       allSourceTouches={touches}
       connections={[]}
       selectionCopied={false}
+      policy={{ enabledByDefault: false, include: [], exclude: [], configPath: null }}
+      topology={topology}
+      hiddenProjection={emptyProjection}
+      allHiddenProjection={emptyProjection}
+      genericUiMode="hidden"
+      revealedComponentIds={new Set()}
+      inspectorMode="selection"
       onSelect={onSelect}
       onSource={onSource}
       onCopy={() => undefined}
+      onInspectorMode={() => undefined}
+      onReveal={() => undefined}
+      onHideAgain={() => undefined}
+      onShowAll={() => undefined}
     />);
 
     await fireEvent.click(screen.getByText("Activate source →"));
@@ -105,6 +120,8 @@ function emptyLens(): TopologySourceLens {
     pathCount: 0,
     componentIds: new Set(),
     resourceParticipantIds: new Set(),
+    handoffComponentIds: new Set(),
+    handoffFieldProven: false,
     resources: [],
     transforms: [],
     transformsByNodeId: new Map(),

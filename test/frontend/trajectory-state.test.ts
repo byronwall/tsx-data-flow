@@ -11,7 +11,7 @@ const inventory: RouteDataInventory = {
 
 describe("trajectory URL state", () => {
   it("round trips every meaningful exploration field", () => {
-    const state = { open: true, route: "route:a", flow: "flow:a", item: "operation:1", expand: ["operation:1", "operation:2"], isolate: true, mode: "detail" as const, kind: "all" as const, sort: "substitutions" as const, source: "source:a", filter: "TimeBlockItem", view: "trajectory" as const, pan: { x: 12.5, y: -4 }, zoom: 1.25, packet: "packet:1" };
+    const state = { open: true, route: "route:a", flow: "flow:a", item: "operation:1", expand: ["operation:1", "operation:2"], isolate: true, mode: "detail" as const, kind: "all" as const, sort: "substitutions" as const, source: "source:a", filter: "TimeBlockItem", view: "trajectory" as const, genericUi: null, pan: { x: 12.5, y: -4 }, zoom: 1.25, packet: "packet:1", fieldFocus: null, consumerFocus: null };
     expect(parseTrajectoryUrlState(serializeTrajectoryUrlState(state))).toEqual(state);
   });
   it("retains a valid route while clearing invalid descendants", () => {

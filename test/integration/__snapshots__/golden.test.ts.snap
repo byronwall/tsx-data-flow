@@ -131,10 +131,10 @@ _Focus on one file or region:_ append \`--file <path|glob>\` (repeatable) — e.
 | src/DashboardShell.tsx:110 | 7            | 0          | 15           |
 | src/DashboardShell.tsx:111 | 7            | 0          | 15           |
 | src/DashboardShell.tsx:107 | 6            | 0          | 15           |
-| src/DashboardShell.tsx:68  | 7            | 5          | 9            |
-| src/DashboardShell.tsx:68  | 7            | 5          | 9            |
 | src/DashboardShell.tsx:112 | 6            | 0          | 14           |
 | src/DashboardShell.tsx:113 | 6            | 0          | 14           |
+| src/DashboardShell.tsx:68  | 7            | 5          | 9            |
+| src/DashboardShell.tsx:68  | 7            | 5          | 9            |
 | src/DashboardShell.tsx:12  | 7            | 0          | 13           |
 
 ---
@@ -299,13 +299,13 @@ task, props.actor, props.preferences
 | Metric                | Value |
 | --------------------- | ----- |
 | path depth            | 15    |
-| helper hops           | 2     |
+| helper hops           | 4     |
 | representation churn  | 8     |
 | defensive operations  | 4     |
 | impossible defenses   | 1     |
 | pack risk             | 12    |
 | downstream sink count | 31    |
-| centrality percentile | 84    |
+| centrality percentile | 86    |
 | analysis confidence   | 99%   |
 
 Confidence: 99%
@@ -367,13 +367,13 @@ task, props.actor, props.preferences
 | Metric                | Value |
 | --------------------- | ----- |
 | path depth            | 15    |
-| helper hops           | 2     |
+| helper hops           | 4     |
 | representation churn  | 8     |
 | defensive operations  | 4     |
 | impossible defenses   | 1     |
 | pack risk             | 12    |
 | downstream sink count | 31    |
-| centrality percentile | 84    |
+| centrality percentile | 86    |
 | analysis confidence   | 99%   |
 
 Confidence: 99%
@@ -435,13 +435,13 @@ task, props.actor, props.preferences
 | Metric                | Value |
 | --------------------- | ----- |
 | path depth            | 15    |
-| helper hops           | 2     |
+| helper hops           | 4     |
 | representation churn  | 8     |
 | defensive operations  | 3     |
 | impossible defenses   | 0     |
 | pack risk             | 12    |
 | downstream sink count | 31    |
-| centrality percentile | 83    |
+| centrality percentile | 86    |
 | analysis confidence   | 88%   |
 
 Confidence: 88%
@@ -476,6 +476,138 @@ helper hops on this path: 1
 -> row  [alias]
 -> swatch  [property-read]
 -> --accent:\${«row.swatch»}  [template]
+\`\`\`
+
+**Finding**
+
+This rendered value has more data-flow plumbing than nearby JSX should usually need.
+
+## RPF-112-15 · LOW · representation-heavy render path
+src/DashboardShell.tsx:112
+
+**Sink**
+
+\`\`\`
+row.priorityLabel
+\`\`\`
+
+**Source**
+
+\`\`\`
+task, props.actor, props.preferences
+\`\`\`
+
+**Metrics**
+
+| Metric                | Value |
+| --------------------- | ----- |
+| path depth            | 14    |
+| helper hops           | 4     |
+| representation churn  | 8     |
+| defensive operations  | 3     |
+| impossible defenses   | 0     |
+| pack risk             | 12    |
+| downstream sink count | 31    |
+| centrality percentile | 85    |
+| analysis confidence   | 88%   |
+
+Confidence: 88%
+Reason: All hops statically resolved within one file.
+Risk: low.
+
+**Metric contributions**
+
+\`\`\`
+defensive operations on this path: 2
+  - «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+  - «packed.task.estimateHours» ?? 0  [fallback]
+helper hops on this path: 1
+  - taskRowView  [call]
+\`\`\`
+
+**Representative path**
+
+\`\`\`
+-> props  [source]
+-> preferences  [property-read]
+-> accentColor  [property-read]
+-> «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+-> …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }  [object-pack]
+-> packed  [alias]
+-> task  [property-read]
+-> estimateHours  [property-read]
+-> «packed.task.estimateHours» ?? 0  [fallback]
+-> \${«packed.task.estimateHours ?? 0»}h  [template]
+-> … "normal", estimateLabel: «\${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }  [object-pack]
+-> taskRowView  [call]
+-> row  [alias]
+-> priorityLabel  [property-read]
+\`\`\`
+
+**Finding**
+
+This rendered value has more data-flow plumbing than nearby JSX should usually need.
+
+## RPF-113-15 · LOW · representation-heavy render path
+src/DashboardShell.tsx:113
+
+**Sink**
+
+\`\`\`
+row.estimateLabel
+\`\`\`
+
+**Source**
+
+\`\`\`
+task, props.actor, props.preferences
+\`\`\`
+
+**Metrics**
+
+| Metric                | Value |
+| --------------------- | ----- |
+| path depth            | 14    |
+| helper hops           | 4     |
+| representation churn  | 8     |
+| defensive operations  | 3     |
+| impossible defenses   | 0     |
+| pack risk             | 12    |
+| downstream sink count | 31    |
+| centrality percentile | 85    |
+| analysis confidence   | 88%   |
+
+Confidence: 88%
+Reason: All hops statically resolved within one file.
+Risk: low.
+
+**Metric contributions**
+
+\`\`\`
+defensive operations on this path: 2
+  - «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+  - «packed.task.estimateHours» ?? 0  [fallback]
+helper hops on this path: 1
+  - taskRowView  [call]
+\`\`\`
+
+**Representative path**
+
+\`\`\`
+-> props  [source]
+-> preferences  [property-read]
+-> accentColor  [property-read]
+-> «preferences.accentColor» ?? "#3f7f6f"  [fallback]
+-> …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }  [object-pack]
+-> packed  [alias]
+-> task  [property-read]
+-> estimateHours  [property-read]
+-> «packed.task.estimateHours» ?? 0  [fallback]
+-> \${«packed.task.estimateHours ?? 0»}h  [template]
+-> … "normal", estimateLabel: «\${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }  [object-pack]
+-> taskRowView  [call]
+-> row  [alias]
+-> estimateLabel  [property-read]
 \`\`\`
 
 **Finding**
@@ -598,138 +730,6 @@ defensive operations on this path: 1
 
 A nullish fallback or optional access is unreachable under the checked TypeScript program.
 
-## RPF-112-15 · LOW · representation-heavy render path
-src/DashboardShell.tsx:112
-
-**Sink**
-
-\`\`\`
-row.priorityLabel
-\`\`\`
-
-**Source**
-
-\`\`\`
-task, props.actor, props.preferences
-\`\`\`
-
-**Metrics**
-
-| Metric                | Value |
-| --------------------- | ----- |
-| path depth            | 14    |
-| helper hops           | 2     |
-| representation churn  | 8     |
-| defensive operations  | 3     |
-| impossible defenses   | 0     |
-| pack risk             | 12    |
-| downstream sink count | 31    |
-| centrality percentile | 83    |
-| analysis confidence   | 88%   |
-
-Confidence: 88%
-Reason: All hops statically resolved within one file.
-Risk: low.
-
-**Metric contributions**
-
-\`\`\`
-defensive operations on this path: 2
-  - «preferences.accentColor» ?? "#3f7f6f"  [fallback]
-  - «packed.task.estimateHours» ?? 0  [fallback]
-helper hops on this path: 1
-  - taskRowView  [call]
-\`\`\`
-
-**Representative path**
-
-\`\`\`
--> props  [source]
--> preferences  [property-read]
--> accentColor  [property-read]
--> «preferences.accentColor» ?? "#3f7f6f"  [fallback]
--> …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> «packed.task.estimateHours» ?? 0  [fallback]
--> \${«packed.task.estimateHours ?? 0»}h  [template]
--> … "normal", estimateLabel: «\${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> priorityLabel  [property-read]
-\`\`\`
-
-**Finding**
-
-This rendered value has more data-flow plumbing than nearby JSX should usually need.
-
-## RPF-113-15 · LOW · representation-heavy render path
-src/DashboardShell.tsx:113
-
-**Sink**
-
-\`\`\`
-row.estimateLabel
-\`\`\`
-
-**Source**
-
-\`\`\`
-task, props.actor, props.preferences
-\`\`\`
-
-**Metrics**
-
-| Metric                | Value |
-| --------------------- | ----- |
-| path depth            | 14    |
-| helper hops           | 2     |
-| representation churn  | 8     |
-| defensive operations  | 3     |
-| impossible defenses   | 0     |
-| pack risk             | 12    |
-| downstream sink count | 31    |
-| centrality percentile | 83    |
-| analysis confidence   | 88%   |
-
-Confidence: 88%
-Reason: All hops statically resolved within one file.
-Risk: low.
-
-**Metric contributions**
-
-\`\`\`
-defensive operations on this path: 2
-  - «preferences.accentColor» ?? "#3f7f6f"  [fallback]
-  - «packed.task.estimateHours» ?? 0  [fallback]
-helper hops on this path: 1
-  - taskRowView  [call]
-\`\`\`
-
-**Representative path**
-
-\`\`\`
--> props  [source]
--> preferences  [property-read]
--> accentColor  [property-read]
--> «preferences.accentColor» ?? "#3f7f6f"  [fallback]
--> …ask, owner: user, swatch: «preferences.accentColor ?? "#3f7f6f"», }  [object-pack]
--> packed  [alias]
--> task  [property-read]
--> estimateHours  [property-read]
--> «packed.task.estimateHours» ?? 0  [fallback]
--> \${«packed.task.estimateHours ?? 0»}h  [template]
--> … "normal", estimateLabel: «\${packed.task.estimateHours ?? 0}h», swatch: packed.swatch, }  [object-pack]
--> taskRowView  [call]
--> row  [alias]
--> estimateLabel  [property-read]
-\`\`\`
-
-**Finding**
-
-This rendered value has more data-flow plumbing than nearby JSX should usually need.
-
 ## RPF-012-07 · HIGH · type-impossible defensive render path
 src/DashboardShell.tsx:12
 
@@ -750,13 +750,13 @@ props.user, props.tasks, props.preferences, props.selectedTaskId
 | Metric                | Value |
 | --------------------- | ----- |
 | path depth            | 13    |
-| helper hops           | 1     |
+| helper hops           | 4     |
 | representation churn  | 4     |
 | defensive operations  | 4     |
 | impossible defenses   | 1     |
 | pack risk             | 0     |
 | downstream sink count | 31    |
-| centrality percentile | 81    |
+| centrality percentile | 86    |
 | analysis confidence   | 99%   |
 
 Confidence: 99%
@@ -1038,7 +1038,7 @@ _52 shown. Ranked burden is concentrated: top 2 files = 100%. 2 files carry ≥1
 
 | File                   | Findings | Worst | Dominant shape       | Ownership               | First cut                           |
 | ---------------------- | -------- | ----- | -------------------- | ----------------------- | ----------------------------------- |
-| src/DashboardShell.tsx | 38       | 0.43  | domain-normalization | architectural fan-in    | promote prop defaults to mergeProps |
+| src/DashboardShell.tsx | 38       | 0.46  | domain-normalization | architectural fan-in    | promote prop defaults to mergeProps |
 | src/Chart.tsx          | 14       | 0.29  | uncategorized        | local component cleanup | normalize at the boundary           |
 
 ## Peripheral quick wins
@@ -1054,14 +1054,14 @@ _52 shown. Ranked burden is concentrated: top 2 files = 100%. 2 files carry ≥1
 
 ## Central leverage
 
-- **0.4** src/DashboardShell.tsx:110 — type-impossible defensive render path _(architectural fan-in)_
-- **0.4** src/DashboardShell.tsx:111 — type-impossible defensive render path _(architectural fan-in)_
+- **0.5** src/DashboardShell.tsx:110 — type-impossible defensive render path _(architectural fan-in)_
+- **0.5** src/DashboardShell.tsx:111 — type-impossible defensive render path _(architectural fan-in)_
+- **0.4** src/DashboardShell.tsx:12 — type-impossible defensive render path _(architectural fan-in)_
 - **0.4** src/DashboardShell.tsx:107 — representation-heavy render path _(architectural fan-in)_
+- **0.4** src/DashboardShell.tsx:13 — type-impossible defensive render path _(architectural fan-in)_
 - **0.4** src/DashboardShell.tsx:112 — representation-heavy render path _(architectural fan-in)_
 - **0.4** src/DashboardShell.tsx:113 — representation-heavy render path _(architectural fan-in)_
-- **0.3** src/DashboardShell.tsx:12 — type-impossible defensive render path _(architectural fan-in)_
-- **0.3** src/DashboardShell.tsx:13 — type-impossible defensive render path _(architectural fan-in)_
-- **0.4** src/DashboardShell.tsx:68 — type-impossible defensive render path _(architectural fan-in)_
+- **0.3** src/DashboardShell.tsx:30 — representation-heavy render path _(architectural fan-in)_
 
 ## Investigate
 
@@ -1238,10 +1238,10 @@ _Focus on one file or region:_ append \`--file <path|glob>\` (repeatable) — e.
 | src/DashboardShell.tsx:110 | 6                    | 8             | transformed relay |
 | src/DashboardShell.tsx:111 | 6                    | 8             | transformed relay |
 | src/DashboardShell.tsx:107 | 5                    | 8             | transformed relay |
-| src/DashboardShell.tsx:68  | 6                    | 2             | pure data relay   |
-| src/DashboardShell.tsx:68  | 6                    | 2             | pure data relay   |
 | src/DashboardShell.tsx:112 | 5                    | 8             | transformed relay |
 | src/DashboardShell.tsx:113 | 5                    | 8             | transformed relay |
+| src/DashboardShell.tsx:68  | 6                    | 2             | pure data relay   |
+| src/DashboardShell.tsx:68  | 6                    | 2             | pure data relay   |
 | src/DashboardShell.tsx:12  | 6                    | 4             | transformed relay |
 
 ---
@@ -1612,165 +1612,7 @@ avoid: do not introduce a broad packed object unless a rerun reports it as cohes
 - ownership: architectural fan-in
 - queue: central-leverage
 
-## WORK ITEM DF-004  ·  RPF-068-07
-Simplify JSX chip.label ?? "Theme" in src/DashboardShell.tsx
-
-**Review summary**
-
-This sink mixes defaulting and normalization. A behavior-preserving fix is to split or relocate the pack before adding any broader render object. Pack verdict: relay bag; avoid broadening \`{ label: props.preferences.theme === "dark" ? "…\`.
-
-**Scope**
-
-| Metric          | Value                            |
-| --------------- | -------------------------------- |
-| pivot           | \`props.preferences, props.actor\` |
-| files           | 1                                |
-| source inputs   | 7                                |
-| reachable sinks | 31                               |
-| confidence      | 99%                              |
-
-- confidence reason: Single file, direct JSX sink, all hops statically resolved.
-- risk: low; behavior-preserving extraction likely.
-
-**Why this was selected**
-
-- path depth 9
-- defensive operations 2
-- representation churn 2
-- impossible defenses 1
-- pack risk 12
-
-**Representative path**
-
-_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
-
-\`\`\`
-F1:62  1. source   props
-F1:62  2. read     preferences
-F1:62  3. read     theme
-F1:62  4. compute  «props.preferences.theme» === "dark"
-F1:62  5. compute  «props.preferences.theme === "dark"» ? "Night shift" : "Day shi…
-F1:61  6. pack     { label: «props.preferences.theme === "dark" ? "Night shift" : "Day shift"», accent: pr…
-F1:68  7. alias    chip  — = { label: props.preferences.theme === "dark" ? "…
-F1:68  8. read     label
-F1:68  9. default  «chip.label» ?? "Theme"
-
-Files:
-  F1 = src/DashboardShell.tsx
-\`\`\`
-
-**Pack verdict**
-
-\`\`\`
-verdict: relay bag
-evidence: 3 sinks, 2 sink families, 2 source roots, reach 31
-direction: this broad pack fans out through the feature; move ownership closer to consumers or split selectors.
-\`\`\`
-
-**Extraction proposal**
-
-\`\`\`
-proposed: function themeSpanText(
-  preferences: /* type */,   // ⟵ props.preferences
-  actor: /* type */   // ⟵ props.actor
-): string
-moves ~DashboardShell.tsx:61–68
-after: JSX reads themeSpanText(...) — a short path instead of 9 hops.
-avoid: do not introduce a broad packed object unless a rerun reports it as cohesive.
-\`\`\`
-
-**Candidate edits**
-
-1. Split the packed object by render responsibility instead of widening it.
-2. Keep style, geometry, identity, text, and control-flow values in separate narrow selectors unless the same consumers use them together.
-3. Move broad shared state closer to consumers, or expose focused selectors from the feature boundary.
-4. Keep JSX scannable — attributes should read named values, not derive them.
-
-**Risk**
-
-- ownership: architectural fan-in
-- queue: central-leverage
-
-## WORK ITEM DF-005  ·  RPF-068-33
-Simplify JSX chip.owner ?? "n/a" in src/DashboardShell.tsx
-
-**Review summary**
-
-This sink mixes defaulting and normalization. A behavior-preserving fix is to split or relocate the pack before adding any broader render object. Pack verdict: relay bag; avoid broadening \`{ label: props.preferences.theme === "dark" ? "…\`.
-
-**Scope**
-
-| Metric          | Value                            |
-| --------------- | -------------------------------- |
-| pivot           | \`props.preferences, props.actor\` |
-| files           | 1                                |
-| source inputs   | 7                                |
-| reachable sinks | 31                               |
-| confidence      | 99%                              |
-
-- confidence reason: Single file, direct JSX sink, all hops statically resolved.
-- risk: low; behavior-preserving extraction likely.
-
-**Why this was selected**
-
-- path depth 9
-- defensive operations 2
-- representation churn 2
-- impossible defenses 1
-- pack risk 12
-
-**Representative path**
-
-_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
-
-\`\`\`
-F1:62  1. source   props
-F1:62  2. read     preferences
-F1:62  3. read     theme
-F1:62  4. compute  «props.preferences.theme» === "dark"
-F1:62  5. compute  «props.preferences.theme === "dark"» ? "Night shift" : "Day shi…
-F1:61  6. pack     { label: «props.preferences.theme === "dark" ? "Night shift" : "Day shift"», accent: pr…
-F1:68  7. alias    chip  — = { label: props.preferences.theme === "dark" ? "…
-F1:68  8. read     owner
-F1:68  9. default  «chip.owner» ?? "n/a"
-
-Files:
-  F1 = src/DashboardShell.tsx
-\`\`\`
-
-**Pack verdict**
-
-\`\`\`
-verdict: relay bag
-evidence: 3 sinks, 2 sink families, 2 source roots, reach 31
-direction: this broad pack fans out through the feature; move ownership closer to consumers or split selectors.
-\`\`\`
-
-**Extraction proposal**
-
-\`\`\`
-proposed: function themeSpanText(
-  preferences: /* type */,   // ⟵ props.preferences
-  actor: /* type */   // ⟵ props.actor
-): string
-moves ~DashboardShell.tsx:61–68
-after: JSX reads themeSpanText(...) — a short path instead of 9 hops.
-avoid: do not introduce a broad packed object unless a rerun reports it as cohesive.
-\`\`\`
-
-**Candidate edits**
-
-1. Split the packed object by render responsibility instead of widening it.
-2. Keep style, geometry, identity, text, and control-flow values in separate narrow selectors unless the same consumers use them together.
-3. Move broad shared state closer to consumers, or expose focused selectors from the feature boundary.
-4. Keep JSX scannable — attributes should read named values, not derive them.
-
-**Risk**
-
-- ownership: architectural fan-in
-- queue: central-leverage
-
-## WORK ITEM DF-006  ·  RPF-112-15
+## WORK ITEM DF-004  ·  RPF-112-15
 Simplify JSX row.priorityLabel in src/DashboardShell.tsx
 
 **Review summary**
@@ -1859,7 +1701,7 @@ avoid: do not introduce a broad packed object unless a rerun reports it as cohes
 - ownership: architectural fan-in
 - queue: central-leverage
 
-## WORK ITEM DF-007  ·  RPF-113-15
+## WORK ITEM DF-005  ·  RPF-113-15
 Simplify JSX row.estimateLabel in src/DashboardShell.tsx
 
 **Review summary**
@@ -1933,6 +1775,164 @@ proposed: function taskSpanText(
 ): string
 moves ~DashboardShell.tsx:102–113
 after: JSX reads taskSpanText(...) — a short path instead of 14 hops.
+avoid: do not introduce a broad packed object unless a rerun reports it as cohesive.
+\`\`\`
+
+**Candidate edits**
+
+1. Split the packed object by render responsibility instead of widening it.
+2. Keep style, geometry, identity, text, and control-flow values in separate narrow selectors unless the same consumers use them together.
+3. Move broad shared state closer to consumers, or expose focused selectors from the feature boundary.
+4. Keep JSX scannable — attributes should read named values, not derive them.
+
+**Risk**
+
+- ownership: architectural fan-in
+- queue: central-leverage
+
+## WORK ITEM DF-006  ·  RPF-068-07
+Simplify JSX chip.label ?? "Theme" in src/DashboardShell.tsx
+
+**Review summary**
+
+This sink mixes defaulting and normalization. A behavior-preserving fix is to split or relocate the pack before adding any broader render object. Pack verdict: relay bag; avoid broadening \`{ label: props.preferences.theme === "dark" ? "…\`.
+
+**Scope**
+
+| Metric          | Value                            |
+| --------------- | -------------------------------- |
+| pivot           | \`props.preferences, props.actor\` |
+| files           | 1                                |
+| source inputs   | 7                                |
+| reachable sinks | 31                               |
+| confidence      | 99%                              |
+
+- confidence reason: Single file, direct JSX sink, all hops statically resolved.
+- risk: low; behavior-preserving extraction likely.
+
+**Why this was selected**
+
+- path depth 9
+- defensive operations 2
+- representation churn 2
+- impossible defenses 1
+- pack risk 12
+
+**Representative path**
+
+_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
+
+\`\`\`
+F1:62  1. source   props
+F1:62  2. read     preferences
+F1:62  3. read     theme
+F1:62  4. compute  «props.preferences.theme» === "dark"
+F1:62  5. compute  «props.preferences.theme === "dark"» ? "Night shift" : "Day shi…
+F1:61  6. pack     { label: «props.preferences.theme === "dark" ? "Night shift" : "Day shift"», accent: pr…
+F1:68  7. alias    chip  — = { label: props.preferences.theme === "dark" ? "…
+F1:68  8. read     label
+F1:68  9. default  «chip.label» ?? "Theme"
+
+Files:
+  F1 = src/DashboardShell.tsx
+\`\`\`
+
+**Pack verdict**
+
+\`\`\`
+verdict: relay bag
+evidence: 3 sinks, 2 sink families, 2 source roots, reach 31
+direction: this broad pack fans out through the feature; move ownership closer to consumers or split selectors.
+\`\`\`
+
+**Extraction proposal**
+
+\`\`\`
+proposed: function themeSpanText(
+  preferences: /* type */,   // ⟵ props.preferences
+  actor: /* type */   // ⟵ props.actor
+): string
+moves ~DashboardShell.tsx:61–68
+after: JSX reads themeSpanText(...) — a short path instead of 9 hops.
+avoid: do not introduce a broad packed object unless a rerun reports it as cohesive.
+\`\`\`
+
+**Candidate edits**
+
+1. Split the packed object by render responsibility instead of widening it.
+2. Keep style, geometry, identity, text, and control-flow values in separate narrow selectors unless the same consumers use them together.
+3. Move broad shared state closer to consumers, or expose focused selectors from the feature boundary.
+4. Keep JSX scannable — attributes should read named values, not derive them.
+
+**Risk**
+
+- ownership: architectural fan-in
+- queue: central-leverage
+
+## WORK ITEM DF-007  ·  RPF-068-33
+Simplify JSX chip.owner ?? "n/a" in src/DashboardShell.tsx
+
+**Review summary**
+
+This sink mixes defaulting and normalization. A behavior-preserving fix is to split or relocate the pack before adding any broader render object. Pack verdict: relay bag; avoid broadening \`{ label: props.preferences.theme === "dark" ? "…\`.
+
+**Scope**
+
+| Metric          | Value                            |
+| --------------- | -------------------------------- |
+| pivot           | \`props.preferences, props.actor\` |
+| files           | 1                                |
+| source inputs   | 7                                |
+| reachable sinks | 31                               |
+| confidence      | 99%                              |
+
+- confidence reason: Single file, direct JSX sink, all hops statically resolved.
+- risk: low; behavior-preserving extraction likely.
+
+**Why this was selected**
+
+- path depth 9
+- defensive operations 2
+- representation churn 2
+- impossible defenses 1
+- pack risk 12
+
+**Representative path**
+
+_Read top → bottom: each row is derived from the row above (the verb says how), and «marked» is the piece that flowed in from the previous step; the last row is the value JSX renders. ▸ marks recommended extraction boundaries._
+
+\`\`\`
+F1:62  1. source   props
+F1:62  2. read     preferences
+F1:62  3. read     theme
+F1:62  4. compute  «props.preferences.theme» === "dark"
+F1:62  5. compute  «props.preferences.theme === "dark"» ? "Night shift" : "Day shi…
+F1:61  6. pack     { label: «props.preferences.theme === "dark" ? "Night shift" : "Day shift"», accent: pr…
+F1:68  7. alias    chip  — = { label: props.preferences.theme === "dark" ? "…
+F1:68  8. read     owner
+F1:68  9. default  «chip.owner» ?? "n/a"
+
+Files:
+  F1 = src/DashboardShell.tsx
+\`\`\`
+
+**Pack verdict**
+
+\`\`\`
+verdict: relay bag
+evidence: 3 sinks, 2 sink families, 2 source roots, reach 31
+direction: this broad pack fans out through the feature; move ownership closer to consumers or split selectors.
+\`\`\`
+
+**Extraction proposal**
+
+\`\`\`
+proposed: function themeSpanText(
+  preferences: /* type */,   // ⟵ props.preferences
+  actor: /* type */   // ⟵ props.actor
+): string
+moves ~DashboardShell.tsx:61–68
+after: JSX reads themeSpanText(...) — a short path instead of 9 hops.
 avoid: do not introduce a broad packed object unless a rerun reports it as cohesive.
 \`\`\`
 
