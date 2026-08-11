@@ -3,6 +3,7 @@ import type {
   RouteTotalityFieldAttachment,
   RouteTotalityFieldFrontier,
   RouteTotalityFieldLineage,
+  RouteTotalityFieldTargetConsumer,
 } from "../../analysis/route-totality-field-lineage";
 import type { EvidenceProof as DomainEvidenceProof, SourceLocation } from "../../analysis/scope-seam";
 import type { RouteTotality } from "../route-totality-contracts";
@@ -67,6 +68,7 @@ function projectAttachment(
     locations,
     consumer: attachment.consumer ? {
       ...attachment.consumer,
+      target: projectTargetConsumer(attachment.consumer.target),
       location: projectLocation(attachment.consumer.location),
     } : null,
     alias: attachment.alias,
@@ -88,9 +90,19 @@ function projectTransformation(
     evidenceRelationIds: copyIds(transformation.evidenceRelationIds, cancellation),
     supportingElementIds: copyIds(transformation.supportingElementIds, cancellation),
     supportingRelationIds: copyIds(transformation.supportingRelationIds, cancellation),
+    targetConsumer: transformation.targetConsumer ? projectTargetConsumer(transformation.targetConsumer) : null,
     locations: projectSourceLocations(transformation.locations, cancellation),
     proof: projectProofs(transformation.proof, cancellation),
     status: transformation.status,
+  };
+}
+
+function projectTargetConsumer(target: RouteTotalityFieldTargetConsumer): RouteTotalityFieldTargetConsumer {
+  return {
+    ...target,
+    jsx: target.jsx ? { ...target.jsx } : null,
+    handler: target.handler ? { ...target.handler } : null,
+    condition: target.condition ? { ...target.condition } : null,
   };
 }
 

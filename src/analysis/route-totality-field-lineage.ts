@@ -36,7 +36,44 @@ export type RouteTotalityFieldConsumer = {
   label: string;
   occurrenceId: string;
   routeTerminalId: string | null;
+  fieldLineageTerminalElementId: string;
+  fieldLineageTerminalRelationId: string;
+  target: RouteTotalityFieldTargetConsumer;
   location: SourceLocation;
+};
+
+export type RouteTotalityFieldTargetConsumer = {
+  targetKey: string;
+  consumerKind: "render" | "condition" | "handler";
+  consumerFieldElementId: string;
+  consumerValueElementId: string;
+  bindingElementId: string;
+  ownerDefinitionElementId: string;
+  consumerOwnerElementId: string;
+  jsx: {
+    tagName: string;
+    tagSymbol: string;
+    tagModule: string;
+    propName: string | null;
+    identity: "intrinsic" | "component";
+  } | null;
+  handler: {
+    receiverName: string;
+    receiverSymbol: string;
+    methodSymbol: string;
+    calleeSymbol: string;
+    actionName: string;
+    actionArgumentSymbol: string;
+    payloadObject: string;
+    argumentField: string;
+    forwardedParameterSymbol: string | null;
+  } | null;
+  condition: {
+    operator: string | null;
+    literal: string | null;
+    nestedShow: boolean | null;
+    collectionName: string | null;
+  } | null;
 };
 
 export type RouteTotalityFieldTransformation = {
@@ -47,6 +84,7 @@ export type RouteTotalityFieldTransformation = {
   evidenceRelationIds: string[];
   supportingElementIds: string[];
   supportingRelationIds: string[];
+  targetConsumer: RouteTotalityFieldTargetConsumer | null;
   locations: SourceLocation[];
   proof: EvidenceProof[];
   status: "proven" | "partial" | "unsupported";

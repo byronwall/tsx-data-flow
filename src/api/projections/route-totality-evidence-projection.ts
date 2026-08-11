@@ -33,6 +33,8 @@ export function projectEvidenceSlice(slice: DomainEvidenceValue, cancellation: A
       status: element.status,
       proof: projectProofs(element.proof, cancellation),
       symbol: element.symbol,
+      module: element.module ?? null,
+      ownerId: element.ownerId ?? null,
       componentBinding: element.componentBinding
         ? { ...element.componentBinding }
         : null,
@@ -53,6 +55,14 @@ export function projectEvidenceSlice(slice: DomainEvidenceValue, cancellation: A
       consumerLabel: element.kind === "field-consumer"
         ? (typeof element.attributes?.label === "string" && element.attributes.label.length > 0 ? element.attributes.label : null)
         : null,
+      consumerTagName: element.kind === "field-consumer" && typeof element.attributes?.tagName === "string" ? element.attributes.tagName : null,
+      consumerPropName: element.kind === "field-consumer" && typeof element.attributes?.propName === "string" ? element.attributes.propName : null,
+      consumerActionName: element.kind === "field-consumer" && typeof element.attributes?.actionName === "string" ? element.attributes.actionName : null,
+      consumerArgumentName: element.kind === "field-consumer" && typeof element.attributes?.argumentName === "string" ? element.attributes.argumentName : null,
+      consumerConditionOperator: element.kind === "field-consumer" && typeof element.attributes?.conditionOperator === "string" ? element.attributes.conditionOperator : null,
+      consumerConditionLiteral: element.kind === "field-consumer" && typeof element.attributes?.conditionLiteral === "string" ? element.attributes.conditionLiteral : null,
+      consumerNestedShow: element.kind === "field-consumer" && typeof element.attributes?.nestedShow === "boolean" ? element.attributes.nestedShow : null,
+      consumerCollectionName: element.kind === "field-consumer" && typeof element.attributes?.consumerCollection === "string" ? element.attributes.consumerCollection : null,
       originRoles: [...element.originRoles],
       terminalRoles: [...element.terminalRoles],
       boundary: element.boundary,

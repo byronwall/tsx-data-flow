@@ -122,6 +122,7 @@ export class RouteTotalityFieldProofIndex {
       status: "proven",
       proof: [proof],
       symbol: occurrence.symbol,
+      module: occurrence.module ?? null,
       componentBinding: null,
       ownerId: occurrence.id,
       attributes: { terminalKind: "component-render-boundary", definitionId },
@@ -140,6 +141,66 @@ export class RouteTotalityFieldProofIndex {
     this.addElement(terminal);
     this.addRelation(relation);
     return terminal;
+  }
+
+  /** Materialize the exact field-consumer terminal inside its compiler owner. */
+  fieldConsumerTerminal(consumerId: string): ProgramElement | null {
+    const consumer = this.byId(consumerId);
+    if (!consumer || consumer.kind !== "field-consumer" || !consumer.ownerId || consumer.status !== "proven") return null;
+    const id = `route-field-consumer-terminal:${stableHash(consumer.id)}`;
+    const existing = this.elementsById.get(id);
+    if (existing) return existing;
+    const proof = {
+      kind: "render-consumer" as const,
+      detail: "The compiler-resolved field consumer defines this exact field-lineage render terminal.",
+      locations: [consumer.location],
+      status: "proven" as const,
+    };
+    const terminal: ProgramElement = {
+      id,
+      kind: "render-terminal",
+      fieldName: null,
+      operationKind: null,
+      index: null,
+      label: consumer.label,
+      source: consumer.source,
+      location: consumer.location,
+      status: "proven",
+      proof: [proof],
+      symbol: consumer.symbol,
+      module: consumer.module ?? null,
+      componentBinding: null,
+      ownerId: consumer.ownerId,
+      attributes: { terminalKind: "field-consumer" },
+      originRoles: [],
+      terminalRoles: ["render"],
+      boundary: null,
+    };
+    this.addElement(terminal);
+    return terminal;
+  }
+
+  /** Materialize one exact consumer-to-field-lineage-terminal relation. */
+  consumerRenderTerminal(consumerId: string, terminalId: string): ProgramRelation | null {
+    const consumer = this.byId(consumerId);
+    const terminal = this.byId(terminalId);
+    if (!consumer || !terminal || terminal.kind !== "render-terminal" || consumer.kind === "render-terminal") return null;
+    const proof = {
+      kind: "field-consumer-terminal" as const,
+      detail: "Compiler-backed containment binds this exact consumer value to its field-lineage render terminal.",
+      locations: [consumer.location, terminal.location],
+      status: "proven" as const,
+    };
+    const relation: ProgramRelation = {
+      id: sourceRelationId(consumer.id, terminal.id, "render-terminal", proof),
+      from: consumer.id,
+      to: terminal.id,
+      kind: "render-terminal",
+      status: "proven",
+      proof,
+    };
+    this.addRelation(relation);
+    return relation;
   }
 
   materializedElements(): ProgramElement[] {

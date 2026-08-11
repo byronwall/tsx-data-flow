@@ -363,7 +363,7 @@ function componentBoundaryConsumersForTarget(
           boundary,
           sourceField,
           evidenceLabel: consumer.label,
-          terminal: consumer.terminal,
+          terminal: index.fieldConsumerTerminal(fieldConsumer.id),
         });
       }
     }

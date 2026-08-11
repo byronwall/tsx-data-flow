@@ -4,6 +4,7 @@ import type { FieldProofCandidate } from "./route-totality-field-proof-candidate
 import type { FieldCarrierPath } from "./route-totality-field-proof-carrier";
 import type { RouteTotalityFieldProofIndex } from "./route-totality-field-proof-index";
 import { fieldTransformation } from "./route-totality-field-proof-result";
+import { buildTargetConsumerDescriptor } from "./route-totality-field-target-consumer";
 import type { ExactFieldTransferKind } from "./route-totality-field-transfer-verifier";
 import type { ProgramElement, ProgramRelation } from "./scope-seam";
 
@@ -44,10 +45,7 @@ export function assembleFieldProofTransformations(
     step(index, "nested-property-read", candidate.currentCall, candidate.consumerField, [["field-input", "property-access"]], cancellation),
     candidate.directConsumer
       ? directConsumerStep(index, candidate, cancellation)
-      : chainedStep(index, "occurrence-consumer", candidate.consumerField, candidate.binding, [
-        [candidate.consumerField, candidate.consumerValue, "consumer-value", "jsx-consumer-value"],
-        [candidate.consumerValue, candidate.binding, "component-prop-binding", "component-prop-binding"],
-      ], cancellation, [candidate.occurrence, candidate.definition, candidate.renderTerminal], occurrenceRelation ? [occurrenceRelation] : []),
+      : componentConsumerStep(index, candidate, occurrenceRelation, cancellation),
   ];
 }
 
@@ -129,9 +127,49 @@ function directConsumerStep(
       : candidate.binding.attributes?.consumerKind === "handler" ? "handler-consumer" : "render-consumer",
     cancellation,
   ));
-  return relation
-    ? fieldTransformation("occurrence-consumer", candidate.consumerField, candidate.binding, [relation], [candidate.occurrence, candidate.renderTerminal], [], cancellation)
+  const terminalRelation = index.consumerRenderTerminal(candidate.binding.id, candidate.renderTerminal.id);
+  const targetConsumer = targetConsumerDescriptor(candidate);
+  return relation && terminalRelation && targetConsumer
+    ? fieldTransformation("occurrence-consumer", candidate.consumerField, candidate.binding, [relation], [candidate.occurrence, candidate.renderTerminal], [terminalRelation], cancellation, targetConsumer)
     : null;
+}
+
+function componentConsumerStep(
+  index: RouteTotalityFieldProofIndex,
+  candidate: FieldProofCandidate,
+  occurrenceRelation: ProgramRelation | null,
+  cancellation: AnalysisCancellationToken,
+): RouteTotalityFieldTransformation | null {
+  const consumerRelations = [
+    one(index.exactRelations(candidate.consumerField.id, candidate.consumerValue.id, "consumer-value", "jsx-consumer-value", cancellation)),
+    one(index.exactRelations(candidate.consumerValue.id, candidate.binding.id, "component-prop-binding", "component-prop-binding", cancellation)),
+  ];
+  const terminalRelation = index.consumerRenderTerminal(candidate.consumerValue.id, candidate.renderTerminal.id);
+  const targetConsumer = targetConsumerDescriptor(candidate);
+  return consumerRelations.every(Boolean) && occurrenceRelation && terminalRelation && targetConsumer
+    ? fieldTransformation(
+      "occurrence-consumer",
+      candidate.consumerField,
+      candidate.binding,
+      consumerRelations as ProgramRelation[],
+      [candidate.occurrence, candidate.definition, candidate.renderTerminal],
+      [occurrenceRelation, terminalRelation],
+      cancellation,
+      targetConsumer,
+    )
+    : null;
+}
+
+function targetConsumerDescriptor(candidate: FieldProofCandidate) {
+  return buildTargetConsumerDescriptor(candidate.targetKey, {
+    consumerField: candidate.consumerField,
+    consumerValue: candidate.directConsumer ? candidate.binding : candidate.consumerValue,
+    binding: candidate.binding,
+    occurrence: candidate.occurrence,
+    definition: candidate.definition,
+    renderTerminal: candidate.renderTerminal,
+    directConsumer: candidate.directConsumer,
+  });
 }
 
 function step(

@@ -53,6 +53,8 @@ export type ProgramElement = {
   status: EvidenceStatus;
   proof: EvidenceProof[];
   symbol: string | null;
+  /** Exact compiler import module when the element resolves through one. */
+  module?: string | null;
   componentBinding: ComponentBindingMetadata | null;
   ownerId?: string | null;
   attributes?: Record<string, string | number | boolean | null>;

@@ -49,6 +49,39 @@ const fieldSchema = z.strictObject({
   label: nonEmptyStringSchema,
   location: sourceLocationSchema,
 });
+const targetConsumerSchema = z.strictObject({
+  targetKey: nonEmptyStringSchema,
+  consumerKind: z.enum(["render", "condition", "handler"]),
+  consumerFieldElementId: nonEmptyStringSchema,
+  consumerValueElementId: nonEmptyStringSchema,
+  bindingElementId: nonEmptyStringSchema,
+  ownerDefinitionElementId: nonEmptyStringSchema,
+  consumerOwnerElementId: nonEmptyStringSchema,
+  jsx: z.strictObject({
+    tagName: nonEmptyStringSchema,
+    tagSymbol: nonEmptyStringSchema,
+    tagModule: nonEmptyStringSchema,
+    propName: nonEmptyStringSchema.nullable(),
+    identity: z.enum(["intrinsic", "component"]),
+  }).nullable(),
+  handler: z.strictObject({
+    receiverName: nonEmptyStringSchema,
+    receiverSymbol: nonEmptyStringSchema,
+    methodSymbol: nonEmptyStringSchema,
+    calleeSymbol: nonEmptyStringSchema,
+    actionName: nonEmptyStringSchema,
+    actionArgumentSymbol: nonEmptyStringSchema,
+    payloadObject: nonEmptyStringSchema,
+    argumentField: nonEmptyStringSchema,
+    forwardedParameterSymbol: nonEmptyStringSchema.nullable(),
+  }).nullable(),
+  condition: z.strictObject({
+    operator: nonEmptyStringSchema.nullable(),
+    literal: nonEmptyStringSchema.nullable(),
+    nestedShow: z.boolean().nullable(),
+    collectionName: nonEmptyStringSchema.nullable(),
+  }).nullable(),
+});
 const fieldConsumerSchema = z.strictObject({
   id: nonEmptyStringSchema,
   elementId: nonEmptyStringSchema,
@@ -57,6 +90,9 @@ const fieldConsumerSchema = z.strictObject({
   label: nonEmptyStringSchema,
   occurrenceId: nonEmptyStringSchema,
   routeTerminalId: nonEmptyStringSchema.nullable(),
+  fieldLineageTerminalElementId: nonEmptyStringSchema,
+  fieldLineageTerminalRelationId: nonEmptyStringSchema,
+  target: targetConsumerSchema,
   location: sourceLocationSchema,
 });
 const fieldTransformationSchema = z.strictObject({
@@ -67,6 +103,7 @@ const fieldTransformationSchema = z.strictObject({
   evidenceRelationIds: z.array(nonEmptyStringSchema).min(1),
   supportingElementIds: z.array(nonEmptyStringSchema),
   supportingRelationIds: z.array(nonEmptyStringSchema),
+  targetConsumer: targetConsumerSchema.nullable(),
   locations: z.array(sourceLocationSchema).min(1),
   proof: z.array(evidenceProofSchema).min(1),
   status: evidenceStatusSchema,

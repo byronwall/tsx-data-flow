@@ -9,6 +9,7 @@ export function fieldTransformationId(value: {
   evidenceRelationIds: readonly string[];
   supportingElementIds: readonly string[];
   supportingRelationIds: readonly string[];
+  targetConsumer?: unknown;
 }): string {
   return stableFieldId("transformation", [
     value.kind,
@@ -17,6 +18,7 @@ export function fieldTransformationId(value: {
     ...value.evidenceRelationIds,
     ...[...value.supportingElementIds].sort(),
     ...[...value.supportingRelationIds].sort(),
+    ...(value.targetConsumer ? [JSON.stringify(value.targetConsumer)] : []),
   ]);
 }
 
@@ -25,14 +27,18 @@ export function fieldConsumerId(value: {
   occurrenceElementId: string;
   occurrenceId: string;
   routeTerminalId: string | null;
-  label: string;
+  fieldLineageTerminalElementId: string;
+  fieldLineageTerminalRelationId: string;
+  target: unknown;
 }): string {
   return stableFieldId("consumer", [
     value.elementId,
     value.occurrenceElementId,
     value.occurrenceId,
     value.routeTerminalId ?? "none",
-    value.label,
+    value.fieldLineageTerminalElementId,
+    value.fieldLineageTerminalRelationId,
+    JSON.stringify(value.target),
   ]);
 }
 

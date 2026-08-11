@@ -45,6 +45,7 @@ export type ProgramProofKind =
   | "condition-consumer"
   | "render-consumer"
   | "handler-consumer"
+  | "field-consumer-terminal"
   | "context-continuity"
   | "partial-classification"
   | "http-bridge";

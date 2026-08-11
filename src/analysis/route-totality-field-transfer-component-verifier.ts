@@ -7,6 +7,7 @@ import type {
   FieldTransferRelation,
   FieldTransferVerification,
 } from "./route-totality-field-transfer-verifier";
+import { buildTargetConsumerDescriptor, sameTargetConsumerDescriptor } from "./route-totality-field-target-consumer";
 
 export function deriveComponentTargetPolicy(
   transfers: readonly RouteTotalityFieldTransformation[],
@@ -48,7 +49,22 @@ export function deriveComponentTargetPolicy(
     .map((id) => graph.relation(id)).filter(Boolean) as FieldTransferRelation[];
   const occurrenceDefinitions = ownership.filter((relation) => relation.from === occurrence.id && relation.to === definition.id
     && relation.kind === "component-occurrence" && relation.proof.kind === "compiler-symbol" && exactRelation(relation));
-  if (occurrenceDefinitions.length !== 1) return null;
+  const consumerTerminalRelations = ownership.filter((relation) => relation.from === binding.id
+    && relation.to === renderTerminals[0]?.id && relation.kind === "render-terminal"
+    && relation.proof.kind === "field-consumer-terminal" && exactRelation(relation)
+    && uniqueRelation(relation, graph, NO_CANCEL));
+  const targetConsumer = buildTargetConsumerDescriptor(final.targetConsumer?.targetKey ?? "", {
+    consumerField,
+    consumerValue: binding,
+    binding,
+    occurrence: definition,
+    definition,
+    renderTerminal: renderTerminals[0],
+    directConsumer: true,
+  });
+  if (occurrenceDefinitions.length !== 1 || consumerTerminalRelations.length !== 1
+    || !ownedByDefinition(binding, definition, graph) || renderTerminals[0]?.ownerId !== binding.ownerId
+    || !targetConsumer || !sameTargetConsumerDescriptor(final.targetConsumer, targetConsumer)) return null;
   return {
     transferKinds: transfers.map((transfer) => transfer.kind),
     chain,
@@ -69,11 +85,28 @@ export function deriveComponentTargetPolicy(
     consumerKind,
     consumerLabel: consumerLabelOf(binding) ?? "",
     directConsumer: true,
+    targetConsumer,
+    consumerTerminalRelationId: consumerTerminalRelations[0].id,
     sourceFieldElementId: sourceField?.id,
     sourceFieldName: sourceField?.fieldName ?? undefined,
     currentValueElementId: transfers[9].toElementIds[0],
     componentReceiverElementId: receiver.id,
   };
+}
+
+function ownedByDefinition(
+  element: FieldTransferElement,
+  definition: FieldTransferElement,
+  graph: FieldTransferGraph,
+): boolean {
+  let ownerId = element.ownerId;
+  const visited = new Set<string>();
+  while (ownerId && !visited.has(ownerId)) {
+    if (ownerId === definition.id) return true;
+    visited.add(ownerId);
+    ownerId = graph.element(ownerId)?.ownerId;
+  }
+  return false;
 }
 
 export function verifyComponentBoundaryPattern(

@@ -7,12 +7,14 @@ import {
   deriveExactFieldTargetPolicy,
   verifyExactFieldTransfer,
 } from "../analysis/route-totality-field-transfer-verifier";
+import { sameTargetConsumerDescriptor } from "../analysis/route-totality-field-target-consumer";
 import type { RouteTotality } from "./route-totality-contracts";
 import { addIssue, type ValidationIssue } from "./route-occurrence-validation-graph";
 import {
   endpointOccurrenceAnchors,
   endpointTerminalAnchors,
   exactElement,
+  exactRelation as exactEvidenceRelation,
   sameLocations,
   type EvidenceIndexes,
   type FieldAttachment,
@@ -155,6 +157,13 @@ function validateExactConsumer(
   const consumer = attachment.consumer;
   const consumerElement = consumer ? exactElement(evidence, consumer.elementId) : undefined;
   const consumerOccurrence = consumer ? exactElement(evidence, consumer.occurrenceElementId) : undefined;
+  if (consumer && (!sameTargetConsumerDescriptor(consumer.target, policy.targetConsumer)
+    || consumer.target.consumerKind !== consumer.kind
+    || consumer.fieldLineageTerminalElementId !== policy.renderTerminalElementId
+    || consumer.fieldLineageTerminalRelationId !== policy.consumerTerminalRelationId
+    || !validConsumerTerminalRelation(consumer, evidence, policy))) {
+    addIssue(issues, [...path, "consumer"], "consumer target identity and field-lineage terminal relation must match the exact compiler policy");
+  }
   if (policy.directConsumer) {
     if (!consumer || !consumerElement || !consumerOccurrence || !occurrence
       || consumer.elementId !== policy.bindingElementId
@@ -208,6 +217,47 @@ function validateExactConsumer(
       && !hasExactOccurrenceTerminalRelation(occurrence, terminalId, policy.componentDefinitionElementId, evidence, surface, cancellation))) {
     addIssue(issues, [...path, "terminalIds"], "consumer terminal must map to the exact compiler-backed render terminal");
   }
+}
+
+function validConsumerTerminalRelation(
+  consumer: NonNullable<FieldAttachment["consumer"]>,
+  evidence: EvidenceIndexes,
+  policy: NonNullable<ReturnType<typeof deriveExactFieldTargetPolicy>>,
+): boolean {
+  const relation = exactEvidenceRelation(evidence, consumer.fieldLineageTerminalRelationId);
+  const terminal = exactElement(evidence, consumer.fieldLineageTerminalElementId);
+  const consumerElement = exactElement(evidence, consumer.elementId);
+  const outgoing = evidence.outgoing.get(consumer.elementId) ?? [];
+  const matches = outgoing.filter((candidate) => candidate.from === consumer.elementId
+    && candidate.to === consumer.fieldLineageTerminalElementId
+    && candidate.kind === "render-terminal" && candidate.proof.kind === "field-consumer-terminal"
+    && candidate.status === "proven" && candidate.proof.status === "proven");
+  return Boolean(relation && terminal && consumerElement
+    && relation.id === policy.consumerTerminalRelationId
+    && relation.from === consumer.elementId && relation.to === terminal.id
+    && relation.kind === "render-terminal" && relation.proof.kind === "field-consumer-terminal"
+    && relation.status === "proven" && relation.proof.status === "proven"
+    && matches.length === 1 && terminal.kind === "render-terminal"
+    && consumer.target.consumerOwnerElementId === terminal.ownerId
+    && consumerOwnedByTerminal(consumerElement, terminal, evidence)
+    && contains(terminal.location, consumerElement.location)
+    && terminal.id !== consumer.routeTerminalId);
+}
+
+function consumerOwnedByTerminal(
+  consumer: NonNullable<ReturnType<typeof exactElement>>,
+  terminal: NonNullable<ReturnType<typeof exactElement>>,
+  evidence: EvidenceIndexes,
+): boolean {
+  if (!consumer.ownerId || !terminal.ownerId) return false;
+  let ownerId: string | null = consumer.ownerId;
+  const visited = new Set<string>();
+  while (ownerId && !visited.has(ownerId)) {
+    if (ownerId === terminal.ownerId) return true;
+    visited.add(ownerId);
+    ownerId = exactElement(evidence, ownerId)?.ownerId ?? null;
+  }
+  return false;
 }
 
 function isRouteEntryOccurrence(occurrence: SurfaceOccurrence): boolean {

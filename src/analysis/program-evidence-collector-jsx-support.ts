@@ -79,7 +79,7 @@ export class ProgramEvidenceCollectorJsxSupport extends ProgramEvidenceCollector
       ownerId,
       { tag, intrinsic: !target },
       this.symbolId(opening.tagName),
-      null,
+      this.moduleFor(opening.tagName),
       target?.id ?? null,
       target ? "proven" : "partial",
       proof(

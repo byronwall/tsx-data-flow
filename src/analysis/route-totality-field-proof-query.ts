@@ -146,6 +146,9 @@ export function queryRouteTotalityFieldProof(
       alias: candidate.boundary?.mode === "scalar-alias"
         ? `${candidate.sourceField?.fieldName ?? ""} -> ${candidate.boundary.propName}`
         : null,
+      targetConsumer: policy.targetConsumer,
+      fieldLineageTerminalElementId: policy.renderTerminalElementId,
+      fieldLineageTerminalRelationId: policy.consumerTerminalRelationId,
     }, cancellation));
   }
   augmentSlice(index, cancellation);

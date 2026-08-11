@@ -12,6 +12,7 @@ import type {
   RouteTotalityFieldLineage,
   RouteTotalityFieldOrigin,
   RouteTotalityFieldTransformation,
+  RouteTotalityFieldTargetConsumer,
 } from "./route-totality-field-lineage";
 import type { ExactFieldTransferKind } from "./route-totality-field-transfer-verifier";
 
@@ -33,6 +34,9 @@ export type FieldProofResultInput = {
   sourceField: ProgramElement | null;
   boundaryMode: "direct" | "whole-object" | "scalar-alias";
   alias: string | null;
+  targetConsumer: RouteTotalityFieldTargetConsumer;
+  fieldLineageTerminalElementId: string;
+  fieldLineageTerminalRelationId: string;
 };
 
 export function provenFieldProof(input: FieldProofResultInput, cancellation: AnalysisCancellationToken): RouteTotalityFieldLineage {
@@ -48,6 +52,9 @@ export function provenFieldProof(input: FieldProofResultInput, cancellation: Ana
     label: input.consumerLabel,
     occurrenceId: input.occurrenceId,
     routeTerminalId: input.terminalId,
+    fieldLineageTerminalElementId: input.fieldLineageTerminalElementId,
+    fieldLineageTerminalRelationId: input.fieldLineageTerminalRelationId,
+    target: input.targetConsumer,
     location: input.consumerValue.location,
   };
   consumer.id = fieldConsumerId(consumer);
@@ -183,6 +190,7 @@ export function fieldTransformation(
   supportingElements: readonly ProgramElement[] = [],
   supportingRelations: readonly ProgramRelation[] = [],
   cancellation: AnalysisCancellationToken,
+  targetConsumer: RouteTotalityFieldTargetConsumer | null = null,
 ): RouteTotalityFieldTransformation {
   const locations = uniqueLocations(relations.flatMap((relation) => relation.proof.locations), cancellation);
   return {
@@ -193,6 +201,7 @@ export function fieldTransformation(
       evidenceRelationIds: relations.map((item) => item.id),
       supportingElementIds: supportingElements.map((item) => item.id),
       supportingRelationIds: supportingRelations.map((item) => item.id),
+      targetConsumer,
     }),
     kind,
     fromElementIds: [from.id],
@@ -200,6 +209,7 @@ export function fieldTransformation(
     evidenceRelationIds: relations.map((item) => item.id),
     supportingElementIds: supportingElements.map((item) => item.id).sort(),
     supportingRelationIds: supportingRelations.map((item) => item.id).sort(),
+    targetConsumer,
     locations,
     proof: [proof(`The shared compiler evidence proves the exact ${kind} transfer.`, locations)],
     status: "proven",

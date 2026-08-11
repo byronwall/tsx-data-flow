@@ -1,9 +1,10 @@
 import type { AnalysisCancellationToken } from "./cancellation";
-import type { RouteTotalityFieldTransformation } from "./route-totality-field-lineage";
+import type { RouteTotalityFieldTargetConsumer, RouteTotalityFieldTransformation } from "./route-totality-field-lineage";
 import type { ComponentBindingMetadata } from "./program-component-binding-metadata";
 import type { EvidenceProof, EvidenceStatus, SourceLocation } from "./scope-seam";
 import { deriveComponentTargetPolicy, verifyComponentBoundaryPattern } from "./route-totality-field-transfer-component-verifier";
 import { verifyExactSourceCarrier } from "./route-totality-field-transfer-carrier-verifier";
+import { buildTargetConsumerDescriptor, sameTargetConsumerDescriptor } from "./route-totality-field-target-consumer";
 
 export const EXACT_FIELD_TRANSFER_KINDS = [
   "source-carrier",
@@ -40,6 +41,8 @@ export type FieldTransferElement = {
   fieldName: string | null;
   operationKind: string | null;
   symbol: string | null;
+  module?: string | null;
+  ownerId?: string | null;
   status: EvidenceStatus;
   proof: readonly EvidenceProof[];
   location: SourceLocation;
@@ -55,6 +58,14 @@ export type FieldTransferElement = {
   } | null;
   consumerKind?: "render" | "condition" | "handler" | null;
   consumerLabel?: string | null;
+  consumerTagName?: string | null;
+  consumerPropName?: string | null;
+  consumerActionName?: string | null;
+  consumerArgumentName?: string | null;
+  consumerConditionOperator?: string | null;
+  consumerConditionLiteral?: string | null;
+  consumerNestedShow?: boolean | null;
+  consumerCollectionName?: string | null;
   attributes?: Record<string, string | number | boolean | null>;
   originRoles?: readonly string[];
 };
@@ -100,6 +111,8 @@ export type ExactFieldTargetPolicy = {
   consumerKind: "render" | "condition" | "handler";
   consumerLabel: string;
   directConsumer: boolean;
+  targetConsumer: RouteTotalityFieldTargetConsumer;
+  consumerTerminalRelationId: string;
 };
 
 /** Verify one ledger transfer against exact evidence. Query and API validation share this function. */
@@ -111,6 +124,9 @@ export function verifyExactFieldTransfer(
 ): FieldTransferVerification {
   cancellation.throwIfCancelled();
   if (![...EXACT_FIELD_TRANSFER_KINDS, "component-source-field", "component-boundary", "component-property-read"].includes(transfer.kind as ExactFieldTransferKind)) return failure("The transfer kind is not part of the declared exact ledger.");
+  if (transfer.kind === "occurrence-consumer" ? !transfer.targetConsumer : transfer.targetConsumer !== null) {
+    return failure("Only the occurrence-consumer transfer can carry one exact target-consumer descriptor.");
+  }
   if (transfer.status !== "proven" || transfer.fromElementIds.length !== 1 || transfer.toElementIds.length !== 1) {
     return failure("The transfer requires one proven exact source and target.");
   }
@@ -185,14 +201,35 @@ export function deriveExactFieldTargetPolicy(
     .map((id) => graph.element(id))
     .filter((element): element is FieldTransferElement => element?.kind === "render-terminal");
   const renderParameter = graph.element(transfers[8].toElementIds[0]);
+  const supportRelations = transfers[11].supportingRelationIds
+    .map((id) => graph.relation(id))
+    .filter((relation): relation is FieldTransferRelation => Boolean(relation));
+  const consumerTerminalSource = directConsumer ? binding : consumerValue;
+  const consumerTerminalRelations = supportRelations.filter((relation) => (
+    relation.from === consumerTerminalSource?.id && relation.kind === "render-terminal"
+      && relation.proof.kind === "field-consumer-terminal" && exactRelation(relation)
+  ));
   const consumerKind = directConsumer ? consumerKindOf(binding) ?? "render" : "render";
   const consumerLabel = directConsumer ? consumerLabelOf(binding) ?? "" : `${occurrence?.label ?? ""}.${metadata?.propName ?? ""}`;
   if (!collection?.fieldName || !predicate?.fieldName || !consumerField?.fieldName || !consumerValue
     || !binding || !consumerKind || (!directConsumer && !consumerLabel) || !occurrence?.symbol || !definition
     || occurrence.symbol !== definition.symbol || renderTerminals.length !== 1 || !renderParameter
+    || consumerTerminalRelations.length !== 1 || consumerTerminalRelations[0].to !== renderTerminals[0].id
+    || !uniqueRelation(consumerTerminalRelations[0], graph, NO_CANCELLATION)
     || !containsLocation(renderTerminals[0].location, renderParameter.location)
     || (!directConsumer && !containsLocation(renderTerminals[0].location, occurrence.location))
     || !containsLocation(renderTerminals[0].location, consumerValue.location)) return null;
+  const targetConsumer = buildTargetConsumerDescriptor(transfers[11].targetConsumer?.targetKey ?? "", {
+    consumerField,
+    consumerValue,
+    binding,
+    occurrence,
+    definition,
+    renderTerminal: renderTerminals[0],
+    directConsumer,
+  });
+  if (!targetConsumer || !sameTargetConsumerDescriptor(transfers[11].targetConsumer, targetConsumer)
+    || !ownedByTerminal(consumerValue, renderTerminals[0], graph)) return null;
   return {
     transferKinds: kinds,
     chain: "direct",
@@ -215,6 +252,8 @@ export function deriveExactFieldTargetPolicy(
     consumerKind: consumerKind as "render" | "condition" | "handler",
     consumerLabel: String(consumerLabel),
     directConsumer,
+    targetConsumer,
+    consumerTerminalRelationId: consumerTerminalRelations[0].id,
   };
 }
 
@@ -294,6 +333,17 @@ function consumerPattern(
     if (definition.length !== 1 || !definition[0].symbol || definition[0].status !== "proven") {
       return failure("C12 direct consumers require one exact owning component definition.");
     }
+    const terminal = support.filter((element) => element.kind === "render-terminal");
+    const terminalRelation = exactConsumerTerminalRelation(transfer, target.id, terminal[0]?.id, graph, cancellation);
+    if (terminal.length !== 1 || !terminalRelation || target.ownerId !== definition[0].id
+      || terminal[0].ownerId !== target.ownerId || !containsLocation(terminal[0].location, target.location)) {
+      return failure("C12 requires one exact consumer-owned field-lineage terminal relation.");
+    }
+    if (policy && (!sameTargetConsumerDescriptor(transfer.targetConsumer, policy.targetConsumer)
+      || terminalRelation.id !== policy.consumerTerminalRelationId
+      || terminal[0].id !== policy.renderTerminalElementId)) {
+      return failure("C12 target identity or consumer terminal does not match the compiler-derived policy.");
+    }
     return { ok: true };
   }
   const pattern = exactPattern(source, target, relations, ["consumer-value", "component-prop-binding"], ["jsx-consumer-value", "component-prop-binding"], "field-read", "component-prop-binding");
@@ -320,13 +370,47 @@ function consumerPattern(
       && exactRelation(relation) && uniqueRelation(relation, graph, cancellation)
   ));
   if (exactComponentRelations.length !== 1) return failure("C12 requires one exact JSX occurrence-to-component definition relation.");
+  const terminal = transfer.supportingElementIds.map((id) => graph.element(id)).filter((element): element is FieldTransferElement => element?.kind === "render-terminal");
+  const terminalRelation = exactConsumerTerminalRelation(transfer, relations[0].to, terminal[0]?.id, graph, cancellation);
+  if (terminal.length !== 1 || !terminalRelation || !ownedByTerminal(graph.element(relations[0].to), terminal[0], graph)
+    || !containsLocation(terminal[0].location, graph.element(relations[0].to)!.location)) {
+    return failure("C12 requires one exact consumer-value-to-field-lineage-terminal relation.");
+  }
   if (policy && (!policy.directConsumer && (source.id !== policy.consumerFieldElementId || source.fieldName !== policy.consumerFieldName
     || target.id !== policy.bindingElementId || relations[0].to !== policy.consumerValueElementId
     || metadata.propName !== policy.propName || occurrence.id !== policy.componentOccurrenceElementId
-    || definition.id !== policy.componentDefinitionElementId || occurrence.symbol !== policy.componentSymbol))) {
+    || definition.id !== policy.componentDefinitionElementId || occurrence.symbol !== policy.componentSymbol
+    || !sameTargetConsumerDescriptor(transfer.targetConsumer, policy.targetConsumer)
+    || terminalRelation.id !== policy.consumerTerminalRelationId || terminal[0].id !== policy.renderTerminalElementId))) {
     return failure("C12 does not match the compiler-derived target policy.");
   }
   return { ok: true };
+}
+
+function ownedByTerminal(
+  consumer: FieldTransferElement | undefined,
+  terminal: FieldTransferElement | undefined,
+  graph: FieldTransferGraph,
+): boolean {
+  if (!consumer?.ownerId || !terminal?.ownerId) return false;
+  return consumer.ownerId === terminal.ownerId || graph.element(consumer.ownerId)?.ownerId === terminal.ownerId;
+}
+
+function exactConsumerTerminalRelation(
+  transfer: RouteTotalityFieldTransformation,
+  consumerId: string,
+  terminalId: string | undefined,
+  graph: FieldTransferGraph,
+  cancellation: AnalysisCancellationToken,
+): FieldTransferRelation | null {
+  if (!terminalId) return null;
+  const matches = transfer.supportingRelationIds
+    .map((id) => graph.relation(id))
+    .filter((relation): relation is FieldTransferRelation => Boolean(relation
+      && relation.from === consumerId && relation.to === terminalId
+      && relation.kind === "render-terminal" && relation.proof.kind === "field-consumer-terminal"
+      && exactRelation(relation) && uniqueRelation(relation, graph, cancellation)));
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function policyPattern(
@@ -423,3 +507,5 @@ function containsLocation(owner: SourceLocation, child: SourceLocation): boolean
 }
 
 function failure(detail: string): FieldTransferVerification { return { ok: false, detail }; }
+
+const NO_CANCELLATION: AnalysisCancellationToken = { throwIfCancelled() {} };

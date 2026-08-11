@@ -85,6 +85,7 @@ export function toSliceElement(element: IndexedProgramElement): ProgramElement {
     status,
     proof: [toSliceProof(element.proof, status)],
     symbol: element.symbolId,
+    module: element.module,
     componentBinding: element.componentBinding
       ?? (element.kind === "component-prop-binding" ? componentBindingMetadataFromAttributes(element.attributes) : null),
     ownerId: element.ownerId,
