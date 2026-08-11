@@ -36,3 +36,8 @@ pnpm accept:route-field-proof \
 ```
 
 This command exits nonzero and reports `G18` as missing.
+
+The runner also supports focused in-memory comparator probes. Each probe exits
+nonzero: `--simulate-label G18`, `--simulate-kind G18`,
+`--simulate-alias G13`, and `--simulate-duplicate G18`. An unknown simulation
+ID is rejected before project analysis starts.

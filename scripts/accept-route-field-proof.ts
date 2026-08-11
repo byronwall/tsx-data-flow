@@ -13,12 +13,14 @@ import type { RouteTotalityFieldAttachment } from "../src/analysis/route-totalit
 
 type Obligation = { id: string; fieldPath: string; label: string; kind: string; alias: string | null; targetKey: string };
 type Actual = { fieldPath: string; label: string; kind: string; alias: string | null; targetKey: string; occurrenceId: string; terminalId: string; consumerTerminalRelationId: string | null };
+type Simulation = { kind: "missing" | "label" | "kind" | "alias" | "duplicate"; id: string } | null;
 
 const args = parseCli(process.argv.slice(2));
 const started = performance.now();
 
 try {
   const expected = await readObligations(args.obligations);
+  validateSimulation(args.simulation, expected);
   const analyzerArgs = parseArgs(["--root", args.root, "--format", "json", "--view", "work-packets"]);
   const report = createAnalyzer(analyzerArgs).report();
   const inventory = buildRouteDataInventory(report);
@@ -34,16 +36,18 @@ try {
   const record = routeTotalityForRoute(report.routeData, route.key, selectedSource);
   if (!record) throw new Error(`No Route Totality record for ${route.key}.`);
   const actual = record.fieldLineage.attachments.map(actualRecord).sort(compareActual);
-  const probed = args.simulateMissing ? actual.filter((item) => item.label !== expected.find((obligation) => obligation.id === args.simulateMissing)?.label) : actual;
+  const probed = applySimulation(actual, expected, args.simulation);
+  const duplicateKeys = [...new Set(probed.filter((item, index) => probed.findIndex((candidate) => semanticKey(candidate) === semanticKey(item)) !== index).map(semanticKey))].sort();
+  if (duplicateKeys.length > 0) throw new Error(`Duplicate actual semantic records: ${duplicateKeys.join(", ")}`);
   const expectedByKey = new Map(expected.map((obligation) => [semanticKey(obligation), obligation]));
-  const actualByKey = new Map(probed.map((item) => [semanticKey(item), item]));
-  const missing = expected.filter((obligation) => !actualByKey.has(semanticKey(obligation))).map((obligation) => obligation.id);
+  const actualKeys = new Set(probed.map(semanticKey));
+  const missing = expected.filter((obligation) => !actualKeys.has(semanticKey(obligation))).map((obligation) => obligation.id);
   const unexpected = probed.filter((item) => !expectedByKey.has(semanticKey(item))).map((item) => `target:${item.targetKey}`);
   const selectedOrigin = { key: source.key, elementId: selectedSource.evidence.elementId, file: selectedSource.evidence.file, line: selectedSource.evidence.line, column: selectedSource.evidence.column };
   const semantic = { route: route.pathPattern, routeKey: route.key, selectedOrigin, fieldPaths: [...new Set(actual.map((item) => item.fieldPath))].sort(), attachments: actual.length, transformations: record.fieldLineage.transformations.length, consumerTerminalRelationCount: new Set(actual.map((item) => item.consumerTerminalRelationId).filter(Boolean)).size, frontiers: record.fieldLineage.frontiers.map((frontier) => ({ id: frontier.id, field: frontier.field?.label ?? null, reason: frontier.reason })).sort((left, right) => left.id.localeCompare(right.id)), obligations: actual.map(({ occurrenceId: _occurrenceId, terminalId: _terminalId, consumerTerminalRelationId: _relationId, ...item }) => item), missing, unexpected };
   const hash = createHash("sha256").update(canonicalJson(semantic)).digest("hex");
   const obligationRecords = actual.map((item) => ({ id: expectedByKey.get(semanticKey(item))?.id ?? null, fieldPath: item.fieldPath, label: item.label, kind: item.kind, alias: item.alias }));
-  const output = { route: semantic.route, routeKey: semantic.routeKey, selectedOrigin: semantic.selectedOrigin, fieldPaths: semantic.fieldPaths, attachments: semantic.attachments, transformations: semantic.transformations, consumerTerminalRelationCount: semantic.consumerTerminalRelationCount, frontiers: semantic.frontiers, obligations: obligationRecords, missing, unexpected, deterministicResultHash: hash, elapsedMs: round(performance.now() - started), payloadBytes: Buffer.byteLength(canonicalJson(record.fieldLineage)), ...(args.simulateMissing ? { simulatedMissing: args.simulateMissing } : {}) };
+  const output = { route: semantic.route, routeKey: semantic.routeKey, selectedOrigin: semantic.selectedOrigin, fieldPaths: semantic.fieldPaths, attachments: semantic.attachments, transformations: semantic.transformations, consumerTerminalRelationCount: semantic.consumerTerminalRelationCount, frontiers: semantic.frontiers, obligations: obligationRecords, missing, unexpected, deterministicResultHash: hash, elapsedMs: round(performance.now() - started), payloadBytes: Buffer.byteLength(canonicalJson(record.fieldLineage)), ...(args.simulation ? { simulation: args.simulation } : {}) };
   process.stdout.write(`${JSON.stringify(output)}\n`);
   if (missing.length || unexpected.length) process.exitCode = 1;
 } catch (error) {
@@ -66,7 +70,15 @@ function parseCli(argv: string[]) {
   const source = values.get("--source");
   const obligations = values.get("--obligations");
   if (!root || !route || !source || !obligations) throw new Error("Usage: pnpm accept:route-field-proof --root <project> --route <path-or-key> --source <key-or-file:line[:column]> --obligations <file>");
-  return { root: path.resolve(root), route, source, obligations: path.resolve(obligations), simulateMissing: values.get("--simulate-missing") ?? null };
+  const simulations = [
+    ["--simulate-missing", "missing"],
+    ["--simulate-label", "label"],
+    ["--simulate-kind", "kind"],
+    ["--simulate-alias", "alias"],
+    ["--simulate-duplicate", "duplicate"],
+  ].filter(([flag]) => values.has(flag)).map(([flag, kind]) => ({ kind: kind as NonNullable<Simulation>["kind"], id: values.get(flag)! }));
+  if (simulations.length > 1) throw new Error("Choose only one simulation flag.");
+  return { root: path.resolve(root), route, source, obligations: path.resolve(obligations), simulation: simulations[0] ?? null };
 }
 
 async function readObligations(file: string): Promise<Obligation[]> {
@@ -96,12 +108,32 @@ function chooseOne<T>(items: T[], kind: string, value: string): T {
   return items[0];
 }
 
+function validateSimulation(simulation: Simulation, expected: Obligation[]): void {
+  if (simulation && !expected.some((obligation) => obligation.id === simulation.id)) throw new Error(`Unknown simulated obligation ID ${simulation.id}.`);
+}
+
+function applySimulation(actual: Actual[], expected: Obligation[], simulation: Simulation): Actual[] {
+  if (!simulation) return actual;
+  const obligation = expected.find((item) => item.id === simulation.id)!;
+  const matches = actual.filter((item) => item.fieldPath === obligation.fieldPath && item.targetKey === obligation.targetKey);
+  if (matches.length !== 1) throw new Error(`Simulation ${simulation.kind} expected one actual record for ${simulation.id}, found ${matches.length}.`);
+  const match = matches[0];
+  if (simulation.kind === "missing") return actual.filter((item) => item !== match);
+  if (simulation.kind === "duplicate") return [...actual, match].sort(compareActual);
+  return actual.map((item) => {
+    if (item !== match) return item;
+    if (simulation.kind === "label") return { ...item, label: `${item.label} (simulated)` };
+    if (simulation.kind === "kind") return { ...item, kind: item.kind === "render" ? "condition" : "render" };
+    return { ...item, alias: item.alias === null ? "simulated-alias" : null };
+  }).sort(compareActual);
+}
+
 function actualRecord(attachment: RouteTotalityFieldAttachment): Actual {
   if (!attachment.consumer) throw new Error(`Attachment ${attachment.id} has no proven consumer.`);
   return { fieldPath: attachment.field.label, label: attachment.consumer.label, kind: attachment.consumer.kind, alias: attachment.alias, targetKey: attachment.consumer.target.targetKey, occurrenceId: attachment.occurrenceId, terminalId: attachment.terminalIds[0], consumerTerminalRelationId: attachment.consumer.fieldLineageTerminalRelationId };
 }
 
-function semanticKey(item: Pick<Actual, "fieldPath" | "targetKey"> | Pick<Obligation, "fieldPath" | "targetKey">) { return `${item.fieldPath}\u0000${item.targetKey}`; }
+function semanticKey(item: Pick<Actual, "fieldPath" | "targetKey" | "label" | "kind" | "alias"> | Pick<Obligation, "fieldPath" | "targetKey" | "label" | "kind" | "alias">) { return canonicalJson({ fieldPath: item.fieldPath, targetKey: item.targetKey, label: item.label, kind: item.kind, alias: item.alias }); }
 function compareActual(left: Actual, right: Actual) { return semanticKey(left).localeCompare(semanticKey(right)) || left.occurrenceId.localeCompare(right.occurrenceId); }
 function canonicalJson(value: unknown): string { return JSON.stringify(sortValue(value)); }
 function sortValue(value: unknown): unknown { if (Array.isArray(value)) return value.map(sortValue); if (value && typeof value === "object") return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => [key, sortValue(item)])); return value; }
