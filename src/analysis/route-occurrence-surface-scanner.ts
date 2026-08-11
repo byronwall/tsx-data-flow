@@ -122,6 +122,7 @@ class OccurrenceScanner {
     if (!definition) return;
     const child = this.builder.addOccurrence(definition, opening, context, name);
     if (!child) return;
+    this.builder.addComponentOccurrenceTerminal(child, opening, name);
     if (hasSpreadAttribute(this.builder.ts, opening)) this.builder.omit("unsupported-ownership", `<${name}> receives spread props, so child ownership is not fully proven.`, opening);
     this.scanComponentCallChildren(node, child, context, depth);
     this.builder.expandOccurrence(child, definition, depth + 1);

@@ -80,9 +80,14 @@ export function buildRouteTotalityAnchorIndex(
 ): RouteTotalityAnchorIndex {
   cancellation.throwIfCancelled();
   const elementsById = new Map<string, EvidenceSlice["elements"][number]>();
+  const elementsByLocation = new Map<string, EvidenceSlice["elements"][number][]>();
   for (const element of slice.elements) {
     cancellation.throwIfCancelled();
     elementsById.set(element.id, element);
+    const key = locationKey(element.location);
+    const values = elementsByLocation.get(key) ?? [];
+    values.push(element);
+    elementsByLocation.set(key, values);
   }
   cancellation.throwIfCancelled();
   const occurrenceAnchors: RouteTotalityOccurrenceAnchor[] = [];
@@ -96,7 +101,7 @@ export function buildRouteTotalityAnchorIndex(
       occurrence,
       surface.scope.seed,
       elementsById,
-      slice,
+      elementsByLocation,
       cancellation,
     );
     if (candidates.length === 1) {
@@ -117,7 +122,7 @@ export function buildRouteTotalityAnchorIndex(
 
   for (const terminal of surface.terminals) {
     cancellation.throwIfCancelled();
-    const candidates = terminalEvidenceCandidates(terminal, elementsById, slice, cancellation);
+    const candidates = terminalEvidenceCandidates(terminal, elementsByLocation, cancellation);
     if (candidates.length === 1) {
       terminalAnchors.push({
         endpoint: terminal,
@@ -283,7 +288,7 @@ function occurrenceEvidenceCandidates(
   occurrence: RouteRenderOccurrence,
   entryElementId: string,
   elementsById: ReadonlyMap<string, EvidenceSlice["elements"][number]>,
-  slice: EvidenceSlice,
+  elementsByLocation: ReadonlyMap<string, readonly EvidenceSlice["elements"][number][]>,
   cancellation: AnalysisCancellationToken,
 ): EvidenceSlice["elements"][number][] {
   cancellation.throwIfCancelled();
@@ -292,7 +297,7 @@ function occurrenceEvidenceCandidates(
     if (entry && entry.proof.length > 0 && sameLocation(entry.location, occurrence.callSite)) return [entry];
   }
   const candidates: EvidenceSlice["elements"][number][] = [];
-  for (const element of slice.elements) {
+  for (const element of elementsByLocation.get(locationKey(occurrence.callSite)) ?? []) {
     cancellation.throwIfCancelled();
     if (element.kind === "component-occurrence"
       && element.proof.length > 0
@@ -305,28 +310,14 @@ function occurrenceEvidenceCandidates(
 
 function terminalEvidenceCandidates(
   terminal: RouteTerminalOccurrence,
-  elementsById: ReadonlyMap<string, EvidenceSlice["elements"][number]>,
-  slice: EvidenceSlice,
+  elementsByLocation: ReadonlyMap<string, readonly EvidenceSlice["elements"][number][]>,
   cancellation: AnalysisCancellationToken,
 ): EvidenceSlice["elements"][number][] {
   const expectedKind = terminal.kind === "jsx-text" || terminal.kind === "render-expression"
     ? "render-terminal"
     : "dom-terminal";
   const candidatesById = new Map<string, EvidenceSlice["elements"][number]>();
-  for (const item of slice.terminals) {
-    cancellation.throwIfCancelled();
-    if (item.role !== "render" || item.proof.length === 0) continue;
-    const element = elementsById.get(item.elementId);
-    if (!element
-      || element.kind !== expectedKind
-      || element.proof.length === 0
-      || !hasRole(element.terminalRoles, "render", cancellation)
-      || !sameLocation(element.location, terminal.location)) {
-      continue;
-    }
-    candidatesById.set(element.id, element);
-  }
-  for (const element of slice.elements) {
+  for (const element of elementsByLocation.get(locationKey(terminal.location)) ?? []) {
     cancellation.throwIfCancelled();
     if (!element
       || element.kind !== expectedKind
@@ -353,6 +344,10 @@ function sameLocation(left: SourceLocation, right: SourceLocation): boolean {
     && left.span.startColumn === right.span.startColumn
     && left.span.endLine === right.span.endLine
     && left.span.endColumn === right.span.endColumn;
+}
+
+function locationKey(location: SourceLocation): string {
+  return `${normalizeFile(location.file)}:${location.line}:${location.column}:${location.span.startLine}:${location.span.startColumn}:${location.span.endLine}:${location.span.endColumn}`;
 }
 
 function hasRole(

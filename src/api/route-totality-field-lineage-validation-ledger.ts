@@ -174,8 +174,11 @@ function validateExactConsumer(
     const terminalRecords = terminalId ? surface.terminalsById.get(terminalId) ?? [] : [];
     const terminalAnchors = terminalId ? endpointTerminalAnchors(surface.anchors, terminalId, cancellation) : [];
     if (!terminalId || consumer.routeTerminalId !== terminalId || terminalRecords.length !== 1
-      || terminalAnchors.length !== 1 || terminalAnchors[0].evidenceElementId !== policy.renderTerminalElementId
-      || terminalRecords[0].ownerOccurrenceId !== occurrence.id) {
+      || terminalAnchors.length !== 1 || (isRouteEntryOccurrence(occurrence)
+        && terminalAnchors[0].evidenceElementId !== policy.renderTerminalElementId)
+      || terminalRecords[0].ownerOccurrenceId !== occurrence.id
+      || (!isRouteEntryOccurrence(occurrence)
+        && !hasExactOccurrenceTerminalRelation(occurrence, terminalId, policy.componentDefinitionElementId, evidence, surface, cancellation))) {
       addIssue(issues, [...path, "terminalIds"], "direct consumer terminal must map to one exact compiler-backed render terminal");
     }
     return;
@@ -198,10 +201,52 @@ function validateExactConsumer(
   const terminalRecords = terminalId ? surface.terminalsById.get(terminalId) ?? [] : [];
   const terminalAnchors = terminalId ? endpointTerminalAnchors(surface.anchors, terminalId, cancellation) : [];
   if (!terminalId || consumer.routeTerminalId !== terminalId || terminalRecords.length !== 1
-    || terminalAnchors.length !== 1 || terminalAnchors[0].evidenceElementId !== policy.renderTerminalElementId
-    || terminalRecords[0].ownerOccurrenceId !== occurrence.id) {
+    || terminalAnchors.length !== 1 || (isRouteEntryOccurrence(occurrence)
+      && terminalAnchors[0].evidenceElementId !== policy.renderTerminalElementId)
+    || terminalRecords[0].ownerOccurrenceId !== occurrence.id
+    || (!isRouteEntryOccurrence(occurrence)
+      && !hasExactOccurrenceTerminalRelation(occurrence, terminalId, policy.componentDefinitionElementId, evidence, surface, cancellation))) {
     addIssue(issues, [...path, "terminalIds"], "consumer terminal must map to the exact compiler-backed render terminal");
   }
+}
+
+function isRouteEntryOccurrence(occurrence: SurfaceOccurrence): boolean {
+  return occurrence.parentOccurrenceId === null;
+}
+
+/** Require one compiler-backed occurrence -> definition -> terminal relation chain. */
+function hasExactOccurrenceTerminalRelation(
+  occurrence: SurfaceOccurrence,
+  terminalId: string,
+  definitionId: string,
+  evidence: EvidenceIndexes,
+  surface: SurfaceIndexes,
+  cancellation: AnalysisCancellationToken,
+): boolean {
+  cancellation.throwIfCancelled();
+  const occurrenceAnchors = endpointOccurrenceAnchors(surface.anchors, occurrence.id, cancellation);
+  const terminalAnchors = endpointTerminalAnchors(surface.anchors, terminalId, cancellation);
+  if (occurrenceAnchors.length !== 1 || terminalAnchors.length !== 1) return false;
+  const occurrenceElementId = occurrenceAnchors[0].evidenceElementId;
+  const terminalElementId = terminalAnchors[0].evidenceElementId;
+  if (!exactElement(evidence, occurrenceElementId) || !exactElement(evidence, terminalElementId)) return false;
+  const outgoing = evidence.outgoing.get(occurrenceElementId) ?? [];
+  const definitions = outgoing.filter((relation) => (
+    relation.kind === "component-occurrence" && relation.to === definitionId
+      && relation.status === "proven" && relation.proof.kind === "compiler-symbol"
+      && relation.proof.status === "proven"
+  ));
+  const terminals = outgoing.filter((relation) => (
+    relation.kind === "render-terminal" && relation.to === terminalElementId
+      && relation.status === "proven" && relation.proof.kind === "component-render-terminal"
+      && relation.proof.status === "proven"
+  ));
+  const allDefinitions = outgoing.filter((relation) => relation.kind === "component-occurrence"
+    && relation.proof.kind === "compiler-symbol" && relation.status === "proven" && relation.proof.status === "proven");
+  const allTerminals = outgoing.filter((relation) => relation.kind === "render-terminal"
+    && relation.proof.kind === "component-render-terminal" && relation.status === "proven" && relation.proof.status === "proven");
+  cancellation.throwIfCancelled();
+  return definitions.length === 1 && allDefinitions.length === 1 && terminals.length === 1 && allTerminals.length === 1;
 }
 
 function transferGraph(evidence: EvidenceIndexes) {

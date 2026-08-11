@@ -4,7 +4,7 @@ import type { AnalysisCancellationToken } from "./cancellation";
 import type { EvidenceRelationProvider } from "./evidence-relation-provider";
 import type { EvidenceSlice } from "./evidence-slice";
 import { toSliceElement, toSliceRelation } from "./evidence-slice-normalization";
-import type { ProgramElement, ProgramRelation } from "./scope-seam";
+import { sourceRelationId, stableHash, type ProgramElement, type ProgramRelation } from "./scope-seam";
 import type { RouteTotalitySelectedSource } from "./route-totality-selected-source";
 import type { CompactProgramFact } from "./program-evidence-compact-facts";
 
@@ -92,6 +92,54 @@ export class RouteTotalityFieldProofIndex {
       relation.to === to && relation.kind === kind && relation.proof.kind === proofKind
         && relation.status === "proven" && relation.proof.status === "proven"
     ));
+  }
+
+  /**
+   * Materialize one route-scoped terminal only from one exact compiler-resolved
+   * JSX occurrence and its single compiler definition relation.
+   */
+  componentRenderTerminal(occurrenceId: string, definitionId: string): ProgramElement | null {
+    const occurrence = this.byId(occurrenceId);
+    if (!occurrence || !occurrence.symbol) return null;
+    const id = `route-component-render-terminal:${stableHash(`${occurrence.id}:${definitionId}`)}`;
+    const existing = this.elementsById.get(id);
+    if (existing) return existing;
+    const proof = {
+      kind: "component-render-terminal",
+      detail: "One compiler-resolved JSX component occurrence renders through this exact route terminal.",
+      locations: [occurrence.location],
+      status: "proven" as const,
+    };
+    const terminal: ProgramElement = {
+      id,
+      kind: "render-terminal",
+      fieldName: null,
+      operationKind: null,
+      index: null,
+      label: occurrence.label,
+      source: occurrence.source,
+      location: occurrence.location,
+      status: "proven",
+      proof: [proof],
+      symbol: occurrence.symbol,
+      componentBinding: null,
+      ownerId: occurrence.id,
+      attributes: { terminalKind: "component-render-boundary", definitionId },
+      originRoles: [],
+      terminalRoles: ["render"],
+      boundary: null,
+    };
+    const relation: ProgramRelation = {
+      id: sourceRelationId(occurrence.id, terminal.id, "render-terminal", proof),
+      from: occurrence.id,
+      to: terminal.id,
+      kind: "render-terminal",
+      status: "proven",
+      proof,
+    };
+    this.addElement(terminal);
+    this.addRelation(relation);
+    return terminal;
   }
 
   materializedElements(): ProgramElement[] {

@@ -153,6 +153,18 @@ export const validateEvidenceReferences = (
       value.source.end,
       value.symbol,
       value.componentBinding,
+      value.proof.map((proof) => [
+        proof.kind,
+        proof.detail,
+        proof.status,
+        proof.locations.map((location) => [
+          location.file,
+          location.span.startLine,
+          location.span.startColumn,
+          location.span.endLine,
+          location.span.endColumn,
+        ]),
+      ]),
     ]),
     (value) => value.id,
     issues,

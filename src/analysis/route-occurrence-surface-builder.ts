@@ -313,6 +313,25 @@ export class RouteOccurrenceSurfaceBuilder {
     this.terminals.set(id, { id, kind, ownerOccurrenceId: context.parentOccurrenceId, renderParentId: context.parentBoundaryId ?? context.parentOccurrenceId, location: locationForNode(this.root, node), label, expression, repetition: context.repetition, runtimeMultiplicity: "unknown" });
   }
 
+  /** Add one terminal for one compiler-resolved component call site. */
+  public addComponentOccurrenceTerminal(occurrence: RouteRenderOccurrence, node: TypeScript.Node, label: string) {
+    this.accounting.discover("terminals");
+    const id = stableIdentity("route-terminal", ["render-expression", sourceIdentityForNode(this.root, node), occurrence.id, this.scopeId]);
+    if (this.terminals.has(id)) return;
+    if (!this.accounting.allow("terminals", this.terminals.size, node)) return;
+    this.terminals.set(id, {
+      id,
+      kind: "render-expression",
+      ownerOccurrenceId: occurrence.id,
+      renderParentId: occurrence.renderParentId,
+      location: locationForNode(this.root, node),
+      label,
+      expression: node.getText(node.getSourceFile()),
+      repetition: occurrence.repetition,
+      runtimeMultiplicity: "unknown",
+    });
+  }
+
   public addEdge(from: string, to: string, kind: RouteOccurrenceEdge["kind"], nodes: TypeScript.Node[], detail: string) {
     const id = stableIdentity("route-occurrence-edge", [from, to, kind, this.scopeId]);
     if (this.edges.has(id)) return;

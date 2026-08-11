@@ -42,7 +42,6 @@ export function queryRouteTotalityFieldProof(
   const candidates = discoveredCandidates
     .flatMap((candidate) => {
       const anchor = anchorCandidate(index, surface, candidate, cancellation);
-      if (anchor?.evidenceElementId) candidate.renderTerminal = index.byId(anchor.evidenceElementId) ?? candidate.renderTerminal;
       return anchor ? [{ candidate, anchor }] : [];
     });
   const bounded: Array<{ candidate: FieldProofCandidate; anchor: CandidateAnchor; carrier: FieldCarrierPath }> = [];
@@ -190,20 +189,63 @@ function anchorCandidate(
     if (boundaryOccurrence) {
       const occurrence = anchors.occurrenceAnchorsByEvidenceElementId.get(boundaryOccurrence.id) ?? [];
       if (occurrence.length !== 1) return null;
-      const terminal = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
-      return terminal.length === 1 && terminal[0].endpoint.ownerOccurrenceId === occurrence[0].endpoint.id
-        ? { occurrenceId: occurrence[0].endpoint.id, terminalId: terminal[0].endpoint.id, evidenceElementId: terminal[0].evidenceElementId }
-        : null;
+      return componentOccurrenceTerminal(index, surface, occurrence[0], cancellation);
     }
-    const terminal = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
-    return occurrences.length === 1 && terminal.length === 1 && terminal[0].endpoint.ownerOccurrenceId === occurrences[0].id
-      ? { occurrenceId: occurrences[0].id, terminalId: terminal[0].endpoint.id, evidenceElementId: terminal[0].evidenceElementId }
-      : null;
+    const routeEntries = occurrences.filter((item) => item.parentOccurrenceId === null);
+    if (routeEntries.length > 0) {
+      if (routeEntries.length !== 1) return null;
+      const anchored = anchors.occurrenceAnchors.filter((anchor) => anchor.endpoint.id === routeEntries[0].id);
+      return anchored.length === 1 ? exactRootRenderTerminal(anchors, anchored[0], candidate.renderTerminal.id) : null;
+    }
+    if (occurrences.length !== 1) return null;
+    const anchored = anchors.occurrenceAnchors.filter((anchor) => anchor.endpoint.id === occurrences[0].id);
+    return anchored.length === 1 ? componentOccurrenceTerminal(index, surface, anchored[0], cancellation) : null;
   }
   const occurrence = anchors.occurrenceAnchorsByEvidenceElementId.get(candidate.occurrence.id) ?? [];
-  const terminal = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
-  return occurrence.length === 1 && terminal.length === 1 && terminal[0].endpoint.ownerOccurrenceId === occurrence[0].endpoint.id
-    ? { occurrenceId: occurrence[0].endpoint.id, terminalId: terminal[0].endpoint.id, evidenceElementId: terminal[0].evidenceElementId }
+  return occurrence.length === 1 ? componentOccurrenceTerminal(index, surface, occurrence[0], cancellation) : null;
+}
+
+/** Keep the route entry on its already exact compiler terminal; never borrow one for a child occurrence. */
+function exactRootRenderTerminal(
+  anchors: ReturnType<typeof buildRouteTotalityAnchorIndex>,
+  occurrence: ReturnType<typeof buildRouteTotalityAnchorIndex>["occurrenceAnchors"][number],
+  evidenceElementId: string,
+): CandidateAnchor | null {
+  const terminals = anchors.terminalAnchorsByEvidenceElementId.get(evidenceElementId) ?? [];
+  return terminals.length === 1 && terminals[0].endpoint.ownerOccurrenceId === occurrence.endpoint.id
+    ? { occurrenceId: occurrence.endpoint.id, terminalId: terminals[0].endpoint.id, evidenceElementId }
+    : null;
+}
+
+function componentOccurrenceTerminal(
+  index: RouteTotalityFieldProofIndex,
+  surface: FieldProofInput["surface"],
+  occurrence: ReturnType<typeof buildRouteTotalityAnchorIndex>["occurrenceAnchors"][number],
+  cancellation: AnalysisCancellationToken,
+): CandidateAnchor | null {
+  const definitionRelations = index.outgoing(occurrence.evidenceElementId, cancellation).filter((relation) => (
+    relation.kind === "component-occurrence" && relation.proof.kind === "compiler-symbol"
+      && relation.status === "proven" && relation.proof.status === "proven"
+  ));
+  if (definitionRelations.length !== 1) return null;
+  const terminal = index.componentRenderTerminal(occurrence.evidenceElementId, definitionRelations[0].to);
+  if (!terminal || terminal.kind !== "render-terminal"
+    || terminal.symbol !== index.byId(occurrence.evidenceElementId)?.symbol
+    || terminal.attributes?.definitionId !== definitionRelations[0].to) return null;
+  const relations = index.outgoing(occurrence.evidenceElementId, cancellation).filter((relation) => (
+    relation.kind === "render-terminal" && relation.proof.kind === "component-render-terminal"
+      && relation.status === "proven" && relation.proof.status === "proven"
+  ));
+  if (relations.length !== 1 || relations[0].to !== terminal.id) return null;
+  if (!index.slice.terminals.some((item) => item.elementId === terminal.id && item.role === "render")) {
+    index.slice.terminals.push({ elementId: terminal.id, role: "render", label: terminal.label, status: "proven", proof: terminal.proof });
+    index.slice.terminals.sort((left, right) => `${left.elementId}:${left.role}`.localeCompare(`${right.elementId}:${right.role}`));
+  }
+  augmentSlice(index, cancellation);
+  const refreshedAnchors = buildRouteTotalityAnchorIndex(index.slice, surface, cancellation);
+  const anchorsForTerminal = refreshedAnchors.terminalAnchorsByEvidenceElementId.get(terminal.id) ?? [];
+  return anchorsForTerminal.length === 1 && anchorsForTerminal[0].endpoint.ownerOccurrenceId === occurrence.endpoint.id
+    ? { occurrenceId: occurrence.endpoint.id, terminalId: anchorsForTerminal[0].endpoint.id, evidenceElementId: terminal.id }
     : null;
 }
 
