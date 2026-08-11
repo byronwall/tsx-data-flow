@@ -31,6 +31,7 @@
     "analyze": "tsx bin/tsx-dataflow.ts",
     "benchmark:analysis": "node --import tsx scripts/benchmark-analysis.ts",
     "benchmark:workspace": "node --import tsx scripts/benchmark-workspace.ts",
+    "accept:route-field-proof": "node --import tsx scripts/accept-route-field-proof.ts",
     "serve": "tsx bin/tsx-dataflow-serve.ts",
     "examples:regenerate": "tsx examples/regenerate.ts",
     "prepack": "pnpm run build"
