@@ -12,6 +12,7 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
         if (this.ts.isCallExpression(node)) this.connectArrayFind(node);
         if (this.ts.isJsxElement(node)) this.connectSolidShow(node);
         if (this.ts.isJsxElement(node) || this.ts.isJsxSelfClosingElement(node)) this.connectConsumer(node);
+        if (this.ts.isJsxElement(node) || this.ts.isJsxSelfClosingElement(node)) this.connectDirectConsumers(node);
       });
     }
   }
@@ -169,6 +170,162 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
         this.addRelation(fieldId, valueId, "consumer-value", [this.location(child), this.location(value)], proof("jsx-consumer-value", "This exact field read participates in this exact JSX prop value expression.", [this.location(child), this.location(value)]), "proven");
       });
     }
+  }
+
+  /** Record exact consumers that do not have an in-project component binding. */
+  private connectDirectConsumers(node: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement): void {
+    const opening = this.ts.isJsxElement(node) ? node.openingElement : node;
+    const tagName = opening.tagName.getText(opening.getSourceFile());
+    for (const attribute of opening.attributes.properties) {
+      if (!this.ts.isJsxAttribute(attribute) || !this.ts.isIdentifier(attribute.name)) continue;
+      const initializer = attribute.initializer;
+      const value = initializer && this.ts.isJsxExpression(initializer) ? initializer.expression : null;
+      if (!value) continue;
+      const attributeName = attribute.name.text;
+      const attributeLocation = this.location(attribute);
+      const componentBindingKey = `${attributeLocation.file}:${attributeLocation.span.startLine}:${attributeLocation.span.startColumn}:${attributeLocation.span.endLine}:${attributeLocation.span.endColumn}:component-prop-binding`;
+      const hasComponentBinding = this.elementIdsByNodeKind.has(componentBindingKey);
+      const handler = /^on[A-Z]/.test(attributeName);
+      const reads = this.propertyReads(value);
+      if (reads.length === 0 || (this.targetFunction(opening.tagName) && this.containsJsx(value))) continue;
+      const read = reads[0];
+      const conditionExpression = this.conditionExpression(read, value);
+      const condition = Boolean(conditionExpression);
+      if (!condition && !handler && this.targetFunction(opening.tagName) && hasComponentBinding) continue;
+      const actionRead = handler ? reads.find((candidate) => this.handlerAction(candidate, value)) ?? null : null;
+      const action = actionRead ? this.handlerAction(actionRead, value) : null;
+      if (handler && !action) continue;
+      const kind = condition ? "condition" : handler ? "handler" : "render";
+      const actionCall = action ? this.elementFor(action.call, "call") : null;
+      const consumerId = this.ensureElement(
+        value,
+        "field-consumer",
+        this.componentOwnerId(opening),
+        {
+          consumerKind: kind,
+          tagName,
+          propName: attributeName,
+          label: action ? `${action.name}.${action.property}` : `${tagName}.${attributeName}`,
+          ...(condition ? this.conditionAttributes(conditionExpression!, node) : {}),
+          ...(action ? { actionName: action.name, argumentName: action.property } : {}),
+        },
+        null,
+        null,
+        null,
+        "proven",
+        proof(
+          condition ? "condition-consumer" : handler ? "handler-consumer" : "render-consumer",
+          "The compiler identifies one exact field expression at this consumer site.",
+          [this.location(read), this.location(value)],
+        ),
+      );
+      const consumerReads = actionRead ? [actionRead] : reads;
+      for (const fieldRead of consumerReads) {
+        this.addRelation(
+          this.elementFor(fieldRead, "field-read"),
+          consumerId,
+          "consumer-value",
+          [this.location(fieldRead), this.location(value)],
+          proof(
+            condition ? "condition-consumer" : handler ? "handler-consumer" : "render-consumer",
+            "The exact field expression is used by this occurrence-owned consumer.",
+            [this.location(fieldRead), this.location(value)],
+          ),
+          "proven",
+        );
+        if (actionCall) {
+          this.addRelation(
+            consumerId,
+            actionCall,
+            "argument",
+            [this.location(fieldRead), this.location(action!.call)],
+            proof("handler-consumer", "The exact handler field expression reaches the resolved action call.", [this.location(fieldRead), this.location(action!.call)]),
+            "proven",
+          );
+        }
+      }
+    }
+  }
+
+  private propertyReads(expression: TypeScript.Expression): TypeScript.PropertyAccessExpression[] {
+    const reads: TypeScript.PropertyAccessExpression[] = [];
+    this.visit(expression, (node) => {
+      if (this.ts.isPropertyAccessExpression(node) && !node.questionDotToken) reads.push(node);
+    });
+    return [...new Map(reads.map((read) => [read.getStart(read.getSourceFile()), read])).values()];
+  }
+
+  private containsJsx(expression: TypeScript.Expression): boolean {
+    let found = false;
+    this.visit(expression, (node) => {
+      if (node !== expression && (this.ts.isJsxElement(node) || this.ts.isJsxSelfClosingElement(node))) found = true;
+    });
+    return found;
+  }
+
+  private conditionAttributes(
+    value: TypeScript.BinaryExpression | TypeScript.ConditionalExpression,
+    node: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement,
+  ): Record<string, string | number | boolean | null> {
+    const comparison = this.ts.isBinaryExpression(value)
+      ? value
+      : this.ts.isBinaryExpression(value.condition) ? value.condition : null;
+    if (!comparison) return { conditionOperator: null, conditionLiteral: null, nestedShow: false };
+    const literal = this.ts.isStringLiteral(comparison.right) ? comparison.right.text : null;
+    const nestedShow = this.ts.isJsxElement(node) && node.children.some((child) => (
+      this.ts.isJsxElement(child) && child.openingElement.tagName.getText(child.getSourceFile()) === "Show"
+    ));
+    return { conditionOperator: comparison.operatorToken.getText(comparison.getSourceFile()), conditionLiteral: literal, nestedShow };
+  }
+
+  private conditionExpression(
+    read: TypeScript.PropertyAccessExpression,
+    value: TypeScript.Expression,
+  ): TypeScript.BinaryExpression | TypeScript.ConditionalExpression | null {
+    let current: TypeScript.Node = read;
+    while (current !== value && current.parent) {
+      current = current.parent;
+      if (this.ts.isBinaryExpression(current) && current.operatorToken.kind !== this.ts.SyntaxKind.EqualsToken) return current;
+      if (this.ts.isConditionalExpression(current)) return current;
+    }
+    return this.ts.isBinaryExpression(value) || this.ts.isConditionalExpression(value) ? value : null;
+  }
+
+  private handlerAction(
+    read: TypeScript.PropertyAccessExpression,
+    value: TypeScript.Expression,
+  ): { call: TypeScript.CallExpression; name: string; property: string } | null {
+    let result: { call: TypeScript.CallExpression; name: string; property: string } | null = null;
+    this.visit(value, (node) => {
+      if (result || !this.ts.isCallExpression(node) || !this.ts.isPropertyAccessExpression(node.expression)) return;
+      if (node.expression.name.text !== "run" || node.arguments.length < 2) return;
+      const name = this.ts.isStringLiteral(node.arguments[0]) ? node.arguments[0].text : null;
+      const input = node.arguments[1];
+      if (!name || !this.ts.isObjectLiteralExpression(input)) return;
+      for (const property of input.properties) {
+        if (!this.ts.isPropertyAssignment(property) || !this.ts.isIdentifier(property.name)) continue;
+        if (!this.contains(property.initializer, read)) continue;
+        result = { call: node, name, property: property.name.text };
+        return;
+      }
+    });
+    return result;
+  }
+
+  private contains(owner: TypeScript.Node, child: TypeScript.Node): boolean {
+    return owner.getSourceFile() === child.getSourceFile()
+      && owner.getStart(owner.getSourceFile()) <= child.getStart(child.getSourceFile())
+      && owner.getEnd() >= child.getEnd();
+  }
+
+  private componentOwnerId(node: TypeScript.Node): string | null {
+    let current: TypeScript.Node | undefined = node;
+    while (current) {
+      const info = this.functionsByNode.get(nodeKey(this.root, current));
+      if (info?.component) return info.id;
+      current = current.parent;
+    }
+    return this.ownerId(node);
   }
 
   private directParameterReads(expression: TypeScript.Expression, parameter: TypeScript.Symbol): TypeScript.PropertyAccessExpression[] {

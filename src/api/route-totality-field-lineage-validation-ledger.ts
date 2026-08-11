@@ -152,6 +152,27 @@ function validateExactConsumer(
   const consumer = attachment.consumer;
   const consumerElement = consumer ? exactElement(evidence, consumer.elementId) : undefined;
   const consumerOccurrence = consumer ? exactElement(evidence, consumer.occurrenceElementId) : undefined;
+  if (policy.directConsumer) {
+    if (!consumer || !consumerElement || !consumerOccurrence || !occurrence
+      || consumer.elementId !== policy.bindingElementId
+      || consumer.occurrenceElementId !== policy.componentOccurrenceElementId
+      || (consumer.kind !== "render" && consumer.kind !== "condition" && consumer.kind !== "handler")
+      || consumer.label.length === 0
+      || consumerOccurrence.kind !== "component-definition"
+      || consumerOccurrence.symbol !== policy.componentSymbol
+      || consumer.occurrenceId !== attachment.occurrenceId
+      || !sameLocations([consumer.location], [consumerElement.location], cancellation)) {
+      addIssue(issues, [...path, "consumer"], "direct consumer must equal the exact typed value, kind, label, location, and owning component definition");
+      return;
+    }
+    if (!contains(consumerOccurrence.location, consumer.location)) {
+      addIssue(issues, [...path, "consumer"], "direct consumer expression must belong to its exact owning component definition");
+    }
+    if (consumer.routeTerminalId !== null) {
+      addIssue(issues, [...path, "consumer", "routeTerminalId"], "direct consumers must not claim a render terminal");
+    }
+    return;
+  }
   if (!consumer || !consumerElement || !consumerOccurrence || !occurrence
     || consumer.elementId !== policy.consumerValueElementId
     || consumer.occurrenceElementId !== policy.componentOccurrenceElementId

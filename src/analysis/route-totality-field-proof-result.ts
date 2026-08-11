@@ -27,6 +27,9 @@ export type FieldProofResultInput = {
   terminalId: string;
   transformations: RouteTotalityFieldTransformation[];
   partial: boolean;
+  consumerKind: "render" | "condition" | "handler";
+  consumerLabel: string;
+  directConsumer: boolean;
 };
 
 export function provenFieldProof(input: FieldProofResultInput, cancellation: AnalysisCancellationToken): RouteTotalityFieldLineage {
@@ -38,10 +41,10 @@ export function provenFieldProof(input: FieldProofResultInput, cancellation: Ana
     id: "",
     elementId: input.consumerValue.id,
     occurrenceElementId: input.occurrence.id,
-    kind: "render" as const,
-    label: `${input.occurrence.label}.${input.binding.componentBinding!.propName}`,
+    kind: input.consumerKind,
+    label: input.consumerLabel,
     occurrenceId: input.occurrenceId,
-    routeTerminalId: input.terminalId,
+    routeTerminalId: input.directConsumer ? null : input.terminalId,
     location: input.consumerValue.location,
   };
   consumer.id = fieldConsumerId(consumer);
@@ -87,6 +90,37 @@ export function provenFieldProof(input: FieldProofResultInput, cancellation: Ana
     counts: { origins: 1, fields: 1, occurrences: 1, terminals: 1, frontiers: 0, transformations: input.transformations.length },
     omissions: input.partial ? ["The shared route evidence is partial."] : [],
     transformations: input.transformations,
+  };
+}
+
+export function mergeProvenFieldProofs(
+  values: readonly RouteTotalityFieldLineage[],
+  partial: boolean,
+  cancellation: AnalysisCancellationToken,
+): RouteTotalityFieldLineage {
+  const attachments = values.flatMap((value) => value.attachments);
+  const frontiers = values.flatMap((value) => value.frontiers);
+  const transformations = [...new Map(values.flatMap((value) => value.transformations).map((item) => [item.id, item])).values()];
+  const fields = new Set(attachments.map((attachment) => attachment.field.elementIds.join("\u0000")));
+  const occurrences = new Set(attachments.map((attachment) => attachment.occurrenceId));
+  const terminals = new Set(attachments.flatMap((attachment) => attachment.terminalIds));
+  const omissions = [...new Set(values.flatMap((value) => value.omissions))];
+  cancellation.throwIfCancelled();
+  return {
+    status: partial || frontiers.length > 0 ? "partial" : "complete",
+    unavailableReason: null,
+    attachments: attachments.sort((left, right) => left.id.localeCompare(right.id)),
+    frontiers: frontiers.sort((left, right) => left.id.localeCompare(right.id)),
+    counts: {
+      origins: values.length > 0 ? 1 : 0,
+      fields: fields.size,
+      occurrences: occurrences.size,
+      terminals: terminals.size,
+      frontiers: frontiers.length,
+      transformations: transformations.length,
+    },
+    omissions,
+    transformations: transformations.sort((left, right) => left.id.localeCompare(right.id)),
   };
 }
 

@@ -31,6 +31,7 @@ export type FieldTransferElement = {
   proof: readonly EvidenceProof[];
   location: SourceLocation;
   componentBinding: ComponentBindingMetadata | null;
+  attributes?: Record<string, string | number | boolean | null>;
   originRoles?: readonly string[];
 };
 
@@ -66,6 +67,9 @@ export type ExactFieldTargetPolicy = {
   componentLabel: string;
   propName: string;
   renderTerminalElementId: string;
+  consumerKind: "render" | "condition" | "handler";
+  consumerLabel: string;
+  directConsumer: boolean;
 };
 
 /** Verify one ledger transfer against exact evidence. Query and API validation share this function. */
@@ -119,26 +123,32 @@ export function deriveExactFieldTargetPolicy(
     : undefined;
   const consumerField = graph.element(transfers[10].toElementIds[0]);
   const consumerRelations = transfers[11].evidenceRelationIds.map((id) => graph.relation(id));
-  const consumerValue = consumerRelations.length === 2 && consumerRelations[0]
+  const consumerValue = (consumerRelations.length === 2 || consumerRelations.length === 1) && consumerRelations[0]
     ? graph.element(consumerRelations[0].to)
     : undefined;
   const binding = graph.element(transfers[11].toElementIds[0]);
   const metadata = binding?.componentBinding;
+  const support = transfers[11].supportingElementIds
+    .map((id) => graph.element(id))
+    .filter((element): element is FieldTransferElement => Boolean(element));
   const occurrence = metadata?.componentOccurrenceElementId
     ? graph.element(metadata.componentOccurrenceElementId)
-    : undefined;
+    : support.find((element) => element.kind === "component-definition");
   const definition = metadata?.componentDefinitionId
     ? graph.element(metadata.componentDefinitionId)
-    : undefined;
+    : support.find((element) => element.kind === "component-definition");
   const renderTerminals = transfers[11].supportingElementIds
     .map((id) => graph.element(id))
     .filter((element): element is FieldTransferElement => element?.kind === "render-terminal");
   const renderParameter = graph.element(transfers[8].toElementIds[0]);
+  const directConsumer = binding?.kind === "field-consumer";
+  const consumerKind = directConsumer ? binding?.attributes?.consumerKind ?? "render" : "render";
+  const consumerLabel = directConsumer ? binding?.attributes?.label ?? "" : `${occurrence?.label ?? ""}.${metadata?.propName ?? ""}`;
   if (!collection?.fieldName || !predicate?.fieldName || !consumerField?.fieldName || !consumerValue
-    || !binding || !metadata?.propName || !occurrence?.symbol || !definition
+    || !binding || !consumerKind || (!directConsumer && !consumerLabel) || !occurrence?.symbol || !definition
     || occurrence.symbol !== definition.symbol || renderTerminals.length !== 1 || !renderParameter
     || !containsLocation(renderTerminals[0].location, renderParameter.location)
-    || !containsLocation(renderTerminals[0].location, occurrence.location)
+    || (!directConsumer && !containsLocation(renderTerminals[0].location, occurrence.location))
     || !containsLocation(renderTerminals[0].location, consumerValue.location)) return null;
   return {
     collectionFieldElementId: collection.id,
@@ -153,8 +163,11 @@ export function deriveExactFieldTargetPolicy(
     componentDefinitionElementId: definition.id,
     componentSymbol: occurrence.symbol,
     componentLabel: occurrence.label,
-    propName: metadata.propName,
+    propName: metadata?.propName ?? String(binding.attributes?.propName ?? ""),
     renderTerminalElementId: renderTerminals[0].id,
+    consumerKind: consumerKind as "render" | "condition" | "handler",
+    consumerLabel: String(consumerLabel),
+    directConsumer,
   };
 }
 
@@ -250,6 +263,28 @@ function consumerPattern(
   cancellation: AnalysisCancellationToken,
   policy: ExactFieldTargetPolicy | null,
 ): FieldTransferVerification {
+  if (target.kind === "field-consumer") {
+    if (source.kind !== "field-read" || relations.length !== 1
+      || relations[0].kind !== "consumer-value"
+      || !["condition-consumer", "render-consumer", "handler-consumer"].includes(relations[0].proof.kind)) {
+      return failure("C12 requires one exact direct consumer relation.");
+    }
+    const kind = target.attributes?.consumerKind ?? (target.kind === "field-consumer" ? "render" : undefined);
+    const label = target.attributes?.label ?? (target.kind === "field-consumer" ? "" : undefined);
+    if ((kind !== "condition" && kind !== "render" && kind !== "handler") || (typeof label !== "string" && target.kind !== "field-consumer")) {
+      return failure("C12 requires a typed direct consumer label.");
+    }
+    if (policy && (!policy.directConsumer || (target.attributes?.consumerKind && (policy.consumerKind !== kind || policy.consumerLabel !== label))
+      || source.id !== policy.consumerFieldElementId || target.id !== policy.bindingElementId)) {
+      return failure("C12 does not match the compiler-derived direct-consumer target policy.");
+    }
+    const support = transfer.supportingElementIds.map((id) => graph.element(id)).filter(Boolean) as FieldTransferElement[];
+    const definition = support.filter((element) => element.kind === "component-definition");
+    if (definition.length !== 1 || !definition[0].symbol || definition[0].status !== "proven") {
+      return failure("C12 direct consumers require one exact owning component definition.");
+    }
+    return { ok: true };
+  }
   const pattern = exactPattern(source, target, relations, ["consumer-value", "component-prop-binding"], ["jsx-consumer-value", "component-prop-binding"], "field-read", "component-prop-binding");
   if (!pattern.ok) return pattern;
   const metadata = target.componentBinding;
@@ -274,10 +309,10 @@ function consumerPattern(
       && exactRelation(relation) && uniqueRelation(relation, graph, cancellation)
   ));
   if (exactComponentRelations.length !== 1) return failure("C12 requires one exact JSX occurrence-to-component definition relation.");
-  if (policy && (source.id !== policy.consumerFieldElementId || source.fieldName !== policy.consumerFieldName
+  if (policy && (!policy.directConsumer && (source.id !== policy.consumerFieldElementId || source.fieldName !== policy.consumerFieldName
     || target.id !== policy.bindingElementId || relations[0].to !== policy.consumerValueElementId
     || metadata.propName !== policy.propName || occurrence.id !== policy.componentOccurrenceElementId
-    || definition.id !== policy.componentDefinitionElementId || occurrence.symbol !== policy.componentSymbol)) {
+    || definition.id !== policy.componentDefinitionElementId || occurrence.symbol !== policy.componentSymbol))) {
     return failure("C12 does not match the compiler-derived target policy.");
   }
   return { ok: true };

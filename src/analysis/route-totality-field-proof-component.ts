@@ -17,6 +17,7 @@ export type ExactComponentConsumer = {
   value: TypeScript.Expression;
   propName: string;
   componentName: string;
+  kind: "render" | "condition";
 };
 
 export function uniqueShowUse(
@@ -68,13 +69,31 @@ export function componentConsumers(
       visitTypeScript(ts, value, (child) => {
         if (!ts.isPropertyAccessExpression(child) || !ts.isCallExpression(child.expression)
           || checker.getSymbolAtLocation(child.expression.expression) !== parameter) return;
-        values.push({ call: child.expression, access: child, opening, attribute, value, propName, componentName });
+        values.push({
+          call: child.expression,
+          access: child,
+          opening,
+          attribute,
+          value,
+          propName,
+          componentName,
+          kind: isConditionAccess(ts, child) ? "condition" : "render",
+        });
       });
     }
   });
   return values.sort((left, right) => left.opening.getStart() - right.opening.getStart()
     || left.attribute.getStart() - right.attribute.getStart()
     || left.access.getStart() - right.access.getStart());
+}
+
+function isConditionAccess(ts: typeof TypeScript, access: TypeScript.PropertyAccessExpression): boolean {
+  let current: TypeScript.Node = access.parent;
+  while (current && !ts.isJsxExpression(current)) {
+    if (ts.isBinaryExpression(current)) return true;
+    current = current.parent;
+  }
+  return false;
 }
 
 function isSolidShow(

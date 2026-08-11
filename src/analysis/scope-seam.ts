@@ -54,6 +54,8 @@ export type ProgramElement = {
   proof: EvidenceProof[];
   symbol: string | null;
   componentBinding: ComponentBindingMetadata | null;
+  ownerId?: string | null;
+  attributes?: Record<string, string | number | boolean | null>;
   originRoles: OriginRole[];
   terminalRoles: TerminalRole[];
   boundary: BoundaryKind | null;

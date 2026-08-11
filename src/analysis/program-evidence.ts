@@ -42,6 +42,9 @@ export type ProgramProofKind =
   | "solid-show-render-parameter"
   | "accessor-call"
   | "jsx-consumer-value"
+  | "condition-consumer"
+  | "render-consumer"
+  | "handler-consumer"
   | "context-continuity"
   | "partial-classification"
   | "http-bridge";
@@ -93,6 +96,7 @@ export type ProgramElementKind =
   | "jsx-occurrence"
   | "component-occurrence"
   | "component-prop-binding"
+  | "field-consumer"
   | "collection-element"
   | "predicate-result"
   | "call-result"

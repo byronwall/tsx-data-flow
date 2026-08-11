@@ -87,6 +87,8 @@ export function toSliceElement(element: IndexedProgramElement): ProgramElement {
     symbol: element.symbolId,
     componentBinding: element.componentBinding
       ?? (element.kind === "component-prop-binding" ? componentBindingMetadataFromAttributes(element.attributes) : null),
+    ownerId: element.ownerId,
+    attributes: { ...element.attributes },
     originRoles: originRolesFor(element),
     terminalRoles: terminalRolesFor(element),
     boundary: boundaryFor(element),

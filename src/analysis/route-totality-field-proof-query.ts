@@ -5,8 +5,8 @@ import type { RouteTotalityFieldLineage, RouteTotalityFieldOrigin, RouteTotality
 import { discoverFieldProofCandidates, type FieldProofCandidate } from "./route-totality-field-proof-candidate";
 import { searchFieldCarrierPaths, type FieldCarrierPath } from "./route-totality-field-proof-carrier";
 import { RouteTotalityFieldProofIndex } from "./route-totality-field-proof-index";
-import { failedFieldProof, provenFieldProof } from "./route-totality-field-proof-result";
-import { G02_FIELD_TARGET } from "./route-totality-field-proof-policy";
+import { failedFieldProof, mergeProvenFieldProofs, provenFieldProof } from "./route-totality-field-proof-result";
+import { DIRECT_FIELD_PROOF_TARGETS } from "./route-totality-field-proof-policy";
 import { assembleFieldProofTransformations } from "./route-totality-field-proof-transformations";
 import type { FieldProofInput } from "./route-totality-field-proof-types";
 import {
@@ -38,7 +38,7 @@ export function queryRouteTotalityFieldProof(
       "ambiguous-target",
     );
   }
-  const candidates = discoverFieldProofCandidates(ts, program, root, index, G02_FIELD_TARGET, cancellation)
+  const candidates = DIRECT_FIELD_PROOF_TARGETS.flatMap((target) => discoverFieldProofCandidates(ts, program, root, index, target, cancellation))
     .flatMap((candidate) => {
       const anchor = anchorCandidate(index, surface, candidate, cancellation);
       return anchor ? [{ candidate, anchor }] : [];
@@ -65,63 +65,74 @@ export function queryRouteTotalityFieldProof(
       "budget-exhausted",
     );
   }
-  if (bounded.length !== 1 || carrierAmbiguous) {
+  const candidatesByLabel = new Map<string, typeof bounded[number]>();
+  for (const value of bounded) {
+    const existing = candidatesByLabel.get(value.candidate.consumerLabel);
+    if (existing) {
+      carrierAmbiguous = true;
+      continue;
+    }
+    candidatesByLabel.set(value.candidate.consumerLabel, value);
+  }
+  const missingLabels = DIRECT_FIELD_PROOF_TARGETS
+    .map((target) => target.consumer.label)
+    .filter((label) => !candidatesByLabel.has(label));
+  if (missingLabels.length > 0 || carrierAmbiguous) {
     augmentSlice(index, cancellation);
     return failedFieldProof(
       origin,
       candidates[0]?.candidate.collectionField ?? index.byId(origin.elementId),
       "source-carrier",
       [],
-      bounded.length === 0 && !carrierAmbiguous
+      missingLabels.length === DIRECT_FIELD_PROOF_TARGETS.length && !carrierAmbiguous
         ? "The selected filesystem evidence has no unique exact carrier chain to an anchored collection field read."
-        : "The selected filesystem evidence reaches more than one exact anchored collection target or carrier path.",
+        : `The selected filesystem evidence is missing or duplicates exact consumer targets: ${missingLabels.join(", ") || "duplicate target"}.`,
       cancellation,
     );
   }
-  const { candidate, carrier, anchor } = bounded[0];
-  const assembled = assembleFieldProofTransformations(index, origin, candidate, carrier, cancellation);
-  const accepted: RouteTotalityFieldTransformation[] = [];
-  for (let step = 0; step < EXACT_FIELD_TRANSFER_KINDS.length; step += 1) {
-    const transfer = assembled[step];
-    if (!transfer) {
-      augmentSlice(index, cancellation);
-      return failedFieldProof(
-        origin,
-        accepted.length ? index.byId(accepted.at(-1)!.toElementIds[0]) : index.byId(origin.elementId),
-        EXACT_FIELD_TRANSFER_KINDS[step],
-        accepted,
-        `The exact ${EXACT_FIELD_TRANSFER_KINDS[step]} evidence transfer is missing.`,
-        cancellation,
-      );
+  const proofs: RouteTotalityFieldLineage[] = [];
+  for (const { candidate, carrier, anchor } of candidatesByLabel.values()) {
+    const assembled = assembleFieldProofTransformations(index, origin, candidate, carrier, cancellation);
+    const accepted: RouteTotalityFieldTransformation[] = [];
+    for (let step = 0; step < EXACT_FIELD_TRANSFER_KINDS.length; step += 1) {
+      const transfer = assembled[step];
+      if (!transfer) {
+        augmentSlice(index, cancellation);
+        return failedFieldProof(origin, accepted.length ? index.byId(accepted.at(-1)!.toElementIds[0]) : index.byId(origin.elementId), EXACT_FIELD_TRANSFER_KINDS[step], accepted, `The exact ${EXACT_FIELD_TRANSFER_KINDS[step]} evidence transfer is missing for ${candidate.consumerLabel}.`, cancellation);
+      }
+      accepted.push(transfer);
     }
-    accepted.push(transfer);
-  }
-  const policy = deriveExactFieldTargetPolicy(accepted, index.graph());
-  if (!policy) {
-    augmentSlice(index, cancellation);
-    return failedFieldProof(origin, candidate.consumerField, "occurrence-consumer", accepted.slice(0, -1), "The compiler-backed target policy is incomplete or ambiguous.", cancellation);
-  }
-  for (let step = 0; step < accepted.length; step += 1) {
-    const verification = verifyExactFieldTransfer(accepted[step], index.graph(), cancellation, policy);
-    if (!verification.ok) {
+    const policy = deriveExactFieldTargetPolicy(accepted, index.graph());
+    if (!policy) {
       augmentSlice(index, cancellation);
-      return failedFieldProof(origin, index.byId(accepted[step].fromElementIds[0]), accepted[step].kind as ExactFieldTransferKind, accepted.slice(0, step), verification.detail, cancellation);
+      return failedFieldProof(origin, candidate.consumerField, "occurrence-consumer", accepted.slice(0, -1), `The compiler-backed target policy is incomplete or ambiguous for ${candidate.consumerLabel}.`, cancellation);
     }
+    for (let step = 0; step < accepted.length; step += 1) {
+      const verification = verifyExactFieldTransfer(accepted[step], index.graph(), cancellation, policy);
+      if (!verification.ok) {
+        augmentSlice(index, cancellation);
+        return failedFieldProof(origin, index.byId(accepted[step].fromElementIds[0]), accepted[step].kind as ExactFieldTransferKind, accepted.slice(0, step), verification.detail, cancellation);
+      }
+    }
+    proofs.push(provenFieldProof({
+      origin,
+      collectionField: candidate.collectionField,
+      collectionElement: candidate.collectionElement,
+      consumerField: candidate.consumerField,
+      occurrence: candidate.occurrence,
+      consumerValue: candidate.directConsumer ? candidate.binding : candidate.consumerValue,
+      binding: candidate.binding,
+      occurrenceId: anchor.occurrenceId,
+      terminalId: anchor.terminalId,
+      transformations: accepted,
+      partial: !slice.coverage.complete || surface.status !== "complete",
+      consumerKind: candidate.consumerKind,
+      consumerLabel: candidate.consumerLabel,
+      directConsumer: candidate.directConsumer,
+    }, cancellation));
   }
   augmentSlice(index, cancellation);
-  return provenFieldProof({
-    origin,
-    collectionField: candidate.collectionField,
-    collectionElement: candidate.collectionElement,
-    consumerField: candidate.consumerField,
-    occurrence: candidate.occurrence,
-    consumerValue: candidate.consumerValue,
-    binding: candidate.binding,
-    occurrenceId: anchor.occurrenceId,
-    terminalId: anchor.terminalId,
-    transformations: accepted,
-    partial: !slice.coverage.complete || surface.status !== "complete",
-  }, cancellation);
+  return mergeProvenFieldProofs(proofs, !slice.coverage.complete || surface.status !== "complete", cancellation);
 }
 
 type CandidateAnchor = { occurrenceId: string; terminalId: string };
@@ -146,6 +157,16 @@ function anchorCandidate(
   cancellation: AnalysisCancellationToken,
 ): CandidateAnchor | null {
   const anchors = buildRouteTotalityAnchorIndex(index.slice, surface, cancellation);
+  if (candidate.directConsumer) {
+    const ownerSymbol = candidate.occurrence.symbol?.split("@")[0] ?? null;
+    const occurrences = ownerSymbol
+      ? surface.occurrences.filter((item) => item.scopeSeed === surface.scope.seed && item.definitionCompilerIdentity === ownerSymbol)
+      : [];
+    const terminal = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
+    return occurrences.length === 1 && terminal.length === 1
+      ? { occurrenceId: occurrences[0].id, terminalId: terminal[0].endpoint.id }
+      : null;
+  }
   const occurrence = anchors.occurrenceAnchorsByEvidenceElementId.get(candidate.occurrence.id) ?? [];
   const terminal = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
   return occurrence.length === 1 && terminal.length === 1

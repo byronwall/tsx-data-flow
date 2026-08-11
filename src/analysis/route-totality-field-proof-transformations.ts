@@ -15,7 +15,7 @@ export function assembleFieldProofTransformations(
   cancellation: AnalysisCancellationToken,
 ): Array<RouteTotalityFieldTransformation | null> {
   const source = index.byId(origin.elementId)!;
-  const occurrenceRelation = one(index.exactRelations(
+  const occurrenceRelation = candidate.directConsumer ? null : one(index.exactRelations(
     candidate.occurrence.id,
     candidate.definition.id,
     "component-occurrence",
@@ -41,11 +41,32 @@ export function assembleFieldProofTransformations(
     step(index, "show-render-prop", candidate.showBinding, candidate.currentParameter, [["show-render-parameter", "solid-show-render-parameter"]], cancellation),
     step(index, "accessor-call", candidate.currentParameter, candidate.currentCall, [["accessor-call", "accessor-call"]], cancellation),
     step(index, "nested-property-read", candidate.currentCall, candidate.consumerField, [["field-input", "property-access"]], cancellation),
-    chainedStep(index, "occurrence-consumer", candidate.consumerField, candidate.binding, [
-      [candidate.consumerField, candidate.consumerValue, "consumer-value", "jsx-consumer-value"],
-      [candidate.consumerValue, candidate.binding, "component-prop-binding", "component-prop-binding"],
-    ], cancellation, [candidate.occurrence, candidate.definition, candidate.renderTerminal], occurrenceRelation ? [occurrenceRelation] : []),
+    candidate.directConsumer
+      ? directConsumerStep(index, candidate, cancellation)
+      : chainedStep(index, "occurrence-consumer", candidate.consumerField, candidate.binding, [
+        [candidate.consumerField, candidate.consumerValue, "consumer-value", "jsx-consumer-value"],
+        [candidate.consumerValue, candidate.binding, "component-prop-binding", "component-prop-binding"],
+      ], cancellation, [candidate.occurrence, candidate.definition, candidate.renderTerminal], occurrenceRelation ? [occurrenceRelation] : []),
   ];
+}
+
+function directConsumerStep(
+  index: RouteTotalityFieldProofIndex,
+  candidate: FieldProofCandidate,
+  cancellation: AnalysisCancellationToken,
+): RouteTotalityFieldTransformation | null {
+  const relation = one(index.exactRelations(
+    candidate.consumerField.id,
+    candidate.binding.id,
+    "consumer-value",
+    candidate.binding.attributes?.consumerKind === "condition"
+      ? "condition-consumer"
+      : candidate.binding.attributes?.consumerKind === "handler" ? "handler-consumer" : "render-consumer",
+    cancellation,
+  ));
+  return relation
+    ? fieldTransformation("occurrence-consumer", candidate.consumerField, candidate.binding, [relation], [candidate.occurrence, candidate.renderTerminal], [], cancellation)
+    : null;
 }
 
 function step(

@@ -35,6 +35,9 @@ export type FieldProofCandidate = {
   occurrence: ProgramElement;
   definition: ProgramElement;
   renderTerminal: ProgramElement;
+  directConsumer: boolean;
+  consumerKind: "render" | "condition" | "handler";
+  consumerLabel: string;
 };
 
 export function discoverFieldProofCandidates(
@@ -106,30 +109,156 @@ function candidatesForFind(
   if (Object.values(baseValues).some((value) => value === null)
     || baseValues.collectionField?.fieldName !== target.collectionFieldName
     || baseValues.predicateField?.fieldName !== target.predicateFieldName) return [];
-  return componentConsumers(ts, checker, root, showUse.render, showUse.parameter).flatMap((consumer) => {
-    const values = {
+
+  const consumers: CandidateConsumer[] = [
+    ...componentConsumers(ts, checker, root, showUse.render, showUse.parameter).map((consumer) => {
+      const binding = index.element(consumer.attribute, "component-prop-binding");
+      const occurrence = index.element(consumer.opening, "component-occurrence");
+      const definitionId = binding?.componentBinding?.componentDefinitionId ?? null;
+      return {
+        access: consumer.access,
+        call: consumer.call,
+        value: consumer.value,
+        valueElement: index.element(consumer.value, elementKindForExpression(ts, consumer.value)),
+        binding,
+        occurrence,
+        definition: definitionId ? index.byId(definitionId) : null,
+        componentName: consumer.componentName,
+        propName: consumer.propName,
+        kind: consumer.kind,
+        direct: false,
+      };
+    }),
+    ...directConsumers(ts, checker, index, showUse.render, showUse.parameter),
+  ];
+  return consumers.flatMap((consumer) => {
+    if (!matchesTarget(consumer, target)) return [];
+    const consumerField = index.element(consumer.access, "field-read");
+    if (!consumerField || consumerField.fieldName !== target.consumerFieldName) return [];
+    const currentCall = index.element(consumer.call, "call");
+    if (!currentCall) return [];
+    const common = {
       ...baseValues,
-      currentCall: index.element(consumer.call, "call"),
-      consumerField: index.element(consumer.access, "field-read"),
-      consumerValue: index.element(consumer.value, elementKindForExpression(ts, consumer.value)),
-      binding: index.element(consumer.attribute, "component-prop-binding"),
-      occurrence: index.element(consumer.opening, "component-occurrence"),
+      currentCall,
+      consumerField,
+      consumerValue: consumer.valueElement,
+      binding: consumer.binding,
+      occurrence: consumer.occurrence,
+      definition: consumer.definition,
+      directConsumer: consumer.direct,
+      consumerKind: target.consumer.kind,
+      consumerLabel: target.consumer.label,
     };
-    if (Object.values(values).some((value) => value === null)
-      || values.consumerField?.fieldName !== target.consumerFieldName
-      || consumer.componentName !== target.componentName || consumer.propName !== target.propName) return [];
-    const occurrence = values.occurrence!;
-    const binding = values.binding!;
-    if (!occurrence.symbol || binding.componentBinding?.propName !== consumer.propName
-      || binding.componentBinding.componentOccurrenceElementId !== occurrence.id) return [];
-    const definitionId = binding.componentBinding.componentDefinitionId;
-    const definition = definitionId ? index.byId(definitionId) : null;
-    if (!definition || definition.kind !== "component-definition" || definition.symbol !== occurrence.symbol) return [];
+    if (!common.consumerValue || !common.binding || !common.occurrence || !common.definition) return [];
+    const occurrence = common.occurrence;
+    const binding = common.binding;
+    const definition = common.definition;
+    if (consumer.direct) {
+      if (occurrence.kind !== "component-definition") return [];
+    } else {
+      if (!occurrence.symbol || binding.componentBinding?.componentOccurrenceElementId !== occurrence.id) return [];
+      const definitionId = binding.componentBinding?.componentDefinitionId;
+      if (!definitionId || definition.id !== definitionId || definition.kind !== "component-definition") return [];
+      if (definition.symbol !== occurrence.symbol) return [];
+    }
     cancellation.throwIfCancelled();
-    return [{
-      findCall,
-      ...values as Omit<FieldProofCandidate, "findCall" | "definition">,
-      definition,
-    }];
+    return [{ findCall, ...common } as FieldProofCandidate];
   });
+}
+
+type CandidateConsumer = {
+  access: TypeScript.PropertyAccessExpression;
+  call: TypeScript.CallExpression;
+  value: TypeScript.Expression;
+  valueElement: ProgramElement | null;
+  binding: ProgramElement | null;
+  occurrence: ProgramElement | null;
+  definition: ProgramElement | null;
+  componentName: string | null;
+  propName: string | null;
+  kind: "render" | "condition" | "handler";
+  direct: boolean;
+};
+
+function directConsumers(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  index: RouteTotalityFieldProofIndex,
+  render: TypeScript.ArrowFunction,
+  parameter: TypeScript.Symbol,
+): CandidateConsumer[] {
+  const values: CandidateConsumer[] = [];
+  visitTypeScript(ts, render.body, (node) => {
+    if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node)) return;
+    const opening = ts.isJsxElement(node) ? node.openingElement : node;
+    const tagName = opening.tagName.getText(opening.getSourceFile());
+    for (const attribute of opening.attributes.properties) {
+      if (!ts.isJsxAttribute(attribute) || !ts.isIdentifier(attribute.name)) continue;
+      const initializer = attribute.initializer;
+      const value = initializer && ts.isJsxExpression(initializer) ? initializer.expression : null;
+      if (!value) continue;
+      const fieldConsumer = index.element(value, "field-consumer");
+      const recordedKind = fieldConsumer?.attributes?.consumerKind;
+      const kind = recordedKind === "condition" || recordedKind === "handler" || recordedKind === "render"
+        ? recordedKind
+        : tagName === "Show" && attribute.name.text === "when"
+        ? "condition"
+        : /^on[A-Z]/.test(attribute.name.text) ? "handler" : "render";
+      if (kind === "render" && tagName !== "A" && !fieldConsumer) continue;
+      const reads = currentPropertyReads(ts, checker, value, parameter);
+      for (const access of reads) {
+        if (!ts.isCallExpression(access.expression)) continue;
+        const valueElement = index.element(value, elementKindForExpression(ts, value)) ?? index.element(value, "literal");
+        const owner = fieldConsumer?.ownerId ? index.byId(fieldConsumer.ownerId) : null;
+        if (!fieldConsumer || !owner) continue;
+        values.push({
+          access,
+          call: access.expression,
+          value,
+          valueElement,
+          binding: fieldConsumer,
+          occurrence: owner,
+          definition: owner,
+          componentName: tagName,
+          propName: attribute.name.text,
+          kind,
+          direct: true,
+        });
+      }
+    }
+  });
+  return values;
+}
+
+function currentPropertyReads(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  expression: TypeScript.Expression,
+  parameter: TypeScript.Symbol,
+): TypeScript.PropertyAccessExpression[] {
+  const values: TypeScript.PropertyAccessExpression[] = [];
+  visitTypeScript(ts, expression, (node) => {
+    if (!ts.isPropertyAccessExpression(node) || node.questionDotToken
+      || !ts.isCallExpression(node.expression) || checker.getSymbolAtLocation(node.expression.expression) !== parameter) return;
+    values.push(node);
+  });
+  return values;
+}
+
+function matchesTarget(consumer: CandidateConsumer, target: FieldProofTargetSelector): boolean {
+  const selector = target.consumer;
+  if (consumer.kind !== selector.kind) return false;
+  if (consumer.direct !== selector.directConsumer) return false;
+  if (selector.componentName && consumer.componentName !== selector.componentName) return false;
+  if (selector.propName && consumer.propName !== selector.propName) return false;
+  if (selector.tagName && consumer.componentName !== selector.tagName) return false;
+  if (consumer.direct) {
+    const attrs = consumer.binding?.attributes ?? {};
+    if (selector.actionName !== undefined && attrs.actionName !== selector.actionName) return false;
+    if (selector.argumentName !== undefined && attrs.argumentName !== selector.argumentName) return false;
+    if (selector.conditionOperator !== undefined && attrs.conditionOperator !== selector.conditionOperator) return false;
+    if (selector.conditionLiteral !== undefined && attrs.conditionLiteral !== selector.conditionLiteral) return false;
+    if (selector.nestedShow !== undefined && attrs.nestedShow !== selector.nestedShow) return false;
+  }
+  return true;
 }
