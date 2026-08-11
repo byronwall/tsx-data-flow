@@ -9,6 +9,7 @@ import type { RouteTotalitySelectedSource } from "./route-totality-selected-sour
 import type { EvidenceRelationProvider } from "./evidence-relation-provider";
 
 export const SELECTED_ORIGIN_UNAVAILABLE_REASON = "The selected source has no unique compiler-backed filesystem origin.";
+export const NO_SELECTED_SOURCE_FIELD_LINEAGE_REASON = "No source is selected; exact field lineage is inactive.";
 
 export function buildSelectedRouteTotalityFieldProof(
   ts: typeof TypeScript, program: TypeScript.Program, root: string, provider: EvidenceRelationProvider, route: RouteRecord, slice: EvidenceSlice,

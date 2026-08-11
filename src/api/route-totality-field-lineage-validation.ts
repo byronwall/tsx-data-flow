@@ -9,7 +9,10 @@ import {
   fieldConsumerId,
   fieldFrontierId,
 } from "../analysis/route-totality-field-lineage-id";
-import { SELECTED_ORIGIN_UNAVAILABLE_REASON } from "../analysis/route-totality-field-proof";
+import {
+  NO_SELECTED_SOURCE_FIELD_LINEAGE_REASON,
+  SELECTED_ORIGIN_UNAVAILABLE_REASON,
+} from "../analysis/route-totality-field-proof";
 import type { RouteTotality } from "./route-totality-contracts";
 import { addIssue, type ValidationIssue } from "./route-occurrence-validation-graph";
 import { validateFieldLineageFrontierStop } from "./route-totality-field-lineage-validation-frontier";
@@ -102,7 +105,9 @@ function validateUnavailable(
   if (!lineage.unavailableReason) {
     addIssue(issues, ["fieldLineage", "unavailableReason"], "unavailable field lineage requires a reason");
   }
-  if (!unavailableInputs && lineage.unavailableReason !== SELECTED_ORIGIN_UNAVAILABLE_REASON) {
+  if (!unavailableInputs
+    && lineage.unavailableReason !== SELECTED_ORIGIN_UNAVAILABLE_REASON
+    && lineage.unavailableReason !== NO_SELECTED_SOURCE_FIELD_LINEAGE_REASON) {
     addIssue(issues, ["fieldLineage", "status"], "available route inputs cannot produce unavailable field lineage");
   }
   if (lineage.attachments.length > 0 || lineage.frontiers.length > 0) {

@@ -30,12 +30,12 @@ import {
   type RouteTotalityBridgeCounts,
 } from "./route-totality-bridge";
 import {
-  buildRouteTotalityFieldLineage,
   unavailableRouteTotalityFieldLineage,
   type RouteTotalityFieldLineage,
 } from "./route-totality-field-lineage";
 import {
   buildSelectedRouteTotalityFieldProof,
+  NO_SELECTED_SOURCE_FIELD_LINEAGE_REASON,
   SELECTED_ORIGIN_UNAVAILABLE_REASON,
 } from "./route-totality-field-proof";
 import {
@@ -253,7 +253,10 @@ function buildRouteTotalityRecord(
   const fieldLineage = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice)
     ? selectedSource
       ? selectedProof ?? unavailableRouteTotalityFieldLineage(SELECTED_ORIGIN_UNAVAILABLE_REASON)
-      : buildRouteTotalityFieldLineage(provider, evidenceSlice, occurrenceSurface, cancellation)
+      // The broad route graph remains available without a source identity. The
+      // ledger cannot prove field identity across multiple sources, so keep
+      // field lineage neutral until the user selects one exact source.
+      : unavailableRouteTotalityFieldLineage(NO_SELECTED_SOURCE_FIELD_LINEAGE_REASON)
     : unavailableRouteTotalityFieldLineage(
       isUnavailable(occurrenceSurface)
         ? occurrenceSurface.reason
