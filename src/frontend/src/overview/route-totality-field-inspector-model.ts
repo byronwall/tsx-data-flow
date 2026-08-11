@@ -233,7 +233,7 @@ function buildFieldSummaries(
       consumerLabel: consumer?.label ?? "Unmapped consumer",
       consumerKind: consumer?.kind ?? "field read",
       consumerLocation: consumer?.location ?? attachment.field.location,
-      aliasLabel: aliasLabel(attachment.alias),
+      aliasLabel: aliasLabel(attachment.alias, attachment.field.label),
       selected: consumer?.id === selectedConsumer || attachment.id === selectedConsumer,
     });
     fields.set(attachment.field.label, uses);
@@ -261,11 +261,14 @@ function buildFieldSummaries(
     });
 }
 
-function aliasLabel(alias: unknown): string | null {
-  if (typeof alias === "string") return alias;
+function aliasLabel(alias: unknown, fieldLabel: string): string | null {
+  if (typeof alias === "string") {
+    const target = alias.split(/->|→/).at(-1)?.trim();
+    return target ? `${fieldLabel} -> ${target}` : alias;
+  }
   if (!alias || typeof alias !== "object") return null;
   const value = alias as { from?: unknown; to?: unknown };
-  return typeof value.from === "string" && typeof value.to === "string" ? `${value.from} → ${value.to}` : null;
+  return typeof value.to === "string" ? `${fieldLabel} -> ${value.to}` : null;
 }
 
 type RouteTotalitySurfaceOccurrence = RouteTotality["occurrenceSurface"] extends infer Surface

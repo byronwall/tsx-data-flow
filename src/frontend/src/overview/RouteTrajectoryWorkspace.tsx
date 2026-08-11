@@ -110,7 +110,7 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; gener
             contextFocus={props.state.contextFocus ?? null}
             onContextFocusChange={(contextFocus) => props.onState({ contextFocus })}
             onFieldFocusChange={(fieldFocus, consumerFocus = null) => props.onState({ fieldFocus, consumerFocus })}
-            onClearSource={() => props.onState({ source: null, fieldFocus: null, consumerFocus: null, item: null, expand: [], isolate: false, pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null }, true)}
+            onClearFieldFocus={() => props.onState({ fieldFocus: null, consumerFocus: null, totalitySelection: null, isolate: false })}
             scopeKey={`${props.detail.route.key}:${props.detail.trajectory.key}:${props.state.trajectoryRenderer ?? "current"}`}
             selection={props.state.totalitySelection ?? null}
             camera={props.state.graphCamera ?? null}

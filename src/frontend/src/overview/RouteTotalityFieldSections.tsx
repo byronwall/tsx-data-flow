@@ -14,6 +14,7 @@ export function RouteTotalityFieldSections(props: {
   result: RouteTotalityFieldInspectorResult | null;
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
   onFieldFocusChange: (fieldFocus: string | null, consumerFocus?: string | null) => void;
+  onClearFieldFocus: () => void;
 }) {
   return <Show when={props.result}>
     {(result) => <>
@@ -24,7 +25,7 @@ export function RouteTotalityFieldSections(props: {
             <p>Exact field reads proven from the selected source. Select a row to focus its green path.</p>
           </div>
           <Show when={result().selectedField}>
-            <button type="button" class="route-totality-field-clear" onClick={() => props.onFieldFocusChange(null, null)}>Show all fields</button>
+            <button type="button" class="route-totality-field-clear" onClick={props.onClearFieldFocus}>Show all fields</button>
           </Show>
         </div>
         <Show when={result().status === "no-origin"}>
@@ -95,7 +96,7 @@ function FieldUse(props: {
   const location = () => props.use.consumerLocation ?? props.use.attachment.field.location;
   return <details class="route-totality-field-use" open={props.use.selected}>
     <summary onClick={() => props.onFieldFocusChange(props.fieldLabel, props.use.key)}>
-      <span><b>{props.use.consumerLabel}</b><small>{props.use.consumerKind} · {props.use.componentName}</small></span>
+      <span><b>{props.use.consumerLabel}</b><small>{props.use.consumerKind} · {props.use.componentName}</small><Show when={props.use.aliasLabel}><small class="route-totality-field-alias-step">Alias step · <code>{props.use.aliasLabel}</code></small></Show></span>
       <code title={formatLocation(location())}>{shortLocation(location())}</code>
     </summary>
     <div class="route-totality-field-proof">

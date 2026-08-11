@@ -44,6 +44,7 @@ export function RouteTotalityInspector(props: {
   onRestore: () => void;
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
   onFieldFocusChange: (fieldFocus: string | null, consumerFocus?: string | null) => void;
+  onClearFieldFocus: () => void;
   onContextSelect: (selection: RouteTotalityInspectorSelection) => void;
   findings: RouteTotalityFindingSummary;
   onSelectStart: () => void;
@@ -95,7 +96,7 @@ export function RouteTotalityInspector(props: {
           </section>
         </>}
       </Show>
-      <RouteTotalityFieldSections result={props.fieldResult} onOpenSource={props.onOpenSource} onFieldFocusChange={props.onFieldFocusChange} />
+      <RouteTotalityFieldSections result={props.fieldResult} onOpenSource={props.onOpenSource} onFieldFocusChange={props.onFieldFocusChange} onClearFieldFocus={props.onClearFieldFocus} />
     </div>
   </aside>;
 }

@@ -46,7 +46,7 @@ type RouteTotalityGraphProps = {
   contextFocus?: string | null;
   onContextFocusChange?: (contextFocus: string | null) => void;
   onFieldFocusChange: (fieldFocus: string | null, consumerFocus?: string | null) => void;
-  onClearSource: () => void;
+  onClearFieldFocus: () => void;
   hiddenComponentPolicy: HiddenComponentPolicy;
   genericUiMode: GenericUiMode | null;
   onGenericUiMode: (mode: GenericUiMode) => void;
@@ -440,7 +440,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
       hiddenUiNodeCount={layout().uiProjection.hiddenNodeIds.size}
       availableHiddenUiNodeCount={layout().uiProjection.availableHiddenNodeCount}
       onGenericUiMode={props.onGenericUiMode}
-      onClearFieldFocus={props.onClearSource}
+      onClearFieldFocus={props.onClearFieldFocus}
       onZoomOut={() => cameraController.zoomAt(camera().scale / 1.25, undefined, true)}
       onReset={actions.reset}
       onZoomIn={() => cameraController.zoomAt(camera().scale * 1.25, undefined, true)}
@@ -504,6 +504,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         onRestore={actions.restoreFullRoute}
         onOpenSource={props.onOpenSource ?? (() => undefined)}
         onFieldFocusChange={props.onFieldFocusChange}
+        onClearFieldFocus={props.onClearFieldFocus}
         onContextSelect={selectFromInspectorWithFieldFocus}
         onSelectStart={() => { const target = startSelection(); if (target) selectWithFieldFocus(target); }}
         contextUi={contextUi}
