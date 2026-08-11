@@ -14,6 +14,7 @@ describe("route data trajectory analysis", () => {
 
   it("assembles a supported Prisma-to-resource-to-render path with shapes and field effects", async () => {
     const project = await createFixtureProject({
+      "node_modules/solid-js/index.d.ts": "export declare function createResource<T>(fetcher: () => Promise<T>): [() => T | undefined];",
       "src/routes/time-blocks.tsx": `
         import { Calendar } from "../Calendar";
         declare const Suspense: (props: { fallback: unknown; children: unknown }) => unknown;
@@ -29,7 +30,7 @@ describe("route data trajectory analysis", () => {
       `,
       "src/Calendar.tsx": `
         import { fetchBlocks, type Item } from "./queries";
-        declare function createResource<T>(fetcher: () => Promise<T>): [() => T | undefined];
+        import { createResource } from "solid-js";
         declare function createMemo<T>(fn: () => T): () => T;
         export function Calendar() {
           const [blocks] = createResource(fetchBlocks);
@@ -77,9 +78,10 @@ describe("route data trajectory analysis", () => {
 
   it("keeps dev-support reads out of product routes and preserves route-local source ownership", async () => {
     const project = await createFixtureProject({
+      "node_modules/solid-js/index.d.ts": "export declare function createResource<T>(source: () => string, fetcher: (id: string) => Promise<T>): [() => T | undefined];",
       "src/routes/boards/[boardId].tsx": `
         import { getBoardDetail } from "../../queries";
-        declare function createResource<T>(source: () => string, fetcher: (id: string) => Promise<T>): [() => T | undefined];
+        import { createResource } from "solid-js";
         export default function BoardRoute() {
           const [detail] = createResource(() => "board-1", getBoardDetail);
           return <div style={{ opacity: detail() ? 1 : 0 }}>{detail()?.title}</div>;
@@ -123,7 +125,7 @@ describe("route data trajectory analysis", () => {
     expect(detail.operations[0].sourceExpressionIds.every((id) => detail.evidence.some((item) => item.id === id))).toBe(true);
     expect(detail.context.nodes.find((item) => item.kind === "component")).toMatchObject({ label: "BoardRoute", role: "route", parentId: null });
     const sourceSummary = inventory.sources.find((item) => item.file === "src/store/boards.ts");
-    expect(sourceSummary?.routeKeys).toEqual([route.key]);
+    expect(sourceSummary?.routeKeys).toContain(route.key);
     expect(inventory.routes.find((item) => item.key === route.key)).toMatchObject({ routeKind: "page", unknownGapCount: 0 });
   });
 

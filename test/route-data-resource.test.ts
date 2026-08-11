@@ -30,9 +30,10 @@ describe("route data resource tracing", () => {
 
   it("uses the createResource fetcher argument instead of an options object", async () => {
     const fixture = await createAnalyzerFixtureProject({
+      "node_modules/solid-js/index.d.ts": "export declare function createResource<T>(source: () => string, fetcher: (id: string) => T, options?: object): T;",
       "src/resource.ts": `
+        import { createResource } from "solid-js";
         export const loadRecord = (id: string) => ({ id });
-        declare function createResource<T>(source: () => string, fetcher: (id: string) => T, options?: object): T;
         export const record = createResource(() => "a", loadRecord, { initialValue: null });
       `,
     });

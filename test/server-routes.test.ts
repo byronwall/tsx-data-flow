@@ -18,9 +18,10 @@ function expectSpaShell(response) {
 describe("createServer", () => {
   it("serves generation-aware route trajectory detail and contained source excerpts", async () => {
     const project = await createFixtureProject({
+      "node_modules/solid-js/index.d.ts": "export declare function createResource<T>(fetcher: () => Promise<T>): [() => T | undefined];",
       "src/routes/items/[itemId].tsx": `
+        import { createResource } from "solid-js";
         declare const prisma: { item: { findUnique(): Promise<{ name: string }> } };
-        declare function createResource<T>(fetcher: () => Promise<T>): [() => T | undefined];
         async function loadItem() { return prisma.item.findUnique(); }
         export default function ItemRoute() { const [item] = createResource(loadItem); return <h1 style={{ opacity: item() ? 1 : 0 }}>{item()?.name}</h1>; }
       `,
@@ -34,11 +35,11 @@ describe("createServer", () => {
     expect(detail.data.route.parameters).toEqual([{ name: "itemId", kind: "dynamic" }]);
     expect(detail.data.operations.some((item) => item.semanticKind === "read")).toBe(true);
     const evidence = detail.data.evidence[0];
-    const sourceResponse = await call(handler, `/api/route-data/source?path=${encodeURIComponent(evidence.file)}&line=${evidence.line}&column=${evidence.column}&endLine=${evidence.span.endLine}&endColumn=${evidence.span.endColumn}`);
+    const sourceResponse = await call(handler, `/api/route-data/source?path=${encodeURIComponent(evidence.file)}&generation=${workspace.generation}&line=${evidence.line}&column=${evidence.column}&endLine=${evidence.span.endLine}&endColumn=${evidence.span.endColumn}`);
     const source = sourceExcerptResponseSchema.parse(JSON.parse(sourceResponse.body));
     expect(source.data.lines.some((line) => line.focus && line.text.includes("prisma"))).toBe(true);
     expect((await call(handler, `/api/route-data?route=${encodeURIComponent(route.key)}&flow=${encodeURIComponent(flow.key)}&generation=${workspace.generation + 1}`)).status).toBe(404);
-    expect((await call(handler, "/api/route-data/source?path=..%2Fpackage.json&line=1&column=1")).status).toBe(404);
+    expect((await call(handler, "/api/route-data/source?path=..%2Fpackage.json&generation=" + workspace.generation + "&line=1&column=1")).status).toBe(404);
   });
   it("serves the Solid SPA shell and focused file data APIs", async () => {
     const project = await createFixtureProject(FIXTURE);

@@ -10,7 +10,7 @@ import { RouteTrajectoryWorkspace } from "../../src/frontend/src/overview/RouteT
 import type { TrajectoryUrlState } from "../../src/frontend/src/overview/trajectory-url-state";
 
 const evidence = ["read", "map", "render"].map((kind, index) => ({ id: `e${index}`, expression: `${kind}Expression()`, operationKind: kind, file: `src/${kind}.tsx`, line: index + 2, column: 1, span: { startLine: index + 2, startColumn: 1, endLine: index + 2, endColumn: 12 }, inputType: "Item", outputType: "Item", compilerIdentity: `symbol:${kind}`, confidence: "high" as const, unknownReason: null }));
-const source: RouteDataInventory["sources"][number] = { key: "source:a", label: "readA", kind: "file", file: "src/read.ts", line: 2, routeKeys: ["route:a"], consumerLabel: null, handoffProven: false, typeName: "Item", typeText: "Item", shapeKind: "object", fields: [{ key: "name", typeText: "string", optional: false }], totalFields: 1, evidenceId: "e0" };
+const source: RouteDataInventory["sources"][number] = { key: "source:a", label: "readA", kind: "file", file: "src/read.ts", line: 2, routeKeys: ["route:a"], consumerLabel: null, handoffProven: false, typeName: "Item", typeText: "Item", shapeKind: "object", fields: [{ key: "name", typeText: "string", optional: false }], totalFields: 1, evidenceId: "e0", handoffFields: [] };
 const detail: RouteDataDetail = {
   route: { key: "route:a", pathPattern: "/a", file: "src/routes/a.tsx", componentIdentityId: null, parameters: [], confidence: "high", componentNames: ["RouteA"], routeKind: "page", sourceMethodKeys: ["source:a"], apiRouteKeys: [], trajectoryCount: 1, completeTrajectoryCount: 1, totalPathSteps: 3, uniqueStepCount: 3, substitutionStepCount: 0, unknownGapCount: 1, omissions: [] },
   trajectory: { key: "flow:a", routeKey: "route:a", label: "A flow", sourceValueIds: ["v0"], operationKeys: ["op0", "op1", "op2"], terminalIds: ["t0"], supportingComponentIds: [], routeReachableTerminalCount: 7, terminalSelectionLimit: 4, ordering: "semantic-stage", handoffsProven: false, completeness: "partial", omissions: ["Cross-operation handoffs are not yet proven."] },
@@ -24,9 +24,11 @@ const detail: RouteDataDetail = {
   exhaustiveGraph: {
     nodes: [{ key: "n0", label: "saved item", snippet: "const saved = readItem(id)", kind: "source", file: "src/read.ts", line: 2, column: 1, boundaryId: null, pathCount: 2, minimumDepth: 0, component: "RouteA", components: ["RouteA"] }, { key: "n1", label: "map item", snippet: "saved.map((item) => item.title)", kind: "call", file: "src/map.ts", line: 3, column: 1, boundaryId: null, pathCount: 2, minimumDepth: 1, component: "RouteA", components: ["RouteA"] }, { key: "n2", label: "title", snippet: "<h1>{title}</h1>", kind: "jsx-child", file: "src/render.tsx", line: 4, column: 1, boundaryId: null, pathCount: 1, minimumDepth: 2, component: "RouteA", components: ["RouteA"] }, { key: "n3", label: "style", snippet: "style={{ color: titleColor }}", kind: "jsx-attribute", file: "src/render.tsx", line: 5, column: 1, boundaryId: null, pathCount: 1, minimumDepth: 2, component: "RouteA", components: ["RouteA"] }],
     edges: [{ key: "ge0", from: "n0", to: "n1", kind: "read", unknown: false, pathCount: 2 }, { key: "ge1", from: "n1", to: "n2", kind: "render", unknown: false, pathCount: 1 }, { key: "ge2", from: "n1", to: "n3", kind: "render", unknown: true, pathCount: 1 }],
-    trajectories: [{ key: "p0", sinkId: "t0", terminalLabel: "title", stepKeys: ["n0", "n1", "n2"], stepComponents: ["RouteA", "RouteA", "RouteA"], sourceMethodKeys: [source.key], substitutionStepCount: 0, completeness: "complete-for-supported-scope" }, { key: "p1", sinkId: "t1", terminalLabel: "style", stepKeys: ["n0", "n1", "n3"], stepComponents: ["RouteA", "RouteA", "RouteA"], sourceMethodKeys: [source.key], substitutionStepCount: 0, completeness: "partial" }],
+    trajectories: [{ key: "p0", sinkId: "t0", terminalLabel: "title", stepKeys: ["n0", "n1", "n2"], stepComponents: ["RouteA", "RouteA", "RouteA"], sourceMethodKeys: [source.key], sourceHandoffKeys: [], substitutionStepCount: 0, completeness: "complete-for-supported-scope" }, { key: "p1", sinkId: "t1", terminalLabel: "style", stepKeys: ["n0", "n1", "n3"], stepComponents: ["RouteA", "RouteA", "RouteA"], sourceMethodKeys: [source.key], sourceHandoffKeys: [], substitutionStepCount: 0, completeness: "partial" }],
     totals: { sinks: 2, trajectories: 2, nodes: 4, edges: 3, components: 1, unknownTrajectories: 1 }, truncated: false, cycleCount: 0, pathBudget: 100000,
   },
+  hiddenComponentPolicy: { enabledByDefault: false, include: [], exclude: [], configPath: null },
+  totality: null,
 };
 const inventory: RouteDataInventory = {
   routes: [detail.route],
@@ -148,7 +150,7 @@ describe("route trajectory workspace interactions", () => {
   it("accents selection, isolates with boundary context, expands evidence, and preserves the mounted canvas under source", async () => {
     const initial: TrajectoryUrlState = { open: true, route: "route:a", flow: "flow:a", item: "op0", expand: [], isolate: false, mode: "detail", kind: "pages", sort: "steps", source: null, filter: null, view: "trajectory", pan: null, zoom: 1, packet: null };
     const [state, setState] = createSignal(initial);
-    const { container } = render(() => <RouteTrajectoryWorkspace detail={detail} state={state()} onState={(patch) => setState((value) => ({ ...value, ...patch }))} onCloseTransient={() => undefined} />);
+    const { container } = render(() => <RouteTrajectoryWorkspace detail={detail} generation={1} state={state()} onState={(patch) => setState((value) => ({ ...value, ...patch }))} onCloseTransient={() => undefined} />);
     expect(container.textContent).toContain("OutputCaptureDetail12 fields · may be empty");
     expect(container.textContent).not.toContain("/Users/example");
     expect(container.querySelectorAll(".trajectory-operation.dimmed")).toHaveLength(0);
@@ -187,7 +189,7 @@ describe("route trajectory workspace interactions", () => {
       kind: "component-topology-selection",
       route: { key: "route:a", path: "/a", file: "src/routes/a.tsx" },
       trajectory: { key: "flow:a", completeness: "partial" },
-      selection: { id: "component:routea", label: "RouteA", kind: "component" },
+      selection: { id: "component-source:c0", label: "RouteA", kind: "component" },
       focus: { rule: "direct neighbors plus cycle-safe upstream lineage", truncated: false },
       graph: { visibleNodes: 1, visibleEdges: 0 },
     });

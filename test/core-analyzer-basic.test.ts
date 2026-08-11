@@ -79,9 +79,10 @@ describe("render path data-flow analyzer", () => {
 
   it("models createMemo accessors and resource boundaries", async () => {
     const project = await createFixtureProject({
+      "node_modules/solid-js/index.d.ts": "export declare function createResource<T>(fn: () => Promise<T>): [() => T | undefined];",
       "src/solid-flow.tsx": `
+        import { createResource } from "solid-js";
         declare function createMemo<T>(fn: () => T): () => T;
-        declare function createResource<T>(fn: () => Promise<T>): [() => T | undefined];
         export function Profile(props: { first: string; last: string }) {
           const fullName = createMemo(() => props.first + " " + props.last);
           const [user] = createResource(async () => ({ name: fullName() }));

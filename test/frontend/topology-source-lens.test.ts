@@ -102,7 +102,7 @@ function graphNode(key: string, label: string, kind: string, file: string, line:
 }
 
 function trajectory(key: string, stepKeys: string[], stepComponents: string[], sourceMethodKeys: string[]) {
-  return { key, sinkId: `sink:${key}`, terminalLabel: "initialHTML", stepKeys, stepComponents, sourceMethodKeys, substitutionStepCount: 0, completeness: "complete-for-supported-scope" as const };
+  return { key, sinkId: `sink:${key}`, terminalLabel: "initialHTML", stepKeys, stepComponents, sourceMethodKeys, sourceHandoffKeys: [], substitutionStepCount: 0, completeness: "complete-for-supported-scope" as const };
 }
 
 function topologyNode(id: string, kind: ComponentTopology["nodes"][number]["kind"], label: string, file: string) {
