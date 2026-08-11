@@ -1,4 +1,4 @@
-import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import type { RouteDataDetail } from "../../../api/contracts";
 import { ComponentTopologyHeader, ComponentTopologyLegend } from "./ComponentTopologyChrome";
 import { ComponentTopologyDebugControls } from "./ComponentTopologyDebugControls";
@@ -163,7 +163,7 @@ export function ComponentTopologyGraph(props: { detail: RouteDataDetail; sourceK
     setCamera(DEFAULT_CAMERA);
     setDrag(null);
     setEditingPositions(false);
-    if (layoutDebug.forcesVisible()) layoutDebug.toggleForces();
+    if (untrack(() => layoutDebug.forcesVisible())) layoutDebug.toggleForces();
     setManualPositions(new Map());
     setManualEditStart(null);
     layoutDebug.clearSteps();
