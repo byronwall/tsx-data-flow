@@ -100,6 +100,7 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; gener
           <RouteTotalityGraph
             totality={props.detail.totality}
             shadowEvidence={props.detail.shadowEvidence}
+            selectedSourceKey={props.state.source}
             selectedSourceEvidence={selectedSourceEvidence()}
             fieldFocus={props.state.fieldFocus ?? null}
             consumerFocus={props.state.consumerFocus ?? null}

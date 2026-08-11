@@ -35,6 +35,7 @@ const COMPACT_COUNT_KEYS = ["origins", "occurrences", "boundaries", "terminals",
 type RouteTotalityGraphProps = {
   totality: RouteTotality | null;
   shadowEvidence: RouteDataDetail["shadowEvidence"];
+  selectedSourceKey: string | null;
   selectedSourceEvidence: RouteDataDetail["evidence"][number] | null;
   fieldFocus: string | null;
   consumerFocus: string | null;
@@ -89,6 +90,8 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   let previousControlledSelectionIdentity: string | null = null;
   let hasPreviousControlledSelectionIdentity = false;
   let previousSourceFocusIdentity: string | null = null;
+  let previousSelectedSourceKey: string | null | undefined;
+  let sourceSelectionWasCleared = false;
   let skipControlledSync = false;
   let skipControlledCameraSync = false;
 
@@ -246,6 +249,11 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   });
 
   createEffect(() => {
+    const selectedSourceKey = props.selectedSourceKey;
+    if (selectedSourceKey !== previousSelectedSourceKey) {
+      if (selectedSourceKey === null && previousSelectedSourceKey) sourceSelectionWasCleared = true;
+      previousSelectedSourceKey = selectedSourceKey;
+    }
     const origin = exactRouteTotalityOriginForSource(props.totality, props.selectedSourceEvidence);
     const evidence = props.selectedSourceEvidence;
     if (!origin || !evidence) {
@@ -254,9 +262,25 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
       setFieldInspectorScope(null);
       return;
     }
-    const focusIdentity = [props.scopeKey ?? props.totality?.route.key ?? "", evidence.id, origin.elementId, origin.role].join(":");
-    if (focusIdentity === previousSourceFocusIdentity) return;
+    const focusIdentity = [
+      props.scopeKey ?? props.totality?.route.key ?? "",
+      routeTotalityPayloadIdentity(props.totality, props.generation),
+      evidence.id,
+      origin.elementId,
+      origin.role,
+    ].join(":");
+    if (focusIdentity === previousSourceFocusIdentity) {
+      if (!activeFieldOrigin()) {
+        setActiveFieldOrigin(origin);
+        setFieldInspectorScope({ kind: "origin" });
+      } else if (!fieldInspectorScope()) {
+        setFieldInspectorScope({ kind: "origin" });
+      }
+      return;
+    }
     previousSourceFocusIdentity = focusIdentity;
+    const wasCleared = sourceSelectionWasCleared;
+    sourceSelectionWasCleared = false;
     setActiveFieldOrigin(origin);
     if (props.selection !== null && props.selection !== undefined) {
       const currentSelection = selection();
@@ -268,6 +292,10 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     const sourceSelection = exactRouteTotalityOriginSelection(layout(), origin);
     if (!sourceSelection) return;
     setEmphasisMode("both");
+    if (wasCleared) {
+      applyLocalInvestigationState(sourceSelection, false);
+      return;
+    }
     emitInvestigationState(sourceSelection, false);
   });
 
@@ -355,9 +383,10 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   ));
   const selectedRecord = createMemo(() => buildRouteTotalityInspectorRecord(props.totality, layout(), selection()));
   const selectedFieldResult = createMemo(() => {
-    const scope = fieldInspectorScope();
+    const origin = activeFieldOrigin() ?? exactRouteTotalityOriginForSource(props.totality, props.selectedSourceEvidence);
+    const scope = fieldInspectorScope() ?? (origin ? { kind: "origin" as const } : null);
     return scope
-      ? selectRouteTotalityFieldInspectorResult(props.totality, layout(), activeFieldOrigin(), scope, props.fieldFocus, props.consumerFocus)
+      ? selectRouteTotalityFieldInspectorResult(props.totality, layout(), origin, scope, props.fieldFocus, props.consumerFocus)
       : null;
   });
   const ledgerItems = createMemo(() => buildRouteTotalityLedger(props.totality, layout()));
