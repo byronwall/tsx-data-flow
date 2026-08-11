@@ -3,7 +3,8 @@ import type * as TypeScript from "typescript";
 import type { ComponentBindingMetadata } from "./program-component-binding-metadata";
 import type { RouteTotalityFieldProofIndex } from "./route-totality-field-proof-index";
 import { elementKindForExpression, visitTypeScript } from "./route-totality-field-proof-ast";
-import { asFunctionLike } from "./program-evidence-support";
+import { asFunctionLike, compilerSymbolId } from "./program-evidence-support";
+import { resolveHandlerAction, type ResolvedHandlerAction } from "./program-evidence-handler-resolution";
 import type { ProgramElement } from "./scope-seam";
 
 export type ComponentBoundaryMode = "whole-object" | "scalar-alias";
@@ -20,6 +21,7 @@ export type ExactComponentBoundary = {
   sourceFieldName: string | null;
   propName: string;
   componentName: string;
+  componentIdentity: string;
   target: TypeScript.FunctionLikeDeclaration;
 };
 
@@ -43,6 +45,7 @@ export function resolveExactComponentBoundary(
   index: RouteTotalityFieldProofIndex,
   opening: TypeScript.JsxOpeningLikeElement,
   attribute: TypeScript.JsxAttribute,
+  bindingOverride?: ProgramElement,
 ): ExactComponentBoundary | null {
   const tagSymbol = resolveAliasedSymbol(ts, checker, opening.tagName);
   const declaration = oneSourceDeclaration(root, tagSymbol);
@@ -50,18 +53,34 @@ export function resolveExactComponentBoundary(
   const target = declaration ? asFunctionLike(ts, declaration) : null;
   if (!target || !value) return null;
   const occurrence = index.element(opening, "component-occurrence");
-  const binding = index.element(attribute, "component-prop-binding");
+  const binding = bindingOverride ?? index.element(attribute, "component-prop-binding");
   if (!occurrence || !binding) return null;
   const metadata = binding.componentBinding;
   const definition = metadata?.componentDefinitionId ? index.byId(metadata.componentDefinitionId) : null;
+  const compilerIdentity = compilerSymbolId(ts, checker, root, opening.tagName);
   if (!metadata || metadata.componentOccurrenceElementId !== occurrence.id
     || metadata.componentDefinitionId !== declarationElementId(index, metadata)
-    || metadata.candidateCount === 0 || metadata.propName === null
+    || metadata.candidateCount !== 1 || metadata.propName === null
+    || !metadata.parameterElementId || !metadata.receiverElementId
     || !definition || definition.kind !== "component-definition"
-    || !occurrence.symbol || occurrence.symbol !== definition.symbol) return null;
-  const receiver = metadata.receiverElementId ? index.byId(metadata.receiverElementId) : null;
-  if (receiver && (receiver.kind !== "field-read" || receiver.fieldName !== metadata.propName)) return null;
-  const mode = exactBoundaryMode(ts, checker, value, metadata);
+    || !compilerIdentity || occurrence.symbol !== compilerIdentity || definition.symbol !== compilerIdentity) return null;
+  const parameter = index.byId(metadata.parameterElementId);
+  const receiver = index.byId(metadata.receiverElementId);
+  if (!parameter || parameter.kind !== "parameter" || !receiver
+    || receiver.kind !== "field-read" || receiver.fieldName !== metadata.propName) return null;
+  const receiverRelations = index.outgoing(binding.id).filter((relation) => (
+    relation.to === receiver.id && relation.kind === "component-prop-binding"
+      && relation.proof.kind === "component-prop-binding" && relation.status === "proven"
+  ));
+  if (receiverRelations.length !== 1) return null;
+  const valueElement = index.element(value, elementKindForExpression(ts, value));
+  if (!valueElement) return null;
+  const valueRelations = index.outgoing(valueElement.id).filter((relation) => (
+    relation.to === binding.id && relation.kind === "component-prop-binding"
+      && relation.proof.kind === "component-prop-binding" && relation.status === "proven"
+  ));
+  if (valueRelations.length !== 1) return null;
+  const mode = exactBoundaryMode(ts, value, metadata);
   if (!mode) return null;
   return {
     opening,
@@ -75,6 +94,7 @@ export function resolveExactComponentBoundary(
     sourceFieldName: metadata.sourceFieldName ?? null,
     propName: metadata.propName,
     componentName: tagSymbol?.getName() ?? opening.tagName.getText(opening.getSourceFile()),
+    componentIdentity: tagSymbol ? checker.getFullyQualifiedName(tagSymbol) : "",
     target,
   };
 }
@@ -83,6 +103,7 @@ export function resolveExactComponentBoundary(
 export function componentBoundaryConsumers(
   ts: typeof TypeScript,
   checker: TypeScript.TypeChecker,
+  root: string,
   index: RouteTotalityFieldProofIndex,
   boundary: ExactComponentBoundary,
 ): ExactComponentBoundaryConsumer[] {
@@ -99,7 +120,7 @@ export function componentBoundaryConsumers(
     if (!isConsumer) return;
     const fieldElement = index.element(node, "field-read");
     if (!fieldElement) return;
-    const context = consumerContext(ts, checker, index, node, boundary);
+    const context = consumerContext(ts, checker, root, index, node, boundary);
     if (context) values.push({ field: node, fieldElement, ...context });
   });
   return deduplicateConsumers(values).sort((left, right) => left.field.getStart() - right.field.getStart());
@@ -108,6 +129,7 @@ export function componentBoundaryConsumers(
 function consumerContext(
   ts: typeof TypeScript,
   checker: TypeScript.TypeChecker,
+  root: string,
   index: RouteTotalityFieldProofIndex,
   field: TypeScript.PropertyAccessExpression,
   boundary: ExactComponentBoundary,
@@ -127,11 +149,11 @@ function consumerContext(
       return { valueElement, terminal: null, kind: "condition", label: conditionLabel(ts, field, boundary), locationNode: condition };
     }
   }
-  const handler = handlerContext(ts, checker, field);
+  const handler = handlerContext(ts, checker, root, field, boundary);
   if (handler) {
     const valueElement = index.element(handler.call, "call");
     return valueElement
-      ? { valueElement, terminal: null, kind: "handler", label: `${handler.action}.${handler.property}`, locationNode: field }
+      ? { valueElement, terminal: null, kind: "handler", label: `${handler.name}.${handler.property}`, locationNode: field }
       : null;
   }
   return null;
@@ -167,45 +189,11 @@ function conditionContext(ts: typeof TypeScript, field: TypeScript.PropertyAcces
 function handlerContext(
   ts: typeof TypeScript,
   checker: TypeScript.TypeChecker,
+  root: string,
   field: TypeScript.PropertyAccessExpression,
-): { call: TypeScript.CallExpression; action: string; property: string } | null {
-  let current: TypeScript.Node = field;
-  while (current.parent) {
-    current = current.parent;
-    if (ts.isPropertyAssignment(current) && current.initializer === field) {
-      const object = current.parent;
-      if (!ts.isObjectLiteralExpression(object)) return null;
-      const call = object.parent;
-      if (!ts.isCallExpression(call)) return null;
-      const action = call.arguments.length > 0 && ts.isStringLiteral(call.arguments[0])
-        ? call.arguments[0].text
-        : null;
-      const property = ts.isIdentifier(current.name) ? current.name.text : null;
-      if (action && property) return { call, action, property };
-      if (property && ts.isIdentifier(call.expression)) {
-        const symbol = checker.getSymbolAtLocation(call.expression);
-        const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.find((item) => ts.isVariableDeclaration(item)) ?? null;
-        if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer
-          && (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer))) {
-          const parameter = declaration.initializer.parameters[0]?.name;
-          let forwarded: TypeScript.CallExpression | null = null;
-          let forwardedAction: string | null = null;
-          visitTypeScript(ts, declaration.initializer.body, (node) => {
-            if (forwarded || !ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)
-              || node.arguments.length < 2 || !ts.isStringLiteral(node.arguments[0])
-              || !parameter || !ts.isIdentifier(parameter) || !ts.isIdentifier(node.arguments[1])
-              || node.arguments[1].text !== parameter.text) return;
-            forwarded = node;
-            forwardedAction = node.arguments[0].text;
-          });
-          return forwarded && forwardedAction ? { action: forwardedAction, property, call: forwarded } : null;
-        }
-      }
-      return null;
-    }
-    if (ts.isFunctionLike(current) || ts.isJsxElement(current) || ts.isJsxSelfClosingElement(current)) return null;
-  }
-  return null;
+  boundary: ExactComponentBoundary,
+): ResolvedHandlerAction | null {
+  return resolveHandlerAction(ts, checker, root, field, field);
 }
 
 function isReceiverField(
@@ -235,18 +223,12 @@ function isPropReceiver(
 
 function exactBoundaryMode(
   ts: typeof TypeScript,
-  checker: TypeScript.TypeChecker,
   value: TypeScript.Expression,
   metadata: ComponentBindingMetadata,
 ): ComponentBoundaryMode | null {
   if (metadata.valueMode === "whole-object" && ts.isCallExpression(value)) return "whole-object";
   if (metadata.valueMode === "scalar-alias" && ts.isPropertyAccessExpression(value)
     && ts.isCallExpression(value.expression) && metadata.sourceFieldName === value.name.text) return "scalar-alias";
-  if (ts.isCallExpression(value)) return "whole-object";
-  if (ts.isPropertyAccessExpression(value) && ts.isCallExpression(value.expression)) {
-    const callSymbol = checker.getSymbolAtLocation(value.expression.expression);
-    return callSymbol ? "scalar-alias" : null;
-  }
   return null;
 }
 

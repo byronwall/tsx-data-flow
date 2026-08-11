@@ -17,9 +17,9 @@ export function exactRouteTotalityOriginForSource(
 ): RouteTotalitySourceFocus {
   if (!totality || !evidence || !("origins" in totality.evidenceSlice) || !("elements" in totality.evidenceSlice)) return null;
   const slice: AvailableEvidence = totality.evidenceSlice;
-  const ledgerOrigins = totality.fieldLineage.attachments.map((attachment) => attachment.origin)
+  const ledgerOrigins = uniqueOrigins(totality.fieldLineage.attachments.map((attachment) => attachment.origin)
     .concat(totality.fieldLineage.frontiers.map((frontier) => frontier.origin))
-    .filter((origin) => origin.selectedEvidenceId === evidence.id);
+    .filter((origin) => origin.selectedEvidenceId === evidence.id));
   if (ledgerOrigins.length > 0) {
     const exact = ledgerOrigins.filter((origin) => slice.origins.some((candidate) => (
       candidate.elementId === origin.elementId && candidate.role === origin.role && candidate.status === "proven"
@@ -34,6 +34,13 @@ export function exactRouteTotalityOriginForSource(
   return matches.length === 1
     ? { elementId: matches[0].elementId, role: matches[0].role, selectedEvidenceId: null }
     : null;
+}
+
+function uniqueOrigins(origins: readonly RouteTotalityOrigin[]): RouteTotalityOrigin[] {
+  return [...new Map(origins.map((origin) => [
+    `${origin.elementId}:${origin.role}:${origin.selectedEvidenceId ?? ""}`,
+    origin,
+  ])).values()];
 }
 
 /**

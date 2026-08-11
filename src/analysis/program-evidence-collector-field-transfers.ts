@@ -2,6 +2,12 @@ import * as TypeScript from "typescript";
 import { ProgramEvidenceCollectorComponentBindingSupport } from "./program-evidence-collector-component-binding";
 import { asFunctionLike, nodeKey, proof, unwrap } from "./program-evidence-support";
 import { exactCallbackReturnExpression } from "./program-callback-return";
+import { resolveHandlerAction, type ResolvedHandlerAction } from "./program-evidence-handler-resolution";
+import {
+  componentConditionAttributes, componentConditionCollection, componentConditionExpression, componentConditionLabel,
+  conditionAttributes, conditionExpression as conditionExpressionFor, containsJsx, enclosingJsxOpening, enclosingJsxPropName,
+  hasJsxExpressionAncestor, isCollectionPredicate, propertyReads,
+} from "./program-evidence-collector-field-consumer-support";
 
 /** Collect compiler-backed facts for exact collection and JSX field transfers. */
 export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenceCollectorComponentBindingSupport {
@@ -52,10 +58,10 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
       || (this.checker.getSymbolAtLocation(props) !== this.checker.getSymbolAtLocation(parameter.name)
         && (!scalarProp || props.text !== parameter.name.text))) return;
     const action = this.componentHandlerAction(field);
-    const opening = this.enclosingJsxOpening(field);
-    const jsxExpression = this.hasJsxExpressionAncestor(field);
-    const predicate = this.isCollectionPredicate(field);
-    const condition = opening || jsxExpression ? null : this.componentConditionExpression(field);
+    const opening = enclosingJsxOpening(this.ts, field);
+    const jsxExpression = hasJsxExpressionAncestor(this.ts, field);
+    const predicate = isCollectionPredicate(this.ts, field);
+    const condition = opening || jsxExpression ? null : componentConditionExpression(this.ts, field);
     if (condition) {
       this.ensureElement(
         condition,
@@ -88,7 +94,7 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
     field: TypeScript.PropertyAccessExpression,
     ownerId: string,
     condition: TypeScript.BinaryExpression | TypeScript.ConditionalExpression | null,
-    action: { call: TypeScript.CallExpression; name: string; property: string } | null,
+    action: ResolvedHandlerAction | null,
     opening: TypeScript.JsxOpeningLikeElement | null,
     predicate: boolean,
     jsxExpression: boolean,
@@ -96,20 +102,31 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
     if (!condition && !predicate && !action && !opening && !jsxExpression) return;
     const kind = condition || predicate ? "condition" : action ? "handler" : "render";
     const tagName = opening?.tagName.getText(opening.getSourceFile()) ?? "component";
-    const label = condition || predicate ? this.componentConditionLabel(field) : action ? `${action.name}.${action.property}` : `${tagName} ${field.name.text}`;
+    const label = condition || predicate ? componentConditionLabel(this.ts, field) : action ? `${action.name}.${action.property}` : `${tagName} ${field.name.text}`;
     const consumerId = this.ensureElement(
       field,
       "field-consumer",
       ownerId,
       {
         consumerKind: kind,
+        tagName: opening?.tagName.getText(opening.getSourceFile()) ?? null,
+        propName: opening ? enclosingJsxPropName(this.ts, field) : null,
         label,
-        ...(condition ? this.componentConditionAttributes(condition) : {}),
-        ...(action ? { actionName: action.name, argumentName: action.property } : {}),
+        ...(condition ? componentConditionAttributes(this.ts, condition) : {}),
+        ...(condition ? { consumerCollection: componentConditionCollection(this.ts, field) } : {}),
+        ...(action ? {
+          actionName: action.name,
+          argumentName: action.property,
+          handlerReceiverSymbol: action.receiverSymbolId,
+          handlerMethodSymbol: action.methodSymbolId,
+          handlerCalleeSymbol: action.calleeSymbolId,
+          handlerActionArgumentSymbol: action.actionArgumentSymbolId,
+          handlerForwardedParameterSymbol: action.forwardedParameterSymbolId,
+        } : {}),
       },
-      null,
-      null,
-      null,
+      opening ? this.symbolId(opening.tagName) : null,
+      opening ? this.moduleFor(opening.tagName) : null,
+      opening ? this.targetFunction(opening.tagName)?.id ?? null : null,
       "proven",
       proof(kind === "condition" ? "condition-consumer" : kind === "handler" ? "handler-consumer" : "render-consumer", "The compiler identifies one exact component-prop field use.", [this.location(field)]),
     );
@@ -127,127 +144,8 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
     }
   }
 
-  private componentConditionExpression(field: TypeScript.PropertyAccessExpression): TypeScript.BinaryExpression | TypeScript.ConditionalExpression | null {
-    let current: TypeScript.Node = field;
-    while (current.parent) {
-      current = current.parent;
-      if (this.ts.isBinaryExpression(current) && current.operatorToken.kind !== this.ts.SyntaxKind.EqualsToken) return current;
-      if (this.ts.isConditionalExpression(current)) return current;
-      if (this.ts.isFunctionLike(current) || this.ts.isJsxElement(current) || this.ts.isJsxSelfClosingElement(current)) return null;
-    }
-    return null;
-  }
-
-  private isCollectionPredicate(field: TypeScript.PropertyAccessExpression): boolean {
-    let current: TypeScript.Node = field;
-    while (current.parent) {
-      current = current.parent;
-      if (this.ts.isCallExpression(current) && this.ts.isPropertyAccessExpression(current.expression)
-        && ["find", "filter"].includes(current.expression.name.text)) return true;
-      if (this.ts.isJsxElement(current) || this.ts.isJsxSelfClosingElement(current)) return false;
-    }
-    return false;
-  }
-
-  private hasJsxExpressionAncestor(field: TypeScript.PropertyAccessExpression): boolean {
-    let current: TypeScript.Node = field;
-    while (current.parent) {
-      current = current.parent;
-      if (this.ts.isJsxExpression(current)) return true;
-      if (this.ts.isFunctionLike(current)) return false;
-    }
-    return false;
-  }
-
-  private componentHandlerAction(field: TypeScript.PropertyAccessExpression): { call: TypeScript.CallExpression; name: string; property: string } | null {
-    let current: TypeScript.Node = field;
-    while (current.parent) {
-      current = current.parent;
-      if (this.ts.isPropertyAssignment(current) && current.initializer === field) {
-        const object = current.parent;
-        const call = object && this.ts.isObjectLiteralExpression(object) ? object.parent : null;
-        const property = this.ts.isIdentifier(current.name) ? current.name.text : null;
-        if (!call || !this.ts.isCallExpression(call) || !property) return null;
-        if (this.ts.isPropertyAccessExpression(call.expression)) {
-          const name = call.arguments[0] && this.ts.isStringLiteral(call.arguments[0]) ? call.arguments[0].text : null;
-          return name ? { call, name, property } : null;
-        }
-        const forwarded = this.forwardedHandlerAction(call, property);
-        return forwarded ? { ...forwarded, property } : null;
-      }
-      if (this.ts.isFunctionLike(current) || this.ts.isJsxElement(current) || this.ts.isJsxSelfClosingElement(current)) return null;
-    }
-    return null;
-  }
-
-  private forwardedHandlerAction(
-    call: TypeScript.CallExpression,
-    property: string,
-  ): { call: TypeScript.CallExpression; name: string; property: string } | null {
-    if (!this.ts.isIdentifier(call.expression)) return null;
-    const symbol = this.checker.getSymbolAtLocation(call.expression);
-    const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.find((item) => this.ts.isVariableDeclaration(item)) ?? null;
-    if (!declaration || !this.ts.isVariableDeclaration(declaration) || !declaration.initializer
-      || (!this.ts.isArrowFunction(declaration.initializer) && !this.ts.isFunctionExpression(declaration.initializer))) return null;
-    const initializer = declaration.initializer;
-    let result: { call: TypeScript.CallExpression; name: string } | null = null;
-    this.visit(declaration.initializer.body, (node) => {
-      if (result || !this.ts.isCallExpression(node) || !this.ts.isPropertyAccessExpression(node.expression)
-        || node.arguments.length < 2 || !this.ts.isStringLiteral(node.arguments[0])) return;
-      const parameter = initializer.parameters[0]?.name;
-      if (parameter && this.ts.isIdentifier(parameter) && this.ts.isIdentifier(node.arguments[1]) && node.arguments[1].text === parameter.text) {
-        result = { call: node, name: node.arguments[0].text };
-      }
-    });
-    const forwarded = result as { call: TypeScript.CallExpression; name: string } | null;
-    return forwarded ? { call: forwarded.call, name: forwarded.name, property } : null;
-  }
-
-  private componentConditionLabel(field: TypeScript.PropertyAccessExpression): string {
-    let current: TypeScript.Node = field;
-    while (current.parent) {
-      current = current.parent;
-      if (this.ts.isCallExpression(current) && this.ts.isPropertyAccessExpression(current.expression)
-        && ["find", "filter"].includes(current.expression.name.text)) {
-        const receiver = current.expression.expression;
-        const collection = this.ts.isPropertyAccessExpression(receiver)
-          ? receiver.name.text
-          : this.ts.isCallExpression(receiver) && this.ts.isIdentifier(receiver.expression)
-            ? receiver.expression.text
-            : this.ts.isIdentifier(receiver) ? receiver.text : null;
-        if (collection === "schedules") return "Completed schedule gameId condition";
-        if (collection === "availability") return this.ts.isPropertyAccessExpression(field.expression) && field.expression.name.text === "game"
-          ? "Scheduled availability gameId condition"
-          : "Completed availability gameId condition";
-        if (collection === "liveGames") return "Completed live gameId condition";
-      }
-      if (this.ts.isFunctionLike(current)) break;
-    }
-    return "component prop condition";
-  }
-
-  private componentConditionAttributes(value: TypeScript.BinaryExpression | TypeScript.ConditionalExpression): Record<string, string | number | boolean | null> {
-    const comparison = this.ts.isBinaryExpression(value) ? value : this.ts.isBinaryExpression(value.condition) ? value.condition : null;
-    return {
-      conditionOperator: comparison?.operatorToken.getText(comparison.getSourceFile()) ?? null,
-      conditionLiteral: comparison && this.ts.isStringLiteral(comparison.right) ? comparison.right.text : null,
-      nestedShow: false,
-    };
-  }
-
-  private enclosingJsxOpening(field: TypeScript.PropertyAccessExpression): TypeScript.JsxOpeningLikeElement | null {
-    let current: TypeScript.Node = field;
-    while (current.parent) {
-      current = current.parent;
-      if (this.ts.isJsxExpression(current)) {
-        const opening = current.parent && (this.ts.isJsxElement(current.parent) || this.ts.isJsxSelfClosingElement(current.parent))
-          ? this.ts.isJsxElement(current.parent) ? current.parent.openingElement : current.parent
-          : null;
-        return opening;
-      }
-      if (this.ts.isFunctionLike(current)) return null;
-    }
-    return null;
+  private componentHandlerAction(field: TypeScript.PropertyAccessExpression): ResolvedHandlerAction | null {
+    return resolveHandlerAction(this.ts, this.checker, this.root, field, field);
   }
 
   private connectArrayFind(call: TypeScript.CallExpression): void {
@@ -419,10 +317,10 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
       const componentBindingKey = `${attributeLocation.file}:${attributeLocation.span.startLine}:${attributeLocation.span.startColumn}:${attributeLocation.span.endLine}:${attributeLocation.span.endColumn}:component-prop-binding`;
       const hasComponentBinding = this.elementIdsByNodeKind.has(componentBindingKey);
       const handler = /^on[A-Z]/.test(attributeName);
-      const reads = this.propertyReads(value);
-      if (reads.length === 0 || (this.targetFunction(opening.tagName) && this.containsJsx(value))) continue;
+      const reads = propertyReads(this.ts, value);
+      if (reads.length === 0 || (this.targetFunction(opening.tagName) && containsJsx(this.ts, value))) continue;
       const read = reads[0];
-      const conditionExpression = this.conditionExpression(read, value);
+      const conditionExpression = conditionExpressionFor(this.ts, read, value);
       const condition = Boolean(conditionExpression);
       if (!condition && !handler && this.targetFunction(opening.tagName) && hasComponentBinding) continue;
       const actionRead = handler ? reads.find((candidate) => this.handlerAction(candidate, value)) ?? null : null;
@@ -439,12 +337,20 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
           tagName,
           propName: attributeName,
           label: action ? `${action.name}.${action.property}` : `${tagName}.${attributeName}`,
-          ...(condition ? this.conditionAttributes(conditionExpression!, node) : {}),
-          ...(action ? { actionName: action.name, argumentName: action.property } : {}),
+          ...(condition ? conditionAttributes(this.ts, conditionExpression!, node) : {}),
+          ...(action ? {
+            actionName: action.name,
+            argumentName: action.property,
+            handlerReceiverSymbol: action.receiverSymbolId,
+            handlerMethodSymbol: action.methodSymbolId,
+            handlerCalleeSymbol: action.calleeSymbolId,
+            handlerActionArgumentSymbol: action.actionArgumentSymbolId,
+            handlerForwardedParameterSymbol: action.forwardedParameterSymbolId,
+          } : {}),
         },
-        null,
-        null,
-        null,
+        this.symbolId(opening.tagName),
+        this.moduleFor(opening.tagName),
+        this.targetFunction(opening.tagName)?.id ?? null,
         "proven",
         proof(
           condition ? "condition-consumer" : handler ? "handler-consumer" : "render-consumer",
@@ -480,75 +386,11 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
     }
   }
 
-  private propertyReads(expression: TypeScript.Expression): TypeScript.PropertyAccessExpression[] {
-    const reads: TypeScript.PropertyAccessExpression[] = [];
-    this.visit(expression, (node) => {
-      if (this.ts.isPropertyAccessExpression(node) && !node.questionDotToken) reads.push(node);
-    });
-    return [...new Map(reads.map((read) => [read.getStart(read.getSourceFile()), read])).values()];
-  }
-
-  private containsJsx(expression: TypeScript.Expression): boolean {
-    let found = false;
-    this.visit(expression, (node) => {
-      if (node !== expression && (this.ts.isJsxElement(node) || this.ts.isJsxSelfClosingElement(node))) found = true;
-    });
-    return found;
-  }
-
-  private conditionAttributes(
-    value: TypeScript.BinaryExpression | TypeScript.ConditionalExpression,
-    node: TypeScript.JsxElement | TypeScript.JsxSelfClosingElement,
-  ): Record<string, string | number | boolean | null> {
-    const comparison = this.ts.isBinaryExpression(value)
-      ? value
-      : this.ts.isBinaryExpression(value.condition) ? value.condition : null;
-    if (!comparison) return { conditionOperator: null, conditionLiteral: null, nestedShow: false };
-    const literal = this.ts.isStringLiteral(comparison.right) ? comparison.right.text : null;
-    const nestedShow = this.ts.isJsxElement(node) && node.children.some((child) => (
-      this.ts.isJsxElement(child) && child.openingElement.tagName.getText(child.getSourceFile()) === "Show"
-    ));
-    return { conditionOperator: comparison.operatorToken.getText(comparison.getSourceFile()), conditionLiteral: literal, nestedShow };
-  }
-
-  private conditionExpression(
-    read: TypeScript.PropertyAccessExpression,
-    value: TypeScript.Expression,
-  ): TypeScript.BinaryExpression | TypeScript.ConditionalExpression | null {
-    let current: TypeScript.Node = read;
-    while (current !== value && current.parent) {
-      current = current.parent;
-      if (this.ts.isBinaryExpression(current) && current.operatorToken.kind !== this.ts.SyntaxKind.EqualsToken) return current;
-      if (this.ts.isConditionalExpression(current)) return current;
-    }
-    return this.ts.isBinaryExpression(value) || this.ts.isConditionalExpression(value) ? value : null;
-  }
-
   private handlerAction(
     read: TypeScript.PropertyAccessExpression,
     value: TypeScript.Expression,
-  ): { call: TypeScript.CallExpression; name: string; property: string } | null {
-    let result: { call: TypeScript.CallExpression; name: string; property: string } | null = null;
-    this.visit(value, (node) => {
-      if (result || !this.ts.isCallExpression(node) || !this.ts.isPropertyAccessExpression(node.expression)) return;
-      if (node.expression.name.text !== "run" || node.arguments.length < 2) return;
-      const name = this.ts.isStringLiteral(node.arguments[0]) ? node.arguments[0].text : null;
-      const input = node.arguments[1];
-      if (!name || !this.ts.isObjectLiteralExpression(input)) return;
-      for (const property of input.properties) {
-        if (!this.ts.isPropertyAssignment(property) || !this.ts.isIdentifier(property.name)) continue;
-        if (!this.contains(property.initializer, read)) continue;
-        result = { call: node, name, property: property.name.text };
-        return;
-      }
-    });
-    return result;
-  }
-
-  private contains(owner: TypeScript.Node, child: TypeScript.Node): boolean {
-    return owner.getSourceFile() === child.getSourceFile()
-      && owner.getStart(owner.getSourceFile()) <= child.getStart(child.getSourceFile())
-      && owner.getEnd() >= child.getEnd();
+  ): ResolvedHandlerAction | null {
+    return resolveHandlerAction(this.ts, this.checker, this.root, read, value);
   }
 
   private componentOwnerId(node: TypeScript.Node): string | null {

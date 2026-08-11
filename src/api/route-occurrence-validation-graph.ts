@@ -146,7 +146,14 @@ export const validateEvidenceReferences = (
   uniqueIdentity(
     slice.elements,
     ["elements"],
-    (value) => `${value.kind}:${value.source.file}:${value.source.start}:${value.source.end}`,
+    (value) => JSON.stringify([
+      value.kind,
+      value.source.file,
+      value.source.start,
+      value.source.end,
+      value.symbol,
+      value.componentBinding,
+    ]),
     (value) => value.id,
     issues,
     cancellation,

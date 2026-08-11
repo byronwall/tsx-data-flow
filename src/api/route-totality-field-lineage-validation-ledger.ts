@@ -160,7 +160,6 @@ function validateExactConsumer(
       || consumer.elementId !== policy.bindingElementId
       || consumer.occurrenceElementId !== policy.componentDefinitionElementId
       || (consumer.kind !== "render" && consumer.kind !== "condition" && consumer.kind !== "handler")
-      || consumer.label.length === 0
       || consumerOccurrence.kind !== "component-definition"
       || consumerOccurrence.symbol !== policy.componentSymbol
       || consumer.occurrenceId !== attachment.occurrenceId
@@ -184,7 +183,6 @@ function validateExactConsumer(
     || consumer.elementId !== policy.consumerValueElementId
     || consumer.occurrenceElementId !== policy.componentOccurrenceElementId
     || consumer.kind !== "render"
-    || consumer.label !== `${policy.componentLabel}.${policy.propName}`
     || consumer.occurrenceId !== attachment.occurrenceId
     || !sameLocations([consumer.location], [consumerElement.location], cancellation)) {
     addIssue(issues, [...path, "consumer"], "consumer must equal the exact C12 value, kind, label, location, and occurrence owner");

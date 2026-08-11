@@ -36,6 +36,15 @@ export function projectEvidenceSlice(slice: DomainEvidenceValue, cancellation: A
       componentBinding: element.componentBinding
         ? { ...element.componentBinding }
         : null,
+      handlerIdentity: element.kind === "field-consumer" && element.attributes?.consumerKind === "handler"
+        ? {
+          receiverSymbol: String(element.attributes.handlerReceiverSymbol ?? ""),
+          methodSymbol: String(element.attributes.handlerMethodSymbol ?? ""),
+          calleeSymbol: typeof element.attributes.handlerCalleeSymbol === "string" ? element.attributes.handlerCalleeSymbol : null,
+          actionArgumentSymbol: typeof element.attributes.handlerActionArgumentSymbol === "string" ? element.attributes.handlerActionArgumentSymbol : null,
+          forwardedParameterSymbol: typeof element.attributes.handlerForwardedParameterSymbol === "string" ? element.attributes.handlerForwardedParameterSymbol : null,
+        }
+        : null,
       consumerKind: element.kind === "field-consumer"
         ? (typeof element.attributes?.consumerKind === "string" ? element.attributes.consumerKind as "render" | "condition" | "handler" : null)
         : null,

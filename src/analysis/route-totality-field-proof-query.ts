@@ -7,7 +7,7 @@ import { searchFieldCarrierPaths, type FieldCarrierPath } from "./route-totality
 import { RouteTotalityFieldProofIndex } from "./route-totality-field-proof-index";
 import type { ProgramElement } from "./scope-seam";
 import { failedFieldProof, mergeProvenFieldProofs, provenFieldProof } from "./route-totality-field-proof-result";
-import { FIELD_PROOF_TARGETS } from "./route-totality-field-proof-policy";
+import { fieldProofTargetKey, FIELD_PROOF_TARGETS } from "./route-totality-field-proof-policy";
 import { assembleFieldProofTransformations } from "./route-totality-field-proof-transformations";
 import type { FieldProofInput } from "./route-totality-field-proof-types";
 import {
@@ -68,34 +68,41 @@ export function queryRouteTotalityFieldProof(
       "budget-exhausted",
     );
   }
-  const candidatesByLabel = new Map<string, typeof bounded[number]>();
-  const duplicateLabels = new Set<string>();
+  const candidatesByTarget = new Map<string, typeof bounded[number]>();
+  const duplicateTargets = new Set<string>();
   for (const value of bounded) {
-    const existing = candidatesByLabel.get(value.candidate.consumerLabel);
-    if (existing && existing.candidate.consumerField.id !== value.candidate.consumerField.id) {
-      duplicateLabels.add(value.candidate.consumerLabel);
+    const key = value.candidate.targetKey;
+    const existing = candidatesByTarget.get(key);
+    if (existing && !sameProofIdentity(existing, value)) {
+      duplicateTargets.add(key);
       continue;
     }
-    if (!existing) candidatesByLabel.set(value.candidate.consumerLabel, value);
+    if (!existing) candidatesByTarget.set(key, value);
   }
-  const missingLabels = FIELD_PROOF_TARGETS
-    .map((target) => target.consumer.label)
-    .filter((label) => !candidatesByLabel.has(label));
-  if (missingLabels.length > 0 || carrierAmbiguous || duplicateLabels.size > 0) {
+  const missingTargets = FIELD_PROOF_TARGETS
+    .map((target) => fieldProofTargetKey(target))
+    .filter((key) => !candidatesByTarget.has(key));
+  if (missingTargets.length > 0 || carrierAmbiguous || duplicateTargets.size > 0) {
     augmentSlice(index, cancellation);
     return failedFieldProof(
       origin,
       candidates[0]?.candidate.collectionField ?? index.byId(origin.elementId),
       "source-carrier",
       [],
-      missingLabels.length === FIELD_PROOF_TARGETS.length && !carrierAmbiguous && duplicateLabels.size === 0
+      missingTargets.length === FIELD_PROOF_TARGETS.length && !carrierAmbiguous && duplicateTargets.size === 0
         ? "The selected filesystem evidence has no unique exact carrier chain to an anchored collection field read."
-        : `The selected filesystem evidence is missing or duplicates exact consumer targets: ${[...missingLabels, ...duplicateLabels].join(", ") || "duplicate target"}`,
+        : duplicateTargets.size > 0
+          ? "The selected filesystem evidence has more than one exact proof identity for one obligation."
+        : `The selected filesystem evidence is missing exact consumer targets: ${missingTargets.length}`,
       cancellation,
+      duplicateTargets.size > 0 ? "ambiguous-target" : "partial-proof",
     );
   }
   const proofs: RouteTotalityFieldLineage[] = [];
-  for (const { candidate, carrier, anchor } of candidatesByLabel.values()) {
+  for (const target of FIELD_PROOF_TARGETS) {
+    const selected = candidatesByTarget.get(fieldProofTargetKey(target));
+    if (!selected) continue;
+    const { candidate, carrier, anchor } = selected;
     const assembled = assembleFieldProofTransformations(index, origin, candidate, carrier, cancellation);
     const accepted: RouteTotalityFieldTransformation[] = [];
     const expectedKinds = candidate.boundary
@@ -177,15 +184,38 @@ function anchorCandidate(
   const anchors = buildRouteTotalityAnchorIndex(index.slice, surface, cancellation);
   if (candidate.directConsumer) {
     const boundaryOccurrence = candidate.boundary?.occurrence ?? null;
-    const ownerSymbol = boundaryOccurrence?.symbol ?? candidate.occurrence.symbol;
+    const ownerSymbol = candidate.ownerIdentity;
     const occurrences = ownerSymbol
       ? surface.occurrences.filter((item) => item.scopeSeed === surface.scope.seed && sameCompilerIdentity(item.definitionCompilerIdentity, ownerSymbol))
       : [];
     if (boundaryOccurrence) {
       const occurrence = anchors.occurrenceAnchorsByEvidenceElementId.get(boundaryOccurrence.id) ?? [];
-      const terminal = componentTerminalAnchor(index, anchors, surface, occurrence[0]?.endpoint.id ?? null, candidate.consumerField.location, cancellation);
-      return occurrence.length === 1 && terminal
-        ? { occurrenceId: occurrence[0].endpoint.id, terminalId: terminal.endpoint.id, evidenceElementId: terminal.evidenceElementId }
+      if (occurrence.length !== 1) return null;
+      if (candidate.renderTerminal) {
+        const indexed = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
+        const exactLocation = anchors.terminalAnchors
+          .filter((anchor) => sameLocation(anchor.endpoint.location, candidate.renderTerminal.location));
+        const terminal = indexed.length > 0 ? indexed : exactLocation;
+        if (terminal.length === 1) {
+          return { occurrenceId: occurrence[0].endpoint.id, terminalId: terminal[0].endpoint.id, evidenceElementId: terminal[0].evidenceElementId };
+        }
+        const exactSurfaceTerminals = surface.terminals.filter((item) => sameLocation(item.location, candidate.renderTerminal.location));
+        if (exactSurfaceTerminals.length === 1) {
+          return { occurrenceId: occurrence[0].endpoint.id, terminalId: exactSurfaceTerminals[0].id, evidenceElementId: candidate.renderTerminal.id };
+        }
+        const parentId = surface.occurrences.find((item) => item.id === occurrence[0].endpoint.id)?.parentOccurrenceId ?? null;
+        const containing = parentId
+          ? anchors.terminalAnchors.filter((anchor) => anchor.endpoint.ownerOccurrenceId === parentId)
+          : [];
+        return containing.length === 1
+          ? { occurrenceId: occurrence[0].endpoint.id, terminalId: containing[0].endpoint.id, evidenceElementId: containing[0].evidenceElementId }
+          : null;
+      }
+      const parentId = surface.occurrences.find((item) => item.id === occurrence[0].endpoint.id)?.parentOccurrenceId ?? null;
+      if (!parentId) return null;
+      const containing = anchors.terminalAnchors.filter((anchor) => anchor.endpoint.ownerOccurrenceId === parentId);
+      return containing.length === 1
+        ? { occurrenceId: occurrence[0].endpoint.id, terminalId: containing[0].endpoint.id, evidenceElementId: containing[0].evidenceElementId }
         : null;
     }
     const terminal = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
@@ -200,53 +230,28 @@ function anchorCandidate(
     : null;
 }
 
-function sameCompilerIdentity(left: string, right: string): boolean {
-  return left === right || left === right.split("@")[0] || right === left.split("@")[0];
-}
-
-function componentTerminalAnchor(
-  index: RouteTotalityFieldProofIndex,
-  anchors: ReturnType<typeof buildRouteTotalityAnchorIndex>,
-  surface: FieldProofInput["surface"],
-  occurrenceId: string | null,
-  location: ProgramElement["location"],
-  cancellation: AnalysisCancellationToken,
-) {
-  if (!occurrenceId) return null;
-  const descendantIds = new Set<string>([occurrenceId]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const occurrence of surface.occurrences) {
-      cancellation.throwIfCancelled();
-      if ((occurrence.parentOccurrenceId && descendantIds.has(occurrence.parentOccurrenceId)
-        || occurrence.renderParentId && descendantIds.has(occurrence.renderParentId)) && !descendantIds.has(occurrence.id)) {
-        descendantIds.add(occurrence.id);
-        changed = true;
-      }
-    }
-  }
-  const descendants = anchors.terminalAnchors.filter((anchor) => descendantIds.has(anchor.endpoint.ownerOccurrenceId ?? ""));
-  const exact = descendants.filter((anchor) => sameLocation(anchor.endpoint.location, location));
-  const anchored = (exact.length ? exact : descendants).sort((left, right) => left.endpoint.id.localeCompare(right.endpoint.id))[0];
-  if (anchored) return anchored;
-  const surfaceTerminals = surface.terminals
-    .filter((terminal) => descendantIds.has(terminal.ownerOccurrenceId ?? ""))
-    .filter((terminal) => sameLocation(terminal.location, location));
-  const fallbackTerminals = surfaceTerminals.length > 0
-    ? surfaceTerminals
-    : surface.terminals.filter((terminal) => descendantIds.has(terminal.ownerOccurrenceId ?? ""));
-  for (const terminal of [...fallbackTerminals].sort((left, right) => left.id.localeCompare(right.id))) {
-    const kind = terminal.kind === "jsx-text" || terminal.kind === "render-expression" ? "render-terminal" : "dom-terminal";
-    const evidence = index.elementsAtLocation(terminal.location, [kind]).filter((element) => element.terminalRoles.includes("render"));
-    if (evidence.length === 1) return { endpoint: terminal, evidenceElementId: evidence[0].id, routeLocation: terminal.location };
-  }
-  return null;
-}
-
 function sameLocation(left: ProgramElement["location"], right: ProgramElement["location"]): boolean {
   return left.file === right.file && left.span.startLine === right.span.startLine && left.span.startColumn === right.span.startColumn
     && left.span.endLine === right.span.endLine && left.span.endColumn === right.span.endColumn;
+}
+
+function sameCompilerIdentity(left: string, right: string): boolean {
+  return left === right;
+}
+
+function sameProofIdentity(
+  left: { candidate: FieldProofCandidate; carrier: FieldCarrierPath },
+  right: { candidate: FieldProofCandidate; carrier: FieldCarrierPath },
+): boolean {
+  return left.candidate.targetKey === right.candidate.targetKey
+    && left.candidate.findResult.id === right.candidate.findResult.id
+    && left.candidate.binding.id === right.candidate.binding.id
+    && left.candidate.consumerField.id === right.candidate.consumerField.id
+    && left.candidate.consumerValue.id === right.candidate.consumerValue.id
+    && left.candidate.occurrence.id === right.candidate.occurrence.id
+    && left.candidate.renderTerminal.id === right.candidate.renderTerminal.id
+    && left.carrier.call.id === right.carrier.call.id
+    && left.carrier.relations.map((relation) => relation.id).join("\0") === right.carrier.relations.map((relation) => relation.id).join("\0");
 }
 
 function augmentSlice(index: RouteTotalityFieldProofIndex, cancellation: AnalysisCancellationToken): void {

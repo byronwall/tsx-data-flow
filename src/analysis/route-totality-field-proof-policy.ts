@@ -5,11 +5,13 @@ export type FieldProofConsumerSelector = {
   componentName?: string;
   propName?: string;
   tagName?: string;
+  tagModule?: string;
   actionName?: string;
   argumentName?: string;
   conditionOperator?: string;
   conditionLiteral?: string;
   nestedShow?: boolean;
+  collectionName?: string;
 };
 
 export type FieldProofTargetSelector = {
@@ -34,6 +36,7 @@ export const DIRECT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
       directConsumer: true,
       componentName: "PageHeader",
       propName: "eyebrow",
+      tagModule: "./PageHeader",
       conditionOperator: "===",
       conditionLiteral: "completed",
     },
@@ -48,6 +51,7 @@ export const DIRECT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
       directConsumer: false,
       componentName: "PageHeader",
       propName: "title",
+      tagModule: "./PageHeader",
     },
   },
   {
@@ -60,6 +64,7 @@ export const DIRECT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
       directConsumer: true,
       componentName: "PageHeader",
       propName: "description",
+      tagModule: "./PageHeader",
     },
   },
   {
@@ -72,6 +77,7 @@ export const DIRECT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
       directConsumer: true,
       componentName: "PageHeader",
       propName: "description",
+      tagModule: "./PageHeader",
     },
   },
   {
@@ -84,6 +90,7 @@ export const DIRECT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
       directConsumer: true,
       tagName: "Show",
       propName: "when",
+      tagModule: "solid-js",
       conditionOperator: "!==",
       conditionLiteral: "completed",
       nestedShow: true,
@@ -99,6 +106,7 @@ export const DIRECT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
       directConsumer: true,
       tagName: "A",
       propName: "href",
+      tagModule: "@solidjs/router",
     },
   },
   {
@@ -111,6 +119,7 @@ export const DIRECT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
       directConsumer: true,
       tagName: "Show",
       propName: "when",
+      tagModule: "solid-js",
       conditionOperator: "!==",
       conditionLiteral: "completed",
       nestedShow: false,
@@ -138,6 +147,7 @@ export const DIRECT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
       directConsumer: true,
       tagName: "Show",
       propName: "when",
+      tagModule: "solid-js",
       conditionOperator: "===",
       conditionLiteral: "completed",
       nestedShow: false,
@@ -154,7 +164,7 @@ export const COMPONENT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] 
     chain: "whole-object",
     componentName: "ScheduledGamePlanningDetails",
     componentPropName: "game",
-    consumer: { kind: "render", label: "ScheduledGamePlanningDetails venue", directConsumer: true, tagName: "Text" },
+    consumer: { kind: "render", label: "ScheduledGamePlanningDetails venue", directConsumer: true, tagName: "Text", tagModule: "~/components/ui/text" },
   },
   {
     collectionFieldName: "games",
@@ -163,7 +173,7 @@ export const COMPONENT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] 
     chain: "whole-object",
     componentName: "ScheduledGamePlanningDetails",
     componentPropName: "game",
-    consumer: { kind: "render", label: "ScheduledGamePlanningDetails address", directConsumer: true, tagName: "Text" },
+    consumer: { kind: "render", label: "ScheduledGamePlanningDetails address", directConsumer: true, tagName: "Text", tagModule: "~/components/ui/text" },
   },
   {
     collectionFieldName: "games",
@@ -172,7 +182,7 @@ export const COMPONENT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] 
     chain: "whole-object",
     componentName: "ScheduledGamePlanningDetails",
     componentPropName: "game",
-    consumer: { kind: "condition", label: "Scheduled availability gameId condition", directConsumer: true },
+    consumer: { kind: "condition", label: "Scheduled availability gameId condition", directConsumer: true, collectionName: "availability" },
   },
   {
     collectionFieldName: "games",
@@ -199,7 +209,7 @@ export const COMPONENT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] 
     chain: "scalar-alias",
     componentName: "CompletedGameSummary",
     componentPropName: "gameId",
-    consumer: { kind: "condition", label: "Completed schedule gameId condition", directConsumer: true },
+    consumer: { kind: "condition", label: "Completed schedule gameId condition", directConsumer: true, collectionName: "schedules" },
   },
   {
     collectionFieldName: "games",
@@ -208,7 +218,7 @@ export const COMPONENT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] 
     componentName: "CompletedGameSummary",
     componentPropName: "gameId",
     consumerFieldName: "gameId",
-    consumer: { kind: "condition", label: "Completed availability gameId condition", directConsumer: true },
+    consumer: { kind: "condition", label: "Completed availability gameId condition", directConsumer: true, collectionName: "availability" },
   },
   {
     collectionFieldName: "games",
@@ -217,7 +227,7 @@ export const COMPONENT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] 
     componentName: "CompletedGameSummary",
     componentPropName: "gameId",
     consumerFieldName: "gameId",
-    consumer: { kind: "condition", label: "Completed live gameId condition", directConsumer: true },
+    consumer: { kind: "condition", label: "Completed live gameId condition", directConsumer: true, collectionName: "liveGames" },
   },
   {
     collectionFieldName: "games",
@@ -226,11 +236,36 @@ export const COMPONENT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] 
     componentName: "CompletedGameSummary",
     componentPropName: "gameId",
     consumerFieldName: "gameId",
-    consumer: { kind: "render", label: "Completed A.href live", directConsumer: true, tagName: "A", propName: "href" },
+    consumer: { kind: "render", label: "Completed A.href live", directConsumer: true, tagName: "A", propName: "href", tagModule: "@solidjs/router" },
   },
 ];
 
 export const FIELD_PROOF_TARGETS = [...DIRECT_FIELD_PROOF_TARGETS, ...COMPONENT_FIELD_PROOF_TARGETS] as const;
+
+export function fieldProofTargetKey(target: FieldProofTargetSelector): string {
+  return JSON.stringify({
+    collectionFieldName: target.collectionFieldName,
+    predicateFieldName: target.predicateFieldName,
+    consumerFieldName: target.consumerFieldName,
+    chain: target.chain ?? "direct",
+    componentName: target.componentName ?? null,
+    componentPropName: target.componentPropName ?? null,
+    consumer: {
+      kind: target.consumer.kind,
+      directConsumer: target.consumer.directConsumer,
+      componentName: target.consumer.componentName ?? null,
+      propName: target.consumer.propName ?? null,
+      tagName: target.consumer.tagName ?? null,
+      tagModule: target.consumer.tagModule ?? null,
+      actionName: target.consumer.actionName ?? null,
+      argumentName: target.consumer.argumentName ?? null,
+      conditionOperator: target.consumer.conditionOperator ?? null,
+      conditionLiteral: target.consumer.conditionLiteral ?? null,
+      nestedShow: target.consumer.nestedShow ?? null,
+      collectionName: target.consumer.collectionName ?? null,
+    },
+  });
+}
 
 /** G02 remains a stable named export for the exact transfer regression gate. */
 export const G02_FIELD_TARGET = DIRECT_FIELD_PROOF_TARGETS[1];

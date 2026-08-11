@@ -37,6 +37,13 @@ export const componentBindingMetadataSchema = z.strictObject({
   receiverElementId: nonEmptyStringSchema.nullable(),
   candidateCount: nonNegativeIntegerSchema.nullable(),
 });
+export const handlerIdentitySchema = z.strictObject({
+  receiverSymbol: nonEmptyStringSchema,
+  methodSymbol: nonEmptyStringSchema,
+  calleeSymbol: nonEmptyStringSchema.nullable(),
+  actionArgumentSymbol: nonEmptyStringSchema.nullable(),
+  forwardedParameterSymbol: nonEmptyStringSchema.nullable(),
+});
 const scopeDirectionSchema = z.enum(["forward", "backward", "both"]);
 const boundaryKindSchema = z.enum([
   "external-code",
@@ -127,6 +134,7 @@ const programElementSchema = z.strictObject({
   proof: z.array(evidenceProofSchema),
   symbol: nonEmptyStringSchema.nullable(),
   componentBinding: componentBindingMetadataSchema.nullable(),
+  handlerIdentity: handlerIdentitySchema.nullable(),
   consumerKind: z.enum(["render", "condition", "handler"]).nullable().optional(),
   consumerLabel: nonEmptyStringSchema.nullable().optional(),
   originRoles: z.array(originRoleSchema),

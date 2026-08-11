@@ -2,6 +2,7 @@ import type { AnalysisCancellationToken } from "./cancellation";
 import type { RouteTotalityFieldTransformation } from "./route-totality-field-lineage";
 import type { ComponentBindingMetadata } from "./program-component-binding-metadata";
 import type { EvidenceProof, EvidenceStatus, SourceLocation } from "./scope-seam";
+import { deriveComponentTargetPolicy, verifyComponentBoundaryPattern } from "./route-totality-field-transfer-component-verifier";
 
 export const EXACT_FIELD_TRANSFER_KINDS = [
   "source-carrier",
@@ -42,6 +43,13 @@ export type FieldTransferElement = {
   proof: readonly EvidenceProof[];
   location: SourceLocation;
   componentBinding: ComponentBindingMetadata | null;
+  handlerIdentity?: {
+    receiverSymbol: string;
+    methodSymbol: string;
+    calleeSymbol: string | null;
+    actionArgumentSymbol: string | null;
+    forwardedParameterSymbol: string | null;
+  } | null;
   consumerKind?: "render" | "condition" | "handler" | null;
   consumerLabel?: string | null;
   attributes?: Record<string, string | number | boolean | null>;
@@ -200,63 +208,6 @@ export function deriveExactFieldTargetPolicy(
   };
 }
 
-function deriveComponentTargetPolicy(
-  transfers: readonly RouteTotalityFieldTransformation[],
-  graph: FieldTransferGraph,
-  chain: "whole-object" | "scalar-alias",
-): ExactFieldTargetPolicy | null {
-  const collection = graph.element(transfers[1].toElementIds[0]);
-  const predicateRelations = transfers[4].evidenceRelationIds.map((id) => graph.relation(id));
-  const predicate = predicateRelations.length === 3 && predicateRelations[1] ? graph.element(predicateRelations[1].to) : undefined;
-  const boundary = transfers[chain === "whole-object" ? 10 : 11];
-  const final = transfers.at(-1)!;
-  const consumerField = graph.element(chain === "whole-object" ? transfers[11].toElementIds[0] : final.fromElementIds[0]);
-  const binding = graph.element(final.toElementIds[0]);
-  const metadata = graph.element(boundary.evidenceRelationIds[0] ? graph.relation(boundary.evidenceRelationIds[0])?.to ?? "" : "")?.componentBinding
-    ?? boundary.supportingElementIds.map((id) => graph.element(id)).find((element) => element?.kind === "component-prop-binding")?.componentBinding;
-  const support = [...boundary.supportingElementIds, ...final.supportingElementIds]
-    .map((id) => graph.element(id)).filter((element): element is FieldTransferElement => Boolean(element));
-  const occurrence = support.find((element) => element.kind === "component-occurrence");
-  const definition = support.find((element) => element.kind === "component-definition");
-  const renderTerminal = support.find((element) => element.kind === "render-terminal");
-  const consumerKind = consumerKindOf(binding);
-  const consumerLabel = consumerLabelOf(binding);
-  const sourceField = chain === "scalar-alias" ? graph.element(transfers[10].toElementIds[0]) : undefined;
-  const receiver = graph.element(boundary.toElementIds[0]);
-  if (!collection?.fieldName || !predicate?.fieldName || !consumerField?.fieldName || !binding || binding.kind !== "field-consumer"
-    || !metadata || !occurrence || !definition || !occurrence.symbol || occurrence.symbol !== definition.symbol
-    || !renderTerminal || !consumerKind || !consumerLabel || !receiver || receiver.kind !== "field-read"
-    || (chain === "scalar-alias" && (!sourceField?.fieldName || metadata.valueMode !== "scalar-alias"))
-    || (chain === "whole-object" && metadata.valueMode !== "whole-object")) {
-    return null;
-  }
-  return {
-    transferKinds: transfers.map((transfer) => transfer.kind),
-    chain,
-    collectionFieldElementId: collection.id,
-    collectionFieldName: collection.fieldName,
-    predicateFieldElementId: predicate.id,
-    predicateFieldName: predicate.fieldName,
-    consumerFieldElementId: consumerField.id,
-    consumerFieldName: consumerField.fieldName,
-    consumerValueElementId: consumerField.id,
-    bindingElementId: binding.id,
-    componentOccurrenceElementId: occurrence.id,
-    componentDefinitionElementId: definition.id,
-    componentSymbol: occurrence.symbol,
-    componentLabel: definition.label,
-    propName: metadata.propName ?? "",
-    renderTerminalElementId: renderTerminal.id,
-    consumerKind: consumerKind as "render" | "condition" | "handler",
-    consumerLabel: String(consumerLabel),
-    directConsumer: true,
-    sourceFieldElementId: sourceField?.id,
-    sourceFieldName: sourceField?.fieldName ?? undefined,
-    currentValueElementId: transfers[9].toElementIds[0],
-    componentReceiverElementId: receiver.id,
-  };
-}
-
 function verifySemantics(
   kind: ExactFieldTransferKind,
   source: FieldTransferElement,
@@ -280,7 +231,7 @@ function verifySemantics(
   if (kind === "nested-property-read") return policyPattern(exactPattern(source, target, relations, ["field-input"], ["property-access"], "call", "field-read"), target, policy?.consumerFieldElementId, policy?.consumerFieldName, "C11");
   if (kind === "component-source-field") return policyPattern(exactPattern(source, target, relations, ["field-input"], ["property-access"], "call", "field-read"), target, policy?.sourceFieldElementId, policy?.sourceFieldName, "component source field");
   if (kind === "component-property-read") return policyPattern(exactPattern(source, target, relations, ["field-input"], ["property-access"], "field-read", "field-read"), target, policy?.consumerFieldElementId, policy?.consumerFieldName, "component property read");
-  if (kind === "component-boundary") return componentBoundaryPattern(source, target, relations, transfer, graph, cancellation, policy);
+  if (kind === "component-boundary") return verifyComponentBoundaryPattern(source, target, relations, transfer, graph, cancellation, policy);
   return consumerPattern(source, target, relations, transfer, graph, cancellation, policy);
 }
 
@@ -359,11 +310,10 @@ function consumerPattern(
       return failure("C12 requires one exact direct consumer relation.");
     }
     const kind = consumerKindOf(target) ?? (target.kind === "field-consumer" ? "render" : undefined);
-    const label = consumerLabelOf(target) ?? (target.kind === "field-consumer" ? "" : undefined);
-    if ((kind !== "condition" && kind !== "render" && kind !== "handler") || (typeof label !== "string" && target.kind !== "field-consumer")) {
-      return failure("C12 requires a typed direct consumer label.");
+    if (kind !== "condition" && kind !== "render" && kind !== "handler") {
+      return failure("C12 requires a typed direct consumer kind.");
     }
-    if (policy && (!policy.directConsumer || (consumerKindOf(target) && (policy.consumerKind !== kind || policy.consumerLabel !== label))
+    if (policy && (!policy.directConsumer || (consumerKindOf(target) && policy.consumerKind !== kind)
       || source.id !== policy.consumerFieldElementId || target.id !== policy.bindingElementId)) {
       return failure("C12 does not match the compiler-derived direct-consumer target policy.");
     }
@@ -418,42 +368,6 @@ function policyPattern(
   return target.id === expectedId && target.fieldName === expectedName
     ? { ok: true }
     : failure(`${step} does not match the compiler-derived target policy.`);
-}
-
-function componentBoundaryPattern(
-  source: FieldTransferElement,
-  target: FieldTransferElement,
-  relations: readonly FieldTransferRelation[],
-  transfer: RouteTotalityFieldTransformation,
-  graph: FieldTransferGraph,
-  cancellation: AnalysisCancellationToken,
-  policy: ExactFieldTargetPolicy | null,
-): FieldTransferVerification {
-  if (source.kind !== "call" && source.kind !== "field-read") return failure("Component boundary source must be the exact caller value.");
-  if (target.kind !== "field-read") return failure("Component boundary target must be the exact child prop receiver.");
-  if (relations.length !== 2) return failure("Component boundary requires value-to-binding and binding-to-receiver relations.");
-  if (relations[0].kind !== "component-prop-binding" || relations[1].kind !== "component-prop-binding"
-    || relations[0].proof.kind !== "component-prop-binding" || relations[1].proof.kind !== "component-prop-binding") {
-    return failure("Component boundary requires two exact component-prop-binding relations.");
-  }
-  const binding = graph.element(relations[0].to);
-  const receiver = graph.element(relations[1].to);
-  const metadata = binding?.componentBinding;
-  const support = transfer.supportingElementIds.map((id) => graph.element(id)).filter(Boolean) as FieldTransferElement[];
-  const occurrence = support.find((element) => element.kind === "component-occurrence");
-  const definition = support.find((element) => element.kind === "component-definition");
-  if (!binding || binding.kind !== "component-prop-binding" || !metadata || metadata.candidateCount === 0
-    || !receiver || receiver.kind !== "field-read" || !occurrence || !definition
-    || occurrence.kind !== "component-occurrence" || definition.kind !== "component-definition"
-    || !occurrence.symbol || occurrence.symbol !== definition.symbol) return failure("Component boundary ownership is incomplete or ambiguous.");
-  const occurrenceRelations = transfer.supportingRelationIds.map((id) => graph.relation(id)).filter(Boolean) as FieldTransferRelation[];
-  if (occurrenceRelations.length !== 1 || occurrenceRelations[0].from !== occurrence.id || occurrenceRelations[0].to !== definition.id
-    || occurrenceRelations[0].kind !== "component-occurrence" || occurrenceRelations[0].proof.kind !== "compiler-symbol") return failure("Component boundary lacks one exact occurrence-definition relation.");
-  if (policy && (policy.chain === "direct" || source.id !== (policy.sourceFieldElementId ?? policy.currentValueElementId)
-    || target.id !== policy.componentReceiverElementId || occurrence.id !== policy.componentOccurrenceElementId
-    || definition.id !== policy.componentDefinitionElementId)) return failure("Component boundary does not match the compiler-derived target policy.");
-  cancellation.throwIfCancelled();
-  return { ok: true };
 }
 
 function exactPattern(

@@ -41,48 +41,44 @@ export class ProgramEvidenceCollectorComponentBindingSupport extends ProgramEvid
       if (!propName) continue;
       const receivers = this.componentPropReceivers(pending.target, propName);
       if (receivers.length === 0) continue;
-      const bindingId = this.ensureElement(
-        pending.attribute,
-        "component-prop-binding",
-        pending.ownerId,
-        {
-          propName,
-          valueMode: componentPropValueMode(this.ts, pending.attribute),
-          sourceFieldName: componentPropSourceField(this.ts, pending.attribute),
-          componentOccurrenceElementId: pending.occurrenceId,
-          componentDefinitionId: pending.target.id,
-          parameterElementId: receivers.length === 1 ? receivers[0].parameterId : null,
-          receiverElementId: receivers.length === 1 ? receivers[0].elementId : null,
-          candidateCount: receivers.length,
-        },
-        null,
-        null,
-        pending.target.id,
-        "proven",
-        proof(
-          "component-prop-binding",
-          "The static JSX prop has explicit in-project component parameter member evidence.",
-          [
-            this.location(pending.opening),
-            this.location(pending.attribute),
-            ...receivers.flatMap((receiver) => [this.location(receiver.parameter), this.location(receiver.node)]),
-          ],
-        ),
-      );
-      this.addRelation(
-        pending.valueId,
-        bindingId,
-        "component-prop-binding",
-        [this.location(pending.attribute), ...receivers.map((receiver) => this.location(receiver.node))],
-        proof(
-          "component-prop-binding",
-          "The component-prop value reaches one occurrence-specific binding element with compiler-backed receiver evidence.",
-          [this.location(pending.attribute), ...receivers.flatMap((receiver) => [this.location(receiver.parameter), this.location(receiver.node)])],
-        ),
-        "proven",
-      );
       for (const receiver of receivers) {
         this.checkCancellation();
+        const bindingId = this.ensureElement(
+          pending.attribute,
+          "component-prop-binding",
+          pending.ownerId,
+          {
+            propName,
+            valueMode: componentPropValueMode(this.ts, pending.attribute),
+            sourceFieldName: componentPropSourceField(this.ts, pending.attribute),
+            componentOccurrenceElementId: pending.occurrenceId,
+            componentDefinitionId: pending.target.id,
+            parameterElementId: receiver.parameterId,
+            receiverElementId: receiver.elementId,
+            candidateCount: 1,
+          },
+          null,
+          null,
+          pending.target.id,
+          "proven",
+          proof(
+            "component-prop-binding",
+            "The static JSX prop has one exact in-project component parameter member binding.",
+            [this.location(pending.opening), this.location(pending.attribute), this.location(receiver.parameter), this.location(receiver.node)],
+          ),
+        );
+        this.addRelation(
+          pending.valueId,
+          bindingId,
+          "component-prop-binding",
+          [this.location(pending.attribute), this.location(receiver.node)],
+          proof(
+            "component-prop-binding",
+            "The component-prop value reaches one occurrence-specific binding with one compiler-backed receiver.",
+            [this.location(pending.attribute), this.location(receiver.parameter), this.location(receiver.node)],
+          ),
+          "proven",
+        );
         this.addRelation(
           bindingId,
           receiver.elementId,

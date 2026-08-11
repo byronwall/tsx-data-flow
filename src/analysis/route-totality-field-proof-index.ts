@@ -7,7 +7,6 @@ import { toSliceElement, toSliceRelation } from "./evidence-slice-normalization"
 import type { ProgramElement, ProgramRelation } from "./scope-seam";
 import type { RouteTotalitySelectedSource } from "./route-totality-selected-source";
 import type { CompactProgramFact } from "./program-evidence-compact-facts";
-import { stableId } from "./program-evidence-support";
 
 export type SelectedFilesystemInputResolution =
   | { kind: "exact"; element: ProgramElement }
@@ -48,6 +47,25 @@ export class RouteTotalityFieldProofIndex {
     return candidates.length === 1 ? candidates[0] : null;
   }
 
+  elements(node: TypeScript.Node, kind: string): ProgramElement[] {
+    const source = node.getSourceFile();
+    const start = source.getLineAndCharacterOfPosition(node.getStart(source));
+    const end = source.getLineAndCharacterOfPosition(node.getEnd());
+    const file = path.relative(this.root, source.fileName);
+    const key = `${file}:${start.line + 1}:${start.character + 1}:${end.line + 1}:${end.character + 1}`;
+    let candidates = (this.elementsByKey.get(key) ?? []).filter((candidate) => candidate.kind === kind && candidate.status === "proven");
+    if (candidates.length === 0) {
+      for (const fact of this.provider.facts.fileCandidates(file)) {
+        if (fact.kind !== kind || fact.confidence !== "proven" || locationKey(fact.location) !== key) continue;
+        const element = this.provider.facts.getElement(fact.id);
+        if (element) this.addElement(toSliceElement(element));
+      }
+      candidates = (this.elementsByKey.get(key) ?? []).filter((candidate) => candidate.kind === kind && candidate.status === "proven");
+    }
+    return [...new Map(candidates.map((candidate) => [candidate.id, candidate])).values()]
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
   byId(id: string): ProgramElement | null {
     const existing = this.elementsById.get(id);
     if (existing) return existing;
@@ -70,31 +88,10 @@ export class RouteTotalityFieldProofIndex {
   }
 
   exactRelations(from: string, to: string, kind: string, proofKind: string, cancellation: AnalysisCancellationToken): ProgramRelation[] {
-    const relations = this.outgoing(from, cancellation).filter((relation) => (
+    return this.outgoing(from, cancellation).filter((relation) => (
       relation.to === to && relation.kind === kind && relation.proof.kind === proofKind
         && relation.status === "proven" && relation.proof.status === "proven"
     ));
-    if (relations.length > 0 || kind !== "field-input" || proofKind !== "property-access") return relations;
-    const source = this.byId(from);
-    const target = this.byId(to);
-    if (!source || !target || source.kind !== "field-read" || target.kind !== "field-read"
-      || source.location.file !== target.location.file
-      || source.source.start !== target.source.start || source.source.end >= target.source.end) return relations;
-    const relation: ProgramRelation = {
-      id: stableId("program-relation", [from, to, kind, source.location, target.location, proofKind]),
-      from,
-      to,
-      kind,
-      status: "proven",
-      proof: {
-        kind: proofKind,
-        detail: "The exact compiler field-read spans establish the nested property receiver relation.",
-        locations: [target.location],
-        status: "proven",
-      },
-    };
-    this.addRelation(relation);
-    return [relation];
   }
 
   materializedElements(): ProgramElement[] {

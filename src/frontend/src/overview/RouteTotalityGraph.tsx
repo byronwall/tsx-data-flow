@@ -239,7 +239,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
 
   createEffect(() => {
     const focus = activeFieldOrigin();
-    if (focus && !hasRouteTotalityFieldOrigin(props.totality, focus)) {
+    if (focus && props.totality && !hasRouteTotalityFieldOrigin(props.totality, focus)) {
       setActiveFieldOrigin(null);
       setFieldInspectorScope(null);
     }
