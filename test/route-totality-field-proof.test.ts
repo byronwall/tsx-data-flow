@@ -7,6 +7,13 @@ import { routeTotalityForRoute } from "../src/analysis/route-data-session";
 
 const soccerAppRoot = "/Users/byronwall/Projects/soccer-schedule/app";
 const noSelectedSourceReason = "No source is selected; exact field lineage is inactive.";
+const expectedSoccerReadFileSource = {
+  key: "source-method:h2su1z",
+  label: "readFile",
+  kind: "file" as const,
+  file: "src/lib/soccer/store-persistence.ts",
+  line: 93,
+};
 
 type TargetKey = {
   collectionFieldName: string;
@@ -164,7 +171,18 @@ beforeAll(async () => {
 function routeDetail(pathPattern: string, selectedSource = true) {
   const route = inventory.routes.find((item) => item.pathPattern === pathPattern);
   if (!route) throw new Error(`Route ${pathPattern} was not found`);
-  const sourceKey = route.sourceMethodKeys[0] ?? null;
+  const sourceMatches = inventory.sources.filter((source) =>
+    source.routeKeys.includes(route.key)
+    && source.key === expectedSoccerReadFileSource.key
+    && source.label === expectedSoccerReadFileSource.label
+    && source.kind === expectedSoccerReadFileSource.kind
+    && source.file === expectedSoccerReadFileSource.file
+    && source.line === expectedSoccerReadFileSource.line,
+  );
+  if (pathPattern === "/games/[gameId]" && sourceMatches.length !== 1) {
+    throw new Error(`Expected exactly one readFile source for ${pathPattern}, found ${sourceMatches.length}`);
+  }
+  const sourceKey = sourceMatches[0]?.key ?? null;
   const trajectory = inventory.trajectories.find((item) => item.routeKey === route.key && item.sourceMethodKeys.includes(sourceKey ?? ""));
   if (!trajectory) throw new Error(`Route ${pathPattern} has no source trajectory`);
   const detail = buildRouteDataDetail(report, route.key, trajectory.key, selectedSource ? sourceKey : null);
@@ -244,10 +262,11 @@ describe("soccer schedule route totality field proof", () => {
     const evidence = availableEvidence(totality);
 
     for (const attachment of totality.fieldLineage.attachments) {
+      expect(attachment.terminalIds).toHaveLength(1);
       const occurrenceTerminals = totality.occurrenceSurface.terminals.filter((terminal) => attachment.terminalIds.includes(terminal.id));
       expect(occurrenceTerminals).toHaveLength(1);
-      expect(occurrenceTerminals[0].ownerOccurrenceId).toBe(attachment.occurrenceId);
-      expect(occurrenceTerminals[0].id).toBe(attachment.terminalIds[0]);
+      expect(occurrenceTerminals.every((terminal) => terminal.ownerOccurrenceId === attachment.occurrenceId)).toBe(true);
+      expect(occurrenceTerminals.map((terminal) => terminal.id)).toEqual(attachment.terminalIds);
 
       const consumer = attachment.consumer;
       if (!consumer) throw new Error(`Attachment ${attachment.field.label} has no consumer`);
@@ -272,7 +291,7 @@ describe("soccer schedule route totality field proof", () => {
     expect(repeated).toEqual(selected.detail);
     const lineage = selected.detail.totality!.fieldLineage;
     const selectedSource = selected.detail.sources.find((source) => source.key === selected.sourceKey);
-    expect(selectedSource).toBeDefined();
+    expect(selectedSource).toEqual(expect.objectContaining(expectedSoccerReadFileSource));
     expect(lineage.attachments.every((attachment) => attachment.origin.selectedEvidenceId === selectedSource!.evidenceId)).toBe(true);
     expect(lineage.attachments.map((attachment) => attachment.id)).toEqual([...lineage.attachments].sort((left, right) => left.id.localeCompare(right.id)).map((attachment) => attachment.id));
     expect(lineage.transformations.map((transformation) => transformation.id)).toEqual([...lineage.transformations].sort((left, right) => left.id.localeCompare(right.id)).map((transformation) => transformation.id));
