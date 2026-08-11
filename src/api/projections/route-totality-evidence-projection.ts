@@ -36,6 +36,12 @@ export function projectEvidenceSlice(slice: DomainEvidenceValue, cancellation: A
       componentBinding: element.componentBinding
         ? { ...element.componentBinding }
         : null,
+      consumerKind: element.kind === "field-consumer"
+        ? (typeof element.attributes?.consumerKind === "string" ? element.attributes.consumerKind as "render" | "condition" | "handler" : null)
+        : null,
+      consumerLabel: element.kind === "field-consumer"
+        ? (typeof element.attributes?.label === "string" && element.attributes.label.length > 0 ? element.attributes.label : null)
+        : null,
       originRoles: [...element.originRoles],
       terminalRoles: [...element.terminalRoles],
       boundary: element.boundary,

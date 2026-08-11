@@ -29,6 +29,8 @@ export const evidenceProofSchema = z.strictObject({
 });
 export const componentBindingMetadataSchema = z.strictObject({
   propName: nonEmptyStringSchema.nullable(),
+  valueMode: z.enum(["whole-object", "scalar-alias"]).nullable().optional(),
+  sourceFieldName: nonEmptyStringSchema.nullable().optional(),
   componentOccurrenceElementId: nonEmptyStringSchema.nullable(),
   componentDefinitionId: nonEmptyStringSchema.nullable(),
   parameterElementId: nonEmptyStringSchema.nullable(),
@@ -125,6 +127,8 @@ const programElementSchema = z.strictObject({
   proof: z.array(evidenceProofSchema),
   symbol: nonEmptyStringSchema.nullable(),
   componentBinding: componentBindingMetadataSchema.nullable(),
+  consumerKind: z.enum(["render", "condition", "handler"]).nullable().optional(),
+  consumerLabel: nonEmptyStringSchema.nullable().optional(),
   originRoles: z.array(originRoleSchema),
   terminalRoles: z.array(terminalRoleSchema),
   boundary: boundaryKindSchema.nullable(),

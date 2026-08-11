@@ -121,7 +121,6 @@ export class ProgramEvidenceCollectorComponentBindingSupport extends ProgramEvid
     const receivers: ComponentPropReceiver[] = [];
     const visit = (node: TypeScript.Node) => {
       this.checkCancellation();
-      if (node !== target.declaration && this.ts.isFunctionLike(node)) return;
       if (
         this.ts.isPropertyAccessExpression(node)
         && !node.questionDotToken

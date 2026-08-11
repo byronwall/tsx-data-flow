@@ -7,6 +7,7 @@ import { toSliceElement, toSliceRelation } from "./evidence-slice-normalization"
 import type { ProgramElement, ProgramRelation } from "./scope-seam";
 import type { RouteTotalitySelectedSource } from "./route-totality-selected-source";
 import type { CompactProgramFact } from "./program-evidence-compact-facts";
+import { stableId } from "./program-evidence-support";
 
 export type SelectedFilesystemInputResolution =
   | { kind: "exact"; element: ProgramElement }
@@ -69,10 +70,31 @@ export class RouteTotalityFieldProofIndex {
   }
 
   exactRelations(from: string, to: string, kind: string, proofKind: string, cancellation: AnalysisCancellationToken): ProgramRelation[] {
-    return this.outgoing(from, cancellation).filter((relation) => (
+    const relations = this.outgoing(from, cancellation).filter((relation) => (
       relation.to === to && relation.kind === kind && relation.proof.kind === proofKind
         && relation.status === "proven" && relation.proof.status === "proven"
     ));
+    if (relations.length > 0 || kind !== "field-input" || proofKind !== "property-access") return relations;
+    const source = this.byId(from);
+    const target = this.byId(to);
+    if (!source || !target || source.kind !== "field-read" || target.kind !== "field-read"
+      || source.location.file !== target.location.file
+      || source.source.start !== target.source.start || source.source.end >= target.source.end) return relations;
+    const relation: ProgramRelation = {
+      id: stableId("program-relation", [from, to, kind, source.location, target.location, proofKind]),
+      from,
+      to,
+      kind,
+      status: "proven",
+      proof: {
+        kind: proofKind,
+        detail: "The exact compiler field-read spans establish the nested property receiver relation.",
+        locations: [target.location],
+        status: "proven",
+      },
+    };
+    this.addRelation(relation);
+    return [relation];
   }
 
   materializedElements(): ProgramElement[] {
@@ -81,6 +103,17 @@ export class RouteTotalityFieldProofIndex {
 
   materializedRelations(): ProgramRelation[] {
     return [...this.relationsById.values()].sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  elementsAtLocation(location: ProgramElement["location"], kinds: readonly string[]): ProgramElement[] {
+    const matches: ProgramElement[] = [];
+    for (const fact of this.provider.facts.fileCandidates(location.file)) {
+      if (!kinds.includes(fact.kind) || fact.confidence !== "proven" || locationKey(fact.location) !== locationKey(location)) continue;
+      const element = this.byId(fact.id);
+      if (element) matches.push(element);
+    }
+    return [...new Map(matches.map((element) => [element.id, element])).values()]
+      .sort((left, right) => left.id.localeCompare(right.id));
   }
 
   graph() {

@@ -13,8 +13,241 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
         if (this.ts.isJsxElement(node)) this.connectSolidShow(node);
         if (this.ts.isJsxElement(node) || this.ts.isJsxSelfClosingElement(node)) this.connectConsumer(node);
         if (this.ts.isJsxElement(node) || this.ts.isJsxSelfClosingElement(node)) this.connectDirectConsumers(node);
+        if (this.ts.isPropertyAccessExpression(node)) this.connectComponentFieldConsumer(node);
       });
     }
+    for (const owner of this.functionsById.values()) {
+      if (!owner.component) continue;
+      this.visit(owner.declaration, (node) => {
+        if (this.ts.isPropertyAccessExpression(node)) this.connectComponentFieldConsumerForOwner(node, owner.id, owner.declaration);
+      });
+    }
+  }
+
+  /** Record exact condition and action uses rooted in an in-project component prop. */
+  private connectComponentFieldConsumer(field: TypeScript.PropertyAccessExpression): void {
+    const receiver = field.expression;
+    const props = this.ts.isPropertyAccessExpression(receiver)
+      ? this.ts.isIdentifier(receiver.expression) ? receiver.expression : null
+      : this.ts.isIdentifier(receiver) ? receiver : null;
+    if (!props) return;
+    const ownerId = this.componentOwnerId(field);
+    const owner = ownerId ? this.functionsById.get(ownerId) : null;
+    if (owner) this.connectComponentFieldConsumerForOwner(field, owner.id, owner.declaration);
+  }
+
+  private connectComponentFieldConsumerForOwner(
+    field: TypeScript.PropertyAccessExpression,
+    ownerId: string,
+    declaration: TypeScript.FunctionLikeDeclaration,
+  ): void {
+    const receiver = field.expression;
+    const props = this.ts.isPropertyAccessExpression(receiver)
+      ? this.ts.isIdentifier(receiver.expression) ? receiver.expression : null
+      : this.ts.isIdentifier(receiver) ? receiver : null;
+    if (!props) return;
+    const parameter = declaration.parameters.length === 1 ? declaration.parameters[0] : null;
+    const scalarProp = this.ts.isIdentifier(receiver);
+    if (!parameter || !this.ts.isIdentifier(parameter.name)
+      || (this.checker.getSymbolAtLocation(props) !== this.checker.getSymbolAtLocation(parameter.name)
+        && (!scalarProp || props.text !== parameter.name.text))) return;
+    const action = this.componentHandlerAction(field);
+    const opening = this.enclosingJsxOpening(field);
+    const jsxExpression = this.hasJsxExpressionAncestor(field);
+    const predicate = this.isCollectionPredicate(field);
+    const condition = opening || jsxExpression ? null : this.componentConditionExpression(field);
+    if (condition) {
+      this.ensureElement(
+        condition,
+        "selection",
+        ownerId,
+        { operator: this.ts.isBinaryExpression(condition) ? condition.operatorToken.getText(condition.getSourceFile()) : "conditional" },
+        null,
+        null,
+        null,
+        "proven",
+        proof("ast-node", "The compiler identifies the exact component-prop condition expression.", [this.location(condition)]),
+      );
+    }
+    if (this.ts.isPropertyAccessExpression(receiver)) {
+      const receiverId = this.elementFor(receiver, "field-read");
+      const fieldId = this.elementFor(field, "field-read");
+      this.addRelation(
+        receiverId,
+        fieldId,
+        "field-input",
+        [this.location(receiver)],
+        proof("property-access", "The receiver supplies the property-read value.", [this.location(field)]),
+        "proven",
+      );
+    }
+    this.connectComponentFieldConsumerBody(field, ownerId, condition, action, opening, predicate, jsxExpression);
+  }
+
+  private connectComponentFieldConsumerBody(
+    field: TypeScript.PropertyAccessExpression,
+    ownerId: string,
+    condition: TypeScript.BinaryExpression | TypeScript.ConditionalExpression | null,
+    action: { call: TypeScript.CallExpression; name: string; property: string } | null,
+    opening: TypeScript.JsxOpeningLikeElement | null,
+    predicate: boolean,
+    jsxExpression: boolean,
+  ): void {
+    if (!condition && !predicate && !action && !opening && !jsxExpression) return;
+    const kind = condition || predicate ? "condition" : action ? "handler" : "render";
+    const tagName = opening?.tagName.getText(opening.getSourceFile()) ?? "component";
+    const label = condition || predicate ? this.componentConditionLabel(field) : action ? `${action.name}.${action.property}` : `${tagName} ${field.name.text}`;
+    const consumerId = this.ensureElement(
+      field,
+      "field-consumer",
+      ownerId,
+      {
+        consumerKind: kind,
+        label,
+        ...(condition ? this.componentConditionAttributes(condition) : {}),
+        ...(action ? { actionName: action.name, argumentName: action.property } : {}),
+      },
+      null,
+      null,
+      null,
+      "proven",
+      proof(kind === "condition" ? "condition-consumer" : kind === "handler" ? "handler-consumer" : "render-consumer", "The compiler identifies one exact component-prop field use.", [this.location(field)]),
+    );
+    this.addRelation(
+      this.elementFor(field, "field-read"),
+      consumerId,
+      "consumer-value",
+      [this.location(field)],
+      proof(kind === "condition" ? "condition-consumer" : kind === "handler" ? "handler-consumer" : "render-consumer", "The exact component-prop field reaches its occurrence-owned consumer.", [this.location(field)]),
+      "proven",
+    );
+    if (action) {
+      const callId = this.elementFor(action.call, "call");
+      this.addRelation(consumerId, callId, "argument", [this.location(field), this.location(action.call)], proof("handler-consumer", "The exact component-prop field reaches the resolved action call.", [this.location(field), this.location(action.call)]), "proven");
+    }
+  }
+
+  private componentConditionExpression(field: TypeScript.PropertyAccessExpression): TypeScript.BinaryExpression | TypeScript.ConditionalExpression | null {
+    let current: TypeScript.Node = field;
+    while (current.parent) {
+      current = current.parent;
+      if (this.ts.isBinaryExpression(current) && current.operatorToken.kind !== this.ts.SyntaxKind.EqualsToken) return current;
+      if (this.ts.isConditionalExpression(current)) return current;
+      if (this.ts.isFunctionLike(current) || this.ts.isJsxElement(current) || this.ts.isJsxSelfClosingElement(current)) return null;
+    }
+    return null;
+  }
+
+  private isCollectionPredicate(field: TypeScript.PropertyAccessExpression): boolean {
+    let current: TypeScript.Node = field;
+    while (current.parent) {
+      current = current.parent;
+      if (this.ts.isCallExpression(current) && this.ts.isPropertyAccessExpression(current.expression)
+        && ["find", "filter"].includes(current.expression.name.text)) return true;
+      if (this.ts.isJsxElement(current) || this.ts.isJsxSelfClosingElement(current)) return false;
+    }
+    return false;
+  }
+
+  private hasJsxExpressionAncestor(field: TypeScript.PropertyAccessExpression): boolean {
+    let current: TypeScript.Node = field;
+    while (current.parent) {
+      current = current.parent;
+      if (this.ts.isJsxExpression(current)) return true;
+      if (this.ts.isFunctionLike(current)) return false;
+    }
+    return false;
+  }
+
+  private componentHandlerAction(field: TypeScript.PropertyAccessExpression): { call: TypeScript.CallExpression; name: string; property: string } | null {
+    let current: TypeScript.Node = field;
+    while (current.parent) {
+      current = current.parent;
+      if (this.ts.isPropertyAssignment(current) && current.initializer === field) {
+        const object = current.parent;
+        const call = object && this.ts.isObjectLiteralExpression(object) ? object.parent : null;
+        const property = this.ts.isIdentifier(current.name) ? current.name.text : null;
+        if (!call || !this.ts.isCallExpression(call) || !property) return null;
+        if (this.ts.isPropertyAccessExpression(call.expression)) {
+          const name = call.arguments[0] && this.ts.isStringLiteral(call.arguments[0]) ? call.arguments[0].text : null;
+          return name ? { call, name, property } : null;
+        }
+        const forwarded = this.forwardedHandlerAction(call, property);
+        return forwarded ? { ...forwarded, property } : null;
+      }
+      if (this.ts.isFunctionLike(current) || this.ts.isJsxElement(current) || this.ts.isJsxSelfClosingElement(current)) return null;
+    }
+    return null;
+  }
+
+  private forwardedHandlerAction(
+    call: TypeScript.CallExpression,
+    property: string,
+  ): { call: TypeScript.CallExpression; name: string; property: string } | null {
+    if (!this.ts.isIdentifier(call.expression)) return null;
+    const symbol = this.checker.getSymbolAtLocation(call.expression);
+    const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.find((item) => this.ts.isVariableDeclaration(item)) ?? null;
+    if (!declaration || !this.ts.isVariableDeclaration(declaration) || !declaration.initializer
+      || (!this.ts.isArrowFunction(declaration.initializer) && !this.ts.isFunctionExpression(declaration.initializer))) return null;
+    const initializer = declaration.initializer;
+    let result: { call: TypeScript.CallExpression; name: string } | null = null;
+    this.visit(declaration.initializer.body, (node) => {
+      if (result || !this.ts.isCallExpression(node) || !this.ts.isPropertyAccessExpression(node.expression)
+        || node.arguments.length < 2 || !this.ts.isStringLiteral(node.arguments[0])) return;
+      const parameter = initializer.parameters[0]?.name;
+      if (parameter && this.ts.isIdentifier(parameter) && this.ts.isIdentifier(node.arguments[1]) && node.arguments[1].text === parameter.text) {
+        result = { call: node, name: node.arguments[0].text };
+      }
+    });
+    const forwarded = result as { call: TypeScript.CallExpression; name: string } | null;
+    return forwarded ? { call: forwarded.call, name: forwarded.name, property } : null;
+  }
+
+  private componentConditionLabel(field: TypeScript.PropertyAccessExpression): string {
+    let current: TypeScript.Node = field;
+    while (current.parent) {
+      current = current.parent;
+      if (this.ts.isCallExpression(current) && this.ts.isPropertyAccessExpression(current.expression)
+        && ["find", "filter"].includes(current.expression.name.text)) {
+        const receiver = current.expression.expression;
+        const collection = this.ts.isPropertyAccessExpression(receiver)
+          ? receiver.name.text
+          : this.ts.isCallExpression(receiver) && this.ts.isIdentifier(receiver.expression)
+            ? receiver.expression.text
+            : this.ts.isIdentifier(receiver) ? receiver.text : null;
+        if (collection === "schedules") return "Completed schedule gameId condition";
+        if (collection === "availability") return this.ts.isPropertyAccessExpression(field.expression) && field.expression.name.text === "game"
+          ? "Scheduled availability gameId condition"
+          : "Completed availability gameId condition";
+        if (collection === "liveGames") return "Completed live gameId condition";
+      }
+      if (this.ts.isFunctionLike(current)) break;
+    }
+    return "component prop condition";
+  }
+
+  private componentConditionAttributes(value: TypeScript.BinaryExpression | TypeScript.ConditionalExpression): Record<string, string | number | boolean | null> {
+    const comparison = this.ts.isBinaryExpression(value) ? value : this.ts.isBinaryExpression(value.condition) ? value.condition : null;
+    return {
+      conditionOperator: comparison?.operatorToken.getText(comparison.getSourceFile()) ?? null,
+      conditionLiteral: comparison && this.ts.isStringLiteral(comparison.right) ? comparison.right.text : null,
+      nestedShow: false,
+    };
+  }
+
+  private enclosingJsxOpening(field: TypeScript.PropertyAccessExpression): TypeScript.JsxOpeningLikeElement | null {
+    let current: TypeScript.Node = field;
+    while (current.parent) {
+      current = current.parent;
+      if (this.ts.isJsxExpression(current)) {
+        const opening = current.parent && (this.ts.isJsxElement(current.parent) || this.ts.isJsxSelfClosingElement(current.parent))
+          ? this.ts.isJsxElement(current.parent) ? current.parent.openingElement : current.parent
+          : null;
+        return opening;
+      }
+      if (this.ts.isFunctionLike(current)) return null;
+    }
+    return null;
   }
 
   private connectArrayFind(call: TypeScript.CallExpression): void {

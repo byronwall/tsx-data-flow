@@ -5,7 +5,6 @@ import {
 import { isFullyProvenElement, isFullyProvenProof } from "../analysis/route-totality-field-lineage-transition";
 import {
   deriveExactFieldTargetPolicy,
-  EXACT_FIELD_TRANSFER_KINDS,
   verifyExactFieldTransfer,
 } from "../analysis/route-totality-field-transfer-verifier";
 import type { RouteTotality } from "./route-totality-contracts";
@@ -89,15 +88,15 @@ export function validateLedgerAttachment(
   if (steps[0].fromElementIds[0] !== attachment.origin.elementId) {
     addIssue(issues, [...path, "origin"], "ledger chain must start at the selected exact origin");
   }
-  if (steps.length !== EXACT_FIELD_TRANSFER_KINDS.length
-    || steps.some((step, index) => step.kind !== EXACT_FIELD_TRANSFER_KINDS[index])) {
-    addIssue(issues, [...path, "transformationIds"], "attachment must reference one ordered C01-C12 transfer chain");
-    return;
-  }
   const graph = transferGraph(evidence);
   const policy = deriveExactFieldTargetPolicy(steps, graph);
   if (!policy) {
     addIssue(issues, [...path, "transformationIds"], "ledger chain must derive one exact compiler-backed target policy");
+    return;
+  }
+  if (steps.length !== policy.transferKinds.length
+    || steps.some((step, index) => step.kind !== policy.transferKinds[index])) {
+    addIssue(issues, [...path, "transformationIds"], "attachment must reference the declared ordered exact transfer chain");
     return;
   }
   for (let index = 0; index < steps.length; index += 1) {
@@ -117,7 +116,10 @@ function validateExactField(
   issues: ValidationIssue[],
   cancellation: AnalysisCancellationToken,
 ): void {
-  const expectedIds = [steps[1].toElementIds[0], steps[2].toElementIds[0], steps[10].toElementIds[0]];
+  const fieldElementId = policy.chain === "scalar-alias"
+    ? policy.sourceFieldElementId ?? steps[10].toElementIds[0]
+    : policy.chain === "whole-object" ? steps[11].toElementIds[0] : steps[10].toElementIds[0];
+  const expectedIds = [steps[1].toElementIds[0], steps[2].toElementIds[0], fieldElementId];
   if (attachment.field.elementIds.length !== 3
     || attachment.field.elementIds.some((id, index) => id !== expectedIds[index])) {
     addIssue(issues, [...path, "field", "elementIds"], "field element ids must equal the exact C02, C03, and C11 chain positions");
@@ -126,13 +128,14 @@ function validateExactField(
   const collectionElement = exactElement(evidence, expectedIds[1]);
   const consumerField = exactElement(evidence, expectedIds[2]);
   const segments = attachment.field.segments;
-  const expectedLabel = `${policy.collectionFieldName}[*].${policy.consumerFieldName}`;
+  const expectedFieldName = policy.chain === "scalar-alias" ? policy.sourceFieldName : policy.consumerFieldName;
+  const expectedLabel = `${policy.collectionFieldName}[*].${expectedFieldName}`;
   if (!collection || collection.kind !== "field-read" || collection.fieldName !== policy.collectionFieldName
     || !collectionElement || collectionElement.kind !== "collection-element"
-    || !consumerField || consumerField.kind !== "field-read" || consumerField.fieldName !== policy.consumerFieldName
+    || !consumerField || consumerField.kind !== "field-read" || consumerField.fieldName !== expectedFieldName
     || segments.length !== 3 || segments[0]?.kind !== "property" || segments[0]?.value !== collection.fieldName
     || segments[1]?.kind !== "collection-element" || segments[1]?.value !== "*"
-    || segments[2]?.kind !== "property" || segments[2]?.value !== consumerField.fieldName
+    || segments[2]?.kind !== "property" || segments[2]?.value !== expectedFieldName
     || attachment.field.label !== expectedLabel
     || !sameLocations([attachment.field.location], consumerField ? [consumerField.location] : [], cancellation)) {
     addIssue(issues, [...path, "field"], "field segments, names, label, and location must derive from the exact chain facts");
@@ -155,7 +158,7 @@ function validateExactConsumer(
   if (policy.directConsumer) {
     if (!consumer || !consumerElement || !consumerOccurrence || !occurrence
       || consumer.elementId !== policy.bindingElementId
-      || consumer.occurrenceElementId !== policy.componentOccurrenceElementId
+      || consumer.occurrenceElementId !== policy.componentDefinitionElementId
       || (consumer.kind !== "render" && consumer.kind !== "condition" && consumer.kind !== "handler")
       || consumer.label.length === 0
       || consumerOccurrence.kind !== "component-definition"
@@ -168,8 +171,12 @@ function validateExactConsumer(
     if (!contains(consumerOccurrence.location, consumer.location)) {
       addIssue(issues, [...path, "consumer"], "direct consumer expression must belong to its exact owning component definition");
     }
-    if (consumer.routeTerminalId !== null) {
-      addIssue(issues, [...path, "consumer", "routeTerminalId"], "direct consumers must not claim a render terminal");
+    const terminalId = attachment.terminalIds.length === 1 ? attachment.terminalIds[0] : null;
+    const terminalRecords = terminalId ? surface.terminalsById.get(terminalId) ?? [] : [];
+    const terminalAnchors = terminalId ? endpointTerminalAnchors(surface.anchors, terminalId, cancellation) : [];
+    if (!terminalId || consumer.routeTerminalId !== terminalId || terminalRecords.length !== 1
+      || terminalAnchors.length !== 1 || terminalAnchors[0].evidenceElementId !== policy.renderTerminalElementId) {
+      addIssue(issues, [...path, "terminalIds"], "direct consumer terminal must map to one exact compiler-backed render terminal");
     }
     return;
   }

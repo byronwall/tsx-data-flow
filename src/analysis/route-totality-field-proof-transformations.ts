@@ -14,6 +14,7 @@ export function assembleFieldProofTransformations(
   carrier: FieldCarrierPath,
   cancellation: AnalysisCancellationToken,
 ): Array<RouteTotalityFieldTransformation | null> {
+  if (candidate.boundary) return assembleComponentBoundaryTransformations(index, origin, candidate, carrier, cancellation);
   const source = index.byId(origin.elementId)!;
   const occurrenceRelation = candidate.directConsumer ? null : one(index.exactRelations(
     candidate.occurrence.id,
@@ -48,6 +49,70 @@ export function assembleFieldProofTransformations(
         [candidate.consumerValue, candidate.binding, "component-prop-binding", "component-prop-binding"],
       ], cancellation, [candidate.occurrence, candidate.definition, candidate.renderTerminal], occurrenceRelation ? [occurrenceRelation] : []),
   ];
+}
+
+function assembleComponentBoundaryTransformations(
+  index: RouteTotalityFieldProofIndex,
+  origin: RouteTotalityFieldOrigin,
+  candidate: FieldProofCandidate,
+  carrier: FieldCarrierPath,
+  cancellation: AnalysisCancellationToken,
+): Array<RouteTotalityFieldTransformation | null> {
+  const source = index.byId(origin.elementId)!;
+  const boundary = candidate.boundary!;
+  const occurrenceRelation = one(index.exactRelations(
+    boundary.occurrence.id,
+    boundary.definition.id,
+    "component-occurrence",
+    "compiler-symbol",
+    cancellation,
+  ));
+  const valueToBinding = one(index.exactRelations(
+    candidate.sourceField?.id ?? candidate.currentCall.id,
+    boundary.binding.id,
+    "component-prop-binding",
+    "component-prop-binding",
+    cancellation,
+  ));
+  const bindingToReceiver = boundary.receiver
+    ? one(index.exactRelations(boundary.binding.id, boundary.receiver.id, "component-prop-binding", "component-prop-binding", cancellation))
+    : null;
+  const base: Array<RouteTotalityFieldTransformation | null> = [
+    fieldTransformation("source-carrier", source, carrier.call, carrier.relations, [], [], cancellation),
+    step(index, "property-read", carrier.call, candidate.collectionField, [["field-input", "property-access"]], cancellation),
+    step(index, "find-element", candidate.collectionField, candidate.collectionElement, [["collection-element", "array-find-element"]], cancellation),
+    step(index, "callback-parameter", candidate.collectionElement, candidate.parameter, [["callback-parameter", "array-find-callback"]], cancellation),
+    chainedStep(index, "predicate-return", candidate.parameter, candidate.predicateResult, [
+      [candidate.parameter, candidate.parameterValue, "references", "compiler-symbol"],
+      [candidate.parameterValue, candidate.predicateField, "field-input", "property-access"],
+      [candidate.predicateField, candidate.predicateResult, "predicate-return", "array-find-predicate-return"],
+    ], cancellation),
+    step(index, "find-result", candidate.predicateResult, candidate.findResult, [["find-result", "array-find-result"]], cancellation),
+    chainedStep(index, "function-return", candidate.findResult, candidate.accessorCall, [
+      [candidate.findResult, candidate.returnExpression, "function-return", "return-expression"],
+      [candidate.returnExpression, candidate.accessorCall, "function-call", "function-call"],
+    ], cancellation),
+    step(index, "show-when", candidate.accessorCall, candidate.showBinding, [["show-when", "solid-show-when"]], cancellation),
+    step(index, "show-render-prop", candidate.showBinding, candidate.currentParameter, [["show-render-parameter", "solid-show-render-parameter"]], cancellation),
+    step(index, "accessor-call", candidate.currentParameter, candidate.currentCall, [["accessor-call", "accessor-call"]], cancellation),
+  ];
+  if (boundary.mode === "scalar-alias") {
+    base.push(step(index, "component-source-field", candidate.currentCall, candidate.sourceField!, [["field-input", "property-access"]], cancellation));
+    base.push(valueToBinding && bindingToReceiver
+      ? fieldTransformation("component-boundary", candidate.sourceField!, boundary.receiver!, [valueToBinding, bindingToReceiver], [boundary.binding, boundary.occurrence, boundary.definition], occurrenceRelation ? [occurrenceRelation] : [], cancellation)
+      : null);
+  } else {
+    base.push(valueToBinding && bindingToReceiver
+      ? fieldTransformation("component-boundary", candidate.currentCall, boundary.receiver!, [valueToBinding, bindingToReceiver], [boundary.binding, boundary.occurrence, boundary.definition], occurrenceRelation ? [occurrenceRelation] : [], cancellation)
+      : null);
+  }
+  if (boundary.mode === "whole-object") {
+    base.push(step(index, "component-property-read", boundary.receiver!, candidate.consumerField, [["field-input", "property-access"]], cancellation));
+  }
+  base.push(candidate.directConsumer
+    ? directConsumerStep(index, candidate, cancellation)
+    : null);
+  return base;
 }
 
 function directConsumerStep(

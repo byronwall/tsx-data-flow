@@ -17,6 +17,9 @@ export type FieldProofTargetSelector = {
   predicateFieldName: string;
   consumerFieldName: string;
   consumer: FieldProofConsumerSelector;
+  chain?: "direct" | "whole-object" | "scalar-alias";
+  componentName?: string;
+  componentPropName?: string;
 };
 
 /** Explicit product targets. Compiler facts establish every selected identity. */
@@ -141,6 +144,93 @@ export const DIRECT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
     },
   },
 ];
+
+/** Component-boundary targets use an explicit whole-object or scalar alias chain. */
+export const COMPONENT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
+  {
+    collectionFieldName: "games",
+    predicateFieldName: "id",
+    consumerFieldName: "venueName",
+    chain: "whole-object",
+    componentName: "ScheduledGamePlanningDetails",
+    componentPropName: "game",
+    consumer: { kind: "render", label: "ScheduledGamePlanningDetails venue", directConsumer: true, tagName: "Text" },
+  },
+  {
+    collectionFieldName: "games",
+    predicateFieldName: "id",
+    consumerFieldName: "venueAddress",
+    chain: "whole-object",
+    componentName: "ScheduledGamePlanningDetails",
+    componentPropName: "game",
+    consumer: { kind: "render", label: "ScheduledGamePlanningDetails address", directConsumer: true, tagName: "Text" },
+  },
+  {
+    collectionFieldName: "games",
+    predicateFieldName: "id",
+    consumerFieldName: "id",
+    chain: "whole-object",
+    componentName: "ScheduledGamePlanningDetails",
+    componentPropName: "game",
+    consumer: { kind: "condition", label: "Scheduled availability gameId condition", directConsumer: true },
+  },
+  {
+    collectionFieldName: "games",
+    predicateFieldName: "id",
+    consumerFieldName: "id",
+    chain: "whole-object",
+    componentName: "ScheduledGamePlanningDetails",
+    componentPropName: "game",
+    consumer: { kind: "handler", label: "markAllAvailable.gameId", directConsumer: true, actionName: "markAllAvailable", argumentName: "gameId" },
+  },
+  {
+    collectionFieldName: "games",
+    predicateFieldName: "id",
+    consumerFieldName: "id",
+    chain: "whole-object",
+    componentName: "ScheduledGamePlanningDetails",
+    componentPropName: "game",
+    consumer: { kind: "handler", label: "setAvailability.gameId", directConsumer: true, actionName: "setAvailability", argumentName: "gameId" },
+  },
+  {
+    collectionFieldName: "games",
+    predicateFieldName: "id",
+    consumerFieldName: "gameId",
+    chain: "scalar-alias",
+    componentName: "CompletedGameSummary",
+    componentPropName: "gameId",
+    consumer: { kind: "condition", label: "Completed schedule gameId condition", directConsumer: true },
+  },
+  {
+    collectionFieldName: "games",
+    predicateFieldName: "id",
+    chain: "scalar-alias",
+    componentName: "CompletedGameSummary",
+    componentPropName: "gameId",
+    consumerFieldName: "gameId",
+    consumer: { kind: "condition", label: "Completed availability gameId condition", directConsumer: true },
+  },
+  {
+    collectionFieldName: "games",
+    predicateFieldName: "id",
+    chain: "scalar-alias",
+    componentName: "CompletedGameSummary",
+    componentPropName: "gameId",
+    consumerFieldName: "gameId",
+    consumer: { kind: "condition", label: "Completed live gameId condition", directConsumer: true },
+  },
+  {
+    collectionFieldName: "games",
+    predicateFieldName: "id",
+    chain: "scalar-alias",
+    componentName: "CompletedGameSummary",
+    componentPropName: "gameId",
+    consumerFieldName: "gameId",
+    consumer: { kind: "render", label: "Completed A.href live", directConsumer: true, tagName: "A", propName: "href" },
+  },
+];
+
+export const FIELD_PROOF_TARGETS = [...DIRECT_FIELD_PROOF_TARGETS, ...COMPONENT_FIELD_PROOF_TARGETS] as const;
 
 /** G02 remains a stable named export for the exact transfer regression gate. */
 export const G02_FIELD_TARGET = DIRECT_FIELD_PROOF_TARGETS[1];

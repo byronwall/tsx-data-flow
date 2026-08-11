@@ -326,6 +326,17 @@ function terminalEvidenceCandidates(
     }
     candidatesById.set(element.id, element);
   }
+  for (const element of slice.elements) {
+    cancellation.throwIfCancelled();
+    if (!element
+      || element.kind !== expectedKind
+      || element.proof.length === 0
+      || !hasRole(element.terminalRoles, "render", cancellation)
+      || !sameLocation(element.location, terminal.location)) {
+      continue;
+    }
+    candidatesById.set(element.id, element);
+  }
   const candidates: EvidenceSlice["elements"][number][] = [];
   for (const candidate of candidatesById.values()) {
     cancellation.throwIfCancelled();

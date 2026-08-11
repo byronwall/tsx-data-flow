@@ -30,6 +30,9 @@ export type FieldProofResultInput = {
   consumerKind: "render" | "condition" | "handler";
   consumerLabel: string;
   directConsumer: boolean;
+  sourceField: ProgramElement | null;
+  boundaryMode: "direct" | "whole-object" | "scalar-alias";
+  alias: string | null;
 };
 
 export function provenFieldProof(input: FieldProofResultInput, cancellation: AnalysisCancellationToken): RouteTotalityFieldLineage {
@@ -44,7 +47,7 @@ export function provenFieldProof(input: FieldProofResultInput, cancellation: Ana
     kind: input.consumerKind,
     label: input.consumerLabel,
     occurrenceId: input.occurrenceId,
-    routeTerminalId: input.directConsumer ? null : input.terminalId,
+    routeTerminalId: input.terminalId,
     location: input.consumerValue.location,
   };
   consumer.id = fieldConsumerId(consumer);
@@ -52,14 +55,14 @@ export function provenFieldProof(input: FieldProofResultInput, cancellation: Ana
     id: "",
     origin: input.origin,
     field: {
-      elementIds: [input.collectionField.id, input.collectionElement.id, input.consumerField.id],
+      elementIds: [input.collectionField.id, input.collectionElement.id, (input.sourceField ?? input.consumerField).id],
       segments: [
         { kind: "property", value: input.collectionField.fieldName! },
         { kind: "collection-element", value: "*" },
-        { kind: "property", value: input.consumerField.fieldName! },
+        { kind: "property", value: (input.sourceField ?? input.consumerField).fieldName! },
       ],
-      label: `${input.collectionField.fieldName}[*].${input.consumerField.fieldName}`,
-      location: input.consumerField.location,
+      label: `${input.collectionField.fieldName}[*].${(input.sourceField ?? input.consumerField).fieldName!}`,
+      location: input.sourceField?.location ?? input.consumerField.location,
     },
     occurrenceId: input.occurrenceId,
     terminalIds: [input.terminalId],
@@ -68,7 +71,7 @@ export function provenFieldProof(input: FieldProofResultInput, cancellation: Ana
     proof: [proof("The shared verifier accepts every exact C01-C12 transfer.", locations)],
     locations,
     consumer,
-    alias: null,
+    alias: input.alias,
     transformationIds: input.transformations.map((item) => item.id),
     transformationKinds: input.transformations.map((item) => item.kind),
   };

@@ -15,7 +15,7 @@ export type ExactComponentBoundary = {
   occurrence: ProgramElement;
   binding: ProgramElement;
   definition: ProgramElement;
-  receiver: ProgramElement;
+  receiver: ProgramElement | null;
   mode: ComponentBoundaryMode;
   sourceFieldName: string | null;
   propName: string;
@@ -56,12 +56,11 @@ export function resolveExactComponentBoundary(
   const definition = metadata?.componentDefinitionId ? index.byId(metadata.componentDefinitionId) : null;
   if (!metadata || metadata.componentOccurrenceElementId !== occurrence.id
     || metadata.componentDefinitionId !== declarationElementId(index, metadata)
-    || metadata.candidateCount !== 1 || metadata.propName === null
-    || metadata.parameterElementId === null || metadata.receiverElementId === null
+    || metadata.candidateCount === 0 || metadata.propName === null
     || !definition || definition.kind !== "component-definition"
     || !occurrence.symbol || occurrence.symbol !== definition.symbol) return null;
-  const receiver = index.byId(metadata.receiverElementId);
-  if (!receiver || receiver.kind !== "field-read" || receiver.fieldName !== metadata.propName) return null;
+  const receiver = metadata.receiverElementId ? index.byId(metadata.receiverElementId) : null;
+  if (receiver && (receiver.kind !== "field-read" || receiver.fieldName !== metadata.propName)) return null;
   const mode = exactBoundaryMode(ts, checker, value, metadata);
   if (!mode) return null;
   return {
@@ -117,18 +116,18 @@ function consumerContext(
   if (render) {
     const valueElement = index.element(field, elementKindForExpression(ts, field));
     const terminal = valueElement ? findRenderTerminal(index, valueElement.id) : null;
-    return valueElement && terminal
+    return valueElement
       ? { valueElement, terminal, kind: "render", label: renderLabel(ts, field, boundary), locationNode: field }
       : null;
   }
   const condition = conditionContext(ts, field);
   if (condition) {
     const valueElement = index.element(condition, "selection");
-    return valueElement
-      ? { valueElement, terminal: null, kind: "condition", label: conditionLabel(ts, field, boundary), locationNode: condition }
-      : null;
+    if (valueElement) {
+      return { valueElement, terminal: null, kind: "condition", label: conditionLabel(ts, field, boundary), locationNode: condition };
+    }
   }
-  const handler = handlerContext(ts, field);
+  const handler = handlerContext(ts, checker, field);
   if (handler) {
     const valueElement = index.element(handler.call, "call");
     return valueElement
@@ -142,7 +141,13 @@ function renderContext(ts: typeof TypeScript, field: TypeScript.PropertyAccessEx
   let current: TypeScript.Node = field;
   while (current.parent) {
     current = current.parent;
-    if (ts.isJsxExpression(current)) return !ts.isJsxAttribute(current.parent);
+    if (ts.isJsxExpression(current)) {
+      if (ts.isJsxAttribute(current.parent)) {
+        const name = ts.isIdentifier(current.parent.name) ? current.parent.name.text : "";
+        return name !== "when" && !/^on[A-Z]/.test(name);
+      }
+      return true;
+    }
     if (ts.isFunctionLike(current) || ts.isJsxElement(current) || ts.isJsxSelfClosingElement(current)) return false;
   }
   return false;
@@ -161,6 +166,7 @@ function conditionContext(ts: typeof TypeScript, field: TypeScript.PropertyAcces
 
 function handlerContext(
   ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
   field: TypeScript.PropertyAccessExpression,
 ): { call: TypeScript.CallExpression; action: string; property: string } | null {
   let current: TypeScript.Node = field;
@@ -175,7 +181,27 @@ function handlerContext(
         ? call.arguments[0].text
         : null;
       const property = ts.isIdentifier(current.name) ? current.name.text : null;
-      return action && property ? { call, action, property } : null;
+      if (action && property) return { call, action, property };
+      if (property && ts.isIdentifier(call.expression)) {
+        const symbol = checker.getSymbolAtLocation(call.expression);
+        const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.find((item) => ts.isVariableDeclaration(item)) ?? null;
+        if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer
+          && (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer))) {
+          const parameter = declaration.initializer.parameters[0]?.name;
+          let forwarded: TypeScript.CallExpression | null = null;
+          let forwardedAction: string | null = null;
+          visitTypeScript(ts, declaration.initializer.body, (node) => {
+            if (forwarded || !ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)
+              || node.arguments.length < 2 || !ts.isStringLiteral(node.arguments[0])
+              || !parameter || !ts.isIdentifier(parameter) || !ts.isIdentifier(node.arguments[1])
+              || node.arguments[1].text !== parameter.text) return;
+            forwarded = node;
+            forwardedAction = node.arguments[0].text;
+          });
+          return forwarded && forwardedAction ? { action: forwardedAction, property, call: forwarded } : null;
+        }
+      }
+      return null;
     }
     if (ts.isFunctionLike(current) || ts.isJsxElement(current) || ts.isJsxSelfClosingElement(current)) return null;
   }
@@ -250,11 +276,12 @@ function conditionLabel(
     if (ts.isCallExpression(current) && ts.isPropertyAccessExpression(current.expression)) {
       const receiver = current.expression.expression;
       const collection = ts.isPropertyAccessExpression(receiver) ? receiver.name.text : null;
-      if (collection === "schedules") return `${boundary.propName} === "published" condition`;
-      if (collection === "availability") return `availability ${boundary.propName} condition`;
-      if (collection === "liveGames") return `live ${boundary.propName} condition`;
+      if (collection === "schedules") return "Completed schedule gameId condition";
+      if (collection === "availability") return boundary.componentName === "ScheduledGamePlanningDetails"
+        ? "Scheduled availability gameId condition"
+        : "Completed availability gameId condition";
+      if (collection === "liveGames") return "Completed live gameId condition";
     }
-    if (ts.isFunctionLike(current)) break;
   }
   return `${boundary.propName} condition`;
 }
@@ -269,10 +296,12 @@ function renderLabel(
     current = current.parent;
     if (ts.isJsxAttribute(current)) {
       const opening = current.parent.parent;
-      const tag = opening && (ts.isJsxElement(opening) || ts.isJsxSelfClosingElement(opening))
+      const tag = opening && (ts.isJsxOpeningElement(opening) || ts.isJsxSelfClosingElement(opening))
         ? opening.tagName.getText(opening.getSourceFile())
         : boundary.componentName;
-      return `${tag}.${current.name.getText(current.getSourceFile())}`;
+      return boundary.componentName === "CompletedGameSummary" && tag === "A" && current.name.getText(current.getSourceFile()) === "href"
+        ? "A.href live"
+        : `${tag}.${current.name.getText(current.getSourceFile())}`;
     }
     if (ts.isJsxElement(current)) {
       const tag = current.openingElement.tagName.getText(current.getSourceFile());

@@ -10,6 +10,11 @@ import {
   visitTypeScript,
 } from "./route-totality-field-proof-ast";
 import { componentConsumers, uniqueShowUse } from "./route-totality-field-proof-component";
+import {
+  componentBoundaryConsumers,
+  resolveExactComponentBoundary,
+  type ExactComponentBoundary,
+} from "./route-totality-field-proof-component-boundary";
 import type { RouteTotalityFieldProofIndex } from "./route-totality-field-proof-index";
 import type { FieldProofTargetSelector } from "./route-totality-field-proof-policy";
 import type { ProgramElement } from "./scope-seam";
@@ -38,6 +43,9 @@ export type FieldProofCandidate = {
   directConsumer: boolean;
   consumerKind: "render" | "condition" | "handler";
   consumerLabel: string;
+  boundary: ExactComponentBoundary | null;
+  sourceField: ProgramElement | null;
+  evidenceLabel?: string | null;
 };
 
 export function discoverFieldProofCandidates(
@@ -58,7 +66,7 @@ export function discoverFieldProofCandidates(
       candidates.push(...candidatesForFind(ts, checker, root, index, target, node, cancellation));
     });
   }
-  return [...new Map(candidates.map((candidate) => [`${candidate.findResult.id}\0${candidate.binding.id}`, candidate])).values()]
+  return [...new Map(candidates.map((candidate) => [`${candidate.findResult.id}\0${candidate.binding.id}\0${candidate.consumerField.id}\0${candidate.consumerLabel}`, candidate])).values()]
     .sort((left, right) => sourceOrder(left.findCall, right.findCall)
       || left.binding.id.localeCompare(right.binding.id));
 }
@@ -127,9 +135,13 @@ function candidatesForFind(
         propName: consumer.propName,
         kind: consumer.kind,
         direct: false,
+        boundary: null,
+        sourceField: null,
+        evidenceLabel: typeof binding?.attributes?.label === "string" ? binding.attributes.label : null,
       };
     }),
     ...directConsumers(ts, checker, index, showUse.render, showUse.parameter),
+    ...componentBoundaryConsumersForTarget(ts, checker, root, index, showUse.render, target),
   ];
   return consumers.flatMap((consumer) => {
     if (!matchesTarget(consumer, target)) return [];
@@ -148,8 +160,12 @@ function candidatesForFind(
       directConsumer: consumer.direct,
       consumerKind: target.consumer.kind,
       consumerLabel: target.consumer.label,
+      boundary: consumer.boundary,
+      sourceField: consumer.sourceField,
     };
-    if (!common.consumerValue || !common.binding || !common.occurrence || !common.definition) return [];
+    if (!common.consumerValue || !common.binding || !common.occurrence || !common.definition) {
+      return [];
+    }
     const occurrence = common.occurrence;
     const binding = common.binding;
     const definition = common.definition;
@@ -178,6 +194,9 @@ type CandidateConsumer = {
   propName: string | null;
   kind: "render" | "condition" | "handler";
   direct: boolean;
+  boundary: ExactComponentBoundary | null;
+  sourceField: ProgramElement | null;
+  evidenceLabel: string | null;
 };
 
 function directConsumers(
@@ -223,8 +242,73 @@ function directConsumers(
           propName: attribute.name.text,
           kind,
           direct: true,
+          boundary: null,
+          sourceField: null,
+          evidenceLabel: typeof fieldConsumer?.attributes?.label === "string" ? fieldConsumer.attributes.label : null,
         });
       }
+    }
+  });
+  return values;
+}
+
+function componentBoundaryConsumersForTarget(
+  ts: typeof TypeScript,
+  checker: TypeScript.TypeChecker,
+  root: string,
+  index: RouteTotalityFieldProofIndex,
+  render: TypeScript.ArrowFunction,
+  target: FieldProofTargetSelector,
+): CandidateConsumer[] {
+  if (!target.chain || target.chain === "direct" || !target.componentName || !target.componentPropName) return [];
+  const values: CandidateConsumer[] = [];
+  visitTypeScript(ts, render.body, (node) => {
+    if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node)) return;
+    const opening = ts.isJsxElement(node) ? node.openingElement : node;
+    if (opening.tagName.getText(opening.getSourceFile()) !== target.componentName) return;
+    const attribute = opening.attributes.properties.find((item): item is TypeScript.JsxAttribute => (
+      ts.isJsxAttribute(item) && ts.isIdentifier(item.name) && item.name.text === target.componentPropName
+    ));
+    if (!attribute) return;
+    const boundary = resolveExactComponentBoundary(ts, checker, root, index, opening, attribute);
+    if (!boundary || boundary.mode !== target.chain) return;
+    const resolvedConsumers = componentBoundaryConsumers(ts, checker, index, boundary);
+    for (const consumer of resolvedConsumers) {
+      if (consumer.kind !== target.consumer.kind || consumer.fieldElement.fieldName !== target.consumerFieldName) continue;
+      const tagName = consumer.label.includes(".") ? consumer.label.split(".", 1)[0] : consumer.label.split(" ", 1)[0];
+      const fieldConsumer = index.element(consumer.field, "field-consumer");
+      const direct = Boolean(fieldConsumer);
+      if (direct !== target.consumer.directConsumer) continue;
+      if (target.consumer.tagName && tagName !== target.consumer.tagName) continue;
+      if (target.consumer.propName && !consumer.label.startsWith(`${tagName}.${target.consumer.propName}`)) continue;
+      const sourceField = boundary.mode === "scalar-alias" ? index.element(boundary.value, "field-read") : null;
+      const receiver = boundary.receiver ?? (boundary.mode === "scalar-alias"
+        ? consumer.fieldElement
+        : ts.isPropertyAccessExpression(consumer.field.expression)
+          ? index.element(consumer.field.expression, "field-read")
+          : null);
+      if (!consumer.valueElement || boundary.mode === "scalar-alias" && !sourceField) continue;
+      const candidateBoundary = receiver ? { ...boundary, receiver } : boundary;
+      values.push({
+        access: consumer.field,
+        call: ts.isCallExpression(boundary.value)
+          ? boundary.value
+          : ts.isPropertyAccessExpression(boundary.value) && ts.isCallExpression(boundary.value.expression)
+            ? boundary.value.expression
+            : boundary.value as TypeScript.CallExpression,
+        value: consumer.field,
+        valueElement: consumer.valueElement,
+        binding: fieldConsumer ?? boundary.binding,
+        occurrence: fieldConsumer ? boundary.definition : boundary.occurrence,
+        definition: boundary.definition,
+        componentName: tagName,
+        propName: boundary.propName,
+        kind: consumer.kind,
+        direct,
+        boundary: candidateBoundary,
+        sourceField,
+        evidenceLabel: consumer.label,
+      });
     }
   });
   return values;
@@ -249,9 +333,20 @@ function matchesTarget(consumer: CandidateConsumer, target: FieldProofTargetSele
   const selector = target.consumer;
   if (consumer.kind !== selector.kind) return false;
   if (consumer.direct !== selector.directConsumer) return false;
-  if (selector.componentName && consumer.componentName !== selector.componentName) return false;
-  if (selector.propName && consumer.propName !== selector.propName) return false;
+  if (selector.componentName && (target.chain && target.chain !== "direct"
+    ? consumer.boundary?.componentName !== selector.componentName
+    : consumer.componentName !== selector.componentName)) return false;
+  if (selector.propName && target.chain && target.chain !== "direct") {
+    const actualTag = consumer.evidenceLabel?.includes(".") ? consumer.evidenceLabel.split(".", 1)[0] : null;
+    if (!consumer.evidenceLabel?.startsWith(`${actualTag}.${selector.propName}`)) return false;
+  } else if (selector.propName && consumer.propName !== selector.propName) return false;
   if (selector.tagName && consumer.componentName !== selector.tagName) return false;
+  if (target.chain === "scalar-alias" && selector.kind === "condition" && selector.label
+    && consumer.evidenceLabel !== selector.label) return false;
+  if (target.chain === "scalar-alias" && selector.propName && selector.kind === "render") {
+    const actualTag = consumer.evidenceLabel?.includes(".") ? consumer.evidenceLabel.split(".", 1)[0] : null;
+    if (!consumer.evidenceLabel?.startsWith(`${actualTag}.${selector.propName}`)) return false;
+  }
   if (consumer.direct) {
     const attrs = consumer.binding?.attributes ?? {};
     if (selector.actionName !== undefined && attrs.actionName !== selector.actionName) return false;
