@@ -78,9 +78,9 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
   };
   const selectRoute = (routeKey: string) => {
     const flow = selectCheapestTrajectoryForRoute(props.inventory, routeKey);
-    update({ mode: "detail", route: routeKey, flow: flow?.key ?? null, source: null, item: null, expand: [], isolate: false, view: "context", pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null }, true);
+    update({ mode: "detail", route: routeKey, flow: flow?.key ?? null, source: null, item: null, expand: [], isolate: false, view: "context", pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null }, true);
   };
-  const selectSource = (source: string | null) => update({ source, item: null, expand: [], isolate: false, pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null }, true);
+  const selectSource = (source: string | null) => update({ source, item: null, expand: [], isolate: false, pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null }, true);
   const close = () => { update({ open: false }); props.onClose(); };
   createEffect(() => {
     const open = props.open;

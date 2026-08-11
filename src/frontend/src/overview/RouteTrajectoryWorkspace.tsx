@@ -81,7 +81,7 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; gener
   const totalityRenderer = () => renderer() === "totality";
   const changeRenderer = (next: "current" | "totality") => {
     if (renderer() === next) return;
-    props.onState({ trajectoryRenderer: next, totalitySelection: null, graphCamera: null, isolate: false });
+    props.onState({ trajectoryRenderer: next, totalitySelection: null, graphCamera: null, isolate: false, fieldFocus: null, consumerFocus: null });
   };
   const activateRenderer = (event: KeyboardEvent, next: "current" | "totality") => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -96,17 +96,21 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; gener
           <Show when={props.state.isolate && isolated().incomingStub}><div class="trajectory-boundary-stub incoming">← {isolated().incomingStub?.label}</div></Show>
           <DataTrajectoryCanvas detail={displayDetail()} selectedKey={props.state.item} expanded={expanded()} isolated={props.state.isolate} zoom={props.state.zoom ?? 1} onSelect={(item) => props.onState({ item })} onPreview={setPreview} onToggleExpand={toggleExpand} onOpenEvidence={openEvidence} onZoom={(zoom) => props.onState({ zoom })} />
           <Show when={props.state.isolate && isolated().outgoingStub}><div class="trajectory-boundary-stub outgoing">{isolated().outgoingStub?.label} →</div></Show>
-        </>}><RouteFlowGraph detail={props.detail} sourceKey={props.state.source} genericUiMode={props.state.genericUi} revealResetKey={`${props.state.open}:${props.generation}:${props.detail.route.key}:${props.detail.trajectory.key}`} onSource={(source) => props.onState({ source, item: null, expand: [], isolate: false, pan: null, zoom: null }, true)} onGenericUiMode={(genericUi) => props.onState({ genericUi })} onOpenEvidence={openTrajectory} onOpenSource={openEvidence} /></Show>}>
+        </>}><RouteFlowGraph detail={props.detail} sourceKey={props.state.source} genericUiMode={props.state.genericUi} revealResetKey={`${props.state.open}:${props.generation}:${props.detail.route.key}:${props.detail.trajectory.key}`} onSource={(source) => props.onState({ source, item: null, expand: [], isolate: false, pan: null, zoom: null, fieldFocus: null, consumerFocus: null }, true)} onGenericUiMode={(genericUi) => props.onState({ genericUi })} onOpenEvidence={openTrajectory} onOpenSource={openEvidence} /></Show>}>
           <RouteTotalityGraph
             totality={props.detail.totality}
             shadowEvidence={props.detail.shadowEvidence}
             selectedSourceEvidence={selectedSourceEvidence()}
+            fieldFocus={props.state.fieldFocus ?? null}
+            consumerFocus={props.state.consumerFocus ?? null}
             generation={props.generation}
             hiddenComponentPolicy={props.detail.hiddenComponentPolicy}
             genericUiMode={props.state.genericUi}
             onGenericUiMode={(genericUi) => props.onState({ genericUi })}
             contextFocus={props.state.contextFocus ?? null}
             onContextFocusChange={(contextFocus) => props.onState({ contextFocus })}
+            onFieldFocusChange={(fieldFocus, consumerFocus = null) => props.onState({ fieldFocus, consumerFocus })}
+            onClearSource={() => props.onState({ source: null, fieldFocus: null, consumerFocus: null, item: null, expand: [], isolate: false, pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null }, true)}
             scopeKey={`${props.detail.route.key}:${props.detail.trajectory.key}:${props.state.trajectoryRenderer ?? "current"}`}
             selection={props.state.totalitySelection ?? null}
             camera={props.state.graphCamera ?? null}

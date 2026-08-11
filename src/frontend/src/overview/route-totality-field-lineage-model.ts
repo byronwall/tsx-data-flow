@@ -59,6 +59,8 @@ export function selectRouteTotalityFieldFocus(
   totality: RouteTotality | null,
   layout: RouteTotalityLayout,
   origin: RouteTotalityFieldOriginFocus | null,
+  selectedField: string | null = null,
+  selectedConsumer: string | null = null,
 ): RouteTotalityFieldFocusModel {
   const empty = emptyFieldFocusModel(origin);
   if (!totality || !origin) return empty;
@@ -71,8 +73,13 @@ export function selectRouteTotalityFieldFocus(
   const activeBridgeIds = new Set<string>();
   const frontierBridgeIds = new Set<string>();
   const summaries = new Map<string, FieldSummaryAccumulator>();
-  const attachments = totality.fieldLineage.attachments.filter((candidate) => sameOrigin(candidate.origin, origin));
-  const frontiers = totality.fieldLineage.frontiers.filter((candidate) => sameOrigin(candidate.origin, origin));
+  const attachments = totality.fieldLineage.attachments
+    .filter((candidate) => sameOrigin(candidate.origin, origin))
+    .filter((candidate) => !selectedField || candidate.field.label === selectedField)
+    .filter((candidate) => !selectedConsumer || candidate.consumer?.id === selectedConsumer || candidate.id === selectedConsumer);
+  const frontiers = totality.fieldLineage.frontiers
+    .filter((candidate) => sameOrigin(candidate.origin, origin))
+    .filter((candidate) => !selectedField || candidate.field?.label === selectedField);
 
   if (unavailable) {
     return {

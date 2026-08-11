@@ -27,6 +27,27 @@ export type RouteTotalityFieldInspectorGroup = {
   frontiers: RouteTotalityFieldInspectorFrontier[];
 };
 
+export type RouteTotalityFieldUse = {
+  key: string;
+  attachment: RouteTotalityFieldAttachment;
+  occurrenceId: string;
+  componentName: string;
+  occurrenceLocation: RouteTotalityLocation | null;
+  consumerLabel: string;
+  consumerKind: string;
+  consumerLocation: RouteTotalityLocation | null;
+  aliasLabel: string | null;
+  selected: boolean;
+};
+
+export type RouteTotalityFieldSummary = {
+  label: string;
+  useCount: number;
+  componentCount: number;
+  occurrences: Array<{ occurrenceId: string; componentName: string; location: RouteTotalityLocation | null; uses: RouteTotalityFieldUse[] }>;
+  selected: boolean;
+};
+
 export type RouteTotalityFieldInspectorResult = {
   status: "no-origin" | "unavailable" | "no-fields" | "proven" | "partial";
   unavailableReason: string | null;
@@ -35,6 +56,9 @@ export type RouteTotalityFieldInspectorResult = {
   groups: RouteTotalityFieldInspectorGroup[];
   attachments: RouteTotalityFieldInspectorAttachment[];
   frontiers: RouteTotalityFieldInspectorFrontier[];
+  fields: RouteTotalityFieldSummary[];
+  selectedField: string | null;
+  selectedConsumer: string | null;
 };
 
 const FRONTIER_REASON_LABELS: Record<RouteTotalityFieldFrontier["reason"], string> = {
@@ -57,15 +81,19 @@ export function selectRouteTotalityFieldInspectorResult(
   layout: RouteTotalityLayout,
   origin: RouteTotalityFieldOriginFocus | null,
   scope: RouteTotalityFieldInspectorScope,
+  selectedField: string | null = null,
+  selectedConsumer: string | null = null,
 ): RouteTotalityFieldInspectorResult | null {
   if (!totality) return null;
   if (totality.fieldLineage.status === "unavailable") {
     return {
       ...emptyResult("unavailable", scope),
       unavailableReason: totality.fieldLineage.unavailableReason,
+      selectedField,
+      selectedConsumer,
     };
   }
-  if (!origin) return emptyResult("no-origin", scope);
+  if (!origin) return emptyResult("no-origin", scope, selectedField, selectedConsumer);
 
   const surfaceOccurrences = "occurrences" in totality.occurrenceSurface
     ? totality.occurrenceSurface.occurrences
@@ -103,7 +131,7 @@ export function selectRouteTotalityFieldInspectorResult(
         : matchingOccurrences.find((candidate) => candidate.id === occurrenceId);
       return {
         occurrenceId,
-        label: occurrenceId === null ? "Evidence path" : occurrence?.expression ?? occurrence?.name ?? occurrenceId,
+        label: occurrenceId === null ? "Evidence path" : occurrence?.name ?? occurrence?.expression ?? occurrenceId,
         location: occurrence?.callSite ?? null,
         attachments: matchingAttachments
           .filter((attachment) => attachment.occurrenceId === occurrenceId)
@@ -128,6 +156,9 @@ export function selectRouteTotalityFieldInspectorResult(
     groups,
     attachments,
     frontiers,
+    fields: buildFieldSummaries(attachments, matchingOccurrences, selectedField, selectedConsumer),
+    selectedField,
+    selectedConsumer,
   };
 }
 
@@ -163,6 +194,8 @@ export function routeTotalityFieldFrontierReason(reason: RouteTotalityFieldFront
 function emptyResult(
   status: RouteTotalityFieldInspectorResult["status"],
   scope: RouteTotalityFieldInspectorScope,
+  selectedField: string | null = null,
+  selectedConsumer: string | null = null,
 ): RouteTotalityFieldInspectorResult {
   return {
     status,
@@ -172,8 +205,72 @@ function emptyResult(
     groups: [],
     attachments: [],
     frontiers: [],
+    fields: [],
+    selectedField,
+    selectedConsumer,
   };
 }
+
+function buildFieldSummaries(
+  attachments: RouteTotalityFieldInspectorAttachment[],
+  occurrences: RouteTotalitySurfaceOccurrence[],
+  selectedField: string | null,
+  selectedConsumer: string | null,
+): RouteTotalityFieldSummary[] {
+  const occurrenceById = new Map(occurrences.map((occurrence) => [occurrence.id, occurrence]));
+  const fields = new Map<string, RouteTotalityFieldUse[]>();
+  for (const item of attachments) {
+    const attachment = item.attachment;
+    const occurrence = occurrenceById.get(attachment.occurrenceId);
+    const consumer = attachment.consumer;
+    const uses = fields.get(attachment.field.label) ?? [];
+    uses.push({
+      key: consumer?.id ?? attachment.id,
+      attachment,
+      occurrenceId: attachment.occurrenceId,
+      componentName: occurrence?.name ?? "Unnamed component occurrence",
+      occurrenceLocation: occurrence?.callSite ?? null,
+      consumerLabel: consumer?.label ?? "Unmapped consumer",
+      consumerKind: consumer?.kind ?? "field read",
+      consumerLocation: consumer?.location ?? attachment.field.location,
+      aliasLabel: aliasLabel(attachment.alias),
+      selected: consumer?.id === selectedConsumer || attachment.id === selectedConsumer,
+    });
+    fields.set(attachment.field.label, uses);
+  }
+  return [...fields.entries()]
+    .sort(([left], [right]) => compareCodePoint(left, right))
+    .map(([label, uses]) => {
+      const occurrencesById = new Map<string, RouteTotalityFieldUse[]>();
+      for (const use of uses) occurrencesById.set(use.occurrenceId, [...(occurrencesById.get(use.occurrenceId) ?? []), use]);
+      const grouped = [...occurrencesById.entries()]
+        .sort(([left], [right]) => compareCodePoint(left, right))
+        .map(([occurrenceId, occurrenceUses]) => ({
+          occurrenceId,
+          componentName: occurrenceUses[0].componentName,
+          location: occurrenceUses[0].occurrenceLocation,
+          uses: occurrenceUses.sort((left, right) => compareCodePoint(left.key, right.key)),
+        }));
+      return {
+        label,
+        useCount: uses.length,
+        componentCount: grouped.length,
+        occurrences: grouped,
+        selected: selectedField === label,
+      };
+    });
+}
+
+function aliasLabel(alias: unknown): string | null {
+  if (typeof alias === "string") return alias;
+  if (!alias || typeof alias !== "object") return null;
+  const value = alias as { from?: unknown; to?: unknown };
+  return typeof value.from === "string" && typeof value.to === "string" ? `${value.from} → ${value.to}` : null;
+}
+
+type RouteTotalitySurfaceOccurrence = RouteTotality["occurrenceSurface"] extends infer Surface
+  ? Surface extends { occurrences: Array<infer Occurrence> } ? Occurrence : never
+  : never;
 
 function uniqueById<T extends { id: string }>(records: readonly T[]): T[] {
   const byId = new Map<string, T>();

@@ -22,6 +22,8 @@ export type TrajectoryUrlState = {
   totalitySelection?: TrajectoryTotalitySelection | null;
   graphCamera?: TrajectoryGraphCamera | null;
   contextFocus?: string | null;
+  fieldFocus?: string | null;
+  consumerFocus?: string | null;
 };
 
 export type TrajectoryProjectionState = {
@@ -32,7 +34,7 @@ export type TrajectoryProjectionState = {
 
 export const EMPTY_TRAJECTORY_STATE: TrajectoryUrlState = {
   open: false, route: null, flow: null, item: null, expand: [], isolate: false, mode: "detail", kind: "pages", sort: "steps", source: null, filter: null, view: "context", genericUi: null, pan: null, zoom: null, packet: null,
-  trajectoryRenderer: "current", totalitySelection: null, graphCamera: null, contextFocus: null,
+  trajectoryRenderer: "current", totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null,
 };
 
 const GRAPH_CAMERA_LIMITS = { coordinate: 100_000, minScale: 0.25, maxScale: 10 } as const;
@@ -52,6 +54,7 @@ export function parseTrajectoryUrlState(search: string | URLSearchParams): Traje
     genericUi: params.get("genericUi") === "hidden" || params.get("genericUi") === "all" ? params.get("genericUi") as GenericUiMode : null,
     pan: pan?.length === 2 && pan.every(Number.isFinite) ? { x: pan[0], y: pan[1] } : null,
     zoom: Number.isFinite(zoom) && zoom > 0 ? zoom : null, packet: clean(params.get("packet")),
+    fieldFocus: clean(params.get("totalityField")), consumerFocus: clean(params.get("totalityConsumer")),
   };
   const renderer = params.get("trajectoryRenderer");
   if (renderer !== null) state.trajectoryRenderer = parseRenderer(renderer);
@@ -66,7 +69,7 @@ export function parseTrajectoryUrlState(search: string | URLSearchParams): Traje
 
 export function serializeTrajectoryUrlState(state: TrajectoryUrlState, current = "") {
   const params = new URLSearchParams(current);
-  for (const key of ["viz", "route", "flow", "item", "expand", "isolate", "trajectoryMode", "routeKind", "routeSort", "sourceMethod", "filter", "view", "genericUi", "pan", "zoom", "packet", "trajectoryRenderer", "totalitySelection", "graphCamera", "contextFocus"]) params.delete(key);
+  for (const key of ["viz", "route", "flow", "item", "expand", "isolate", "trajectoryMode", "routeKind", "routeSort", "sourceMethod", "filter", "view", "genericUi", "pan", "zoom", "packet", "trajectoryRenderer", "totalitySelection", "graphCamera", "contextFocus", "totalityField", "totalityConsumer"]) params.delete(key);
   if (state.open) params.set("viz", "trajectory");
   if (state.route) params.set("route", state.route);
   if (state.flow) params.set("flow", state.flow);
@@ -90,6 +93,8 @@ export function serializeTrajectoryUrlState(state: TrajectoryUrlState, current =
     params.set("graphCamera", `${round(camera.x)},${round(camera.y)},${round(camera.scale)}`);
   }
   if (state.contextFocus) params.set("contextFocus", state.contextFocus);
+  if (state.fieldFocus) params.set("totalityField", state.fieldFocus);
+  if (state.consumerFocus) params.set("totalityConsumer", state.consumerFocus);
   const value = params.toString(); return value ? `?${value}` : "";
 }
 
@@ -102,6 +107,8 @@ export function normalizeTrajectoryUrlState(state: TrajectoryUrlState): Trajecto
     totalitySelection: state.totalitySelection ?? null,
     graphCamera: state.graphCamera ? normalizeGraphCamera(state.graphCamera) : null,
     contextFocus: state.contextFocus ?? null,
+    fieldFocus: state.fieldFocus ?? null,
+    consumerFocus: state.consumerFocus ?? null,
   };
 }
 
@@ -123,6 +130,8 @@ export function sameTrajectoryUrlState(left: TrajectoryUrlState, right: Trajecto
   && left.source === right.source && left.filter === right.filter && left.view === right.view && left.genericUi === right.genericUi
   && samePoint(left.pan, right.pan) && left.zoom === right.zoom && left.packet === right.packet
   && (left.contextFocus ?? null) === (right.contextFocus ?? null)
+  && (left.fieldFocus ?? null) === (right.fieldFocus ?? null)
+  && (left.consumerFocus ?? null) === (right.consumerFocus ?? null)
   && leftProjection.trajectoryRenderer === rightProjection.trajectoryRenderer
   && sameSelection(leftProjection.totalitySelection, rightProjection.totalitySelection)
   && sameCamera(leftProjection.graphCamera, rightProjection.graphCamera);
@@ -199,6 +208,8 @@ export function reconcileTrajectoryUrlState(state: TrajectoryUrlState, inventory
       totalitySelection: sameFlow ? state.totalitySelection : null,
       graphCamera: sameFlow ? state.graphCamera : null,
       contextFocus: sameFlow ? state.contextFocus : null,
+      fieldFocus: sameFlow ? state.fieldFocus : null,
+      consumerFocus: sameFlow ? state.consumerFocus : null,
     },
     notice: notices.join(" "),
   };
@@ -257,6 +268,13 @@ export function reconcileTrajectoryDetailState(state: TrajectoryUrlState, detail
   const expand = normalized.expand.filter((key) => validOperations.has(key));
   const contextDeclarationIds = new Set(detail.totality?.contextContinuity.declarations.map((declaration) => declaration.id));
   const contextFocus = normalized.contextFocus && contextDeclarationIds.has(normalized.contextFocus) ? normalized.contextFocus : null;
+  const fieldAttachments = detail.totality?.fieldLineage.attachments ?? [];
+  const validFieldFocus = normalized.source && normalized.fieldFocus && fieldAttachments.some((attachment) => attachment.field.label === normalized.fieldFocus)
+    ? normalized.fieldFocus
+    : null;
+  const validConsumerFocus = normalized.source && normalized.consumerFocus && fieldAttachments.some((attachment) => attachment.consumer?.id === normalized.consumerFocus && (!validFieldFocus || attachment.field.label === validFieldFocus))
+    ? normalized.consumerFocus
+    : null;
   const currentSelection = normalized.totalitySelection ?? null;
   const totalityLayout = buildRouteTotalityLayout(detail.totality);
   const totalitySelection = isTotalitySelectionValid(currentSelection, totalityLayout) ? currentSelection : null;
@@ -265,9 +283,9 @@ export function reconcileTrajectoryDetailState(state: TrajectoryUrlState, detail
     ? isTotalityIsolationFocusValid(totalitySelection, totalityLayout)
     : normalized.trajectoryRenderer === "current" && Boolean(item);
   const isolate = normalized.isolate && !totalitySelectionInvalid && hasValidIsolationOwner;
-  const invalid = normalized.item !== item || normalized.expand.length !== expand.length || normalized.totalitySelection !== totalitySelection || normalized.contextFocus !== contextFocus;
+  const invalid = normalized.item !== item || normalized.expand.length !== expand.length || normalized.totalitySelection !== totalitySelection || normalized.contextFocus !== contextFocus || normalized.fieldFocus !== validFieldFocus || normalized.consumerFocus !== validConsumerFocus;
   return {
-    state: { ...normalized, item, expand, isolate, totalitySelection, contextFocus },
+    state: { ...normalized, item, expand, isolate, totalitySelection, contextFocus, fieldFocus: validFieldFocus, consumerFocus: validConsumerFocus },
     notice: invalid ? "Some restored investigation state no longer exists and was cleared." : "",
   };
 }

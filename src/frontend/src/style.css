@@ -486,7 +486,7 @@
 .route-totality-ui-toggle[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .route-totality-camera button { min-width: 25px; min-height: 24px; padding: 2px 5px; font-size: .62rem; }
 .route-totality-camera button:nth-child(2) { min-width: 50px; font-family: var(--mono); }
-.route-totality-body { min-height: 0; position: relative; display: grid; grid-template-columns: minmax(0,1fr) 330px; overflow: hidden; }
+.route-totality-body { min-height: 0; position: relative; display: grid; grid-template-columns: minmax(0,1fr) minmax(280px,330px); overflow: hidden; }
 .route-totality-debug-overlay { position: absolute; top: 10px; right: 340px; z-index: 4; }
 .route-totality-debug-overlay[hidden] { display: none; }
 .route-totality-viewport { min-width: 0; min-height: 0; position: relative; overflow: hidden; background-color: #f8f9fc; background-image: linear-gradient(#e8eaf0 1px,transparent 1px),linear-gradient(90deg,#e8eaf0 1px,transparent 1px); background-size: 20px 20px; }
@@ -711,6 +711,58 @@
 .route-totality-field-item button:hover,.route-totality-field-item button:focus-visible { color: var(--text); }
 .route-totality-field-item button code { overflow-wrap: anywhere; font-size: .61rem; }
 .route-totality-field-item button span { color: var(--muted); font-size: .57rem; }
+.route-totality-field-heading { display: flex; align-items: start; justify-content: space-between; gap: 8px; min-width: 0; }
+.route-totality-field-heading > div { min-width: 0; display: grid; gap: 4px; }
+.route-totality-field-heading p { font-size: .63rem; }
+.route-totality-field-clear { flex: none; min-height: 23px; padding: 2px 5px; border-color: color-mix(in srgb, var(--lineage-proven) 30%, var(--border)); background: transparent; color: var(--lineage-field-text); font-size: .58rem; }
+.route-totality-field-clear:hover,.route-totality-field-clear:focus-visible { border-color: var(--lineage-proven); background: var(--surface); }
+.route-totality-proven-fields { display: grid; gap: 5px; min-width: 0; }
+.route-totality-field-summary { display: grid; gap: 4px; min-width: 0; padding: 5px; background: var(--surface); }
+.route-totality-field-summary.selected { background: color-mix(in srgb, var(--lineage-proven) 12%, var(--surface)); }
+.route-totality-field-summary-trigger { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px; align-items: baseline; width: 100%; padding: 0; border: 0; background: transparent; color: var(--lineage-field-text); text-align: left; }
+.route-totality-field-summary-trigger:hover,.route-totality-field-summary-trigger:focus-visible { color: var(--text); }
+.route-totality-field-summary-trigger code { min-width: 0; overflow-wrap: anywhere; font-size: .67rem; font-weight: 750; }
+.route-totality-field-summary-trigger > span { color: var(--muted); font-size: .58rem; white-space: nowrap; }
+.route-totality-field-occurrences { display: grid; gap: 4px; min-width: 0; }
+.route-totality-field-occurrence { display: grid; gap: 2px; min-width: 0; padding: 4px; background: var(--bg); }
+.route-totality-field-occurrence > header { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
+.route-totality-field-occurrence > header strong { min-width: 0; overflow-wrap: anywhere; color: var(--text); font: 700 .61rem var(--mono); }
+.route-totality-field-occurrence > header a { flex: none; max-width: 45%; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.route-totality-field-occurrence > header a code { font-size: .56rem; }
+.route-totality-field-use { min-width: 0; border-top: 1px solid var(--border); }
+.route-totality-field-use > summary { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px; align-items: start; min-width: 0; padding: 4px 1px; cursor: pointer; list-style: none; }
+.route-totality-field-use > summary::-webkit-details-marker { display: none; }
+.route-totality-field-use > summary::before { content: "›"; color: var(--muted); font-size: .7rem; }
+.route-totality-field-use[open] > summary::before { content: "⌄"; }
+.route-totality-field-use > summary > span { min-width: 0; display: grid; gap: 1px; grid-column: 1; margin-left: 8px; margin-top: -15px; }
+.route-totality-field-use > summary b { min-width: 0; overflow-wrap: anywhere; color: var(--text); font: 650 .61rem var(--mono); }
+.route-totality-field-use > summary small { color: var(--muted); font-size: .56rem; line-height: 1.25; }
+.route-totality-field-use > summary > code { grid-column: 2; max-width: 112px; overflow: hidden; color: var(--muted); font-size: .55rem; text-overflow: ellipsis; white-space: nowrap; }
+.route-totality-field-use > summary:hover,.route-totality-field-use > summary:focus-visible { background: var(--accent-soft); }
+.route-totality-field-proof { display: grid; gap: 5px; padding: 3px 4px 6px 15px; background: color-mix(in srgb, var(--lineage-field-fill) 55%, var(--surface)); }
+.route-totality-field-proof dl { display: grid; gap: 1px; margin: 0; }
+.route-totality-field-proof dl > div { display: grid; grid-template-columns: 78px minmax(0,1fr); gap: 5px; min-width: 0; padding: 3px; background: var(--surface); }
+.route-totality-field-proof dt { color: var(--muted); font-size: .54rem; text-transform: uppercase; }
+.route-totality-field-proof dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: .58rem; }
+.route-totality-proof-location-inline { min-width: 0; display: inline-grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px; align-items: baseline; width: 100%; }
+.route-totality-proof-location-inline button { min-width: 0; display: grid; gap: 1px; padding: 0; border: 0; background: transparent; color: var(--accent); text-align: left; }
+.route-totality-proof-location-inline button:hover,.route-totality-proof-location-inline button:focus-visible { color: var(--text); }
+.route-totality-proof-location-inline button code { overflow-wrap: anywhere; font-size: .57rem; }
+.route-totality-proof-location-inline button small,.route-totality-proof-location-inline > a { color: var(--muted); font-size: .54rem; }
+.route-totality-proof-location-inline > a { flex: none; }
+.route-totality-proof-steps { min-width: 0; }
+.route-totality-proof-steps > summary { color: var(--accent); cursor: pointer; font-size: .58rem; }
+.route-totality-proof-steps > summary span { color: var(--muted); font-family: var(--mono); }
+.route-totality-proof-steps ol { display: flex; flex-wrap: wrap; gap: 3px; margin: 4px 0 0; padding: 0; list-style: none; }
+.route-totality-proof-steps li { padding: 2px 4px; background: var(--surface); color: var(--muted); }
+.route-totality-proof-steps code { overflow-wrap: anywhere; font-size: .54rem; }
+.route-totality-whole-object { display: grid; gap: 4px; margin-top: 4px; padding-top: 5px; border-top: 1px solid color-mix(in srgb, var(--lineage-proven) 30%, var(--border)); }
+.route-totality-whole-object h4 { margin: 0; color: var(--lineage-field-text); }
+.route-totality-whole-object p { font-size: .59rem; }
+.route-totality-whole-object ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.route-totality-whole-object li { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr); gap: 5px; min-width: 0; padding: 4px; background: var(--surface); font-size: .58rem; }
+.route-totality-whole-object li code { overflow-wrap: anywhere; }
+.route-totality-whole-object li span { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
 .route-totality-finding-list { display: grid; gap: 4px; }
 .route-totality-finding-item { display: grid; gap: 3px; min-width: 0; padding: 6px; background: var(--bg); }
 .route-totality-finding-item strong { overflow-wrap: anywhere; color: var(--text); font: 700 .67rem var(--mono); }

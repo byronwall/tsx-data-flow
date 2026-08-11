@@ -1,5 +1,10 @@
 import { For, Show } from "solid-js";
-import type { RouteTotalityFieldInspectorGroup, RouteTotalityFieldInspectorResult } from "./route-totality-field-inspector-model";
+import type {
+  RouteTotalityFieldInspectorGroup,
+  RouteTotalityFieldInspectorResult,
+  RouteTotalityFieldSummary,
+  RouteTotalityFieldUse,
+} from "./route-totality-field-inspector-model";
 import { routeTotalityFieldFrontierReason } from "./route-totality-field-inspector-model";
 import type { SourceEvidenceTarget } from "./source-evidence-model";
 import { sourceTargetForLocation } from "./route-source-targets";
@@ -8,11 +13,20 @@ import type { RouteTotalityLocation } from "./route-totality-model";
 export function RouteTotalityFieldSections(props: {
   result: RouteTotalityFieldInspectorResult | null;
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
+  onFieldFocusChange: (fieldFocus: string | null, consumerFocus?: string | null) => void;
 }) {
   return <Show when={props.result}>
     {(result) => <>
       <section class="route-totality-inspector-section route-totality-field-section">
-        <h3>{fieldSectionHeading(result().scope)} <span>{result().attachments.length}</span></h3>
+        <div class="route-totality-field-heading">
+          <div>
+            <h3>{fieldSectionHeading(result().scope)} <span>{result().fields.length} fields · {result().attachments.length} uses</span></h3>
+            <p>Exact field reads proven from the selected source. Select a row to focus its green path.</p>
+          </div>
+          <Show when={result().selectedField}>
+            <button type="button" class="route-totality-field-clear" onClick={() => props.onFieldFocusChange(null, null)}>Show all fields</button>
+          </Show>
+        </div>
         <Show when={result().status === "no-origin"}>
           <p>Select an origin to show proven fields.</p>
         </Show>
@@ -22,10 +36,11 @@ export function RouteTotalityFieldSections(props: {
         <Show when={result().status === "no-fields"}>
           <p>{noProvenFieldsMessage(result())}</p>
         </Show>
-        <Show when={result().status === "proven" || result().status === "partial"}>
-          <Show when={result().attachments.length > 0} fallback={<p>{noProvenFieldsMessage(result())}</p>}>
-            <For each={result().groups.filter((group) => group.attachments.length > 0)}>{(group) => <FieldGroup group={group} onOpenSource={props.onOpenSource} />}</For>
-          </Show>
+        <Show when={result().fields.length > 0} fallback={<Show when={result().status === "proven" || result().status === "partial"}><p>{noProvenFieldsMessage(result())}</p></Show>}>
+          <div class="route-totality-proven-fields" aria-label="Proven fields">
+            <For each={result().fields}>{(field) => <FieldSummary field={field} result={result()} onOpenSource={props.onOpenSource} onFieldFocusChange={props.onFieldFocusChange} />}</For>
+          </div>
+          <WholeObjectHandoffs handoffs={buildWholeObjectHandoffs(result().fields)} />
         </Show>
       </section>
       <Show when={result().frontiers.length > 0}>
@@ -40,30 +55,88 @@ export function RouteTotalityFieldSections(props: {
   </Show>;
 }
 
-function FieldGroup(props: {
-  group: RouteTotalityFieldInspectorGroup;
+function FieldSummary(props: {
+  field: RouteTotalityFieldSummary;
+  result: RouteTotalityFieldInspectorResult;
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
+  onFieldFocusChange: (fieldFocus: string | null, consumerFocus?: string | null) => void;
 }) {
-  return <div class="route-totality-field-group">
-    <FieldGroupHeading group={props.group} />
-    <div class="route-totality-field-list">
-      <For each={props.group.attachments}>{(item) => {
-        const location = item.attachment.field.location;
-        return <article class="route-totality-field-item">
-          <strong><code>{item.attachment.field.label}</code></strong>
-          <span>{item.attachment.proof[0]?.status ?? "unknown"} · {item.terminalCount} render terminal{item.terminalCount === 1 ? "" : "s"}</span>
-          <button type="button" onClick={() => props.onOpenSource(sourceTargetForLocation(location))}>
-            <code>Field read · {formatLocation(location)}</code><span>Open exact code</span>
-          </button>
-          <Show when={item.attachment.consumer}>
-            {(consumer) => <button type="button" onClick={() => props.onOpenSource(sourceTargetForLocation(consumer().location))}>
-              <code>Consumer · {consumer().label} · {formatLocation(consumer().location)}</code><span>Open exact code</span>
-            </button>}
+  return <article class="route-totality-field-summary" classList={{ selected: props.field.selected }}>
+    <button
+      type="button"
+      class="route-totality-field-summary-trigger"
+      aria-pressed={props.field.selected}
+      aria-label={`${props.field.selected ? "Clear" : "Focus"} proven field ${props.field.label}`}
+      onClick={() => props.onFieldFocusChange(props.field.selected ? null : props.field.label, null)}
+    >
+      <code>{props.field.label}</code>
+      <span>{props.field.useCount} uses · {props.field.componentCount} component{props.field.componentCount === 1 ? "" : "s"}</span>
+    </button>
+    <div class="route-totality-field-occurrences">
+      <For each={props.field.occurrences}>{(occurrence) => <section class="route-totality-field-occurrence">
+        <header>
+          <strong>{occurrence.componentName}</strong>
+          <Show when={occurrence.location}>
+            {(location) => <a href={locationHref(location())} title={location().file}><code>{shortLocation(location())}</code></a>}
           </Show>
-        </article>;
-      }}</For>
+        </header>
+        <For each={occurrence.uses}>{(use) => <FieldUse use={use} fieldLabel={props.field.label} onOpenSource={props.onOpenSource} onFieldFocusChange={props.onFieldFocusChange} />}</For>
+      </section>}</For>
     </div>
-  </div>;
+  </article>;
+}
+
+function FieldUse(props: {
+  use: RouteTotalityFieldUse;
+  fieldLabel: string;
+  onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
+  onFieldFocusChange: (fieldFocus: string | null, consumerFocus?: string | null) => void;
+}) {
+  const location = () => props.use.consumerLocation ?? props.use.attachment.field.location;
+  return <details class="route-totality-field-use" open={props.use.selected}>
+    <summary onClick={() => props.onFieldFocusChange(props.fieldLabel, props.use.key)}>
+      <span><b>{props.use.consumerLabel}</b><small>{props.use.consumerKind} · {props.use.componentName}</small></span>
+      <code title={formatLocation(location())}>{shortLocation(location())}</code>
+    </summary>
+    <div class="route-totality-field-proof">
+      <dl>
+        <div><dt>Component occurrence</dt><dd>{props.use.componentName} · <code>{props.use.occurrenceId}</code></dd></div>
+        <div><dt>Field read</dt><dd><ProofLocation location={props.use.attachment.field.location} label="Open field read" onOpenSource={props.onOpenSource} /></dd></div>
+        <div><dt>Consumer</dt><dd><ProofLocation location={location()} label="Open exact consumer" onOpenSource={props.onOpenSource} /></dd></div>
+        <Show when={props.use.aliasLabel}><div><dt>Alias</dt><dd><code>{props.use.aliasLabel}</code></dd></div></Show>
+      </dl>
+      <details class="route-totality-proof-steps">
+        <summary>Proof steps <span>{props.use.attachment.transformationKinds.length}</span></summary>
+        <ol><For each={props.use.attachment.transformationKinds}>{(kind) => <li><code>{kind}</code></li>}</For></ol>
+      </details>
+    </div>
+  </details>;
+}
+
+type WholeObjectHandoff = { componentName: string; fieldLabel: string; occurrenceId: string };
+
+function buildWholeObjectHandoffs(fields: readonly RouteTotalityFieldSummary[]): WholeObjectHandoff[] {
+  const handoffs = new Map<string, WholeObjectHandoff>();
+  for (const field of fields) {
+    for (const occurrence of field.occurrences) {
+      for (const use of occurrence.uses) {
+        if (!use.attachment.transformationKinds.includes("jsx-component-prop") || use.aliasLabel) continue;
+        const key = `${use.occurrenceId}:${use.componentName}`;
+        if (!handoffs.has(key)) handoffs.set(key, { componentName: use.componentName, fieldLabel: objectPath(field.label), occurrenceId: use.occurrenceId });
+      }
+    }
+  }
+  return [...handoffs.values()];
+}
+
+function WholeObjectHandoffs(props: { handoffs: WholeObjectHandoff[] }) {
+  return <Show when={props.handoffs.length}>
+    <div class="route-totality-whole-object">
+      <h4>Whole-object handoff <span>{props.handoffs.length}</span></h4>
+      <p>The object handoff is separate from scalar field lineage.</p>
+      <ul><For each={props.handoffs}>{(handoff) => <li><code>{handoff.fieldLabel}</code><span>→ {handoff.componentName} · <code>{handoff.occurrenceId}</code></span></li>}</For></ul>
+    </div>
+  </Show>;
 }
 
 function FieldFrontierGroup(props: {
@@ -79,9 +152,7 @@ function FieldFrontierGroup(props: {
           <Show when={item.frontier.field}>{(field) => <strong><code>{field().label}</code></strong>}</Show>
           <span>{routeTotalityFieldFrontierReason(item.frontier.reason)}</span>
           <Show when={location} fallback={<span>No exact stop location was returned.</span>}>
-            {(stopLocation) => <button type="button" onClick={() => props.onOpenSource(sourceTargetForLocation(stopLocation()))}>
-              <code>Stopped at · {formatLocation(stopLocation())}</code><span>Open proof/source</span>
-            </button>}
+            {(stopLocation) => <ProofLocation location={stopLocation()} label="Open proof/source" onOpenSource={props.onOpenSource} />}
           </Show>
         </article>;
       }}</For>
@@ -100,19 +171,41 @@ function FieldGroupHeading(props: { group: RouteTotalityFieldInspectorGroup }) {
   </header>;
 }
 
+function ProofLocation(props: {
+  location: RouteTotalityLocation;
+  label: string;
+  onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
+}) {
+  return <span class="route-totality-proof-location-inline">
+    <button type="button" onClick={() => props.onOpenSource(sourceTargetForLocation(props.location))}>
+      <code title={formatLocation(props.location)}>{formatLocation(props.location)}</code><small>{props.label}</small>
+    </button>
+    <a href={locationHref(props.location)} title={`Open full file ${props.location.file}`}>Full file</a>
+  </span>;
+}
+
 function formatLocation(location: RouteTotalityLocation) {
   const span = `${location.span.startLine}:${location.span.startColumn}–${location.span.endLine}:${location.span.endColumn}`;
   return `${location.file}:${location.line}:${location.column} · ${span}`;
 }
 
+function shortLocation(location: RouteTotalityLocation) {
+  return `${location.file.split("/").at(-1) ?? location.file}:${location.line}`;
+}
+
+function locationHref(location: RouteTotalityLocation) {
+  return `/file?path=${encodeURIComponent(location.file)}#L${location.line}`;
+}
+
+function objectPath(label: string) {
+  const lastDot = label.lastIndexOf(".");
+  return lastDot > 0 ? label.slice(0, lastDot) : label;
+}
+
 function fieldSectionHeading(scope: RouteTotalityFieldInspectorResult["scope"]): string {
-  return scope.kind === "origin"
-    ? "Source fields from this origin"
-    : "Source fields through this occurrence";
+  return scope.kind === "origin" ? "Proven fields" : "Fields through occurrence";
 }
 
 function noProvenFieldsMessage(result: RouteTotalityFieldInspectorResult): string {
-  return result.scope.kind === "origin"
-    ? "No proven fields continue from this origin."
-    : "No proven fields reach this occurrence.";
+  return result.scope.kind === "origin" ? "No proven fields continue from this source." : "No proven fields reach this occurrence.";
 }

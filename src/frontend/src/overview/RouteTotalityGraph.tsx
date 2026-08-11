@@ -36,6 +36,8 @@ type RouteTotalityGraphProps = {
   totality: RouteTotality | null;
   shadowEvidence: RouteDataDetail["shadowEvidence"];
   selectedSourceEvidence: RouteDataDetail["evidence"][number] | null;
+  fieldFocus: string | null;
+  consumerFocus: string | null;
   generation: number;
   scopeKey?: string;
   selection?: TrajectoryTotalitySelection | null;
@@ -43,6 +45,8 @@ type RouteTotalityGraphProps = {
   isolated?: boolean;
   contextFocus?: string | null;
   onContextFocusChange?: (contextFocus: string | null) => void;
+  onFieldFocusChange: (fieldFocus: string | null, consumerFocus?: string | null) => void;
+  onClearSource: () => void;
   hiddenComponentPolicy: HiddenComponentPolicy;
   genericUiMode: GenericUiMode | null;
   onGenericUiMode: (mode: GenericUiMode) => void;
@@ -293,7 +297,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     selection(),
     emphasisMode(),
   ));
-  const fieldFocus = createMemo(() => selectRouteTotalityFieldFocus(props.totality, layout(), activeFieldOrigin()));
+  const fieldFocus = createMemo(() => selectRouteTotalityFieldFocus(props.totality, layout(), activeFieldOrigin(), props.fieldFocus, props.consumerFocus));
   const fieldFrontierLabels = createMemo(() => selectRouteTotalityFieldFrontierLabels(
     props.totality,
     activeFieldOrigin(),
@@ -353,7 +357,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   const selectedFieldResult = createMemo(() => {
     const scope = fieldInspectorScope();
     return scope
-      ? selectRouteTotalityFieldInspectorResult(props.totality, layout(), activeFieldOrigin(), scope)
+      ? selectRouteTotalityFieldInspectorResult(props.totality, layout(), activeFieldOrigin(), scope, props.fieldFocus, props.consumerFocus)
       : null;
   });
   const ledgerItems = createMemo(() => buildRouteTotalityLedger(props.totality, layout()));
@@ -388,10 +392,6 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   const selectFromInspectorWithFieldFocus = (next: Exclude<RouteInvestigationSelection, null>) => {
     setFieldInspectorScopeForSelection(next);
     actions.selectFromInspector(next);
-  };
-  const clearFieldFocus = () => {
-    setActiveFieldOrigin(null);
-    setFieldInspectorScope(null);
   };
   const clearSelectionWithFieldFocus = () => {
     if (activeFieldOrigin()) setFieldInspectorScope({ kind: "origin" });
@@ -440,7 +440,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
       hiddenUiNodeCount={layout().uiProjection.hiddenNodeIds.size}
       availableHiddenUiNodeCount={layout().uiProjection.availableHiddenNodeCount}
       onGenericUiMode={props.onGenericUiMode}
-      onClearFieldFocus={clearFieldFocus}
+      onClearFieldFocus={props.onClearSource}
       onZoomOut={() => cameraController.zoomAt(camera().scale / 1.25, undefined, true)}
       onReset={actions.reset}
       onZoomIn={() => cameraController.zoomAt(camera().scale * 1.25, undefined, true)}
@@ -503,6 +503,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         onIsolate={actions.isolate}
         onRestore={actions.restoreFullRoute}
         onOpenSource={props.onOpenSource ?? (() => undefined)}
+        onFieldFocusChange={props.onFieldFocusChange}
         onContextSelect={selectFromInspectorWithFieldFocus}
         onSelectStart={() => { const target = startSelection(); if (target) selectWithFieldFocus(target); }}
         contextUi={contextUi}
