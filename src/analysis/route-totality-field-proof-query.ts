@@ -40,7 +40,7 @@ export function queryRouteTotalityFieldProof(
       "ambiguous-target",
     );
   }
-  const discoveredCandidates = discoverFieldProofCandidates(ts, program, root, index, undefined, cancellation);
+  const discoveredCandidates = discoverFieldProofCandidates(ts, program, root, index, cancellation);
   const candidates = discoveredCandidates
     .flatMap((candidate) => {
       const anchor = anchorCandidate(index, surface, candidate, cancellation);

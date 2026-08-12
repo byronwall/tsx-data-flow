@@ -61,7 +61,6 @@ export function discoverFieldProofCandidates(
   program: TypeScript.Program,
   root: string,
   index: RouteTotalityFieldProofIndex,
-  target: FieldProofTargetSelector | undefined,
   cancellation: AnalysisCancellationToken,
 ): FieldProofCandidate[] {
   const checker = program.getTypeChecker();
@@ -71,7 +70,7 @@ export function discoverFieldProofCandidates(
     if (file.isDeclarationFile) continue;
     visitTypeScript(ts, file, (node) => {
       if (!ts.isCallExpression(node)) return;
-    candidates.push(...candidatesForFind(ts, checker, root, index, target, node, cancellation));
+      candidates.push(...candidatesForFind(ts, checker, root, index, node, cancellation));
     });
   }
   return [...new Map(candidates.map((candidate) => [fullCandidateProofKey(candidate), candidate])).values()]
@@ -112,7 +111,6 @@ function candidatesForFind(
   checker: TypeScript.TypeChecker,
   root: string,
   index: RouteTotalityFieldProofIndex,
-  target: FieldProofTargetSelector | undefined,
   findCall: TypeScript.CallExpression,
   cancellation: AnalysisCancellationToken,
 ): FieldProofCandidate[] {
@@ -150,11 +148,9 @@ function candidatesForFind(
     currentParameter: index.element(showUse.render.parameters[0].name, "parameter"),
     renderTerminal: index.element(showUse.render, "render-terminal"),
   };
-  if (Object.values(baseValues).some((value) => value === null)
-    || target && (baseValues.collectionField?.fieldName !== target.collectionFieldName
-      || baseValues.predicateField?.fieldName !== target.predicateFieldName)) return [];
+  if (Object.values(baseValues).some((value) => value === null)) return [];
 
-  const boundaryConsumers = componentBoundaryConsumersForTarget(ts, checker, root, index, showUse.render, target);
+  const boundaryConsumers = componentBoundaryConsumersForTarget(ts, checker, root, index, showUse.render, undefined);
   const scalarAliasProps = new Set(boundaryConsumers
     .filter((consumer) => consumer.boundary?.mode === "scalar-alias" && consumer.sourceField?.fieldName)
     .map((consumer) => `${consumer.boundary?.componentName}:${consumer.boundary?.propName}:${consumer.sourceField?.fieldName}`));
@@ -190,12 +186,12 @@ function candidatesForFind(
     ...boundaryConsumers,
   ];
   return consumers.flatMap((consumer) => {
-    if (target && !matchesTarget(consumer, target)) return [];
+
     const consumerField = index.element(consumer.access, "field-read");
-    if (!consumerField || target && consumerField.fieldName !== target.consumerFieldName) return [];
+    if (!consumerField) return [];
     const currentCall = index.element(consumer.call, "call");
     if (!currentCall) return [];
-    const targetSelector = target ?? genericTargetForConsumer(baseValues.collectionField!, baseValues.predicateField!, consumer, consumerField.fieldName!);
+    const targetSelector = genericTargetForConsumer(baseValues.collectionField!, baseValues.predicateField!, consumer, consumerField.fieldName!);
     const common = {
       targetKey: fieldProofTargetKey(targetSelector),
       target: targetSelector,
@@ -325,25 +321,4 @@ function genericConsumerLabel(consumer: CandidateConsumer, fieldName: string): s
     return "Show.when edit action";
   }
   return consumer.evidenceLabel ?? `${consumer.componentName ?? "component"}.${consumer.propName ?? fieldName}`;
-}
-
-function matchesTarget(consumer: CandidateConsumer, target: FieldProofTargetSelector): boolean {
-  const selector = target.consumer;
-  if (consumer.kind !== selector.kind || consumer.direct !== selector.directConsumer) return false;
-  if (selector.componentName && (target.chain && target.chain !== "direct"
-    ? consumer.boundary?.componentName !== selector.componentName : consumer.componentName !== selector.componentName)) return false;
-  if (selector.propName && consumer.propName !== selector.propName) return false;
-  if (selector.tagName && consumer.componentName !== selector.tagName) return false;
-  if (selector.tagModule && (!target.chain || target.chain === "direct") && consumer.tagModule !== selector.tagModule) return false;
-  if (consumer.direct) {
-    const attrs = consumer.binding?.attributes ?? {};
-    if (selector.actionName !== undefined && attrs.actionName !== selector.actionName) return false;
-    if (selector.argumentName !== undefined && attrs.argumentName !== selector.argumentName) return false;
-    if (selector.handlerReceiverName !== undefined && attrs.handlerReceiverName !== selector.handlerReceiverName) return false;
-    if (selector.conditionOperator !== undefined && attrs.conditionOperator !== selector.conditionOperator) return false;
-    if (selector.conditionLiteral !== undefined && attrs.conditionLiteral !== selector.conditionLiteral) return false;
-    if (selector.nestedShow !== undefined && attrs.nestedShow !== selector.nestedShow) return false;
-    if (selector.collectionName !== undefined && attrs.consumerCollection !== selector.collectionName) return false;
-  }
-  return true;
 }
