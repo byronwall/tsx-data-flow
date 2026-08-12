@@ -23,8 +23,8 @@ export function RouteTotalityFieldSections(props: {
       <section class="route-totality-inspector-section route-totality-field-section">
         <div class="route-totality-field-heading">
           <div>
-            <h3>{fieldSectionHeading(result().scope)} <span>{result().fields.length} fields · {result().attachments.length} uses</span></h3>
-            <p>Exact field reads proven from the selected source. Select a row to focus its green path.</p>
+            <h3>{fieldSectionHeading(result())} <span>{result().fields.length} fields · {result().attachments.length} uses</span></h3>
+            <p>Available fields from the selected source are selectable. Proven reads show their green path.</p>
           </div>
           <Show when={result().selectedField}>
             <button type="button" class="route-totality-field-clear" onClick={props.onClearFieldFocus}>Show all fields</button>
@@ -40,7 +40,7 @@ export function RouteTotalityFieldSections(props: {
           <p>{noProvenFieldsMessage(result())}</p>
         </Show>
         <Show when={result().fields.length > 0} fallback={<Show when={result().status === "proven" || result().status === "partial"}><p>{noProvenFieldsMessage(result())}</p></Show>}>
-          <div class="route-totality-proven-fields" aria-label="Proven fields">
+          <div class="route-totality-proven-fields" aria-label="Available fields">
             <For each={result().fields}>{(field) => <FieldSummary field={field} result={result()} onOpenSource={props.onOpenSource} onFieldFocusChange={props.onFieldFocusChange} />}</For>
           </div>
           <WholeObjectHandoffs handoffs={buildWholeObjectHandoffs(result().fields)} />
@@ -86,16 +86,16 @@ function FieldSummary(props: {
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
   onFieldFocusChange: (fieldFocus: string | null, consumerFocus?: string | null) => void;
 }) {
-  return <article class="route-totality-field-summary" classList={{ selected: props.field.selected }}>
+  return <article class="route-totality-field-summary" classList={{ selected: props.field.selected && props.field.proven, unproven: props.field.selected && !props.field.proven }}>
     <button
       type="button"
       class="route-totality-field-summary-trigger"
       aria-pressed={props.field.selected}
-      aria-label={`${props.field.selected ? "Clear" : "Focus"} proven field ${props.field.label}`}
+      aria-label={`${props.field.selected ? "Clear" : "Focus"} ${props.field.proven ? "proven" : "available"} field ${props.field.label}`}
       onClick={() => props.onFieldFocusChange(props.field.selected ? null : props.field.label, null)}
     >
       <code>{props.field.label}</code>
-      <span>{props.field.useCount} uses · {props.field.componentCount} component{props.field.componentCount === 1 ? "" : "s"}</span>
+      <span>{props.field.proven ? `${props.field.useCount} uses · ${props.field.componentCount} component${props.field.componentCount === 1 ? "" : "s"}` : "0 uses · no proven consumers"}</span>
     </button>
     <div class="route-totality-field-occurrences">
       <For each={props.field.occurrences}>{(occurrence) => <section class="route-totality-field-occurrence">
@@ -227,8 +227,9 @@ function objectPath(label: string) {
   return lastDot > 0 ? label.slice(0, lastDot) : label;
 }
 
-function fieldSectionHeading(scope: RouteTotalityFieldInspectorResult["scope"]): string {
-  return scope.kind === "origin" ? "Proven fields" : "Fields through occurrence";
+function fieldSectionHeading(result: RouteTotalityFieldInspectorResult): string {
+  if (result.fields.some((field) => !field.proven)) return "Available fields";
+  return result.scope.kind === "origin" ? "Proven fields" : "Fields through occurrence";
 }
 
 function noProvenFieldsMessage(result: RouteTotalityFieldInspectorResult): string {

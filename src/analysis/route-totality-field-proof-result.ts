@@ -112,6 +112,10 @@ export function mergeProvenFieldProofs(
   const frontiers = values.flatMap((value) => value.frontiers);
   const transformations = [...new Map(values.flatMap((value) => value.transformations).map((item) => [item.id, item])).values()];
   const fields = new Set(attachments.map((attachment) => attachment.field.elementIds.join("\u0000")));
+  for (const frontier of frontiers) {
+    cancellation.throwIfCancelled();
+    if (frontier.field) fields.add(frontier.field.elementIds.join("\u0000"));
+  }
   const occurrences = new Set(attachments.map((attachment) => attachment.occurrenceId));
   const terminals = new Set(attachments.flatMap((attachment) => attachment.terminalIds));
   const omissions = [...new Set(values.flatMap((value) => value.omissions))];
@@ -145,10 +149,14 @@ export function failedFieldProof(
   field: Omit<NonNullable<RouteTotalityFieldFrontier["field"]>, "location"> | null = null,
 ): RouteTotalityFieldLineage {
   const locations = current ? uniqueLocations([current.location], cancellation) : [];
+  const normalizedField = field ? {
+    ...field,
+    elementIds: field.elementIds.filter((_, index) => field.segments[index]?.kind !== "collection-element"),
+  } : null;
   const frontier: RouteTotalityFieldFrontier = {
     id: "",
     origin,
-    field,
+    field: normalizedField,
     occurrenceId: null,
     reason,
     gapId: null,
@@ -163,7 +171,7 @@ export function failedFieldProof(
   };
   frontier.id = fieldFrontierId({
     origin: frontier.origin,
-    fieldElementIds: field?.elementIds ?? [],
+    fieldElementIds: normalizedField?.elementIds ?? [],
     occurrenceId: frontier.occurrenceId,
     reason: frontier.reason,
     gapId: frontier.gapId,

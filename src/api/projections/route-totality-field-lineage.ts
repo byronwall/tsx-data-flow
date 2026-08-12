@@ -28,7 +28,7 @@ export function projectRouteTotalityFieldLineage(
     frontiers: sortedProject(lineage.frontiers, (left, right) => left.id.localeCompare(right.id), projectFrontier, cancellation),
     counts: {
       origins: lineage.counts.origins,
-      fields: lineage.counts.fields,
+      fields: projectedFieldCount(lineage, cancellation),
       occurrences: lineage.counts.occurrences,
       terminals: lineage.counts.terminals,
       frontiers: lineage.counts.frontiers,
@@ -37,6 +37,20 @@ export function projectRouteTotalityFieldLineage(
     omissions,
     transformations: sortedProject(lineage.transformations, (left, right) => left.id.localeCompare(right.id), projectTransformation, cancellation),
   };
+}
+
+function projectedFieldCount(lineage: RouteTotalityFieldLineage, cancellation: AnalysisCancellationToken): number {
+  const fields = new Set<string>();
+  for (const attachment of lineage.attachments) {
+    cancellation.throwIfCancelled();
+    fields.add(attachment.field.elementIds.join("\u0000"));
+  }
+  for (const frontier of lineage.frontiers) {
+    cancellation.throwIfCancelled();
+    if (frontier.field) fields.add(frontier.field.elementIds.join("\u0000"));
+  }
+  cancellation.throwIfCancelled();
+  return fields.size;
 }
 
 function projectAttachment(

@@ -20,6 +20,11 @@ export function TrajectorySourcePicker(props: {
     props.onSelectField(sourceKey, fieldPath);
     if (details) details.open = false;
   };
+  const toggleWithKeyboard = (event: KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    if (details) details.open = !details.open;
+  };
   onMount(() => {
     const dismiss = (event: PointerEvent) => {
       if (details?.open && event.target instanceof Node && !details.contains(event.target)) details.open = false;
@@ -38,7 +43,7 @@ export function TrajectorySourcePicker(props: {
     });
   });
   return <details ref={details} class="trajectory-source-picker">
-    <summary aria-label="Choose route data source">
+    <summary aria-label="Choose route data source" onKeyDown={toggleWithKeyboard}>
       <span>Data source</span>
       <Show when={selected()} fallback={<><strong>All sources</strong><small>Normal route topology</small></>}>{(source) => <>
         <strong>{source().label}</strong>

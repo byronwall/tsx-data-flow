@@ -233,6 +233,7 @@ function validateFrontiers(
         false,
         frontier.evidencePathElementIds,
         frontier.evidencePathRelationIds,
+        true,
       );
     }
     if (frontier.occurrenceId !== null) {

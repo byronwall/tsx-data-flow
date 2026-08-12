@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { createAnalyzer } from "../src/core";
-import { buildRouteDataInventory } from "../src/api/projections/route-data";
+import { buildRouteDataDetail, buildRouteDataInventory } from "../src/api/projections/route-data";
 import { routeTotalityForRoute } from "../src/analysis/route-data-session";
 import { parseArgs } from "../src/cli/args";
 
@@ -28,8 +28,22 @@ describe("generic route field proof fixture", () => {
     expect(first.frontiers).toHaveLength(1);
     expect(first.frontiers[0]).toMatchObject({ field: { label: "projects[*].code" }, reason: "unsupported-transform" });
     expect(first.omissions.some((item) => item.includes("formatProjectCode"))).toBe(true);
+
+    const report = reportForCompact();
+    const inventory = buildRouteDataInventory(report);
+    const route = inventory.routes.find((item) => item.pathPattern === "/projects");
+    const source = inventory.sources.find((item) => item.routeKeys.includes(route?.key ?? ""));
+    const flow = report.routeData.trajectories.find((item) => item.routeKey === route?.key);
+    const detail = route && source && flow ? buildRouteDataDetail(report, route.key, flow.key, source.key) : null;
+    expect(detail?.totality?.counts.origins).toEqual({ emitted: 5, total: 5, totalStatus: "exact" });
+    expect(detail?.totality?.fieldLineage.counts.fields).toBe(4);
+    expect(detail?.totality?.fieldLineage.frontiers[0]).toMatchObject({ field: { label: "projects[*].code" }, reason: "unsupported-transform" });
   });
 });
+
+function reportForCompact() {
+  return createAnalyzer(parseArgs(["--root", fixtureRoot, "--format", "json", "--view", "work-packets"])).report();
+}
 
 function compactFieldLineage() {
   const args = parseArgs(["--root", fixtureRoot, "--format", "json", "--view", "work-packets"]);

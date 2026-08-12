@@ -80,7 +80,7 @@ export function projectOccurrenceSurface(
       boundaries: occurrenceCount(emittedBoundaries, surface.totals.frameworkBoundaries, totalityIncomplete),
       origins: evidenceUnavailable
         ? unknownCount()
-        : occurrenceCount(evidence.origins.length, evidence.origins.length, totalityIncomplete),
+        : occurrenceCount(evidence.origins.length, evidence.origins.length, evidenceIncomplete),
       terminals: occurrenceCount(emittedTerminals, surface.totals.terminalOccurrences, totalityIncomplete),
       hiddenWrappers: occurrenceCount(emittedHiddenWrappers, surface.totals.hiddenWrapperCompatibilityOccurrences, totalityIncomplete),
       repeated: occurrenceCount(emittedRepeated, surface.totals.repeatedSites, totalityIncomplete),
@@ -100,7 +100,7 @@ function projectOccurrenceTruncation(surface: DomainOccurrenceSurface, evidenceI
     occurrences: surface.truncation.occurrences,
     edges: surface.truncation.edges,
     boundaries: surface.truncation.boundaries,
-    origins: occurrenceRelated || evidenceIncomplete,
+    origins: evidenceIncomplete,
     terminals: surface.truncation.terminals,
     hiddenWrappers: occurrenceRelated,
     repeated: occurrenceRelated,

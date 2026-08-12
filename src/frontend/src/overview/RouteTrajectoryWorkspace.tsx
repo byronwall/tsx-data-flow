@@ -29,6 +29,7 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; gener
     const source = props.detail.sources.find((item) => item.key === props.state.source);
     return source ? props.detail.evidence.find((item) => item.id === source.evidenceId) ?? null : null;
   });
+  const selectedSourceFieldPaths = createMemo(() => props.detail.sources.find((item) => item.key === props.state.source)?.fields.map((field) => field.key) ?? []);
   const sourceDialogTargets = createMemo(() => mergeSourceTargets(sourceContextTargets(), sourceTargets()));
   onMount(() => {
     const restored = readPackets(window.localStorage); setPackets(restored);
@@ -102,6 +103,7 @@ export function RouteTrajectoryWorkspace(props: { detail: RouteDataDetail; gener
             shadowEvidence={props.detail.shadowEvidence}
             selectedSourceKey={props.state.source}
             selectedSourceEvidence={selectedSourceEvidence()}
+            selectedSourceFieldPaths={selectedSourceFieldPaths()}
             fieldFocus={props.state.fieldFocus ?? null}
             consumerFocus={props.state.consumerFocus ?? null}
             generation={props.generation}

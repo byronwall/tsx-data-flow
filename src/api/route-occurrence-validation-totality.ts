@@ -182,6 +182,8 @@ export const validateSurfaceTotals = (
   if (incomplete) {
     for (const [key, count] of Object.entries(surface.totals)) {
       cancellation.throwIfCancelled();
+      // Shared evidence origins stay exact when occurrence omissions do not truncate origin evidence.
+      if (key === "origins" && !truncation.origins) continue;
       if (count.totalStatus === "exact") addIssue(issues, ["totals", key], "truncated or omitted data cannot have an exact total");
     }
   }

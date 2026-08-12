@@ -32,13 +32,13 @@ export function makeFrontier(
   const elementIds: string[] = [];
   const segments: Array<{ kind: "property" | "string-index" | "numeric-index" | "collection-element"; value: string }> = [];
   if (field) {
-    for (const elementId of field.elementIds) {
-      cancellation.throwIfCancelled();
-      elementIds.push(elementId);
-    }
+    let elementIndex = 0;
     for (const segment of field.segments) {
       cancellation.throwIfCancelled();
       segments.push({ ...segment });
+      const elementId = field.elementIds[elementIndex];
+      elementIndex += 1;
+      if (segment.kind !== "collection-element" && elementId) elementIds.push(elementId);
     }
   }
   const evidencePathElementIds = copyPathIds(path?.elementIds ?? [], cancellation);

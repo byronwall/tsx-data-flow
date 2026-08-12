@@ -724,6 +724,7 @@
 .route-totality-proven-fields { display: grid; gap: 5px; min-width: 0; }
 .route-totality-field-summary { display: grid; gap: 4px; min-width: 0; padding: 5px; background: var(--surface); }
 .route-totality-field-summary.selected { background: color-mix(in srgb, var(--lineage-proven) 12%, var(--surface)); }
+.route-totality-field-summary.unproven.selected { background: color-mix(in srgb, var(--line) 12%, var(--surface)); }
 .route-totality-field-summary-trigger { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px; align-items: baseline; width: 100%; padding: 0; border: 0; background: transparent; color: var(--lineage-field-text); text-align: left; }
 .route-totality-field-summary-trigger:hover,.route-totality-field-summary-trigger:focus-visible { color: var(--text); }
 .route-totality-field-summary-trigger code { min-width: 0; overflow-wrap: anywhere; font-size: .67rem; font-weight: 750; }

@@ -42,6 +42,7 @@ export type RouteTotalityFieldUse = {
 
 export type RouteTotalityFieldSummary = {
   label: string;
+  proven: boolean;
   useCount: number;
   componentCount: number;
   occurrences: Array<{ occurrenceId: string; componentName: string; location: RouteTotalityLocation | null; uses: RouteTotalityFieldUse[] }>;
@@ -83,6 +84,7 @@ export function selectRouteTotalityFieldInspectorResult(
   scope: RouteTotalityFieldInspectorScope,
   selectedField: string | null = null,
   selectedConsumer: string | null = null,
+  availableFieldPaths: readonly string[] = [],
 ): RouteTotalityFieldInspectorResult | null {
   if (!totality) return null;
   if (totality.fieldLineage.status === "unavailable") {
@@ -159,7 +161,7 @@ export function selectRouteTotalityFieldInspectorResult(
     groups,
     attachments,
     frontiers,
-    fields: buildFieldSummaries(attachments, matchingOccurrences, selectedField, selectedConsumer),
+    fields: buildFieldSummaries(attachments, matchingOccurrences, selectedField, selectedConsumer, availableFieldPaths),
     selectedField,
     selectedConsumer,
   };
@@ -219,6 +221,7 @@ function buildFieldSummaries(
   occurrences: RouteTotalitySurfaceOccurrence[],
   selectedField: string | null,
   selectedConsumer: string | null,
+  availableFieldPaths: readonly string[],
 ): RouteTotalityFieldSummary[] {
   const occurrenceById = new Map(occurrences.map((occurrence) => [occurrence.id, occurrence]));
   const fields = new Map<string, RouteTotalityFieldUse[]>();
@@ -241,7 +244,7 @@ function buildFieldSummaries(
     });
     fields.set(attachment.field.label, uses);
   }
-  return [...fields.entries()]
+  const summaries = [...fields.entries()]
     .sort(([left], [right]) => compareCodePoint(left, right))
     .map(([label, uses]) => {
       const occurrencesById = new Map<string, RouteTotalityFieldUse[]>();
@@ -256,12 +259,27 @@ function buildFieldSummaries(
         }));
       return {
         label,
+        proven: true,
         useCount: uses.length,
         componentCount: grouped.length,
         occurrences: grouped,
         selected: selectedField === label,
       };
     });
+  const provenLabels = new Set(summaries.map((summary) => summary.label));
+  const unproven = [...new Set(availableFieldPaths)]
+    .filter((label) => label.length > 0 && !provenLabels.has(label))
+    .filter((label) => !selectedField || label === selectedField)
+    .sort(compareCodePoint)
+    .map((label) => ({
+      label,
+      proven: false,
+      useCount: 0,
+      componentCount: 0,
+      occurrences: [],
+      selected: selectedField === label,
+    }));
+  return [...summaries, ...unproven].sort((left, right) => compareCodePoint(left.label, right.label));
 }
 
 function aliasLabel(alias: unknown, fieldLabel: string): string | null {

@@ -37,6 +37,7 @@ type RouteTotalityGraphProps = {
   shadowEvidence: RouteDataDetail["shadowEvidence"];
   selectedSourceKey: string | null;
   selectedSourceEvidence: RouteDataDetail["evidence"][number] | null;
+  selectedSourceFieldPaths: readonly string[];
   fieldFocus: string | null;
   consumerFocus: string | null;
   generation: number;
@@ -386,7 +387,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     const origin = activeFieldOrigin() ?? exactRouteTotalityOriginForSource(props.totality, props.selectedSourceEvidence);
     const scope = fieldInspectorScope() ?? (origin ? { kind: "origin" as const } : null);
     return scope
-      ? selectRouteTotalityFieldInspectorResult(props.totality, layout(), origin, scope, props.fieldFocus, props.consumerFocus)
+      ? selectRouteTotalityFieldInspectorResult(props.totality, layout(), origin, scope, props.fieldFocus, props.consumerFocus, props.selectedSourceFieldPaths)
       : null;
   });
   const ledgerItems = createMemo(() => buildRouteTotalityLedger(props.totality, layout()));

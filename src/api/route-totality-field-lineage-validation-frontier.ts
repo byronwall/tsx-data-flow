@@ -58,7 +58,7 @@ export function validateFieldLineageFrontierStop(
   }
   if (frontier.reason === "evidence-truncated") {
     validateEvidenceTruncatedFrontier(frontier, evidence, surface, path, issues, cancellation);
-  } else {
+  } else if (frontier.reason !== "unsupported-transform") {
     if (frontier.gapId !== null) {
       addIssue(issues, [...path, "gapId"], "only evidence-truncated frontiers may contain a gap id");
     }
