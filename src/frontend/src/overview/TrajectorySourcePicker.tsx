@@ -3,11 +3,21 @@ import type { RouteDataInventory } from "../../../api/contracts";
 
 type Source = RouteDataInventory["sources"][number];
 
-export function TrajectorySourcePicker(props: { sources: Source[]; selectedKey: string | null; onSelect: (key: string | null) => void }) {
+export function TrajectorySourcePicker(props: {
+  sources: Source[];
+  selectedKey: string | null;
+  selectedFieldPath: string | null;
+  onSelect: (key: string | null) => void;
+  onSelectField: (sourceKey: string, fieldPath: string) => void;
+}) {
   const selected = () => props.sources.find((source) => source.key === props.selectedKey) ?? null;
   let details: HTMLDetailsElement | undefined;
   const choose = (key: string | null) => {
     props.onSelect(key);
+    if (details) details.open = false;
+  };
+  const chooseField = (sourceKey: string, fieldPath: string) => {
+    props.onSelectField(sourceKey, fieldPath);
     if (details) details.open = false;
   };
   onMount(() => {
@@ -33,7 +43,7 @@ export function TrajectorySourcePicker(props: { sources: Source[]; selectedKey: 
       <Show when={selected()} fallback={<><strong>All sources</strong><small>Normal route topology</small></>}>{(source) => <>
         <strong>{source().label}</strong>
         <code>{sourceTypeLabel(source())}</code>
-        <small>{source().consumerLabel ? `via ${source().consumerLabel} · ` : ""}{shortPath(source().file)}:{source().line} · {source().totalFields} fields</small>
+        <small>{props.selectedFieldPath ? `Field ${props.selectedFieldPath} · ` : ""}{source().consumerLabel ? `via ${source().consumerLabel} · ` : ""}{shortPath(source().file)}:{source().line} · {source().totalFields} fields</small>
       </>}</Show>
     </summary>
     <div class="trajectory-source-picker-popover">
@@ -47,13 +57,19 @@ export function TrajectorySourcePicker(props: { sources: Source[]; selectedKey: 
         <small class="trajectory-source-count">No filter</small>
       </button>
       <Show when={props.sources.length} fallback={<p>No supported persistence reads were found for this route.</p>}>
-        <For each={props.sources}>{(source) => <button type="button" classList={{ selected: source.key === selected()?.key }} aria-pressed={source.key === selected()?.key} onClick={() => choose(source.key)}>
-          <span class={`trajectory-source-kind source-${source.kind}`}>{source.kind}</span>
-          <span class="trajectory-source-identity"><strong>{source.consumerLabel ?? source.label}</strong><code>{source.consumerLabel ? `${source.label} · ` : ""}{shortPath(source.file)}:{source.line}</code></span>
-          <small class="trajectory-source-count">{source.totalFields} {source.totalFields === 1 ? "field" : "fields"}</small>
-          <code class="trajectory-source-type">{source.typeText}</code>
-          <span class="trajectory-source-fields"><For each={source.fields.slice(0, 8)}>{(field) => <code>{field.key}</code>}</For><Show when={source.fields.length > 8}><small>+{source.fields.length - 8}</small></Show></span>
-        </button>}</For>
+        <For each={props.sources}>{(source) => <div class="trajectory-source-option" classList={{ selected: source.key === selected()?.key }}>
+          <button type="button" class="trajectory-source-option-trigger" aria-pressed={source.key === selected()?.key} onClick={() => choose(source.key)}>
+            <span class={`trajectory-source-kind source-${source.kind}`}>{source.kind}</span>
+            <span class="trajectory-source-identity"><strong>{source.consumerLabel ?? source.label}</strong><code>{source.consumerLabel ? `${source.label} · ` : ""}{shortPath(source.file)}:{source.line}</code></span>
+            <small class="trajectory-source-count">{source.totalFields} {source.totalFields === 1 ? "field" : "fields"}</small>
+            <code class="trajectory-source-type">{source.typeText}</code>
+          </button>
+          <div class="trajectory-source-fields" aria-label={`Fields for ${source.consumerLabel ?? source.label}`}>
+            <For each={source.fields}>{(field) => <button type="button" classList={{ selected: source.key === selected()?.key && field.key === props.selectedFieldPath }} aria-pressed={source.key === selected()?.key && field.key === props.selectedFieldPath} onClick={() => chooseField(source.key, field.key)}>
+              <code>{field.key}</code><small>{field.typeText}</small>
+            </button>}</For>
+          </div>
+        </div>}</For>
       </Show>
     </div>
   </details>;

@@ -107,7 +107,7 @@ export function normalizeTrajectoryUrlState(state: TrajectoryUrlState): Trajecto
     totalitySelection: state.totalitySelection ?? null,
     graphCamera: state.graphCamera ? normalizeGraphCamera(state.graphCamera) : null,
     contextFocus: state.contextFocus ?? null,
-    fieldFocus: state.fieldFocus ?? null,
+    fieldFocus: clean(state.fieldFocus),
     consumerFocus: state.consumerFocus ?? null,
   };
 }
@@ -268,8 +268,17 @@ export function reconcileTrajectoryDetailState(state: TrajectoryUrlState, detail
   const expand = normalized.expand.filter((key) => validOperations.has(key));
   const contextDeclarationIds = new Set(detail.totality?.contextContinuity.declarations.map((declaration) => declaration.id));
   const contextFocus = normalized.contextFocus && contextDeclarationIds.has(normalized.contextFocus) ? normalized.contextFocus : null;
+  const selectedSource = normalized.source
+    ? detail.sources.find((source) => source.key === normalized.source) ?? null
+    : null;
   const fieldAttachments = detail.totality?.fieldLineage.attachments ?? [];
-  const validFieldFocus = normalized.source && normalized.fieldFocus && fieldAttachments.some((attachment) => attachment.field.label === normalized.fieldFocus)
+  const fieldFrontiers = detail.totality?.fieldLineage.frontiers ?? [];
+  const availableFieldPaths = new Set([
+    ...(selectedSource?.fields.map((field) => field.key) ?? []),
+    ...fieldAttachments.map((attachment) => attachment.field.label),
+    ...fieldFrontiers.flatMap((frontier) => frontier.field?.label ? [frontier.field.label] : []),
+  ]);
+  const validFieldFocus = selectedSource && normalized.fieldFocus && availableFieldPaths.has(normalized.fieldFocus)
     ? normalized.fieldFocus
     : null;
   const validConsumerFocus = normalized.source && normalized.consumerFocus && fieldAttachments.some((attachment) => attachment.consumer?.id === normalized.consumerFocus && (!validFieldFocus || attachment.field.label === validFieldFocus))
@@ -335,6 +344,6 @@ function isTotalityIsolationFocusValid(selection: TrajectoryTotalitySelection | 
 function samePoint(left: { x: number; y: number } | null, right: { x: number; y: number } | null) { return left?.x === right?.x && left?.y === right?.y; }
 function sameSelection(left: TrajectoryTotalitySelection | null, right: TrajectoryTotalitySelection | null) { return left?.kind === right?.kind && left?.graphId === right?.graphId; }
 function sameCamera(left: TrajectoryGraphCamera | null, right: TrajectoryGraphCamera | null) { return left?.x === right?.x && left?.y === right?.y && left?.scale === right?.scale; }
-function clean(value: string | null) { const next = value?.trim(); return next ? next : null; }
+function clean(value: string | null | undefined) { const next = value?.trim(); return next ? next : null; }
 function round(value: number) { return Math.round(value * 1000) / 1000; }
 function clamp(value: number, minimum: number, maximum: number) { return Math.max(minimum, Math.min(maximum, value)); }

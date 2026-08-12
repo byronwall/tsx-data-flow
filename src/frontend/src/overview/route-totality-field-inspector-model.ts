@@ -103,9 +103,12 @@ export function selectRouteTotalityFieldInspectorResult(
     : null;
   const matchingAttachments = uniqueById(totality.fieldLineage.attachments)
     .filter((attachment) => sameOrigin(attachment.origin, origin))
+    .filter((attachment) => !selectedField || attachment.field.label === selectedField)
+    .filter((attachment) => !selectedConsumer || attachment.consumer?.id === selectedConsumer || attachment.id === selectedConsumer)
     .filter((attachment) => targetNodeId === null || visibleNodeId(layout, `occurrence:${attachment.occurrenceId}`) === targetNodeId);
   const matchingFrontiers = uniqueById(totality.fieldLineage.frontiers)
     .filter((frontier) => sameOrigin(frontier.origin, origin))
+    .filter((frontier) => !selectedField || frontier.field?.label === selectedField)
     .filter((frontier) => targetNodeId === null
       ? true
       : frontier.occurrenceId !== null && visibleNodeId(layout, `occurrence:${frontier.occurrenceId}`) === targetNodeId);

@@ -64,6 +64,7 @@ export function selectRouteTotalityFieldFocus(
 ): RouteTotalityFieldFocusModel {
   const empty = emptyFieldFocusModel(origin);
   if (!totality || !origin) return empty;
+  if (!selectedField) return emptyFieldFocusModel(null);
 
   const unavailable = totality.fieldLineage.status === "unavailable";
   const activeNodeIds = new Set<string>();
@@ -84,7 +85,7 @@ export function selectRouteTotalityFieldFocus(
   if (unavailable) {
     return {
       ...empty,
-      originLabel: fieldOriginLabel(totality, origin),
+      originLabel: `${selectedField} · ${fieldOriginLabel(totality, origin)}`,
       unavailableReason: totality.fieldLineage.unavailableReason,
     };
   }
@@ -132,7 +133,7 @@ export function selectRouteTotalityFieldFocus(
 
   return {
     origin,
-    originLabel: fieldOriginLabel(totality, origin),
+    originLabel: `${selectedField} · ${fieldOriginLabel(totality, origin)}`,
     status: unavailable ? "unavailable" : frontiers.length > 0 ? "partial" : attachments.length > 0 ? "proven" : "no-fields",
     unavailableReason: unavailable ? totality.fieldLineage.unavailableReason : null,
     activeNodeIds,
