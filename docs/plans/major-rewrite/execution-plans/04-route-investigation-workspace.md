@@ -1,5 +1,9 @@
 # Project 4 — Route Investigation Workspace
 
+> Historical execution record. The handcrafted URLs, renderer state, and frozen
+> service snapshots below describe an earlier verification pass. Use the normal
+> controls and the maintained acceptance runner for current field-flow work.
+
 ## Outcome
 
 Let a developer move from the holistic route overview to one source, path,

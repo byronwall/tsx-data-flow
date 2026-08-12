@@ -1,5 +1,9 @@
 # Project 3 — Honest Route Totality
 
+> Historical completion record. The fixed route IDs, renderer counts, ports, and
+> generation snapshots below are not current troubleshooting instructions.
+> Use Route Totality APIs and the maintained field-proof runner for current work.
+
 ## Outcome
 
 Show every proven source, component occurrence, boundary, and terminal for one

@@ -31,6 +31,28 @@ Read [docs/design-preferences.md](docs/design-preferences.md) before changing fr
 
 ## Verification
 
+For selected-source field-flow repairs, use the maintained acceptance runner:
+
+```bash
+pnpm accept:route-field-proof \
+  --root <analyzed-project-root> \
+  --route <route-path-or-key> \
+  --source <source-key-or-file:line[:column]> \
+  --obligations scripts/route-field-proof-obligations.json
+```
+
+The runner is the authority for named field-to-consumer proof. Keep fixture
+obligations outside generic analyzer discovery. A positive field-flow repair
+requires one real positive case, one negative precision case, and the normal
+user control. Zero positive attachments fail closure.
+
+Static checks alone do not close a field-flow repair. Lint and typecheck prove
+code health. They do not prove useful field evidence or correct UI activation.
+
+For browser checks, use a fresh service. Record the analyzer and frontend
+commit, port, project root, generation, and asset mode. Do not accept evidence
+from a service another worker is changing.
+
 When checking a local development server with `curl`, always run `curl` with elevated/outside-sandbox permissions. Do not attempt the request in the sandbox first, and do not interpret a sandbox connection failure as evidence that the server is down. This applies to `localhost`, `127.0.0.1`, and all local ports.
 
 - During product iteration, run `pnpm lint` and `pnpm typecheck` as the default static checks. These catch lint and type errors without entering the deferred test phase.

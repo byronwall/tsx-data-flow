@@ -1,8 +1,11 @@
 # Project 4.1 Field-to-Component Parity Plan
 
+> Superseded implementation plan. The delivered behavior and current limits are
+> recorded in the field-flow review and `docs/route-field-proof-acceptance.md`.
+
 **Date:** 2026-08-08
 
-**Status:** Ready for implementation
+**Status:** Superseded by the delivered transformation-ledger implementation.
 
 **Parent plan:** [Projects 1–5 reconciliation and completion plan](20260805-projects-1-5-reconciliation-and-completion-plan.md)
 

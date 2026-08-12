@@ -1,116 +1,89 @@
 ---
 name: fix-route-data-flow
-description: Diagnose and repair incomplete, truncated, missing, stale, or overbroad source-specific route trajectories in tsx-data-flow. Use when a selected persisted source stops before expected Solid components or render terminals, highlights unrelated consumers, reports an unproven resource handoff, differs between API data and the component-topology UI, or when the user says to fix a data-flow path and continue until the correct downstream flow appears.
+description: Diagnose and repair incomplete, truncated, missing, stale, or overbroad route data flow in tsx-data-flow. Use for selected-source field proof, broad route trajectories, false-positive consumers, missing resource or prop handoffs, API/UI disagreement, or a data-flow path that stops before its expected downstream result.
 ---
 
 # Fix Route Data Flow
 
-Repair the selected source trajectory end to end. Treat the copied topology
-selection as a locator, then prove each analyzer layer independently. Do not stop
-after finding or fixing the first missing boundary.
+Repair the earliest failed evidence boundary. Preserve unrelated work. Do not
+claim completion from path counts, `handoffProven`, or a clean rendered shell.
 
-## Protect Existing Work
+## Protect the checkout
 
-1. Run `git status --short`.
-2. Preserve unrelated and pre-existing edits.
-3. Read `docs/application-structure.md` before changing analyzer, projection,
-   server, or frontend boundaries.
-4. Read `docs/design-preferences.md` only when changing the topology UI.
-5. Do not create, update, or run tests unless the user explicitly approves test
-   work. Use lint and typecheck during the implementation phase.
+1. Run `git status --short` and preserve all existing changes.
+2. Read `docs/application-structure.md` before changing analyzer, API, server,
+   or frontend boundaries.
+3. Read `docs/design-preferences.md` only when changing topology UI.
+4. Use `pnpm`. Do not change tests unless the user approves test work.
 
-## Capture The Baseline
+## Choose one mode
 
-Save the pasted `component-topology-selection` JSON to a scratch file when
-needed. Run the bundled snapshot script from the tsx-data-flow repository:
+### Selected-source field proof
 
-```bash
-pnpm exec tsx .agents/skills/fix-route-data-flow/scripts/flow-snapshot.ts \
-  --selection <selection.json> \
-  --root <analyzed-project-root> \
-  --project-source <source-directory> \
-  --expect-component <expected-downstream-component> \
-  --reject-component <known-unrelated-component> \
-  --out tmp/flow-diagnostics/before.json
-```
+Use this mode when the issue names a selected source, field, consumer,
+component occurrence, render terminal, field lineage, or exact obligation.
 
-`--selection` may contain the copied JSON payload or a file containing only the
-topology URL. When no payload is available, pass `--route-path`,
-`--source-label`, `--source-file`, and `--source-line`.
+1. Start with the maintained acceptance runner:
 
-Then classify the first failed layer:
+   ```bash
+   pnpm accept:route-field-proof \
+     --root <analyzed-project-root> \
+     --route <route-path-or-key> \
+     --source <source-key-or-file:line[:column]> \
+     --obligations scripts/route-field-proof-obligations.json
+   ```
 
-```bash
-pnpm exec tsx .agents/skills/fix-route-data-flow/scripts/flow-diagnose.ts \
-  --snapshot tmp/flow-diagnostics/before.json
-```
+2. Read the compact JSON result. Check selected origin, nonzero attachments,
+   nonempty field paths, named obligation IDs, exact targets, occurrence-owned
+   terminals, proven consumer-terminal relations, frontiers, hash, and payload.
+3. Use `--simulate-missing`, `--simulate-label`, `--simulate-kind`,
+   `--simulate-alias`, or `--simulate-duplicate` to check the failure gate.
+4. Repair the earliest compiler-backed seam. Keep fixture obligations in the
+   acceptance file; do not add fixture names to generic analyzer discovery.
+5. Re-run the runner from a fresh process. Compare semantic hashes and inspect
+   every missing, unexpected, duplicate, or required-frontier result.
 
-Read [references/failure-classes.md](references/failure-classes.md) after the
-classifier runs. Inspect only the owning layer first.
+The positive case must have real attachments. A required field path that stops
+at a frontier fails acceptance. Exact identity must cover the source, field,
+consumer, occurrence, terminal, and consumer-terminal relation.
 
-## Repair Loop
+### Broad route trajectory diagnosis
 
-1. Confirm the selected source exists in the source project and identify the
-   exact syntax between the persisted call and its returned consumer value.
-2. Confirm whether the raw analyzer graph already reaches the expected sinks.
-3. Fix the earliest failed invariant:
-   source discovery, return handoff, source projection, prop stitching, context
-   stitching, member narrowing, or frontend projection.
-4. Add a bounded compiler-backed adapter for the observed syntax. Do not make
-   arbitrary calls, same-named properties, import reachability, or semantic
-   stage order imply data flow.
-5. Re-run the snapshot as `after.json`, adding
-   `--source-snapshot tmp/flow-diagnostics/before.json`. This preserves the
-   source file, label, expectations, and rejections if generated keys or source
-   lines changed during the fix.
-6. Compare semantic outcomes:
+Use this mode for route discovery, source handoff, prop/context continuity,
+trajectory truncation, or broad API/UI trajectory disagreement.
 
-```bash
-pnpm exec tsx .agents/skills/fix-route-data-flow/scripts/flow-diff.ts \
-  --before tmp/flow-diagnostics/before.json \
-  --after tmp/flow-diagnostics/after.json
-```
+1. Capture a baseline with `flow-snapshot.ts`:
 
-7. Repeat from the new first failed layer until all expected components are
-   present and all rejected components are absent.
+   ```bash
+   pnpm exec tsx .agents/skills/fix-route-data-flow/scripts/flow-snapshot.ts \
+     --selection <selection.json> \
+     --root <analyzed-project-root> \
+     --project-source <source-directory> \
+     --out tmp/flow-diagnostics/before.json
+   ```
 
-An increased path count is not sufficient proof. A repaired bridge may expose
-an overbroad context or prop match. Require both positive reach and negative
-precision evidence.
+   Without a selection payload, pass route and source locator flags.
+2. Classify it with `flow-diagnose.ts` and read
+   [references/failure-classes.md](references/failure-classes.md).
+3. Fix only the owning layer, then capture `after.json` with
+   `--source-snapshot tmp/flow-diagnostics/before.json`.
+4. Compare broad trajectory semantics with `flow-diff.ts`.
+5. Require positive reach and negative precision evidence before completion.
+
+The flow tools diagnose broad trajectories. They do not replace the field-proof
+runner.
 
 ## Verification
 
-Run:
+Run `pnpm lint` and `pnpm typecheck`. For a user-visible field-flow repair,
+also use one real positive fixture, one negative fixture, and the normal user
+control. Record fresh-service metadata for browser checks: commit, port,
+project root, generation, and asset mode. Use the in-app browser when UI
+behavior is in scope. Follow the repository rule for localhost `curl`.
 
-```bash
-pnpm lint
-pnpm typecheck
-```
+## Completion report
 
-Then verify the live route detail:
-
-1. Refresh or restart the existing analyzer server only when necessary.
-2. Confirm the selected source has exact source trajectories, not only a
-   resource fallback match.
-3. Confirm expected downstream components and terminals.
-4. Confirm unrelated consumers remain unselected.
-5. Use the in-app browser to verify topology highlighting and a clean console.
-
-When using `curl` against localhost, run it outside the sandbox as required by
-the repository instructions.
-
-## Completion Report
-
-Report:
-
-- the first failed layer and unsupported syntax;
-- each analyzer error repaired;
-- before/after exact path, terminal, and component counts;
-- expected components reached;
-- rejected false-positive components absent;
-- truncation, cycle, and unknown-path state;
-- lint, typecheck, and live UI results;
-- whether test work remains awaiting approval.
-
-Do not claim completion from `handoffProven` alone or from a large downstream
-path count.
+Report the selected mode, first failed layer, repaired evidence boundary,
+positive and negative fixture results, exact counts or obligation IDs, terminal
+and relation checks, frontiers, semantic hash, fresh-service metadata, lint,
+typecheck, and browser results. State any deferred test work.

@@ -1,6 +1,11 @@
 # Major Rewrite — Byronized Project Map
 
-**Status:** Project 4 in progress; Project 3 complete
+> Historical execution index. Some Route Totality entries retain old IDs,
+> renderer names, and service snapshots for audit history. Current selected-source
+> field proof uses `pnpm accept:route-field-proof` and its named obligations.
+
+**Status:** Historical execution index; current field-flow acceptance is in the
+maintained runner and the Project 4.1 field-flow review.
 **Source artifact:** [Unified Flow Analysis Rewrite — Raw Plan](../20260802-unified-flow-analysis-rewrite-raw-plan.md)
 
 The raw plan is now a fixed shaping artifact. This folder turns that scope into
