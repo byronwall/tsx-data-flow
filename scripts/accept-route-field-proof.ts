@@ -21,6 +21,10 @@ export type ProofRelation = { id: string; from: string; to: string; kind: string
 export type ProofEvidence = { elements: readonly ProofElement[]; relations: readonly ProofRelation[] };
 export type OccurrenceTerminal = { id: string; ownerOccurrenceId: string | null };
 export type FieldProofFrontier = { id: string; field: { label: string } | null; reason: string };
+export type ProofHashIdentity = {
+  route: { key: string; pathPattern: string; file: string };
+  selectedOrigin: { key: string; evidenceId: string; elementId: string; file: string; line: number; column: number; span: { startLine: number; startColumn: number; endLine: number; endColumn: number } };
+};
 export type FieldProofEvaluation = {
   actual: Actual[];
   fieldPaths: string[];
@@ -62,8 +66,11 @@ async function main() {
   const terminals = exactOccurrenceTerminals(record);
   const actual = record.fieldLineage.attachments.map((attachment) => actualRecord(attachment, evidence, terminals)).sort(compareActual);
   const probed = applySimulation(actual, expected, args.simulation);
-  const evaluation = evaluateFieldProof(probed, expected, record.fieldLineage.frontiers);
   const selectedOrigin = { key: source.key, elementId: selectedSource.evidence.elementId, file: selectedSource.evidence.file, line: selectedSource.evidence.line, column: selectedSource.evidence.column };
+  const evaluation = evaluateFieldProof(probed, expected, record.fieldLineage.frontiers, {
+    route: { key: route.key, pathPattern: route.pathPattern, file: route.file },
+    selectedOrigin: { key: source.key, evidenceId: sourceEvidence.id, elementId: selectedSource.evidence.elementId, file: sourceEvidence.file, line: sourceEvidence.line, column: sourceEvidence.column, span: sourceEvidence.span },
+  });
   const expectedByKey = new Map(expected.map((obligation) => [semanticKey(obligation), obligation]));
   const frontiers = record.fieldLineage.frontiers.map((frontier) => ({ id: frontier.id, field: frontier.field?.label ?? null, reason: frontier.reason })).sort((left, right) => left.id.localeCompare(right.id));
   const obligationRecords = evaluation.actual.map((item) => ({ id: expectedByKey.get(semanticKey(item))?.id ?? null, ...item }));
@@ -181,6 +188,7 @@ export function evaluateFieldProof(
   actual: readonly Actual[],
   expected: readonly Obligation[],
   frontiers: readonly FieldProofFrontier[],
+  identity: ProofHashIdentity,
 ): FieldProofEvaluation {
   const sortedActual = [...actual].sort(compareActual);
   const duplicateKeys = [...new Set(sortedActual
@@ -202,7 +210,7 @@ export function evaluateFieldProof(
   if (unexpected.length) failures.push(`Unexpected semantic records: ${unexpected.join(", ")}.`);
   if (duplicateKeys.length) failures.push(`Duplicate semantic records: ${duplicateKeys.join(", ")}.`);
   if (requiredFrontiers.length) failures.push(`Required field paths stop at frontiers: ${requiredFrontiers.join(", ")}.`);
-  const semantic = { fieldPaths, attachments: sortedActual.length, consumerTerminalRelationCount, obligations: sortedActual, missing, unexpected, requiredFrontiers };
+  const semantic = { route: identity.route, selectedOrigin: identity.selectedOrigin, fieldPaths, attachments: sortedActual.length, consumerTerminalRelationCount, obligations: sortedActual, missing, unexpected, requiredFrontiers };
   return { actual: sortedActual, fieldPaths, attachments: sortedActual.length, consumerTerminalRelationCount, missing, unexpected, duplicateKeys, requiredFrontiers, failures, deterministicResultHash: createHash("sha256").update(canonicalJson(semantic)).digest("hex") };
 }
 

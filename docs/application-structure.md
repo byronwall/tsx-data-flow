@@ -50,4 +50,7 @@ Browser-only effects are created in lifecycle scopes and cleaned up by their own
 - Treat 300 lines as a review signal and 400 as a strong extraction signal.
 - Use direct imports; do not add barrels.
 - Validate every server response and every client response with its Zod schema.
-- Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build`.
+- During product iteration, run `pnpm lint` and `pnpm typecheck`.
+- After explicit test-work approval, update focused tests as needed and run
+  `pnpm verify` as the final repository gate.
+- Do not run build commands as agent verification.

@@ -6,6 +6,7 @@ import {
   type Actual,
   type Obligation,
   type ProofEvidence,
+  type ProofHashIdentity,
 } from "../scripts/accept-route-field-proof";
 
 const obligation: Obligation = {
@@ -64,30 +65,45 @@ const evidence: ProofEvidence = {
   relations: [{ id: "relation:1", from: "consumer-element:1", to: "field-terminal-element:1", kind: "render-terminal", status: "proven", proof: { kind: "field-consumer-terminal", status: "proven" } }],
 };
 
+const identity: ProofHashIdentity = {
+  route: { key: "route:1", pathPattern: "/games/[gameId]", file: "src/routes/games/[gameId]/index.tsx" },
+  selectedOrigin: { key: "source:1", evidenceId: "evidence:1", elementId: "element:1", file: "src/store.ts", line: 10, column: 4, span: { startLine: 10, startColumn: 4, endLine: 10, endColumn: 30 } },
+};
+
 describe("route field proof acceptance", () => {
   it("returns the compact positive result shape", () => {
-    const result = evaluateFieldProof([actual], [obligation], []);
+    const result = evaluateFieldProof([actual], [obligation], [], identity);
 
     expect(result).toMatchObject({ attachments: 1, fieldPaths: [obligation.fieldPath], consumerTerminalRelationCount: 1, missing: [], unexpected: [], failures: [] });
     expect(result.deterministicResultHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("rejects a vacuous positive result", () => {
-    const result = evaluateFieldProof([], [obligation], []);
+    const result = evaluateFieldProof([], [obligation], [], identity);
 
     expect(result.failures).toContain("No positive field attachments were proven.");
     expect(result.failures).toContain("No selected field paths were proven.");
   });
 
-  it("changes the hash when proof identity changes", () => {
+  it("changes the hash when selected-source identity changes", () => {
     const changed = { ...actual, occurrenceId: "occurrence:2" };
+    const changedSource = { ...identity, selectedOrigin: { ...identity.selectedOrigin, key: "source:2" } };
 
-    expect(evaluateFieldProof([actual], [obligation], []).deterministicResultHash)
-      .not.toBe(evaluateFieldProof([changed], [obligation], []).deterministicResultHash);
+    expect(evaluateFieldProof([actual], [obligation], [], identity).deterministicResultHash)
+      .not.toBe(evaluateFieldProof([actual], [obligation], [], changedSource).deterministicResultHash);
+    expect(evaluateFieldProof([actual], [obligation], [], identity).deterministicResultHash)
+      .not.toBe(evaluateFieldProof([changed], [obligation], [], identity).deterministicResultHash);
+  });
+
+  it("changes the hash when route identity changes", () => {
+    const changedRoute = { ...identity, route: { ...identity.route, key: "route:2" } };
+
+    expect(evaluateFieldProof([actual], [obligation], [], identity).deterministicResultHash)
+      .not.toBe(evaluateFieldProof([actual], [obligation], [], changedRoute).deterministicResultHash);
   });
 
   it("rejects a required field path that stops at a frontier", () => {
-    const result = evaluateFieldProof([actual], [obligation], [{ id: "frontier:1", field: { label: obligation.fieldPath }, reason: "unsupported-syntax" }]);
+    const result = evaluateFieldProof([actual], [obligation], [{ id: "frontier:1", field: { label: obligation.fieldPath }, reason: "unsupported-syntax" }], identity);
 
     expect(result.requiredFrontiers).toEqual(["frontier:1"]);
     expect(result.failures).toContain("Required field paths stop at frontiers: frontier:1.");
