@@ -12,6 +12,19 @@ Read [docs/design-preferences.md](docs/design-preferences.md) before changing fr
 - Use lint and TypeScript checks as the routine implementation feedback loop. Manually exercise the relevant behavior when practical.
 - Once the implementation is in a good state, ask the user whether tests should be updated. Do not treat finishing the implementation, a request to verify it, or existing test failures as implicit approval to modify tests.
 
+## Avoid premature complexity
+
+- Strongly prefer the smallest vertical change that proves the current product question.
+- Start with concrete behavior in existing modules. Add an abstraction only when the current change requires it.
+- Do not design for hypothetical syntax, scale, reuse, or migration needs.
+- Avoid new frameworks, registries, adapters, feature flags, shadow paths, and compatibility layers without direct evidence.
+- Do not turn every risk or future example into a separate implementation phase.
+- Default to one delivery slice. Add the minimum extra slices needed for a real review, rollback, or delivery boundary.
+- Put possible later work in a short backlog. Do not include it in the current architecture.
+- Before adding indirection, state the current problem that a direct implementation cannot solve.
+- If a direct change meets the acceptance criteria, use it.
+- Fewer slices are better. If a plan needs more than one, explain why each additional boundary is necessary.
+
 ## Keep modules focused
 
 - Give each file one primary reason to change. Do not combine route orchestration, resource loading, data shaping, browser interaction state, and large JSX/HTML renderers in one module.
@@ -19,6 +32,7 @@ Read [docs/design-preferences.md](docs/design-preferences.md) before changing fr
 - Keep route components thin. Extract reusable layout, interaction-heavy islands, pure selectors/models, and serialization helpers into their own modules.
 - Move state and lifecycle cleanup with the behavior that owns it. Timers, listeners, observers, and subscriptions must be cleaned up in the component or controller that creates them.
 - Prefer direct imports from defining modules. Do not add barrel files or forwarding exports.
+- Extract code because current responsibilities conflict. Do not extract code only for predicted reuse.
 - Preserve behavior during structural refactors. Avoid mixing feature changes into file-splitting work; if a required fix is unavoidable, report the behavior change and defer any test adjustments to the user-approved test phase.
 
 ## Frontend safety
