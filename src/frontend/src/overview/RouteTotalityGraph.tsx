@@ -521,6 +521,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         startSelectionAvailable={layout().summary.status !== "unavailable" && Boolean(startSelection())}
         selected={selectedRecord}
         fieldResult={selectedFieldResult()}
+        selectedFieldPath={props.fieldFocus}
         emphasis={emphasis()}
         emphasisMode={emphasisMode()}
         isolated={isolated()}

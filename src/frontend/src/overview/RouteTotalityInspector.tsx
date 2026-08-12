@@ -33,6 +33,7 @@ export function RouteTotalityInspector(props: {
   startSelectionAvailable: boolean;
   selected: Accessor<RouteTotalityInspectorRecord | null>;
   fieldResult: RouteTotalityFieldInspectorResult | null;
+  selectedFieldPath: string | null;
   emphasis: RouteTotalityEmphasis;
   emphasisMode: RouteTotalityEmphasisMode | null;
   isolated: boolean;
@@ -96,7 +97,7 @@ export function RouteTotalityInspector(props: {
           </section>
         </>}
       </Show>
-      <RouteTotalityFieldSections result={props.fieldResult} onOpenSource={props.onOpenSource} onFieldFocusChange={props.onFieldFocusChange} onClearFieldFocus={props.onClearFieldFocus} />
+      <RouteTotalityFieldSections result={props.fieldResult} selectedFieldPath={props.selectedFieldPath} onOpenSource={props.onOpenSource} onFieldFocusChange={props.onFieldFocusChange} onClearFieldFocus={props.onClearFieldFocus} />
     </div>
   </aside>;
 }

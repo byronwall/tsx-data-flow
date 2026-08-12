@@ -12,11 +12,13 @@ import type { RouteTotalityLocation } from "./route-totality-model";
 
 export function RouteTotalityFieldSections(props: {
   result: RouteTotalityFieldInspectorResult | null;
+  selectedFieldPath: string | null;
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
   onFieldFocusChange: (fieldFocus: string | null, consumerFocus?: string | null) => void;
   onClearFieldFocus: () => void;
 }) {
-  return <Show when={props.result}>
+  const result = () => narrowFieldResult(props.result, props.selectedFieldPath);
+  return <Show when={result()}>
     {(result) => <>
       <section class="route-totality-inspector-section route-totality-field-section">
         <div class="route-totality-field-heading">
@@ -54,6 +56,28 @@ export function RouteTotalityFieldSections(props: {
       </Show>
     </>}
   </Show>;
+}
+
+function narrowFieldResult(
+  result: RouteTotalityFieldInspectorResult | null,
+  selectedFieldPath: string | null,
+): RouteTotalityFieldInspectorResult | null {
+  if (!result || !selectedFieldPath || result.selectedField === selectedFieldPath) return result;
+  const attachments = result.attachments.filter((item) => item.attachment.field.label === selectedFieldPath);
+  const frontiers = result.frontiers.filter((item) => item.frontier.field?.label === selectedFieldPath);
+  const groups = result.groups.map((group) => ({
+    ...group,
+    attachments: group.attachments.filter((item) => item.attachment.field.label === selectedFieldPath),
+    frontiers: group.frontiers.filter((item) => item.frontier.field?.label === selectedFieldPath),
+  })).filter((group) => group.attachments.length > 0 || group.frontiers.length > 0);
+  return {
+    ...result,
+    groups,
+    attachments,
+    frontiers,
+    fields: result.fields.filter((field) => field.label === selectedFieldPath),
+    selectedField: selectedFieldPath,
+  };
 }
 
 function FieldSummary(props: {
