@@ -43,7 +43,9 @@ export function searchFieldCarrierPaths(
         matches.push({ call: source, relations: current.relations });
         continue;
       }
-      if (!isExactSourceCarrierRelation(source, target, relation)) continue;
+      if (!isExactSourceCarrierRelation(source, target, relation)) {
+        continue;
+      }
       if (current.relations.length >= limits.maxDepth) {
         exhausted = true;
         continue;

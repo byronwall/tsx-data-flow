@@ -1,7 +1,7 @@
 import type { RouteTotalityFieldTargetConsumer } from "./route-totality-field-lineage";
 import {
-  FIELD_PROOF_TARGETS,
   fieldProofTargetKey,
+  type FieldProofConsumerSelector,
   type FieldProofTargetSelector,
 } from "./route-totality-field-proof-policy";
 
@@ -77,12 +77,10 @@ export function buildTargetConsumerDescriptor(
 
 /** Derive one declared target from compiler evidence without trusting a submitted target key. */
 export function deriveTargetConsumerDescriptor(
+  targetKey: string,
   evidence: TargetConsumerEvidence,
 ): RouteTotalityFieldTargetConsumer | null {
-  const matches = FIELD_PROOF_TARGETS
-    .map((target) => buildTargetConsumerDescriptor(fieldProofTargetKey(target), evidence))
-    .filter((descriptor): descriptor is RouteTotalityFieldTargetConsumer => descriptor !== null);
-  return matches.length === 1 ? matches[0] : null;
+  return buildTargetConsumerDescriptor(targetKey, evidence);
 }
 
 function conditionIdentity(
@@ -110,8 +108,33 @@ export function sameTargetConsumerDescriptor(
 }
 
 function targetForKey(key: string): FieldProofTargetSelector | null {
-  const matches = FIELD_PROOF_TARGETS.filter((target) => fieldProofTargetKey(target) === key);
-  return matches.length === 1 ? matches[0] : null;
+  try {
+    const target = JSON.parse(key) as Partial<FieldProofTargetSelector>;
+    if (!target || typeof target !== "object" || typeof target.collectionFieldName !== "string"
+      || typeof target.predicateFieldName !== "string" || typeof target.consumerFieldName !== "string"
+      || !target.consumer || typeof target.consumer !== "object") return null;
+    const selector = target.consumer as Partial<FieldProofConsumerSelector>;
+    if (selector.kind !== "render" && selector.kind !== "condition" && selector.kind !== "handler") return null;
+    if (typeof selector.directConsumer !== "boolean") return null;
+    const nullable = <T extends Record<string, unknown>>(value: T): T => {
+      const result = { ...value };
+      for (const [name, item] of Object.entries(result)) if (item === null) delete result[name];
+      return result;
+    };
+    const normalized = {
+      collectionFieldName: target.collectionFieldName,
+      predicateFieldName: target.predicateFieldName,
+      consumerFieldName: target.consumerFieldName,
+      chain: target.chain ?? undefined,
+      componentName: target.componentName ?? undefined,
+      componentPropName: target.componentPropName ?? undefined,
+      consumer: { label: typeof selector.label === "string" ? selector.label : "", ...nullable(target.consumer as Record<string, unknown>) },
+    } as FieldProofTargetSelector;
+    const canonical = fieldProofTargetKey(normalized);
+    return canonical === key ? normalized : null;
+  } catch {
+    return null;
+  }
 }
 
 function matchesTargetChain(target: FieldProofTargetSelector, evidence: TargetConsumerEvidence): boolean {

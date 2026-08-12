@@ -137,17 +137,18 @@ export function mergeProvenFieldProofs(
 export function failedFieldProof(
   origin: RouteTotalityFieldOrigin,
   current: ProgramElement | null,
-  missingTransformationKind: ExactFieldTransferKind,
+  missingTransformationKind: ExactFieldTransferKind | "unsupported-transform",
   accepted: readonly RouteTotalityFieldTransformation[],
   detail: string,
   cancellation: AnalysisCancellationToken,
   reason: RouteTotalityFieldFrontier["reason"] = "partial-proof",
+  field: Omit<NonNullable<RouteTotalityFieldFrontier["field"]>, "location"> | null = null,
 ): RouteTotalityFieldLineage {
   const locations = current ? uniqueLocations([current.location], cancellation) : [];
   const frontier: RouteTotalityFieldFrontier = {
     id: "",
     origin,
-    field: null,
+    field,
     occurrenceId: null,
     reason,
     gapId: null,
@@ -162,7 +163,7 @@ export function failedFieldProof(
   };
   frontier.id = fieldFrontierId({
     origin: frontier.origin,
-    fieldElementIds: [],
+    fieldElementIds: field?.elementIds ?? [],
     occurrenceId: frontier.occurrenceId,
     reason: frontier.reason,
     gapId: frontier.gapId,

@@ -219,7 +219,7 @@ export function deriveExactFieldTargetPolicy(
     || !containsLocation(renderTerminals[0].location, renderParameter.location)
     || (!directConsumer && !containsLocation(renderTerminals[0].location, occurrence.location))
     || !containsLocation(renderTerminals[0].location, consumerValue.location)) return null;
-  const targetConsumer = deriveTargetConsumerDescriptor({
+  const targetConsumer = deriveTargetConsumerDescriptor(transfers[11].targetConsumer?.targetKey ?? "", {
     consumerField,
     consumerValue,
     binding,

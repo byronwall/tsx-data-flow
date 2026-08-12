@@ -1,12 +1,14 @@
+import type * as TypeScript from "typescript";
 import type { AnalysisCancellationToken } from "./cancellation";
 import { coverageFor } from "./evidence-slice-coverage";
+import { visitTypeScript } from "./route-totality-field-proof-ast";
 import { buildRouteTotalityAnchorIndex } from "./route-totality-anchor-index";
 import type { RouteTotalityFieldLineage, RouteTotalityFieldOrigin, RouteTotalityFieldTransformation } from "./route-totality-field-lineage";
+import type { ProgramElement } from "./scope-seam";
 import { discoverFieldProofCandidates, type FieldProofCandidate } from "./route-totality-field-proof-candidate";
 import { searchFieldCarrierPaths, type FieldCarrierPath } from "./route-totality-field-proof-carrier";
 import { RouteTotalityFieldProofIndex } from "./route-totality-field-proof-index";
 import { failedFieldProof, mergeProvenFieldProofs, provenFieldProof } from "./route-totality-field-proof-result";
-import { fieldProofTargetKey, FIELD_PROOF_TARGETS } from "./route-totality-field-proof-policy";
 import { assembleFieldProofTransformations } from "./route-totality-field-proof-transformations";
 import type { FieldProofInput } from "./route-totality-field-proof-types";
 import {
@@ -38,7 +40,7 @@ export function queryRouteTotalityFieldProof(
       "ambiguous-target",
     );
   }
-  const discoveredCandidates = FIELD_PROOF_TARGETS.flatMap((target) => discoverFieldProofCandidates(ts, program, root, index, target, cancellation));
+  const discoveredCandidates = discoverFieldProofCandidates(ts, program, root, index, undefined, cancellation);
   const candidates = discoveredCandidates
     .flatMap((candidate) => {
       const anchor = anchorCandidate(index, surface, candidate, cancellation);
@@ -77,29 +79,24 @@ export function queryRouteTotalityFieldProof(
     }
     if (!existing) candidatesByTarget.set(key, value);
   }
-  const missingTargets = FIELD_PROOF_TARGETS
-    .map((target) => fieldProofTargetKey(target))
-    .filter((key) => !candidatesByTarget.has(key));
-  if (missingTargets.length > 0 || carrierAmbiguous || duplicateTargets.size > 0) {
+  if (candidatesByTarget.size === 0 || carrierAmbiguous || duplicateTargets.size > 0) {
     augmentSlice(index, cancellation);
     return failedFieldProof(
       origin,
       candidates[0]?.candidate.collectionField ?? index.byId(origin.elementId),
       "source-carrier",
       [],
-      missingTargets.length === FIELD_PROOF_TARGETS.length && !carrierAmbiguous && duplicateTargets.size === 0
+      candidatesByTarget.size === 0 && !carrierAmbiguous && duplicateTargets.size === 0
         ? "The selected filesystem evidence has no unique exact carrier chain to an anchored collection field read."
         : duplicateTargets.size > 0
           ? "The selected filesystem evidence has more than one exact proof identity for one obligation."
-        : `The selected filesystem evidence is missing exact consumer targets: ${missingTargets.length}`,
+        : "The selected filesystem evidence has more than one exact carrier chain to a discovered consumer.",
       cancellation,
       duplicateTargets.size > 0 ? "ambiguous-target" : "partial-proof",
     );
   }
   const proofs: RouteTotalityFieldLineage[] = [];
-  for (const target of FIELD_PROOF_TARGETS) {
-    const selected = candidatesByTarget.get(fieldProofTargetKey(target));
-    if (!selected) continue;
+  for (const selected of [...candidatesByTarget.values()].sort((left, right) => left.candidate.targetKey.localeCompare(right.candidate.targetKey))) {
     const { candidate, carrier, anchor } = selected;
     const assembled = assembleFieldProofTransformations(index, origin, candidate, carrier, cancellation);
     const accepted: RouteTotalityFieldTransformation[] = [];
@@ -151,8 +148,53 @@ export function queryRouteTotalityFieldProof(
       fieldLineageTerminalRelationId: policy.consumerTerminalRelationId,
     }, cancellation));
   }
+  const unsupported = unsupportedTransformProof(ts, program, index, origin, candidatesByTarget, cancellation);
+  if (unsupported) proofs.push(unsupported);
   augmentSlice(index, cancellation);
   return mergeProvenFieldProofs(proofs, !slice.coverage.complete || surface.status !== "complete", cancellation);
+}
+
+function unsupportedTransformProof(
+  ts: typeof TypeScript,
+  program: TypeScript.Program,
+  index: RouteTotalityFieldProofIndex,
+  origin: RouteTotalityFieldOrigin,
+  candidates: Map<string, { candidate: FieldProofCandidate; anchor: CandidateAnchor; carrier: FieldCarrierPath }>,
+  cancellation: AnalysisCancellationToken,
+): RouteTotalityFieldLineage | null {
+  for (const { candidate } of candidates.values()) {
+    for (const file of program.getSourceFiles()) {
+      if (file.isDeclarationFile) continue;
+      let found: { field: ProgramElement; formatter: string } | null = null;
+      visitTypeScript(ts, file, (node) => {
+        if (found || !ts.isPropertyAccessExpression(node) || !ts.isCallExpression(node.expression)) return;
+        const currentCall = index.element(node.expression, "call");
+        if (!currentCall || currentCall.symbol !== candidate.currentCall.symbol || currentCall.ownerId !== candidate.currentCall.ownerId) return;
+        let parent: TypeScript.Node = node;
+        while (parent.parent && !ts.isFunctionLike(parent.parent)) {
+          parent = parent.parent;
+          if (!ts.isCallExpression(parent) || parent === node.expression || !ts.isIdentifier(parent.expression)) continue;
+          const field = index.element(node, "field-read");
+          if (field) found = { field, formatter: parent.expression.text };
+          return;
+        }
+      });
+      const matched = found as { field: ProgramElement; formatter: string } | null;
+      if (!matched) continue;
+      const field = {
+        elementIds: [candidate.collectionField.id, candidate.collectionElement.id, matched.field.id],
+        segments: [
+          { kind: "property" as const, value: candidate.collectionField.fieldName! },
+          { kind: "collection-element" as const, value: "*" },
+          { kind: "property" as const, value: matched.field.fieldName! },
+        ],
+        label: `${candidate.collectionField.fieldName}[*].${matched.field.fieldName}`,
+      };
+      const detail = `The generic field grammar stops at unsupported formatter ${matched.formatter} for ${field.label}.`;
+      return failedFieldProof(origin, matched.field, "unsupported-transform", [], detail, cancellation, "unsupported-transform", field);
+    }
+  }
+  return null;
 }
 
 function componentExpectedKinds(mode: "whole-object" | "scalar-alias"): ExactFieldTransferKind[] {

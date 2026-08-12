@@ -140,10 +140,16 @@ function componentConsumerStep(
   occurrenceRelation: ProgramRelation | null,
   cancellation: AnalysisCancellationToken,
 ): RouteTotalityFieldTransformation | null {
-  const consumerRelations = [
+  const nestedConsumerRelations = [
     one(index.exactRelations(candidate.consumerField.id, candidate.consumerValue.id, "consumer-value", "jsx-consumer-value", cancellation)),
     one(index.exactRelations(candidate.consumerValue.id, candidate.binding.id, "component-prop-binding", "component-prop-binding", cancellation)),
   ];
+  const wholeObjectConsumerRelation = candidate.boundary?.mode === "whole-object"
+    ? one(index.exactRelations(candidate.consumerField.id, candidate.binding.id, "consumer-value", "render-consumer", cancellation))
+    : null;
+  const consumerRelations = nestedConsumerRelations.every(Boolean)
+    ? nestedConsumerRelations
+    : wholeObjectConsumerRelation ? [wholeObjectConsumerRelation] : nestedConsumerRelations;
   const terminalRelation = index.consumerRenderTerminal(candidate.consumerValue.id, candidate.renderTerminal.id);
   const targetConsumer = targetConsumerDescriptor(candidate);
   return consumerRelations.every(Boolean) && occurrenceRelation && terminalRelation && targetConsumer
@@ -161,7 +167,7 @@ function componentConsumerStep(
 }
 
 function targetConsumerDescriptor(candidate: FieldProofCandidate) {
-  const descriptor = deriveTargetConsumerDescriptor({
+  const descriptor = deriveTargetConsumerDescriptor(candidate.targetKey, {
     consumerField: candidate.consumerField,
     consumerValue: candidate.directConsumer ? candidate.binding : candidate.consumerValue,
     binding: candidate.binding,

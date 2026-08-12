@@ -53,7 +53,7 @@ export function deriveComponentTargetPolicy(
     && relation.to === renderTerminals[0]?.id && relation.kind === "render-terminal"
     && relation.proof.kind === "field-consumer-terminal" && exactRelation(relation)
     && uniqueRelation(relation, graph, NO_CANCEL));
-  const targetConsumer = deriveTargetConsumerDescriptor({
+  const targetConsumer = deriveTargetConsumerDescriptor(final.targetConsumer?.targetKey ?? "", {
     consumerField,
     consumerValue: binding,
     binding,

@@ -25,6 +25,27 @@ export type FieldProofTargetSelector = {
   componentPropName?: string;
 };
 
+/** Build one target identity from compiler-discovered consumer facts. */
+export function fieldProofTargetForConsumer(input: {
+  collectionFieldName: string;
+  predicateFieldName: string;
+  consumerFieldName: string;
+  chain?: "direct" | "whole-object" | "scalar-alias";
+  componentName?: string | null;
+  componentPropName?: string | null;
+  consumer: FieldProofConsumerSelector;
+}): FieldProofTargetSelector {
+  return {
+    collectionFieldName: input.collectionFieldName,
+    predicateFieldName: input.predicateFieldName,
+    consumerFieldName: input.consumerFieldName,
+    chain: input.chain,
+    componentName: input.componentName ?? undefined,
+    componentPropName: input.componentPropName ?? undefined,
+    consumer: input.consumer,
+  };
+}
+
 /** Explicit product targets. Compiler facts establish every selected identity. */
 export const DIRECT_FIELD_PROOF_TARGETS: readonly FieldProofTargetSelector[] = [
   {
