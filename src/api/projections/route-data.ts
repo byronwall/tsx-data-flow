@@ -86,6 +86,10 @@ export function buildRouteDataDetail(
   const routeSources = inventory.sources.filter((source) => route.sourceMethodKeys.includes(source.key));
   if (selectedSourceKey && !route.sourceMethodKeys.includes(selectedSourceKey)) return null;
   const selectedSource = selectedTotalitySource(selectedSourceKey, routeSources, report.routeData.evidence);
+  const totality = projectRouteTotality(routeTotalityForRoute(report.routeData, routeKey, selectedSource, cancellation) ?? undefined, cancellation);
+  const detailSources = selectedSourceKey && totality
+    ? addSelectedSourceFieldPaths(routeSources, selectedSource, totality)
+    : routeSources;
   const sourceNodes = trajectory.sourceValueIds.map((id) => {
     const value = values.find((item) => item.id === id);
     const operation = operations.find((item) => item.key === value?.sourceOperationKey);
@@ -99,15 +103,14 @@ export function buildRouteDataDetail(
   const edges = componentContext.edges;
   const exhaustiveGraph = annotateGraphSources(
     routeGraph(report, analysisRoute.key, analysisRoute.sinkIds),
-    routeSources,
+    detailSources,
     evidence,
     operations,
   );
-  const totality = projectRouteTotality(routeTotalityForRoute(report.routeData, routeKey, selectedSource, cancellation) ?? undefined, cancellation);
   cancellation.throwIfCancelled();
   const detail: RouteDataDetail = {
     route, trajectory, operations, values, shapes: report.routeData.shapes.filter((shape) => shapeIds.has(shape.id)),
-    evidence, terminals, sources: routeSources, context: { nodes, edges }, exhaustiveGraph,
+    evidence, terminals, sources: detailSources, context: { nodes, edges }, exhaustiveGraph,
     hiddenComponentPolicy: report.meta.hiddenComponentPolicy,
     totality,
   };
@@ -139,6 +142,42 @@ function selectedTotalitySource(
       span: match.span,
     },
   };
+}
+
+function addSelectedSourceFieldPaths(
+  sources: RouteDataInventory["sources"],
+  selectedSource: RouteTotalitySelectedSource | null,
+  totality: NonNullable<RouteDataDetail["totality"]>,
+): RouteDataInventory["sources"] {
+  if (!selectedSource?.evidence) return sources;
+  const fields = new Set(
+    totality.fieldLineage.attachments
+      .filter((attachment) => sameSelectedSourceOrigin(attachment.origin, selectedSource))
+      .map((attachment) => attachment.field.label),
+  );
+  for (const frontier of totality.fieldLineage.frontiers) {
+    if (sameSelectedSourceOrigin(frontier.origin, selectedSource) && frontier.field) fields.add(frontier.field.label);
+  }
+  if (!fields.size) return sources;
+  return sources.map((source) => {
+    if (source.key !== selectedSource.key) return source;
+    const existing = new Set(source.fields.map((field) => field.key));
+    const added = [...fields]
+      .filter((field) => !existing.has(field))
+      .sort(lexical)
+      .map((key) => ({ key, typeText: "route field", optional: false }));
+    const mergedFields = [...source.fields, ...added];
+    return { ...source, fields: mergedFields, totalFields: mergedFields.length };
+  });
+}
+
+function sameSelectedSourceOrigin(
+  origin: { elementId: string; role: string; selectedEvidenceId: string | null },
+  selectedSource: RouteTotalitySelectedSource,
+) {
+  return origin.elementId === selectedSource.evidence?.elementId
+    && origin.role === "filesystem"
+    && origin.selectedEvidenceId === selectedSource.evidence.id;
 }
 
 function sameEvidenceIdentity(
@@ -270,6 +309,11 @@ function collectSourceFacts(report: AnalysisReport) {
       .filter((item): item is NonNullable<typeof item> => item?.semanticKind === "read");
     for (const operation of sourceOperations) {
       const sourceShape = report.routeData.shapes.find((item) => operation.outputShapeIds.includes(item.id));
+      const handoffShape = operation.consumerHandoff
+        ? report.routeData.shapes.find((item) => item.id === operation.consumerHandoff?.outputShapeId)
+        : undefined;
+      const inventoryShape = sourceInventoryShape(sourceShape, handoffShape);
+      const displayShape = inventoryShape ?? sourceShape;
       for (const evidenceId of operation.sourceExpressionIds) {
         const evidence = report.routeData.evidence.find((item) => item.id === evidenceId);
         if (!evidence) continue;
@@ -287,12 +331,12 @@ function collectSourceFacts(report: AnalysisReport) {
             ...retained.handoffFields,
             ...(operation.consumerHandoff?.fieldPaths ?? []),
           ])].sort(lexical);
-          if (retained.totalFields < (sourceShape?.totalFields ?? 0)) {
-            retained.typeName = sourceShape?.typeName ?? null;
-            retained.typeText = sourceDisplayType(sourceShape, evidence.outputType);
-            retained.shapeKind = sourceShape?.kind ?? "opaque";
-            retained.fields = sourceShape?.fields ?? [];
-            retained.totalFields = sourceShape?.totalFields ?? 0;
+          if (retained.totalFields < (inventoryShape?.totalFields ?? 0)) {
+            retained.typeName = displayShape?.typeName ?? null;
+            retained.typeText = sourceDisplayType(displayShape, evidence.outputType);
+            retained.shapeKind = displayShape?.kind ?? "opaque";
+            retained.fields = inventoryShape?.fields ?? [];
+            retained.totalFields = inventoryShape?.totalFields ?? 0;
             retained.evidenceId = evidence.id;
           }
         }
@@ -301,8 +345,8 @@ function collectSourceFacts(report: AnalysisReport) {
           consumerLabels: new Set(operation.boundary?.label ? [operation.boundary.label] : []),
           transportBridgeIds: new Set(operation.transportBridge?.id ? [operation.transportBridge.id] : []),
           handoffProven: Boolean(operation.consumerHandoff),
-          typeName: sourceShape?.typeName ?? null, typeText: sourceDisplayType(sourceShape, evidence.outputType), shapeKind: sourceShape?.kind ?? "opaque",
-          fields: sourceShape?.fields ?? [], totalFields: sourceShape?.totalFields ?? 0,
+          typeName: displayShape?.typeName ?? null, typeText: sourceDisplayType(displayShape, evidence.outputType), shapeKind: displayShape?.kind ?? "opaque",
+          fields: inventoryShape?.fields ?? [], totalFields: inventoryShape?.totalFields ?? 0,
           handoffFields: operation.consumerHandoff?.fieldPaths ?? [],
           evidenceId: evidence.id, routeKeys: new Set([trajectory.routeKey]),
         });
@@ -312,6 +356,14 @@ function collectSourceFacts(report: AnalysisReport) {
     sourceKeysForTrajectory.set(trajectory.key, [...new Set(keys)]);
   }
   return { sourceFacts, sourceKeysForTrajectory };
+}
+
+function sourceInventoryShape(
+  sourceShape: AnalysisReport["routeData"]["shapes"][number] | undefined,
+  handoffShape: AnalysisReport["routeData"]["shapes"][number] | undefined,
+) {
+  if (handoffShape && handoffShape.kind !== "primitive") return handoffShape;
+  return sourceShape?.kind === "primitive" ? undefined : sourceShape;
 }
 
 function annotateGraphSources(

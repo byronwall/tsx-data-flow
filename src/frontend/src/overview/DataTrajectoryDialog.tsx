@@ -49,6 +49,15 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
       && response.data.trajectory.key === current.flow,
     )?.data ?? null;
   });
+  const sourcePickerSources = createMemo(() => {
+    const selectedSource = state().source;
+    const loadedSources = displayedDetail()?.sources;
+    if (!selectedSource || !loadedSources) return selectedRouteSources();
+    const loadedSource = loadedSources.find((source) => source.key === selectedSource);
+    return loadedSource
+      ? selectedRouteSources().map((source) => source.key === selectedSource ? loadedSource : source)
+      : selectedRouteSources();
+  });
   const visibleDetailError = createMemo(() => (detail.loading ? null : detail.error));
   const applyState = (next: TrajectoryUrlState, push = false, writeHistory = true) => {
     const normalized = normalizeTrajectoryUrlState(next);
@@ -144,7 +153,7 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     onCleanup(() => { document.removeEventListener("keydown", keydown); window.removeEventListener("popstate", syncUrl); window.removeEventListener(BROWSER_URL_CHANGE_EVENT, syncUrl); document.body.style.overflow = previousOverflow; detailController?.abort(); });
   });
   return <div ref={dialog} class="data-trajectory-modal" hidden={!state().open} role="dialog" aria-modal="true" aria-labelledby="data-trajectory-title">
-    <header class="data-trajectory-header"><div><h2 id="data-trajectory-title">Data trajectories</h2></div><Show when={state().mode === "detail"}><button type="button" class="route-atlas-back" onClick={() => update({ mode: "atlas", item: null, expand: [], isolate: false })}>← Routes</button><label class="trajectory-header-select"><span>Route</span><select aria-label="Selected application route" value={state().route ?? ""} onChange={(event) => selectRoute(event.currentTarget.value)}><For each={props.inventory.routes}>{(route) => <option value={route.key}>{route.pathPattern} · {route.trajectoryCount.toLocaleString()} paths</option>}</For></select></label><TrajectorySourcePicker sources={selectedRouteSources()} selectedKey={state().source} selectedFieldPath={state().fieldFocus ?? null} onSelect={selectSource} onSelectField={selectSourceField} /><div class="trajectory-view-toggle" role="group" aria-label="Trajectory view"><button type="button" aria-pressed={state().view === "context"} onClick={() => update({ view: "context" })}>All paths</button><button type="button" aria-pressed={state().view === "trajectory"} onClick={() => update({ view: "trajectory" })}>Evidence cards</button></div></Show><button type="button" class="component-modal-close" aria-label="Close data trajectories" onClick={close}>×</button></header>
+    <header class="data-trajectory-header"><div><h2 id="data-trajectory-title">Data trajectories</h2></div><Show when={state().mode === "detail"}><button type="button" class="route-atlas-back" onClick={() => update({ mode: "atlas", item: null, expand: [], isolate: false })}>← Routes</button><label class="trajectory-header-select"><span>Route</span><select aria-label="Selected application route" value={state().route ?? ""} onChange={(event) => selectRoute(event.currentTarget.value)}><For each={props.inventory.routes}>{(route) => <option value={route.key}>{route.pathPattern} · {route.trajectoryCount.toLocaleString()} paths</option>}</For></select></label><TrajectorySourcePicker sources={sourcePickerSources()} selectedKey={state().source} selectedFieldPath={state().fieldFocus ?? null} onSelect={selectSource} onSelectField={selectSourceField} /><div class="trajectory-view-toggle" role="group" aria-label="Trajectory view"><button type="button" aria-pressed={state().view === "context"} onClick={() => update({ view: "context" })}>All paths</button><button type="button" aria-pressed={state().view === "trajectory"} onClick={() => update({ view: "trajectory" })}>Evidence cards</button></div></Show><button type="button" class="component-modal-close" aria-label="Close data trajectories" onClick={close}>×</button></header>
     <Show when={notice()}><p class="trajectory-restoration-notice" role="status">{notice()}</p></Show>
     <Show when={state().mode === "atlas"}><RouteAtlas inventory={props.inventory} kind={state().kind} sort={state().sort} filter={state().filter} source={state().source} onKind={(kind) => update({ kind })} onSort={(sort) => update({ sort })} onFilter={(filter) => update({ filter })} onSource={selectSource} onRoute={selectRoute} /></Show>
     <Show when={state().mode === "detail"}>
