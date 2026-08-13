@@ -9,6 +9,7 @@ export function TrajectorySourcePicker(props: {
   selectedFieldPath: string | null;
   onSelect: (key: string | null) => void;
   onSelectField: (sourceKey: string, fieldPath: string) => void;
+  onWarmSource?: (key: string) => void;
 }) {
   const selected = () => props.sources.find((source) => source.key === props.selectedKey) ?? null;
   let details: HTMLDetailsElement | undefined;
@@ -62,15 +63,14 @@ export function TrajectorySourcePicker(props: {
         <small class="trajectory-source-count">No filter</small>
       </button>
       <Show when={props.sources.length} fallback={<p>No supported persistence reads were found for this route.</p>}>
-        <For each={props.sources}>{(source) => <div class="trajectory-source-option" classList={{ selected: source.key === selected()?.key }}>
-          <button type="button" class="trajectory-source-option-trigger" aria-pressed={source.key === selected()?.key} onClick={() => choose(source.key)}>
+        <For each={props.sources}>{(source) => <div class="trajectory-source-option" classList={{ selected: source.key === selected()?.key }} onPointerEnter={() => props.onWarmSource?.(source.key)}>
+          <button type="button" class="trajectory-source-option-trigger" aria-pressed={source.key === selected()?.key} onFocus={() => props.onWarmSource?.(source.key)} onClick={() => choose(source.key)}>
             <span class={`trajectory-source-kind source-${source.kind}`}>{source.kind}</span>
             <span class="trajectory-source-identity"><strong>{source.consumerLabel ?? source.label}</strong><code>{source.consumerLabel ? `${source.label} · ` : ""}{shortPath(source.file)}:{source.line}</code></span>
             <small class="trajectory-source-count">{source.totalFields} {source.totalFields === 1 ? "field" : "fields"}</small>
-            <code class="trajectory-source-type">{source.typeText}</code>
           </button>
           <div class="trajectory-source-fields" aria-label={`Fields for ${source.consumerLabel ?? source.label}`}>
-            <For each={source.fields}>{(field) => <button type="button" classList={{ selected: source.key === selected()?.key && field.key === props.selectedFieldPath }} aria-pressed={source.key === selected()?.key && field.key === props.selectedFieldPath} onClick={() => chooseField(source.key, field.key)}>
+            <For each={source.fields}>{(field) => <button type="button" title={`Follow ${field.key}`} classList={{ selected: source.key === selected()?.key && field.key === props.selectedFieldPath }} aria-pressed={source.key === selected()?.key && field.key === props.selectedFieldPath} onFocus={() => props.onWarmSource?.(source.key)} onClick={() => chooseField(source.key, field.key)}>
               <code>{field.key}</code><small>{field.typeText}</small>
             </button>}</For>
           </div>
@@ -81,8 +81,7 @@ export function TrajectorySourcePicker(props: {
 }
 
 function sourceTypeLabel(source: Source) {
-  if (source.typeName) return source.typeName;
-  const fields = source.fields.slice(0, 3).map((field) => `${field.key}: ${field.typeText}`).join("; ");
-  return fields ? `{ ${fields}${source.fields.length > 3 ? "; …" : ""} }` : source.typeText;
+  const fields = source.fields.slice(0, 4).map((field) => field.key).join(", ");
+  return fields ? `${fields}${source.fields.length > 4 ? ", …" : ""}` : "No named fields";
 }
 function shortPath(file: string) { return file.split("/").slice(-2).join("/"); }

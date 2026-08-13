@@ -58,6 +58,7 @@ export type RouteTotalityFieldInspectorResult = {
   attachments: RouteTotalityFieldInspectorAttachment[];
   frontiers: RouteTotalityFieldInspectorFrontier[];
   fields: RouteTotalityFieldSummary[];
+  availableFieldPaths: readonly string[];
   selectedField: string | null;
   selectedConsumer: string | null;
 };
@@ -162,6 +163,7 @@ export function selectRouteTotalityFieldInspectorResult(
     attachments,
     frontiers,
     fields: buildFieldSummaries(attachments, matchingOccurrences, selectedField, selectedConsumer, availableFieldPaths),
+    availableFieldPaths,
     selectedField,
     selectedConsumer,
   };
@@ -211,6 +213,7 @@ function emptyResult(
     attachments: [],
     frontiers: [],
     fields: [],
+    availableFieldPaths: [],
     selectedField,
     selectedConsumer,
   };

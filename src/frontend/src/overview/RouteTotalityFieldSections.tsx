@@ -23,8 +23,8 @@ export function RouteTotalityFieldSections(props: {
       <section class="route-totality-inspector-section route-totality-field-section">
         <div class="route-totality-field-heading">
           <div>
-            <h3>{fieldSectionHeading(result())} <span>{result().fields.length} fields · {result().attachments.length} uses</span></h3>
-            <p>Available fields from the selected source are selectable. Proven reads show their green path.</p>
+            <h3>{fieldSectionHeading(result())} <span>{fieldCountLabel(result().fields.length)} · {result().attachments.length} {result().attachments.length === 1 ? "use" : "uses"}</span></h3>
+            <p>{fieldSectionDescription(result())}</p>
           </div>
           <Show when={result().selectedField}>
             <button type="button" class="route-totality-field-clear" onClick={props.onClearFieldFocus}>Show all fields</button>
@@ -36,14 +36,14 @@ export function RouteTotalityFieldSections(props: {
         <Show when={result().status === "unavailable"}>
           <p>{result().unavailableReason ?? "Field lineage is unavailable for this route."}</p>
         </Show>
-        <Show when={result().status === "no-fields"}>
+        <Show when={result().status === "no-fields" && result().fields.length === 0}>
           <p>{noProvenFieldsMessage(result())}</p>
         </Show>
         <Show when={result().fields.length > 0} fallback={<Show when={result().status === "proven" || result().status === "partial"}><p>{noProvenFieldsMessage(result())}</p></Show>}>
           <div class="route-totality-proven-fields" aria-label="Available fields">
-            <For each={result().fields}>{(field) => <FieldSummary field={field} result={result()} onOpenSource={props.onOpenSource} onFieldFocusChange={props.onFieldFocusChange} />}</For>
+            <For each={result().fields}>{(field) => <FieldSummary field={field} availableFieldPaths={result().availableFieldPaths} onOpenSource={props.onOpenSource} onFieldFocusChange={props.onFieldFocusChange} />}</For>
           </div>
-          <WholeObjectHandoffs handoffs={buildWholeObjectHandoffs(result().fields)} />
+          <Show when={result().selectedField}><WholeObjectHandoffs handoffs={buildWholeObjectHandoffs(result().fields)} /></Show>
         </Show>
       </section>
       <Show when={result().frontiers.length > 0}>
@@ -82,10 +82,11 @@ function narrowFieldResult(
 
 function FieldSummary(props: {
   field: RouteTotalityFieldSummary;
-  result: RouteTotalityFieldInspectorResult;
+  availableFieldPaths: readonly string[];
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
   onFieldFocusChange: (fieldFocus: string | null, consumerFocus?: string | null) => void;
 }) {
+  const nestedFields = () => countNestedFields(props.availableFieldPaths, props.field.label);
   return <article class="route-totality-field-summary" classList={{ selected: props.field.selected && props.field.proven, unproven: props.field.selected && !props.field.proven }}>
     <button
       type="button"
@@ -95,9 +96,9 @@ function FieldSummary(props: {
       onClick={() => props.onFieldFocusChange(props.field.selected ? null : props.field.label, null)}
     >
       <code>{props.field.label}</code>
-      <span>{props.field.proven ? `${props.field.useCount} uses · ${props.field.componentCount} component${props.field.componentCount === 1 ? "" : "s"}` : "0 uses · no proven consumers"}</span>
+      <span>{fieldSummaryLabel(props.field, nestedFields())}</span>
     </button>
-    <div class="route-totality-field-occurrences">
+    <Show when={props.field.selected && props.field.proven}><div class="route-totality-field-occurrences">
       <For each={props.field.occurrences}>{(occurrence) => <section class="route-totality-field-occurrence">
         <header>
           <strong>{occurrence.componentName}</strong>
@@ -107,7 +108,7 @@ function FieldSummary(props: {
         </header>
         <For each={occurrence.uses}>{(use) => <FieldUse use={use} fieldLabel={props.field.label} onOpenSource={props.onOpenSource} onFieldFocusChange={props.onFieldFocusChange} />}</For>
       </section>}</For>
-    </div>
+    </div></Show>
   </article>;
 }
 
@@ -120,7 +121,7 @@ function FieldUse(props: {
   const location = () => props.use.consumerLocation ?? props.use.attachment.field.location;
   return <details class="route-totality-field-use" open={props.use.selected}>
     <summary onClick={() => props.onFieldFocusChange(props.fieldLabel, props.use.key)}>
-      <span><b>{props.use.consumerLabel}</b><small>{props.use.consumerKind} · {props.use.componentName}</small><Show when={props.use.aliasLabel}><small class="route-totality-field-alias-step">Alias step · <code>{props.use.aliasLabel}</code></small></Show></span>
+      <span><b>{props.use.consumerLabel}</b><small>{props.use.consumerKind}</small><Show when={props.use.aliasLabel}><small class="route-totality-field-alias-step">Alias · <code>{props.use.aliasLabel}</code></small></Show></span>
       <code title={formatLocation(location())}>{shortLocation(location())}</code>
     </summary>
     <div class="route-totality-field-proof">
@@ -227,9 +228,32 @@ function objectPath(label: string) {
   return lastDot > 0 ? label.slice(0, lastDot) : label;
 }
 
+function countNestedFields(fields: readonly string[], label: string) {
+  const prefix = `${label}[*].`;
+  return fields.filter((field) => field.startsWith(prefix)).length;
+}
+
+function fieldSummaryLabel(field: RouteTotalityFieldSummary, nestedFields: number) {
+  if (field.proven) return `${field.useCount} ${field.useCount === 1 ? "use" : "uses"} · ${field.componentCount} ${field.componentCount === 1 ? "component" : "components"}`;
+  if (nestedFields > 0) return `Collection · ${nestedFields} item ${nestedFields === 1 ? "field" : "fields"}`;
+  return "Available · not proven";
+}
+
 function fieldSectionHeading(result: RouteTotalityFieldInspectorResult): string {
+  if (result.selectedField) return "Selected field";
   if (result.fields.some((field) => !field.proven)) return "Available fields";
   return result.scope.kind === "origin" ? "Proven fields" : "Fields through occurrence";
+}
+
+function fieldSectionDescription(result: RouteTotalityFieldInspectorResult) {
+  if (!result.selectedField) return "Choose a field to show its consumers and proof.";
+  const field = result.fields[0];
+  if (field && !field.proven && countNestedFields(result.availableFieldPaths, field.label) > 0) return "This collection contains the item fields listed in the picker.";
+  return field?.proven ? "Consumers and proof for this field." : "No proven consumer for this field.";
+}
+
+function fieldCountLabel(count: number) {
+  return `${count} ${count === 1 ? "field" : "fields"}`;
 }
 
 function noProvenFieldsMessage(result: RouteTotalityFieldInspectorResult): string {

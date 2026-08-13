@@ -183,26 +183,26 @@
 .trajectory-source-picker-popover > header strong { color: var(--text); font-size: .78rem; }
 .trajectory-source-picker-popover > header small { color: var(--muted); font-size: .6rem; font-weight: 650; }
 .trajectory-source-picker-popover > header p,.trajectory-source-picker-popover > p { margin: 0; color: var(--muted); font-size: .64rem; }
-.trajectory-source-picker-popover > button,.trajectory-source-option { width: 100%; border-radius: 5px; background: color-mix(in srgb,var(--bg) 46%,var(--panel)); }
+.trajectory-source-picker-popover > button,.trajectory-source-option { width: 100%; border: 1px solid transparent; border-radius: 5px; background: color-mix(in srgb,var(--bg) 46%,var(--panel)); }
 .trajectory-source-picker-popover > button { display: grid; grid-template-columns: 60px minmax(0,1fr) auto; align-items: center; gap: 5px 9px; padding: 8px 9px; border: 0; color: var(--text); text-align: left; }
 .trajectory-source-picker-popover > button + .trajectory-source-option,.trajectory-source-option + .trajectory-source-option { margin-top: 4px; }
-.trajectory-source-picker-popover > button:hover,.trajectory-source-option:hover { background: color-mix(in srgb,var(--accent-soft) 68%,var(--panel)); }
+.trajectory-source-picker-popover > button:hover,.trajectory-source-picker-popover > button:focus-visible,.trajectory-source-option:hover,.trajectory-source-option:focus-within { border-color: color-mix(in srgb,var(--accent) 45%,var(--border)); background: color-mix(in srgb,var(--accent-soft) 68%,var(--panel)); }
 .trajectory-source-picker-popover > button.selected,.trajectory-source-option.selected { background: color-mix(in srgb,var(--accent-soft) 88%,var(--panel)); }
 .trajectory-source-picker-popover > button.selected::after,.trajectory-source-option.selected > .trajectory-source-option-trigger::after { content: "Selected"; grid-column: 3; grid-row: 1; color: var(--accent); font-size: .57rem; font-weight: 750; text-transform: uppercase; }
 .trajectory-source-option-trigger { width: 100%; display: grid; grid-template-columns: 60px minmax(0,1fr) auto; align-items: center; gap: 5px 9px; padding: 8px 9px; border: 0; background: transparent; color: var(--text); text-align: left; }
-.trajectory-source-option-trigger:hover { background: color-mix(in srgb,var(--accent-soft) 45%,transparent); }
+.trajectory-source-option-trigger { cursor: pointer; }
+.trajectory-source-option-trigger:hover,.trajectory-source-option-trigger:focus-visible { background: color-mix(in srgb,var(--accent-soft) 45%,transparent); }
 .trajectory-source-kind { padding: 3px 5px; border-radius: 4px; background: color-mix(in srgb,var(--accent) 10%,var(--tag-bg,#e9ecf7)); color: var(--text); font-size: .56rem; font-weight: 750; text-align: center; text-transform: uppercase; }
 .trajectory-source-identity { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
 .trajectory-source-identity strong { flex: none; font-size: .7rem; }
 .trajectory-source-identity code { overflow: hidden; color: color-mix(in srgb,var(--text) 70%,var(--muted)); font-size: .6rem; text-overflow: ellipsis; white-space: nowrap; }
 .trajectory-source-count { grid-column: 3; color: var(--muted); font-size: .57rem; white-space: nowrap; }
 .trajectory-source-picker-popover > button.selected .trajectory-source-count { display: none; }
-.trajectory-source-type { grid-column: 2 / -1; min-width: 0; padding: 5px 7px; border-radius: 4px; background: color-mix(in srgb,var(--text) 5%,var(--panel)); color: var(--text); font-size: .62rem; line-height: 1.4; overflow-wrap: anywhere; white-space: normal; }
-.trajectory-source-fields { display: flex; flex-wrap: wrap; gap: 3px; padding: 0 9px 8px 78px; }
-.trajectory-source-fields button { min-width: 0; display: grid; gap: 1px; padding: 3px 5px; border: 0; border-radius: 3px; background: var(--panel); color: color-mix(in srgb,var(--text) 82%,var(--muted)); text-align: left; }
-.trajectory-source-fields button:hover,.trajectory-source-fields button.selected { background: var(--accent-soft); color: var(--text); }
-.trajectory-source-fields code { overflow-wrap: anywhere; font-size: .56rem; }
-.trajectory-source-fields small { color: var(--muted); font-size: .5rem; }
+.trajectory-source-fields { display: grid; gap: 3px; padding: 0 9px 8px 78px; }
+.trajectory-source-fields button { min-width: 0; display: grid; grid-template-columns: minmax(140px,.38fr) minmax(0,1fr); gap: 10px; align-items: baseline; padding: 5px 8px; border: 1px solid transparent; border-radius: 3px; background: var(--panel); color: color-mix(in srgb,var(--text) 82%,var(--muted)); cursor: pointer; text-align: left; }
+.trajectory-source-fields button:hover,.trajectory-source-fields button:focus-visible,.trajectory-source-fields button.selected { border-color: color-mix(in srgb,var(--accent) 38%,var(--border)); background: var(--accent-soft); color: var(--text); }
+.trajectory-source-fields code { min-width: 0; overflow: hidden; font-size: .6rem; text-overflow: ellipsis; white-space: nowrap; }
+.trajectory-source-fields small { min-width: 0; overflow: hidden; color: var(--muted); font-size: .52rem; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .trajectory-restoration-notice { margin: 0; padding: 6px 14px; font-size: .78rem; background: var(--warning-bg, #fff7d6); }
 .route-trajectory-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 330px; position: relative; overflow: hidden; }
 .route-trajectory-workspace.route-flow-open { grid-template-columns: minmax(0, 1fr); }
@@ -722,28 +722,30 @@
 .route-totality-field-clear { flex: none; min-height: 23px; padding: 2px 5px; border-color: color-mix(in srgb, var(--lineage-proven) 30%, var(--border)); background: transparent; color: var(--lineage-field-text); font-size: .58rem; }
 .route-totality-field-clear:hover,.route-totality-field-clear:focus-visible { border-color: var(--lineage-proven); background: var(--surface); }
 .route-totality-proven-fields { display: grid; gap: 5px; min-width: 0; }
-.route-totality-field-summary { display: grid; gap: 4px; min-width: 0; padding: 5px; background: var(--surface); }
+.route-totality-field-summary { display: grid; gap: 4px; min-width: 0; padding: 0; background: var(--surface); }
 .route-totality-field-summary.selected { background: color-mix(in srgb, var(--lineage-proven) 12%, var(--surface)); }
 .route-totality-field-summary.unproven.selected { background: color-mix(in srgb, var(--line) 12%, var(--surface)); }
-.route-totality-field-summary-trigger { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px; align-items: baseline; width: 100%; padding: 0; border: 0; background: transparent; color: var(--lineage-field-text); text-align: left; }
-.route-totality-field-summary-trigger:hover,.route-totality-field-summary-trigger:focus-visible { color: var(--text); }
+.route-totality-field-summary-trigger { min-width: 0; display: grid; gap: 2px; width: 100%; padding: 7px 8px; border: 1px solid transparent; background: transparent; color: var(--lineage-field-text); cursor: pointer; text-align: left; }
+.route-totality-field-summary-trigger::after { content: "Show proof →"; grid-column: 1; color: transparent; font-size: .54rem; font-weight: 700; }
+.route-totality-field-summary-trigger:hover,.route-totality-field-summary-trigger:focus-visible { border-color: color-mix(in srgb,var(--lineage-proven) 38%,var(--border)); background: color-mix(in srgb,var(--lineage-field-fill) 55%,var(--surface)); color: var(--text); }
+.route-totality-field-summary-trigger:hover::after,.route-totality-field-summary-trigger:focus-visible::after { color: var(--lineage-field-text); }
 .route-totality-field-summary-trigger code { min-width: 0; overflow-wrap: anywhere; font-size: .67rem; font-weight: 750; }
-.route-totality-field-summary-trigger > span { color: var(--muted); font-size: .58rem; white-space: nowrap; }
+.route-totality-field-summary-trigger > span { color: var(--muted); font-size: .58rem; }
 .route-totality-field-occurrences { display: grid; gap: 4px; min-width: 0; }
 .route-totality-field-occurrence { display: grid; gap: 2px; min-width: 0; padding: 4px; background: var(--bg); }
-.route-totality-field-occurrence > header { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
+.route-totality-field-occurrence > header { display: grid; gap: 2px; min-width: 0; }
 .route-totality-field-occurrence > header strong { min-width: 0; overflow-wrap: anywhere; color: var(--text); font: 700 .61rem var(--mono); }
-.route-totality-field-occurrence > header a { flex: none; max-width: 45%; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.route-totality-field-occurrence > header a { max-width: 100%; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .route-totality-field-occurrence > header a code { font-size: .56rem; }
 .route-totality-field-use { min-width: 0; border-top: 1px solid var(--border); }
-.route-totality-field-use > summary { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px; align-items: start; min-width: 0; padding: 4px 1px; cursor: pointer; list-style: none; }
+.route-totality-field-use > summary { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 2px 5px; align-items: start; min-width: 0; padding: 6px 4px; cursor: pointer; list-style: none; }
 .route-totality-field-use > summary::-webkit-details-marker { display: none; }
 .route-totality-field-use > summary::before { content: "›"; color: var(--muted); font-size: .7rem; }
 .route-totality-field-use[open] > summary::before { content: "⌄"; }
-.route-totality-field-use > summary > span { min-width: 0; display: grid; gap: 1px; grid-column: 1; margin-left: 8px; margin-top: -15px; }
+.route-totality-field-use > summary > span { min-width: 0; display: grid; gap: 1px; grid-column: 2; }
 .route-totality-field-use > summary b { min-width: 0; overflow-wrap: anywhere; color: var(--text); font: 650 .61rem var(--mono); }
 .route-totality-field-use > summary small { color: var(--muted); font-size: .56rem; line-height: 1.25; }
-.route-totality-field-use > summary > code { grid-column: 2; max-width: 112px; overflow: hidden; color: var(--muted); font-size: .55rem; text-overflow: ellipsis; white-space: nowrap; }
+.route-totality-field-use > summary > code { grid-column: 2; max-width: 100%; overflow: hidden; color: var(--muted); font-size: .55rem; text-overflow: ellipsis; white-space: nowrap; }
 .route-totality-field-use > summary:hover,.route-totality-field-use > summary:focus-visible { background: var(--accent-soft); }
 .route-totality-field-proof { display: grid; gap: 5px; padding: 3px 4px 6px 15px; background: color-mix(in srgb, var(--lineage-field-fill) 55%, var(--surface)); }
 .route-totality-field-proof dl { display: grid; gap: 1px; margin: 0; }
@@ -766,7 +768,7 @@
 .route-totality-whole-object h4 { margin: 0; color: var(--lineage-field-text); }
 .route-totality-whole-object p { font-size: .59rem; }
 .route-totality-whole-object ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.route-totality-whole-object li { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr); gap: 5px; min-width: 0; padding: 4px; background: var(--surface); font-size: .58rem; }
+.route-totality-whole-object li { display: grid; gap: 2px; min-width: 0; padding: 4px; background: var(--surface); font-size: .58rem; }
 .route-totality-whole-object li code { overflow-wrap: anywhere; }
 .route-totality-whole-object li span { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
 .route-totality-finding-list { display: grid; gap: 4px; }

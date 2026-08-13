@@ -16,6 +16,8 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
   let lastUrlOpen = initiallyOpen;
   let seededSearch = props.initialSearch;
   let detailController: AbortController | null = null;
+  const detailCache = new Map<string, Awaited<ReturnType<typeof fetchRouteData>>>();
+  const detailWarmups = new Map<string, Promise<Awaited<ReturnType<typeof fetchRouteData>>>>();
   let dialog!: HTMLDivElement;
   const selectedRoute = createMemo(() => props.inventory.routes.find((route) => route.key === state().route) ?? null);
   const selectedRouteSources = createMemo(() => props.inventory.sources.filter((source) => selectedRoute()?.sourceMethodKeys.includes(source.key)));
@@ -26,11 +28,18 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
       : null;
   });
   const [detail, { refetch }] = createResource(detailSelection, (key) => {
+    const cached = detailCache.get(key);
+    if (cached) return Promise.resolve(cached);
+    const warmup = detailWarmups.get(key);
+    if (warmup) return warmup;
     detailController?.abort();
     const controller = new AbortController();
     detailController = controller;
     const [route, flow, generation, source] = JSON.parse(key) as [string, string, number, string | null];
-    return fetchRouteData(route, flow, generation, source, controller.signal).finally(() => {
+    return fetchRouteData(route, flow, generation, source, controller.signal).then((response) => {
+      detailCache.set(key, response);
+      return response;
+    }).finally(() => {
       if (detailController === controller) detailController = null;
     });
   });
@@ -55,7 +64,15 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     if (!selectedSource || !loadedSources) return selectedRouteSources();
     const loadedSource = loadedSources.find((source) => source.key === selectedSource);
     return loadedSource
-      ? selectedRouteSources().map((source) => source.key === selectedSource ? loadedSource : source)
+      ? selectedRouteSources().map((source) => source.key === selectedSource ? {
+        ...loadedSource,
+        typeName: source.typeName,
+        typeText: source.typeText,
+        fields: loadedSource.fields.map((field) => ({
+          ...field,
+          typeText: source.fields.find((candidate) => candidate.key === field.key)?.typeText ?? field.typeText,
+        })),
+      } : source)
       : selectedRouteSources();
   });
   const visibleDetailError = createMemo(() => (detail.loading ? null : detail.error));
@@ -91,6 +108,18 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
   };
   const selectSource = (source: string | null) => update({ source, item: null, expand: [], isolate: false, pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null }, true);
   const selectSourceField = (source: string, fieldFocus: string) => update({ source, item: null, expand: [], isolate: false, pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus, consumerFocus: null }, true);
+  const warmSource = (source: string) => {
+    const current = state();
+    if (!current.open || current.mode !== "detail" || !current.route || !current.flow) return;
+    const key = JSON.stringify([current.route, current.flow, props.generation, source]);
+    if (detailCache.has(key) || detailWarmups.has(key)) return;
+    const request = fetchRouteData(current.route, current.flow, props.generation, source).then((response) => {
+      detailCache.set(key, response);
+      return response;
+    }).finally(() => detailWarmups.delete(key));
+    void request.catch(() => {});
+    detailWarmups.set(key, request);
+  };
   const close = () => { update({ open: false }); props.onClose(); };
   createEffect(() => {
     const open = props.open;
@@ -153,7 +182,7 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     onCleanup(() => { document.removeEventListener("keydown", keydown); window.removeEventListener("popstate", syncUrl); window.removeEventListener(BROWSER_URL_CHANGE_EVENT, syncUrl); document.body.style.overflow = previousOverflow; detailController?.abort(); });
   });
   return <div ref={dialog} class="data-trajectory-modal" hidden={!state().open} role="dialog" aria-modal="true" aria-labelledby="data-trajectory-title">
-    <header class="data-trajectory-header"><div><h2 id="data-trajectory-title">Data trajectories</h2></div><Show when={state().mode === "detail"}><button type="button" class="route-atlas-back" onClick={() => update({ mode: "atlas", item: null, expand: [], isolate: false })}>← Routes</button><label class="trajectory-header-select"><span>Route</span><select aria-label="Selected application route" value={state().route ?? ""} onChange={(event) => selectRoute(event.currentTarget.value)}><For each={props.inventory.routes}>{(route) => <option value={route.key}>{route.pathPattern} · {route.trajectoryCount.toLocaleString()} paths</option>}</For></select></label><TrajectorySourcePicker sources={sourcePickerSources()} selectedKey={state().source} selectedFieldPath={state().fieldFocus ?? null} onSelect={selectSource} onSelectField={selectSourceField} /><div class="trajectory-view-toggle" role="group" aria-label="Trajectory view"><button type="button" aria-pressed={state().view === "context"} onClick={() => update({ view: "context" })}>All paths</button><button type="button" aria-pressed={state().view === "trajectory"} onClick={() => update({ view: "trajectory" })}>Evidence cards</button></div></Show><button type="button" class="component-modal-close" aria-label="Close data trajectories" onClick={close}>×</button></header>
+    <header class="data-trajectory-header"><div><h2 id="data-trajectory-title">Data trajectories</h2></div><Show when={state().mode === "detail"}><button type="button" class="route-atlas-back" onClick={() => update({ mode: "atlas", item: null, expand: [], isolate: false })}>← Routes</button><label class="trajectory-header-select"><span>Route</span><select aria-label="Selected application route" value={state().route ?? ""} onChange={(event) => selectRoute(event.currentTarget.value)}><For each={props.inventory.routes}>{(route) => <option value={route.key}>{route.pathPattern} · {route.trajectoryCount.toLocaleString()} paths</option>}</For></select></label><TrajectorySourcePicker sources={sourcePickerSources()} selectedKey={state().source} selectedFieldPath={state().fieldFocus ?? null} onSelect={selectSource} onSelectField={selectSourceField} onWarmSource={warmSource} /><div class="trajectory-view-toggle" role="group" aria-label="Trajectory view"><button type="button" aria-pressed={state().view === "context"} onClick={() => update({ view: "context" })}>All paths</button><button type="button" aria-pressed={state().view === "trajectory"} onClick={() => update({ view: "trajectory" })}>Evidence cards</button></div></Show><button type="button" class="component-modal-close" aria-label="Close data trajectories" onClick={close}>×</button></header>
     <Show when={notice()}><p class="trajectory-restoration-notice" role="status">{notice()}</p></Show>
     <Show when={state().mode === "atlas"}><RouteAtlas inventory={props.inventory} kind={state().kind} sort={state().sort} filter={state().filter} source={state().source} onKind={(kind) => update({ kind })} onSort={(sort) => update({ sort })} onFilter={(filter) => update({ filter })} onSource={selectSource} onRoute={selectRoute} /></Show>
     <Show when={state().mode === "detail"}>
