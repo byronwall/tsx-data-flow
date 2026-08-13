@@ -721,16 +721,14 @@
 .route-totality-field-heading p { font-size: .63rem; }
 .route-totality-field-clear { flex: none; min-height: 23px; padding: 2px 5px; border-color: color-mix(in srgb, var(--lineage-proven) 30%, var(--border)); background: transparent; color: var(--lineage-field-text); font-size: .58rem; }
 .route-totality-field-clear:hover,.route-totality-field-clear:focus-visible { border-color: var(--lineage-proven); background: var(--surface); }
-.route-totality-proven-fields { display: grid; gap: 5px; min-width: 0; }
-.route-totality-field-summary { display: grid; gap: 4px; min-width: 0; padding: 0; background: var(--surface); }
+.route-totality-proven-fields { display: grid; gap: 2px; min-width: 0; }
+.route-totality-field-summary { display: grid; gap: 2px; min-width: 0; padding: 0; background: var(--surface); }
 .route-totality-field-summary.selected { background: color-mix(in srgb, var(--lineage-proven) 12%, var(--surface)); }
 .route-totality-field-summary.unproven.selected { background: color-mix(in srgb, var(--line) 12%, var(--surface)); }
-.route-totality-field-summary-trigger { min-width: 0; display: grid; gap: 2px; width: 100%; padding: 7px 8px; border: 1px solid transparent; background: transparent; color: var(--lineage-field-text); cursor: pointer; text-align: left; }
-.route-totality-field-summary-trigger::after { content: "Show proof →"; grid-column: 1; color: transparent; font-size: .54rem; font-weight: 700; }
+.route-totality-field-summary-trigger { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px; align-items: baseline; width: 100%; padding: 2px 5px; border: 1px solid transparent; background: transparent; color: var(--lineage-field-text); cursor: pointer; text-align: left; }
 .route-totality-field-summary-trigger:hover,.route-totality-field-summary-trigger:focus-visible { border-color: color-mix(in srgb,var(--lineage-proven) 38%,var(--border)); background: color-mix(in srgb,var(--lineage-field-fill) 55%,var(--surface)); color: var(--text); }
-.route-totality-field-summary-trigger:hover::after,.route-totality-field-summary-trigger:focus-visible::after { color: var(--lineage-field-text); }
-.route-totality-field-summary-trigger code { min-width: 0; overflow-wrap: anywhere; font-size: .67rem; font-weight: 750; }
-.route-totality-field-summary-trigger > span { color: var(--muted); font-size: .58rem; }
+.route-totality-field-summary-trigger code { min-width: 0; overflow: hidden; font-size: .67rem; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.route-totality-field-summary-trigger > span { color: var(--muted); font-size: .58rem; white-space: nowrap; }
 .route-totality-field-occurrences { display: grid; gap: 4px; min-width: 0; }
 .route-totality-field-occurrence { display: grid; gap: 2px; min-width: 0; padding: 4px; background: var(--bg); }
 .route-totality-field-occurrence > header { display: grid; gap: 2px; min-width: 0; }

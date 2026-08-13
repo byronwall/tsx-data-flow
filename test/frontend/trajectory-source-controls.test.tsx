@@ -41,7 +41,13 @@ describe("trajectory source controls", () => {
     expect(details.open).toBe(true);
     expect(container.textContent).toContain("fetchDoc");
     expect(container.textContent).toContain("docs.queries.ts:71");
-    expect(container.querySelector(".trajectory-source-type")?.textContent).toBe(source.typeText);
+    expect(container.querySelector(".trajectory-source-picker > summary code")?.textContent).toBe("id, html, markdown");
+    expect(container.textContent).not.toContain("Source shape");
+    expect([...container.querySelectorAll(".trajectory-source-fields button")].map((button) => button.textContent)).toEqual([
+      "idstring",
+      "htmlstring | null",
+      "markdownstring | null",
+    ]);
 
     await fireEvent.pointerDown(screen.getByRole("button", { name: "Outside" }));
     expect(details.open).toBe(false);
