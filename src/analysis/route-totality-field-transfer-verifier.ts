@@ -20,6 +20,7 @@ export const EXACT_FIELD_TRANSFER_KINDS = [
   "nested-property-read",
   "occurrence-consumer",
 ] as const;
+export const SCALAR_FIELD_TRANSFER_KINDS = ["source-carrier", "property-read", "scalar-consumer"] as const;
 
 export const COMPONENT_FIELD_TRANSFER_KINDS = [
   ...EXACT_FIELD_TRANSFER_KINDS.slice(0, 10),
@@ -32,7 +33,8 @@ export const COMPONENT_FIELD_TRANSFER_KINDS = [
 export type ExactFieldTransferKind = typeof EXACT_FIELD_TRANSFER_KINDS[number]
   | "component-source-field"
   | "component-boundary"
-  | "component-property-read";
+  | "component-property-read"
+  | "scalar-consumer";
 
 export type FieldTransferElement = {
   id: string;
@@ -89,9 +91,11 @@ export type FieldTransferVerification = { ok: true } | { ok: false; detail: stri
 
 export type ExactFieldTargetPolicy = {
   transferKinds: readonly string[];
-  chain: "direct" | "whole-object" | "scalar-alias";
+  chain: "direct" | "whole-object" | "scalar-alias" | "direct-scalar";
   sourceFieldElementId?: string;
   sourceFieldName?: string;
+  scalarFieldElementId?: string;
+  scalarFieldName?: string;
   currentValueElementId?: string;
   componentReceiverElementId?: string;
   collectionFieldElementId: string;
@@ -123,9 +127,9 @@ export function verifyExactFieldTransfer(
   policy: ExactFieldTargetPolicy | null = null,
 ): FieldTransferVerification {
   cancellation.throwIfCancelled();
-  if (![...EXACT_FIELD_TRANSFER_KINDS, "component-source-field", "component-boundary", "component-property-read"].includes(transfer.kind as ExactFieldTransferKind)) return failure("The transfer kind is not part of the declared exact ledger.");
-  if (transfer.kind === "occurrence-consumer" ? !transfer.targetConsumer : transfer.targetConsumer !== null) {
-    return failure("Only the occurrence-consumer transfer can carry one exact target-consumer descriptor.");
+  if (![...EXACT_FIELD_TRANSFER_KINDS, "component-source-field", "component-boundary", "component-property-read", "scalar-consumer"].includes(transfer.kind as ExactFieldTransferKind)) return failure("The transfer kind is not part of the declared exact ledger.");
+  if (transfer.kind === "occurrence-consumer" || transfer.kind === "scalar-consumer" ? !transfer.targetConsumer : transfer.targetConsumer !== null) {
+    return failure("Only a consumer transfer can carry one exact target-consumer descriptor.");
   }
   if (transfer.status !== "proven" || transfer.fromElementIds.length !== 1 || transfer.toElementIds.length !== 1) {
     return failure("The transfer requires one proven exact source and target.");
@@ -161,6 +165,47 @@ export function deriveExactFieldTargetPolicy(
   graph: FieldTransferGraph,
 ): ExactFieldTargetPolicy | null {
   const kinds = transfers.map((transfer) => transfer.kind);
+  if (kinds.length === SCALAR_FIELD_TRANSFER_KINDS.length
+    && kinds.every((kind, index) => kind === SCALAR_FIELD_TRANSFER_KINDS[index])) {
+    const field = graph.element(transfers[1].toElementIds[0]);
+    const binding = graph.element(transfers[2].toElementIds[0]);
+    const terminal = transfers[2].supportingElementIds
+      .map((id) => graph.element(id))
+      .find((element) => element?.kind === "render-terminal");
+    const terminalRelation = transfers[2].supportingRelationIds
+      .map((id) => graph.relation(id))
+      .find((relation) => relation?.from === binding?.id && relation?.to === terminal?.id && relation?.kind === "render-terminal");
+    if (!field?.fieldName || !binding || !terminal || !terminalRelation || !transfers[2].targetConsumer) return null;
+    const definition = transfers[2].supportingElementIds
+      .map((id) => graph.element(id))
+      .find((element) => element?.kind === "component-definition");
+    if (!definition?.symbol) return null;
+    return {
+      transferKinds: kinds,
+      chain: "direct-scalar",
+      scalarFieldElementId: field.id,
+      scalarFieldName: field.fieldName,
+      collectionFieldElementId: field.id,
+      collectionFieldName: field.fieldName,
+      predicateFieldElementId: field.id,
+      predicateFieldName: field.fieldName,
+      consumerFieldElementId: field.id,
+      consumerFieldName: field.fieldName,
+      consumerValueElementId: binding.id,
+      bindingElementId: binding.id,
+      componentOccurrenceElementId: definition.id,
+      componentDefinitionElementId: definition.id,
+      componentSymbol: definition.symbol,
+      componentLabel: definition.label,
+      propName: "",
+      renderTerminalElementId: terminal.id,
+      consumerKind: "render",
+      consumerLabel: transfers[2].targetConsumer.targetKey,
+      directConsumer: true,
+      targetConsumer: transfers[2].targetConsumer,
+      consumerTerminalRelationId: terminalRelation.id,
+    };
+  }
   const componentWhole = kinds.length === 13 && kinds.every((kind, index) => kind === [
     ...EXACT_FIELD_TRANSFER_KINDS.slice(0, 10), "component-boundary", "component-property-read", "occurrence-consumer",
   ][index]);
@@ -280,8 +325,34 @@ function verifySemantics(
   if (kind === "nested-property-read") return policyPattern(exactPattern(source, target, relations, ["field-input"], ["property-access"], "call", "field-read"), target, policy?.consumerFieldElementId, policy?.consumerFieldName, "C11");
   if (kind === "component-source-field") return policyPattern(exactPattern(source, target, relations, ["field-input"], ["property-access"], "call", "field-read"), target, policy?.sourceFieldElementId, policy?.sourceFieldName, "component source field");
   if (kind === "component-property-read") return policyPattern(exactPattern(source, target, relations, ["field-input"], ["property-access"], "field-read", "field-read"), target, policy?.consumerFieldElementId, policy?.consumerFieldName, "component property read");
+  if (kind === "scalar-consumer") return scalarConsumerPattern(source, target, relations, transfer, graph, cancellation, policy);
   if (kind === "component-boundary") return verifyComponentBoundaryPattern(source, target, relations, transfer, graph, cancellation, policy);
   return consumerPattern(source, target, relations, transfer, graph, cancellation, policy);
+}
+
+function scalarConsumerPattern(
+  source: FieldTransferElement,
+  target: FieldTransferElement,
+  relations: readonly FieldTransferRelation[],
+  transfer: RouteTotalityFieldTransformation,
+  graph: FieldTransferGraph,
+  cancellation: AnalysisCancellationToken,
+  policy: ExactFieldTargetPolicy | null,
+): FieldTransferVerification {
+  if (source.kind !== "field-read" || target.kind !== "field-consumer"
+    || relations.length !== 1 || relations[0].kind !== "consumer-value" || relations[0].proof.kind !== "render-consumer") {
+    return failure("The scalar consumer requires one exact field-read to render-consumer relation.");
+  }
+  if (!transfer.targetConsumer || transfer.targetConsumer.directConsumer !== true || transfer.targetConsumer.consumerKind !== "render") {
+    return failure("The scalar consumer requires one exact direct render target.");
+  }
+  const terminal = transfer.supportingElementIds.map((id) => graph.element(id)).find((element) => element?.kind === "render-terminal");
+  const relation = transfer.supportingRelationIds.map((id) => graph.relation(id)).find((item) => item?.from === target.id && item.to === terminal?.id && item.kind === "render-terminal" && item.proof.kind === "field-consumer-terminal");
+  if (!terminal || !relation || !uniqueRelation(relation, graph, cancellation)) return failure("The scalar consumer requires one exact field-lineage terminal relation.");
+  if (policy && (policy.chain !== "direct-scalar" || policy.consumerFieldElementId !== source.id || policy.bindingElementId !== target.id || policy.renderTerminalElementId !== terminal.id || policy.consumerTerminalRelationId !== relation.id || !sameTargetConsumerDescriptor(transfer.targetConsumer, policy.targetConsumer))) {
+    return failure("The scalar consumer does not match the compiler-derived target policy.");
+  }
+  return { ok: true };
 }
 
 function predicatePattern(

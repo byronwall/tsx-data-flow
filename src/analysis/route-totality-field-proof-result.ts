@@ -11,6 +11,7 @@ import type {
   RouteTotalityFieldFrontier,
   RouteTotalityFieldLineage,
   RouteTotalityFieldOrigin,
+  RouteTotalityField,
   RouteTotalityFieldTransformation,
   RouteTotalityFieldTargetConsumer,
 } from "./route-totality-field-lineage";
@@ -19,7 +20,7 @@ import type { ExactFieldTransferKind } from "./route-totality-field-transfer-ver
 export type FieldProofResultInput = {
   origin: RouteTotalityFieldOrigin;
   collectionField: ProgramElement;
-  collectionElement: ProgramElement;
+  collectionElement: ProgramElement | null;
   consumerField: ProgramElement;
   occurrence: ProgramElement;
   consumerValue: ProgramElement;
@@ -37,6 +38,7 @@ export type FieldProofResultInput = {
   targetConsumer: RouteTotalityFieldTargetConsumer;
   fieldLineageTerminalElementId: string;
   fieldLineageTerminalRelationId: string;
+  field?: RouteTotalityField;
 };
 
 export function provenFieldProof(input: FieldProofResultInput, cancellation: AnalysisCancellationToken): RouteTotalityFieldLineage {
@@ -58,19 +60,20 @@ export function provenFieldProof(input: FieldProofResultInput, cancellation: Ana
     location: input.consumerValue.location,
   };
   consumer.id = fieldConsumerId(consumer);
+  const field = input.field ?? {
+    elementIds: [input.collectionField.id, input.collectionElement!.id, (input.sourceField ?? input.consumerField).id],
+    segments: [
+      { kind: "property" as const, value: input.collectionField.fieldName! },
+      { kind: "collection-element" as const, value: "*" },
+      { kind: "property" as const, value: (input.sourceField ?? input.consumerField).fieldName! },
+    ],
+    label: `${input.collectionField.fieldName}[*].${(input.sourceField ?? input.consumerField).fieldName!}`,
+    location: input.sourceField?.location ?? input.consumerField.location,
+  };
   const attachment: RouteTotalityFieldAttachment = {
     id: "",
     origin: input.origin,
-    field: {
-      elementIds: [input.collectionField.id, input.collectionElement.id, (input.sourceField ?? input.consumerField).id],
-      segments: [
-        { kind: "property", value: input.collectionField.fieldName! },
-        { kind: "collection-element", value: "*" },
-        { kind: "property", value: (input.sourceField ?? input.consumerField).fieldName! },
-      ],
-      label: `${input.collectionField.fieldName}[*].${(input.sourceField ?? input.consumerField).fieldName!}`,
-      location: input.sourceField?.location ?? input.consumerField.location,
-    },
+    field,
     occurrenceId: input.occurrenceId,
     terminalIds: [input.terminalId],
     evidencePathElementIds: [input.origin.elementId],

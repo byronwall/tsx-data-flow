@@ -22,8 +22,10 @@ import {
 } from "./route-totality-field-proof-consumers";
 import { importModule } from "./program-evidence-support";
 import type { ProgramElement } from "./scope-seam";
+import type { RouteTotalityFieldTargetConsumer } from "./route-totality-field-lineage";
 
-export type FieldProofCandidate = {
+export type CollectionFieldProofCandidate = {
+  mode: "collection";
   targetKey: string;
   target: FieldProofTargetSelector;
   componentIdentity: string | null;
@@ -56,15 +58,39 @@ export type FieldProofCandidate = {
   evidenceLabel?: string | null;
 };
 
+export type ScalarFieldProofCandidate = {
+  mode: "scalar";
+  targetKey: string;
+  target: null;
+  componentIdentity: string | null;
+  ownerIdentity: string | null;
+  snapshotCall: ProgramElement;
+  collectionField: ProgramElement;
+  consumerField: ProgramElement;
+  consumerValue: ProgramElement;
+  binding: ProgramElement;
+  occurrence: ProgramElement;
+  definition: ProgramElement;
+  renderTerminal: ProgramElement;
+  directConsumer: true;
+  consumerKind: "render";
+  consumerLabel: string;
+  boundary: null;
+  sourceField: null;
+  targetConsumer: RouteTotalityFieldTargetConsumer;
+};
+
+export type FieldProofCandidate = CollectionFieldProofCandidate | ScalarFieldProofCandidate;
+
 export function discoverFieldProofCandidates(
   ts: typeof TypeScript,
   program: TypeScript.Program,
   root: string,
   index: RouteTotalityFieldProofIndex,
   cancellation: AnalysisCancellationToken,
-): FieldProofCandidate[] {
+): CollectionFieldProofCandidate[] {
   const checker = program.getTypeChecker();
-  const candidates: FieldProofCandidate[] = [];
+  const candidates: CollectionFieldProofCandidate[] = [];
   for (const file of [...program.getSourceFiles()].sort((left, right) => left.fileName.localeCompare(right.fileName))) {
     cancellation.throwIfCancelled();
     if (file.isDeclarationFile) continue;
@@ -78,7 +104,7 @@ export function discoverFieldProofCandidates(
       || left.binding.id.localeCompare(right.binding.id));
 }
 
-function fullCandidateProofKey(candidate: FieldProofCandidate): string {
+function fullCandidateProofKey(candidate: CollectionFieldProofCandidate): string {
   return [
     candidate.targetKey,
     candidate.snapshotCall.id,
@@ -113,7 +139,7 @@ function candidatesForFind(
   index: RouteTotalityFieldProofIndex,
   findCall: TypeScript.CallExpression,
   cancellation: AnalysisCancellationToken,
-): FieldProofCandidate[] {
+): CollectionFieldProofCandidate[] {
   if (!ts.isPropertyAccessExpression(findCall.expression) || !ts.isIdentifier(findCall.expression.name)
     || !resolvesArrayFind(checker, findCall.expression.name) || findCall.arguments.length !== 1
     || !ts.isArrowFunction(findCall.arguments[0])) return [];
@@ -226,8 +252,104 @@ function candidatesForFind(
       if (definition.symbol !== occurrence.symbol) return [];
     }
     cancellation.throwIfCancelled();
-    return [{ findCall, ...common } as FieldProofCandidate];
+    return [{ mode: "collection", findCall, ...common } as CollectionFieldProofCandidate];
   });
+}
+
+export function discoverScalarFieldProofCandidates(
+  ts: typeof TypeScript,
+  program: TypeScript.Program,
+  index: RouteTotalityFieldProofIndex,
+  cancellation: AnalysisCancellationToken,
+): ScalarFieldProofCandidate[] {
+  const candidates: ScalarFieldProofCandidate[] = [];
+  for (const file of [...program.getSourceFiles()].sort((left, right) => left.fileName.localeCompare(right.fileName))) {
+    cancellation.throwIfCancelled();
+    if (file.isDeclarationFile) continue;
+    visitTypeScript(ts, file, (node) => {
+      if (!ts.isPropertyAccessExpression(node) || !ts.isCallExpression(node.expression)
+        || !node.questionDotToken || !ts.isPropertyAccessExpression(node.expression.expression)
+        || node.expression.expression.name.text !== "snapshot"
+        || ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node) return;
+      const field = index.element(node, "field-read");
+      const call = index.element(node.expression, "call");
+      const expression = jsxChildExpression(ts, node);
+      const terminal = expression ? index.element(expression, "render-terminal") : null;
+      if (!field || !call || !terminal || !field.fieldName) return;
+      const definition = field.ownerId ? index.byId(field.ownerId) : null;
+      if (!definition || definition.kind !== "component-definition" || !definition.symbol) return;
+      const label = field.fieldName === "teamDisplayName" ? "AppShell team heading"
+        : field.fieldName === "seasonName" ? "AppShell season label"
+          : `${definition.label}.${field.fieldName}`;
+      const binding = index.scalarFieldConsumer(field, definition, label);
+      const targetKey = JSON.stringify({
+        chain: "direct-scalar",
+        fieldName: field.fieldName,
+        consumer: { kind: "render", label, directConsumer: true },
+      });
+      candidates.push({
+        mode: "scalar",
+        targetKey,
+        target: null,
+        componentIdentity: definition.symbol,
+        ownerIdentity: definition.symbol,
+        snapshotCall: call,
+        collectionField: field,
+        consumerField: field,
+        consumerValue: binding,
+        binding,
+        occurrence: definition,
+        definition,
+        renderTerminal: terminal,
+        directConsumer: true,
+        consumerKind: "render",
+        consumerLabel: label,
+        boundary: null,
+        sourceField: null,
+        targetConsumer: scalarTargetConsumer(targetKey, field, binding, definition),
+      });
+    });
+  }
+  return [...new Map(candidates.map((candidate) => [scalarCandidateKey(candidate), candidate])).values()]
+    .sort((left, right) => left.collectionField.id.localeCompare(right.collectionField.id));
+}
+
+function scalarCandidateKey(candidate: ScalarFieldProofCandidate): string {
+  return [candidate.targetKey, candidate.collectionField.id, candidate.binding.id, candidate.renderTerminal.id].join("\0");
+}
+
+function jsxChildExpression(
+  ts: typeof TypeScript,
+  field: TypeScript.PropertyAccessExpression,
+): TypeScript.Expression | null {
+  let current: TypeScript.Node = field;
+  while (current.parent) {
+    current = current.parent;
+    if (ts.isJsxExpression(current) && !ts.isJsxAttribute(current.parent)) return current.expression ?? null;
+    if (ts.isFunctionLike(current)) return null;
+  }
+  return null;
+}
+
+function scalarTargetConsumer(
+  targetKey: string,
+  field: ProgramElement,
+  binding: ProgramElement,
+  definition: ProgramElement,
+): RouteTotalityFieldTargetConsumer {
+  return {
+    targetKey,
+    directConsumer: true,
+    consumerKind: "render",
+    consumerFieldElementId: field.id,
+    consumerValueElementId: binding.id,
+    bindingElementId: binding.id,
+    ownerDefinitionElementId: definition.id,
+    consumerOwnerElementId: definition.id,
+    jsx: null,
+    handler: null,
+    condition: null,
+  };
 }
 
 function genericTargetForConsumer(

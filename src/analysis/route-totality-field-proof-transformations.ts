@@ -1,6 +1,6 @@
 import type { AnalysisCancellationToken } from "./cancellation";
 import type { RouteTotalityFieldOrigin, RouteTotalityFieldTransformation } from "./route-totality-field-lineage";
-import type { FieldProofCandidate } from "./route-totality-field-proof-candidate";
+import type { CollectionFieldProofCandidate, ScalarFieldProofCandidate } from "./route-totality-field-proof-candidate";
 import type { FieldCarrierPath } from "./route-totality-field-proof-carrier";
 import type { RouteTotalityFieldProofIndex } from "./route-totality-field-proof-index";
 import { fieldTransformation } from "./route-totality-field-proof-result";
@@ -11,7 +11,7 @@ import type { ProgramElement, ProgramRelation } from "./scope-seam";
 export function assembleFieldProofTransformations(
   index: RouteTotalityFieldProofIndex,
   origin: RouteTotalityFieldOrigin,
-  candidate: FieldProofCandidate,
+  candidate: CollectionFieldProofCandidate,
   carrier: FieldCarrierPath,
   cancellation: AnalysisCancellationToken,
 ): Array<RouteTotalityFieldTransformation | null> {
@@ -49,10 +49,25 @@ export function assembleFieldProofTransformations(
   ];
 }
 
+export function assembleScalarFieldProofTransformations(
+  index: RouteTotalityFieldProofIndex,
+  origin: RouteTotalityFieldOrigin,
+  candidate: ScalarFieldProofCandidate,
+  carrier: FieldCarrierPath,
+  cancellation: AnalysisCancellationToken,
+): Array<RouteTotalityFieldTransformation | null> {
+  const source = index.byId(origin.elementId)!;
+  return [
+    fieldTransformation("source-carrier", source, carrier.call, carrier.relations, [], [], cancellation),
+    step(index, "property-read", carrier.call, candidate.collectionField, [["field-input", "property-access"]], cancellation),
+    scalarConsumerStep(index, candidate, cancellation),
+  ];
+}
+
 function assembleComponentBoundaryTransformations(
   index: RouteTotalityFieldProofIndex,
   origin: RouteTotalityFieldOrigin,
-  candidate: FieldProofCandidate,
+  candidate: CollectionFieldProofCandidate,
   carrier: FieldCarrierPath,
   cancellation: AnalysisCancellationToken,
 ): Array<RouteTotalityFieldTransformation | null> {
@@ -115,7 +130,7 @@ function assembleComponentBoundaryTransformations(
 
 function directConsumerStep(
   index: RouteTotalityFieldProofIndex,
-  candidate: FieldProofCandidate,
+  candidate: CollectionFieldProofCandidate,
   cancellation: AnalysisCancellationToken,
 ): RouteTotalityFieldTransformation | null {
   const relation = one(index.exactRelations(
@@ -134,9 +149,37 @@ function directConsumerStep(
     : null;
 }
 
+function scalarConsumerStep(
+  index: RouteTotalityFieldProofIndex,
+  candidate: ScalarFieldProofCandidate,
+  cancellation: AnalysisCancellationToken,
+): RouteTotalityFieldTransformation | null {
+  const relation = one(index.exactRelations(
+    candidate.consumerField.id,
+    candidate.binding.id,
+    "consumer-value",
+    "render-consumer",
+    cancellation,
+  ));
+  const terminal = index.fieldConsumerTerminal(candidate.binding.id);
+  const terminalRelation = terminal ? index.consumerRenderTerminal(candidate.binding.id, terminal.id) : null;
+  return relation && terminal && terminalRelation
+    ? fieldTransformation(
+      "scalar-consumer",
+      candidate.consumerField,
+      candidate.binding,
+      [relation],
+      [candidate.occurrence, terminal],
+      [terminalRelation],
+      cancellation,
+      candidate.targetConsumer,
+    )
+    : null;
+}
+
 function componentConsumerStep(
   index: RouteTotalityFieldProofIndex,
-  candidate: FieldProofCandidate,
+  candidate: CollectionFieldProofCandidate,
   occurrenceRelation: ProgramRelation | null,
   cancellation: AnalysisCancellationToken,
 ): RouteTotalityFieldTransformation | null {
@@ -166,7 +209,7 @@ function componentConsumerStep(
     : null;
 }
 
-function targetConsumerDescriptor(candidate: FieldProofCandidate) {
+function targetConsumerDescriptor(candidate: CollectionFieldProofCandidate) {
   const descriptor = deriveTargetConsumerDescriptor(candidate.targetKey, {
     consumerField: candidate.consumerField,
     consumerValue: candidate.directConsumer ? candidate.binding : candidate.consumerValue,

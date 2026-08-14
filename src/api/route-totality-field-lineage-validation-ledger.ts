@@ -118,6 +118,23 @@ function validateExactField(
   issues: ValidationIssue[],
   cancellation: AnalysisCancellationToken,
 ): void {
+  if (policy.chain === "direct-scalar") {
+    const fieldElementId = policy.scalarFieldElementId ?? steps[1].toElementIds[0];
+    const expectedIds = [fieldElementId];
+    if (attachment.field.elementIds.length !== 1
+      || attachment.field.elementIds[0] !== expectedIds[0]) {
+      addIssue(issues, [...path, "field", "elementIds"], "scalar field element ids must equal the exact direct property-read field");
+    }
+    const field = exactElement(evidence, fieldElementId);
+    const segments = attachment.field.segments;
+    if (!field || field.kind !== "field-read" || field.fieldName !== policy.scalarFieldName
+      || segments.length !== 1 || segments[0]?.kind !== "property" || segments[0]?.value !== field.fieldName
+      || attachment.field.label !== field.fieldName
+      || !sameLocations([attachment.field.location], [field.location], cancellation)) {
+      addIssue(issues, [...path, "field"], "scalar field segments, name, label, and location must derive from the exact property-read fact");
+    }
+    return;
+  }
   const fieldElementId = policy.chain === "scalar-alias"
     ? policy.sourceFieldElementId ?? steps[10].toElementIds[0]
     : policy.chain === "whole-object" ? steps[11].toElementIds[0] : steps[10].toElementIds[0];
@@ -163,6 +180,10 @@ function validateExactConsumer(
     || consumer.fieldLineageTerminalRelationId !== policy.consumerTerminalRelationId
     || !validConsumerTerminalRelation(consumer, evidence, policy))) {
     addIssue(issues, [...path, "consumer"], "consumer target identity and field-lineage terminal relation must match the exact compiler policy");
+  }
+  if (policy.chain === "direct-scalar") {
+    validateDirectScalarConsumer(attachment, occurrence, consumer, consumerElement, consumerOccurrence, policy, surface, path, issues, cancellation);
+    return;
   }
   if (policy.directConsumer) {
     if (!consumer || !consumerElement || !consumerOccurrence || !occurrence
@@ -216,6 +237,41 @@ function validateExactConsumer(
     || (!isRouteEntryOccurrence(occurrence)
       && !hasExactOccurrenceTerminalRelation(occurrence, terminalId, policy.componentDefinitionElementId, evidence, surface, cancellation))) {
     addIssue(issues, [...path, "terminalIds"], "consumer terminal must map to the exact compiler-backed render terminal");
+  }
+}
+
+function validateDirectScalarConsumer(
+  attachment: FieldAttachment,
+  occurrence: SurfaceOccurrence | undefined,
+  consumer: FieldAttachment["consumer"],
+  consumerElement: ReturnType<typeof exactElement>,
+  consumerOccurrence: ReturnType<typeof exactElement>,
+  policy: NonNullable<ReturnType<typeof deriveExactFieldTargetPolicy>>,
+  surface: SurfaceIndexes,
+  path: Array<string | number>,
+  issues: ValidationIssue[],
+  cancellation: AnalysisCancellationToken,
+): void {
+  if (!consumer || !consumerElement || !consumerOccurrence || !occurrence
+    || consumer.elementId !== policy.bindingElementId
+    || consumer.occurrenceElementId !== policy.componentDefinitionElementId
+    || consumer.kind !== "render"
+    || consumerOccurrence.kind !== "component-definition"
+    || consumerOccurrence.symbol !== policy.componentSymbol
+    || consumer.occurrenceId !== attachment.occurrenceId
+    || !sameLocations([consumer.location], [consumerElement.location], cancellation)) {
+    addIssue(issues, [...path, "consumer"], "scalar consumer must equal the exact typed field consumer and owning component definition");
+    return;
+  }
+  if (!contains(consumerOccurrence.location, consumer.location)) {
+    addIssue(issues, [...path, "consumer"], "scalar consumer expression must belong to its exact owning component definition");
+  }
+  const terminalId = attachment.terminalIds.length === 1 ? attachment.terminalIds[0] : null;
+  const terminalRecords = terminalId ? surface.terminalsById.get(terminalId) ?? [] : [];
+  const terminalAnchors = terminalId ? endpointTerminalAnchors(surface.anchors, terminalId, cancellation) : [];
+  if (!terminalId || consumer.routeTerminalId !== terminalId || terminalRecords.length !== 1
+    || terminalAnchors.length !== 1 || terminalRecords[0].ownerOccurrenceId !== occurrence.id) {
+    addIssue(issues, [...path, "terminalIds"], "scalar consumer terminal must map to one exact compiler-backed render terminal");
   }
 }
 

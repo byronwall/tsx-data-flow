@@ -5,11 +5,11 @@ import { visitTypeScript } from "./route-totality-field-proof-ast";
 import { buildRouteTotalityAnchorIndex } from "./route-totality-anchor-index";
 import type { RouteTotalityFieldLineage, RouteTotalityFieldOrigin, RouteTotalityFieldTransformation } from "./route-totality-field-lineage";
 import type { ProgramElement } from "./scope-seam";
-import { discoverFieldProofCandidates, type FieldProofCandidate } from "./route-totality-field-proof-candidate";
+import { discoverFieldProofCandidates, discoverScalarFieldProofCandidates, type FieldProofCandidate } from "./route-totality-field-proof-candidate";
 import { searchFieldCarrierPaths, type FieldCarrierPath } from "./route-totality-field-proof-carrier";
 import { RouteTotalityFieldProofIndex } from "./route-totality-field-proof-index";
 import { failedFieldProof, mergeProvenFieldProofs, provenFieldProof } from "./route-totality-field-proof-result";
-import { assembleFieldProofTransformations } from "./route-totality-field-proof-transformations";
+import { assembleFieldProofTransformations, assembleScalarFieldProofTransformations } from "./route-totality-field-proof-transformations";
 import type { FieldProofInput } from "./route-totality-field-proof-types";
 import {
   deriveExactFieldTargetPolicy,
@@ -41,11 +41,12 @@ export function queryRouteTotalityFieldProof(
     );
   }
   const discoveredCandidates = discoverFieldProofCandidates(ts, program, root, index, cancellation);
-  const candidates = discoveredCandidates
-    .flatMap((candidate) => {
-      const anchor = anchorCandidate(index, surface, candidate, cancellation);
-      return anchor ? [{ candidate, anchor }] : [];
-    });
+  const discoveredScalarCandidates = discoverScalarFieldProofCandidates(ts, program, index, cancellation);
+  const candidates: Array<{ candidate: FieldProofCandidate; anchor: CandidateAnchor }> = [];
+  for (const candidate of [...discoveredCandidates, ...discoveredScalarCandidates]) {
+    const anchor = anchorCandidate(index, surface, candidate, cancellation);
+    if (anchor) candidates.push({ candidate, anchor });
+  }
   const bounded: Array<{ candidate: FieldProofCandidate; anchor: CandidateAnchor; carrier: FieldCarrierPath }> = [];
   let carrierBudgetExhausted = false;
   let carrierAmbiguous = false;
@@ -98,9 +99,13 @@ export function queryRouteTotalityFieldProof(
   const proofs: RouteTotalityFieldLineage[] = [];
   for (const selected of [...candidatesByTarget.values()].sort((left, right) => left.candidate.targetKey.localeCompare(right.candidate.targetKey))) {
     const { candidate, carrier, anchor } = selected;
-    const assembled = assembleFieldProofTransformations(index, origin, candidate, carrier, cancellation);
+    const assembled = candidate.mode === "scalar"
+      ? assembleScalarFieldProofTransformations(index, origin, candidate, carrier, cancellation)
+      : assembleFieldProofTransformations(index, origin, candidate, carrier, cancellation);
     const accepted: RouteTotalityFieldTransformation[] = [];
-    const expectedKinds = candidate.boundary
+    const expectedKinds = candidate.mode === "scalar"
+      ? ["source-carrier", "property-read", "scalar-consumer"]
+      : candidate.boundary
       ? componentExpectedKinds(candidate.boundary.mode)
       : [...EXACT_FIELD_TRANSFER_KINDS];
     for (let step = 0; step < expectedKinds.length; step += 1) {
@@ -126,7 +131,7 @@ export function queryRouteTotalityFieldProof(
     proofs.push(provenFieldProof({
       origin,
       collectionField: candidate.collectionField,
-      collectionElement: candidate.collectionElement,
+      collectionElement: candidate.mode === "scalar" ? null : candidate.collectionElement,
       consumerField: candidate.consumerField,
       occurrence: candidate.occurrence,
       consumerValue: candidate.directConsumer ? candidate.binding : candidate.consumerValue,
@@ -146,6 +151,12 @@ export function queryRouteTotalityFieldProof(
       targetConsumer: policy.targetConsumer,
       fieldLineageTerminalElementId: policy.renderTerminalElementId,
       fieldLineageTerminalRelationId: policy.consumerTerminalRelationId,
+      field: candidate.mode === "scalar" ? {
+        elementIds: [candidate.collectionField.id],
+        segments: [{ kind: "property", value: candidate.collectionField.fieldName! }],
+        label: candidate.collectionField.fieldName!,
+        location: candidate.collectionField.location,
+      } : undefined,
     }, cancellation));
   }
   const unsupported = unsupportedTransformProof(ts, program, index, origin, candidatesByTarget, cancellation);
@@ -163,6 +174,7 @@ function unsupportedTransformProof(
   cancellation: AnalysisCancellationToken,
 ): RouteTotalityFieldLineage | null {
   for (const { candidate } of candidates.values()) {
+    if (candidate.mode === "scalar") continue;
     for (const file of program.getSourceFiles()) {
       if (file.isDeclarationFile) continue;
       let found: { field: ProgramElement; formatter: string } | null = null;
@@ -225,6 +237,12 @@ function anchorCandidate(
   cancellation: AnalysisCancellationToken,
 ): CandidateAnchor | null {
   const anchors = buildRouteTotalityAnchorIndex(index.slice, surface, cancellation);
+  if (candidate.mode === "scalar") {
+    const terminals = anchors.terminalAnchorsByEvidenceElementId.get(candidate.renderTerminal.id) ?? [];
+    return terminals.length === 1 && terminals[0].endpoint.ownerOccurrenceId
+      ? { occurrenceId: terminals[0].endpoint.ownerOccurrenceId, terminalId: terminals[0].endpoint.id, evidenceElementId: candidate.renderTerminal.id }
+      : null;
+  }
   if (candidate.directConsumer) {
     const boundaryOccurrence = candidate.boundary?.occurrence ?? null;
     const ownerSymbol = candidate.ownerIdentity;
@@ -302,6 +320,15 @@ function sameProofIdentity(
   left: { candidate: FieldProofCandidate; carrier: FieldCarrierPath },
   right: { candidate: FieldProofCandidate; carrier: FieldCarrierPath },
 ): boolean {
+  if (left.candidate.mode !== right.candidate.mode) return false;
+  if (left.candidate.mode === "scalar" || right.candidate.mode === "scalar") {
+    return left.candidate.targetKey === right.candidate.targetKey
+      && left.candidate.collectionField.id === right.candidate.collectionField.id
+      && left.candidate.binding.id === right.candidate.binding.id
+      && left.candidate.renderTerminal.id === right.candidate.renderTerminal.id
+      && left.carrier.call.id === right.carrier.call.id
+      && left.carrier.relations.map((relation) => relation.id).join("\0") === right.carrier.relations.map((relation) => relation.id).join("\0");
+  }
   return left.candidate.targetKey === right.candidate.targetKey
     && left.candidate.findResult.id === right.candidate.findResult.id
     && left.candidate.binding.id === right.candidate.binding.id

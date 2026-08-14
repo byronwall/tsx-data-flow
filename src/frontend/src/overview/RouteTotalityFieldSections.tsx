@@ -236,7 +236,7 @@ function countNestedFields(fields: readonly string[], label: string) {
 function fieldSummaryLabel(field: RouteTotalityFieldSummary, nestedFields: number) {
   if (field.proven) return `${field.useCount} ${field.useCount === 1 ? "use" : "uses"} · ${field.componentCount} ${field.componentCount === 1 ? "component" : "components"}`;
   if (nestedFields > 0) return `Collection · ${nestedFields} item ${nestedFields === 1 ? "field" : "fields"}`;
-  return "Available · not proven";
+  return "Available · no proven route use";
 }
 
 function fieldSectionHeading(result: RouteTotalityFieldInspectorResult): string {

@@ -20,6 +20,7 @@ import {
   availableEvidence,
   availableSurface,
   endpointOccurrenceAnchors,
+  endpointTerminalAnchors,
   exactElement,
   fullyProvenOrigin,
   hasPartialInputs,
@@ -167,6 +168,7 @@ function validateAttachments(
       [...path, "occurrenceId"],
       issues,
       cancellation,
+      attachment.transformationKinds.includes("scalar-consumer") ? attachment.terminalIds[0] ?? null : null,
     );
     if (attachment.transformationIds.length > 0) {
       validateLedgerAttachment(attachment, transformations, occurrence, evidence, surfaceIndexes, path, issues, cancellation);
@@ -283,6 +285,7 @@ function validateOccurrence(
   path: Array<string | number>,
   issues: ValidationIssue[],
   cancellation: AnalysisCancellationToken,
+  scalarTerminalId: string | null = null,
 ): SurfaceOccurrence | undefined {
   cancellation.throwIfCancelled();
   const occurrences = surface.occurrencesById.get(occurrenceId) ?? [];
@@ -296,7 +299,13 @@ function validateOccurrence(
   }
   const anchors = endpointOccurrenceAnchors(surface.anchors, occurrenceId, cancellation);
   if (anchors.length !== 1 || surface.anchors.occurrenceIssuesByEndpointId.has(occurrenceId)) {
-    addIssue(issues, path, "field lineage occurrence must have one unshared exact evidence anchor");
+    const terminalRecords = scalarTerminalId ? surface.terminalsById.get(scalarTerminalId) ?? [] : [];
+    const terminalAnchors = scalarTerminalId ? endpointTerminalAnchors(surface.anchors, scalarTerminalId, cancellation) : [];
+    const scalarTerminalAnchor = terminalAnchors.length === 1
+      && terminalRecords.length === 1
+      && terminalRecords[0].ownerOccurrenceId === occurrenceId
+      && isFullyProvenElement(exactElement(evidence, terminalAnchors[0].evidenceElementId), cancellation);
+    if (!scalarTerminalAnchor) addIssue(issues, path, "field lineage occurrence must have one unshared exact evidence anchor");
   } else {
     const reverse = surface.anchors.occurrenceAnchorsByEvidenceElementId.get(anchors[0].evidenceElementId) ?? [];
     if (reverse.length !== 1 || !isFullyProvenElement(exactElement(evidence, anchors[0].evidenceElementId), cancellation)) {

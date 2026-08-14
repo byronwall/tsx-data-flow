@@ -180,6 +180,56 @@ export class RouteTotalityFieldProofIndex {
     return terminal;
   }
 
+  /** Materialize one exact direct scalar consumer for a JSX child expression. */
+  scalarFieldConsumer(field: ProgramElement, definition: ProgramElement, label: string): ProgramElement {
+    const id = `route-scalar-field-consumer:${stableHash(`${field.id}:${definition.id}:${label}`)}`;
+    const existing = this.elementsById.get(id);
+    if (existing) return existing;
+    const proof = {
+      kind: "render-consumer" as const,
+      detail: "The compiler identifies one exact direct scalar field expression at its JSX child consumer.",
+      locations: [field.location],
+      status: "proven" as const,
+    };
+    const consumer: ProgramElement = {
+      id,
+      kind: "field-consumer",
+      fieldName: field.fieldName,
+      operationKind: "field-read",
+      index: null,
+      label,
+      source: field.source,
+      location: field.location,
+      status: "proven",
+      proof: [proof],
+      symbol: field.symbol,
+      module: field.module ?? null,
+      componentBinding: null,
+      ownerId: definition.id,
+      attributes: { consumerKind: "render", label },
+      originRoles: [],
+      terminalRoles: ["render"],
+      boundary: null,
+    };
+    const relationProof = {
+      kind: "render-consumer" as const,
+      detail: "The exact scalar field expression reaches its occurrence-owned consumer.",
+      locations: [field.location],
+      status: "proven" as const,
+    };
+    const relation: ProgramRelation = {
+      id: sourceRelationId(field.id, consumer.id, "consumer-value", relationProof),
+      from: field.id,
+      to: consumer.id,
+      kind: "consumer-value",
+      status: "proven",
+      proof: relationProof,
+    };
+    this.addElement(consumer);
+    this.addRelation(relation);
+    return consumer;
+  }
+
   /** Materialize one exact consumer-to-field-lineage-terminal relation. */
   consumerRenderTerminal(consumerId: string, terminalId: string): ProgramRelation | null {
     const consumer = this.byId(consumerId);
