@@ -70,16 +70,18 @@ function buildAttachments(
 
   const attachments: RouteTotalityFindingAttachment[] = [];
   cancellation.throwIfCancelled();
-  for (const { findingId, identity } of [...byIdentity.entries()]
-    .sort(([left], [right]) => {
-      cancellation.throwIfCancelled();
-      return left.localeCompare(right);
-    })
-    .map(([, value]) => value)) {
+  const identitiesByLocation = new Map<string, FindingIdentity[]>();
+  for (const value of byIdentity.values()) {
+    const key = locationKey(identityLocation(value.identity));
+    identitiesByLocation.set(key, [...(identitiesByLocation.get(key) ?? []), value]);
+  }
+  for (const target of targets) {
     cancellation.throwIfCancelled();
-    for (const target of targets) {
+    const identities = identitiesByLocation.get(locationKey(target.location)) ?? [];
+    if (identities.length === 0) continue;
+    const resolvedId = resolveExpressionId(target.location);
+    for (const { findingId, identity } of identities) {
       cancellation.throwIfCancelled();
-      const resolvedId = resolveExpressionId(target.location);
       if (resolvedId !== identity.expressionId || !sameIdentityLocation(identity, target.location)) continue;
       const status: "proven" | "partial" = identity.traceComplete ? "proven" : "partial";
       const proofLocations = uniqueLocations([target.location, identityLocation(identity)]);
