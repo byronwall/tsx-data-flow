@@ -7,6 +7,7 @@ export function TrajectorySourcePicker(props: {
   sources: Source[];
   selectedKey: string | null;
   selectedFieldPath: string | null;
+  unprovenFieldPaths?: readonly string[];
   onSelect: (key: string | null) => void;
   onSelectField: (sourceKey: string, fieldPath: string) => void;
   onWarmSource?: (key: string) => void;
@@ -71,7 +72,7 @@ export function TrajectorySourcePicker(props: {
           </button>
           <div class="trajectory-source-fields" aria-label={`Fields for ${source.consumerLabel ?? source.label}`}>
             <For each={source.fields}>{(field) => <button type="button" title={`Follow ${field.key}`} classList={{ selected: source.key === selected()?.key && field.key === props.selectedFieldPath }} aria-pressed={source.key === selected()?.key && field.key === props.selectedFieldPath} onFocus={() => props.onWarmSource?.(source.key)} onClick={() => chooseField(source.key, field.key)}>
-              <code>{field.key}</code><small>{field.typeText}</small>
+              <code>{field.key}</code><small>{props.unprovenFieldPaths?.includes(field.key) ? "Available · no proven route use" : field.typeText}</small>
             </button>}</For>
           </div>
         </div>}</For>
