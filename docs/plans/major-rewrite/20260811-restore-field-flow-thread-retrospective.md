@@ -2,7 +2,10 @@
 
 Date: 2026-08-11
 
-Status: Review draft
+Status: Final historical retrospective
+
+Current status: See
+[Major rewrite status and outstanding work](20260814-major-rewrite-status-and-outstanding-work.md).
 
 Reviewed task: `⭐ 🧭 00 · Restore field flow`
 
@@ -739,6 +742,10 @@ still valuable, but it needs a link to the final closure record.
 Both earlier documents are currently untracked, as is this review draft.
 
 ## Recommended next work
+
+This list records the recommendation at the end of the reviewed task. The
+[current status document](20260814-major-rewrite-status-and-outstanding-work.md)
+reconciles each priority against later work.
 
 ### Priority 1: Close the repository evidence gap
 

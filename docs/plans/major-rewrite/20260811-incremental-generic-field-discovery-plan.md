@@ -1,20 +1,22 @@
 ---
 title: "Incremental generic field discovery"
-status: implemented — next slice proposed
-last_updated: 2026-08-13
+status: complete — next coverage slice proposed
+last_updated: 2026-08-14
 ---
 
 # Incremental generic field discovery
 
+Cross-plan status: See
+[Major rewrite status and outstanding work](20260814-major-rewrite-status-and-outstanding-work.md).
+
 ## Status
 
-The original two-slice plan is complete.
+The original plan and its latency follow-up are complete.
 
 The product now has generic field discovery and explicit field focus. The
 soccer-specific target list is no longer part of production discovery.
 
-Route Totality polish is in progress. This update assumes that work finishes
-with its current acceptance checks passing.
+Route Totality polish and the first measured latency repair are complete.
 
 ## Completed work
 
@@ -70,7 +72,11 @@ Key committed field-control work:
 - `1a5d79f` — improve field discovery controls.
 - `a752df5` — pack field lists into single rows.
 
-The active Route Totality polish task owns its remaining frontend changes.
+Key completion commits:
+
+- `e1ef643` — polish Route Totality interactions.
+- `a4daea1` — reduce selected-source attachment latency.
+- `8cd3734` — show selected field paths on render terminals.
 
 ## Acceptance evidence
 
@@ -105,82 +111,100 @@ The compact fixture proves:
 6. Available collection rows are parents for item fields.
 7. Equal names do not establish identity.
 
-## Next useful slice — Reduce selected-source latency
+## Completed latency slice
 
-### Why this is next
+The selected-source latency task found one dominant cost. Finding attachment
+resolution repeatedly scanned targets that could not match an identity.
 
-The proof and focus model now work. The reported remaining product cost is the
-delay after the user chooses the `readFile` source.
+Commit `a4daea1` groups finding identities by exact location before expression
+resolution. It changes one production module.
 
-Hover prefetch and response caching improve revisits. They do not reduce the
-first selected-source analysis. The next slice should measure and reduce that
-cold path before the analyzer adds more grammar or output.
+Reported results on the same machine and commit:
 
-### Outcome
+- Cold selected-source time fell from 52.21 seconds to 34.16 seconds.
+- Total cold time fell by 34.6 percent.
+- Finding attachment time fell from 23.89 seconds to 0.14 seconds.
+- The dominant stage fell by 99.4 percent.
+- The result kept 18 attachments, zero frontiers, and 62 transformations.
+- The payload stayed at 354,933 bytes.
+- The proof hash stayed unchanged.
+- G01–G18, the compact frontier, and the equal-name control passed.
+- Fresh browser verification passed without runtime or hydration errors.
+- Lint and typecheck passed with three existing warnings.
 
-Selecting the soccer `readFile` source shows its field inventory promptly. The
-result must keep the same attachments, frontiers, identities, and proof hash.
+This completes the measured performance slice. The remaining delay is no
+longer the product question recorded by this plan.
+
+## What `Available · not proven` means
+
+The picker combines two independent facts:
+
+1. `Available` means the selected source type contains the field.
+2. `Proven` means analysis produced an exact attachment to a route consumer.
+
+The current proof discovery starts from a narrow collection pattern. It finds
+`snapshot().games.find(...)`, its selected item, and supported consumers.
+
+It does not yet discover all direct scalar reads or all collection operations.
+Therefore, `not proven` does not always mean unused. It can also mean that the
+current proof grammar does not understand the read.
+
+For example, the soccer route renders `teamDisplayName` and `seasonName` in
+`AppShell`. These source fields have real consumers, but no attachments.
+
+Collection parents need item proof. The useful target is
+`availability[*].status`, not the `availability` container by itself.
+
+## Next useful slice — Direct top-level scalar proof
+
+### Product question
+
+Can a direct source field read produce the same exact proof as a supported
+collection item field?
 
 ### Scope
 
-1. Measure the cold selected-source request for the soccer reference route.
-2. Record time in evidence collection, candidate discovery, carrier search,
-   verification, projection, transfer, and frontend reconciliation.
-3. Fix the largest measured cost with one direct change.
-4. Reuse the current request cache and prefetch path.
-5. Do not add new proof grammar, workers, registries, or cache layers.
+Add one direct grammar for `snapshot()?.field` reads that reach render
+terminals. Reuse the current carrier, identity, attachment, and UI paths.
 
-Likely files:
+Do not add filter, map, aggregation, object-property, or collection grammar in
+this slice.
 
-- `src/analysis/route-data-session.ts`
-- `src/analysis/route-totality-field-proof-query.ts`
-- `src/analysis/route-totality-field-proof-index.ts`
-- `src/api/projections/route-data.ts`
-- `src/frontend/src/overview/DataTrajectoryDialog.tsx`
-- existing analyzer instrumentation and acceptance scripts
+Change the empty status text to `Available · no proven route use`. This is
+accurate when a field has no attachment or frontier.
 
-Change only the files needed by the measured bottleneck.
+### Positive examples
 
-### Positive check
+- `teamDisplayName` → the team name in `AppShell`.
+- `seasonName` → the season name in `AppShell`.
 
-Use the soccer `readFile` source for `/games/[gameId]`.
+Both rows must show exact consumers after source and field selection.
 
-The field inventory must still show these proven examples:
+### Negative and control examples
 
-- `games[*].opponentName` → `PageHeader.title`.
-- `games[*].venueName` → both venue consumers.
-- `games[*].status` → the named conditions.
-- `games[*].id` → render, condition, and handler consumers.
-
-### Negative and control checks
-
-- An unrelated equal-name consumer remains absent.
-- `projects[*].code` remains an unsupported-transform frontier.
+- `schemaVersion` stays available without proof on this route.
+- An unrelated equal-name consumer stays absent.
+- Existing `games[*]` proofs stay unchanged.
+- `projects[*].code` stays an unsupported-transform frontier.
 - No selected field still produces no field-specific green.
-- A cached revisit returns the same semantic result as the cold request.
 
 ### Acceptance
 
-- Capture the before and after cold timings on the same machine and commit.
-- Reduce the dominant cold-path cost by at least 30 percent.
-- Do not increase payload bytes or proof record counts.
-- Keep the deterministic proof hash unchanged.
-- Keep G01–G18 and the compact fixture green.
-- Run lint and typecheck during implementation.
-- After approved test work, run the maintained runner and `pnpm verify`.
-- Verify the interaction in a fresh browser service.
+- Produce exact source, field-read, occurrence, and terminal identities.
+- Keep one attachment for each distinct consumer occurrence.
+- Keep existing attachment and frontier records unchanged.
+- Run lint and typecheck.
+- Use the maintained acceptance runner after approved test work.
+- Verify the two positive fields and one negative field in a fresh browser.
 
 ### Stop point
 
-Stop after one measured optimization passes the checks. Do not combine this
-slice with new grammar coverage.
-
-After this slice, choose the next grammar from a real, frequent frontier. Do not
-select it from hypothetical examples.
+Stop after direct scalar reads work. Use a separate product decision for
+collection operations such as `filter`, `map`, and aggregation.
 
 ## Deferred work
 
-- New field-transfer grammar.
+- Collection-operation proof for `availability[*]` and `players[*]`.
 - Multi-field graph focus.
 - Transform visualization changes.
 - Overlapping edge-target refinement.

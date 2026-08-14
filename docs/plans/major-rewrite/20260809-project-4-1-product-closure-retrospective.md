@@ -2,7 +2,12 @@
 
 Date: 2026-08-09
 
-Status: Proposal for review
+Status: Final historical review of the failed closure state
+
+Current result: See the
+[final field-flow retrospective](20260811-restore-field-flow-thread-retrospective.md)
+and the
+[major rewrite status](20260814-major-rewrite-status-and-outstanding-work.md).
 
 Scope: Project 4.1 planning, orchestration, implementation, and verification
 

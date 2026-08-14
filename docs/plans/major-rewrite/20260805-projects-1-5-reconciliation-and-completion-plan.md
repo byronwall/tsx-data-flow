@@ -3,6 +3,8 @@
 > Historical plan. Its Route Totality selection, renderer, and route-ID
 > snapshots describe an earlier state. See the Project 4.1 field-flow review
 > and `docs/route-field-proof-acceptance.md` for current guidance.
+> Current project status is in
+> [Major rewrite status and outstanding work](20260814-major-rewrite-status-and-outstanding-work.md).
 
 **Original date:** 2026-08-05
 
@@ -11,7 +13,6 @@
 **Status:** Historical snapshot. Project 4.1 field-flow delivery is recorded in
 the [ledger plan](20260810-project-4-1-transformation-ledger-implementation-plan.md)
 and [final field-flow review](20260811-restore-field-flow-thread-retrospective.md).
-blocked
 
 **Related plans:** [Project map](execution-plans/README.md), [Project 3](execution-plans/03-honest-route-totality.md), [Project 4](execution-plans/04-route-investigation-workspace.md), and [Project 5](execution-plans/05-route-cutover-and-legacy-removal.md)
 

@@ -4,6 +4,10 @@
 > renderer names, and service snapshots for audit history. Current selected-source
 > field proof uses `pnpm accept:route-field-proof` and its named obligations.
 
+> Current status and outstanding work are in
+> [Major rewrite status and outstanding work](../20260814-major-rewrite-status-and-outstanding-work.md).
+> Use this file for historical project detail only.
+
 **Status:** Historical execution index; current field-flow acceptance is in the
 maintained runner and the Project 4.1 field-flow review.
 **Source artifact:** [Unified Flow Analysis Rewrite — Raw Plan](../20260802-unified-flow-analysis-rewrite-raw-plan.md)

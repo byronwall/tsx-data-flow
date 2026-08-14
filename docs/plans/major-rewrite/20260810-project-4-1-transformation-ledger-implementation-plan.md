@@ -2,7 +2,10 @@
 
 **Date:** 2026-08-10
 
-**Status:** Proposed and reviewed. Do not execute without approval.
+**Status:** Implemented. This document is the historical delivery contract.
+
+**Current status:** See
+[Major rewrite status and outstanding work](20260814-major-rewrite-status-and-outstanding-work.md).
 
 **Approved direction:** Option D. Keep the broad route graph. Add exact,
 demand-driven field proof through a compiler-backed transformation ledger.
