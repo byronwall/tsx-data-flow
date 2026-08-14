@@ -1,250 +1,188 @@
 ---
 title: "Incremental generic field discovery"
-status: draft — ready for implementation review
-last_updated: 2026-08-12
+status: implemented — next slice proposed
+last_updated: 2026-08-13
 ---
 
 # Incremental generic field discovery
 
-## Goal
+## Status
 
-Make field proof useful for any source that the current proof grammar can already
-understand. Keep the route graph readable. Preserve the current soccer analysis
-until generic discovery proves parity.
+The original two-slice plan is complete.
 
-## Product rules
+The product now has generic field discovery and explicit field focus. The
+soccer-specific target list is no longer part of production discovery.
 
-1. Field focus controls visible proof. No selected field means no field-specific
-   green. One selected field shows only its proven paths and frontiers.
-2. Generic discovery covers every consumer already supported by the current proof
-   grammar. It adds no syntax family.
-3. Remove `FIELD_PROOF_TARGETS` in the generic discovery slice after soccer
-   parity and the compact non-soccer fixture pass.
+Route Totality polish is in progress. This update assumes that work finishes
+with its current acceptance checks passing.
 
-## Current state
+## Completed work
 
-The frontend already has source, field, and consumer URL state.
-The source picker, field inspector, and graph already support field paths and frontiers.
+### Field focus
 
-The analyzer contract already separates available evidence, proven attachments,
-and frontiers. The query starts from `FIELD_PROOF_TARGETS`, which names soccer
-targets. Candidate search, component-boundary handling, transformation assembly,
-transfer verification, bounds, identities, and frontier reasons are already
-available.
+- The selected source exposes its field inventory.
+- No selected field means no field-specific green path.
+- One selected field shows only its proven consumers and frontiers.
+- Clearing the field keeps the source and restores the broad route view.
+- URL-restored focus and live selection use the same state.
+- Fields with no proven consumer remain available as controls.
 
-The change should connect these existing parts. It should not create a second
-graph, a new proof grammar, or a new policy framework.
+Key commits:
 
-## Positive examples to confirm in the running product
+- `4f80140` — add one-field route focus.
+- `c9778ff` — expose selected route fields.
+- `d4f4fec` — narrow route field inspector focus.
 
-Use these current soccer records for Slice 1. They already exist in the G01–G18
-acceptance data.
+### Generic discovery
 
-| Selected field | Expected proven consumers | Visible result |
-|---|---|---|
-| `games[*].opponentName` | `PageHeader.title` | One green proof path to the title. |
-| `games[*].startsAt` | `PageHeader.description date` | One green proof path to the description. |
-| `games[*].venueName` | `PageHeader.description venue`; `ScheduledGamePlanningDetails venue` | Two green consumer paths for the selected field only. |
-| `games[*].status` | `PageHeader.eyebrow condition`; three `Show.when` conditions | Only status conditions are green. Other field paths stay neutral. |
-| `games[*].id` | `A.href schedule`; `deleteGame.id`; scheduled and completed consumers | ID render, condition, and handler paths are green. Other fields stay neutral. |
+- Production analysis discovers consumers from compiler evidence.
+- Discovery supports the proof grammar that existed before this plan.
+- The analyzer preserves exact source, field, occurrence, terminal, and relation
+  identity.
+- Unsupported transforms remain named frontiers.
+- The production analyzer no longer imports `FIELD_PROOF_TARGETS`.
+- Soccer G01–G18 remains acceptance data outside production analysis.
 
-For every row:
+Key commits:
 
-- Before selection, no field-specific path is green.
-- Selecting the field shows only the listed field's proof.
-- The inspector lists the same consumers.
-- Clearing the field removes all field-specific green.
+- `e2f6171` — add generic discovery and the compact fixture.
+- `3f9cf27` — remove the soccer target list.
+- `a191d32` — preserve zero-proof controls and strict projections.
+- `f2e07c8` — commit the approved guidance and plan.
 
-Use the compact non-soccer fixture for Slice 2. Its exact expected records are:
+### Field and graph presentation
 
-| Selected field | Expected result |
+- The sidebar uses one progressive column.
+- Field rows stay compact until selection.
+- Collection rows describe their item fields. They do not appear as failed
+  fields.
+- Hover and keyboard focus can start selected-source detail loading.
+- Completed detail results remain cached for revisits.
+- Connected nodes and edges receive selection emphasis.
+- Unrelated graph marks recede with their owner.
+- Route Totality uses simple curve geometry and the Current workspace visual
+  language.
+- Click selects. Drag pans. Empty-space click clears.
+- Keyboard focus follows the rendered node or edge instead of its SVG box.
+
+Key committed field-control work:
+
+- `1a5d79f` — improve field discovery controls.
+- `a752df5` — pack field lists into single rows.
+
+The active Route Totality polish task owns its remaining frontend changes.
+
+## Acceptance evidence
+
+The generic discovery orchestrator reported:
+
+- Soccer proof: 18 attachments and all G01–G18 obligations passed.
+- Compact proof: three proven fields and one unsupported-transform frontier.
+- Equal-name negative control: no false consumer.
+- Soccer browser verification: passed.
+- Compact browser verification: passed.
+- Keyboard Enter and Space checks: passed.
+- `pnpm verify`: 40 files and 254 tests passed.
+- Lint: three existing Solid warnings and no errors.
+- No hydration, console, or runtime errors.
+
+The compact fixture proves:
+
+| Field | Result |
 |---|---|
-| `projects[*].name` | A direct render reaches `PageHeader.title`. |
-| `projects[*].id` | The alias `id -> projectId` reaches `A.href project`. |
-| `projects[*].ownerName` | A whole-object `project` prop reaches `ProjectDetails owner`. |
-| `projects[*].code` | An unsupported formatter produces one named frontier and no green consumer. |
+| `projects[*].name` | Direct render to `PageHeader.title`. |
+| `projects[*].id` | Scalar alias to `A.href schedule`. |
+| `projects[*].ownerName` | Whole-object prop to `ProjectDetails owner`. |
+| `projects[*].code` | Named `unsupported-transform` frontier. |
 
-An unrelated object also has a `name` field. It must not appear as a consumer of
-`projects[*].name`.
+## Current product contract
 
-## Implementation slices
+1. Source selection chooses the analysis origin.
+2. Field selection chooses visible field proof.
+3. Green means an exact proven path for the selected field.
+4. Amber means a named frontier for the selected field.
+5. Neutral topology provides context. It does not imply field proof.
+6. Available collection rows are parents for item fields.
+7. Equal names do not establish identity.
 
-### Slice 1 — Add explicit one-field focus
+## Next useful slice — Reduce selected-source latency
 
-#### Outcome
+### Why this is next
 
-The user can select one field from the existing source field inventory. Before a
-field is selected, the graph shows current route topology with no field-specific
-green. After selection, the graph shows only that field's proven paths and
-frontiers. Clearing the field removes field-specific styling and keeps the source
-selected.
+The proof and focus model now work. The reported remaining product cost is the
+delay after the user chooses the `readFile` source.
 
-Keep `FIELD_PROOF_TARGETS` and all current soccer analysis unchanged.
+Hover prefetch and response caching improve revisits. They do not reduce the
+first selected-source analysis. The next slice should measure and reduce that
+cold path before the analyzer adds more grammar or output.
 
-#### Likely files
+### Outcome
 
-- `src/frontend/src/overview/TrajectorySourcePicker.tsx`
-- `src/frontend/src/overview/DataTrajectoryDialog.tsx`
-- `src/frontend/src/overview/trajectory-url-state.ts`
-- `src/frontend/src/overview/RouteTrajectoryWorkspace.tsx`
-- `src/frontend/src/overview/RouteTotalityGraph.tsx`
-- `src/frontend/src/overview/RouteTotalityControls.tsx`
-- `src/frontend/src/overview/RouteTotalityFieldSections.tsx`
-- `src/frontend/src/overview/route-totality-field-inspector-model.ts`
-- `src/frontend/src/overview/route-totality-field-lineage-model.ts`
-- `src/frontend/src/overview/RouteTotalityOverview.tsx`
+Selecting the soccer `readFile` source shows its field inventory promptly. The
+result must keep the same attachments, frontiers, identities, and proof hash.
 
-Use the existing result data for the inventory. Do not add a second analysis
-request. Keep one normalized field path in URL state. Use source identity plus
-field path for selection. Do not infer proof from a field label.
+### Scope
 
-#### Acceptance checks
+1. Measure the cold selected-source request for the soccer reference route.
+2. Record time in evidence collection, candidate discovery, carrier search,
+   verification, projection, transfer, and frontend reconciliation.
+3. Fix the largest measured cost with one direct change.
+4. Reuse the current request cache and prefetch path.
+5. Do not add new proof grammar, workers, registries, or cache layers.
 
-- Source selection still behaves as it does now.
-- The field inventory is visible for the selected source.
-- No field-specific green appears before field selection.
-- One selected field shows only its proven paths and frontiers.
-- A field with no proof is selectable but shows no green proof.
-- Clear field focus restores the broad topology view.
-- A stale or invalid field in the URL is cleared safely.
-- Soccer G01–G18 behavior remains unchanged.
-- Field focus reuses the selected-source result and does not repeat analysis.
+Likely files:
 
-#### Stop and review
-
-Stop after the interaction works on the current soccer route. Review whether the
-field scope is clear and whether the graph remains readable. Do not begin generic
-discovery until this product state is accepted.
-
-### Slice 2 — Add bounded generic discovery and remove the old policy
-
-#### Outcome
-
-In one bounded change, discover every consumer already supported by the current
-proof grammar for the selected source. Return available fields, proven attachments,
-and frontiers. Keep the old policy intact while the checks run. Remove it before
-this slice closes.
-
-Reuse the current:
-
-- compiler-backed carrier search and its limits;
-- candidate and component-boundary facts;
-- transformation assembly;
-- exact transfer verifier;
-- deterministic IDs and sorting;
-- attachment, frontier, and failure handling.
-
-The generic query must fail closed. Unsupported transforms, ambiguous carriers,
-dynamic indexes, and budget stops remain frontiers. They must not become green
-paths. Do not add syntax families, capability flags, a registry, shadow phases,
-or a second policy table.
-
-#### Likely files
-
+- `src/analysis/route-data-session.ts`
 - `src/analysis/route-totality-field-proof-query.ts`
-- `src/analysis/route-totality-field-proof-candidate.ts`
-- `src/analysis/route-totality-field-proof-component-boundary.ts`
-- `src/analysis/route-totality-field-proof-component.ts`
-- `src/analysis/route-totality-field-proof-transformations.ts`
-- `src/analysis/route-totality-field-transfer-verifier.ts`
-- `src/analysis/route-totality-field-proof-result.ts`
-- `src/analysis/route-totality-field-lineage.ts`
-- `src/api/route-totality-field-lineage-contracts.ts`
-- `src/api/route-totality-field-lineage-validation.ts`
-- `src/api/projections/route-totality-field-lineage.ts`
-- `src/analysis/route-totality-field-proof-policy.ts`
-- `src/analysis/route-totality-field-target-consumer.ts`
-- the existing route field-proof test and fixture locations
-- `scripts/accept-route-field-proof.ts`
-- `scripts/route-field-proof-obligations.json`
+- `src/analysis/route-totality-field-proof-index.ts`
+- `src/api/projections/route-data.ts`
+- `src/frontend/src/overview/DataTrajectoryDialog.tsx`
+- existing analyzer instrumentation and acceptance scripts
 
-Prefer changes to existing modules. Add one focused discovery module only if the
-query cannot stay clear without it. Keep the public contract strict. Keep current
-carrier limits, field and output bounds, exact source identity, semantic consumer
-identity, ordered transformation ledgers, and frontier reasons.
+Change only the files needed by the measured bottleneck.
 
-#### Compact non-soccer fixture
+### Positive check
 
-Add one small route fixture with these cases:
+Use the soccer `readFile` source for `/games/[gameId]`.
 
-1. `projects[*].name` renders through `PageHeader.title`.
-2. `projects[*].id` becomes `projectId` and reaches `A.href project`.
-3. A whole-object `project` prop carries `projects[*].ownerName` to
-   `ProjectDetails owner`.
-4. An unrelated object has the same `name` field as the negative control.
-5. `projects[*].code` crosses an unsupported formatter and ends at a named
-   frontier.
+The field inventory must still show these proven examples:
 
-The fixture must prove the selected field, its direct and aliased consumers, and
-the component prop transfer. The equal-name case must produce no false positive.
-The unsupported transform must retain the field as available and report a stable
-frontier reason. Keep the fixture small. Do not add future syntax examples here.
+- `games[*].opponentName` → `PageHeader.title`.
+- `games[*].venueName` → both venue consumers.
+- `games[*].status` → the named conditions.
+- `games[*].id` → render, condition, and handler consumers.
 
-#### Acceptance checks
+### Negative and control checks
 
-- The maintained acceptance runner passes soccer G01–G18.
-- Generic output satisfies every soccer positive, terminal, transformation, and
-  required frontier obligation by semantic identity.
-- The compact fixture passes all three positive shapes.
-- The equal-name control has no attachment.
-- The unsupported transform has a frontier and no green path.
-- Zero-positive output is rejected when a required positive exists.
-- IDs, ordering, evidence paths, bounds, and cache behavior remain deterministic.
-- No selected field means no field-specific green in the existing UI.
-- One selected field shows only its generic attachments and frontiers.
-- No production import references `FIELD_PROOF_TARGETS` or soccer target keys.
-- Lint and typecheck pass. Do not use them as a substitute for field proof.
+- An unrelated equal-name consumer remains absent.
+- `projects[*].code` remains an unsupported-transform frontier.
+- No selected field still produces no field-specific green.
+- A cached revisit returns the same semantic result as the cold request.
 
-#### Stop and review
+### Acceptance
 
-First prove parity while the old policy remains available. Then remove declarations
-and imports that exist only to name soccer targets. Keep the soccer obligations as
-acceptance data. If parity fails, keep the old policy and repair generic discovery.
+- Capture the before and after cold timings on the same machine and commit.
+- Reduce the dominant cold-path cost by at least 30 percent.
+- Do not increase payload bytes or proof record counts.
+- Keep the deterministic proof hash unchanged.
+- Keep G01–G18 and the compact fixture green.
+- Run lint and typecheck during implementation.
+- After approved test work, run the maintained runner and `pnpm verify`.
+- Verify the interaction in a fresh browser service.
 
-Stop for final product review after the policy is removed. Confirm each positive
-example in the running UI. Future grammar support requires a separate change.
+### Stop point
 
-## Rollback and cut line
+Stop after one measured optimization passes the checks. Do not combine this
+slice with new grammar coverage.
 
-Keep the current target-led query and policy declarations intact until generic
-discovery passes soccer and non-soccer acceptance. If discovery fails, restore the
-old query and continue the same slice.
+After this slice, choose the next grammar from a real, frequent frontier. Do not
+select it from hypothetical examples.
 
-The cut line is proven parity inside Slice 2. After that checkpoint, remove
-`FIELD_PROOF_TARGETS` before the slice closes. The acceptance obligations remain
-as data. The field-focus UI remains independent of the policy path.
+## Deferred work
 
-## Non-goals
+- New field-transfer grammar.
+- Multi-field graph focus.
+- Transform visualization changes.
+- Overlapping edge-target refinement.
 
-- Add a new proof syntax family.
-- Add a capability registry, family flags, or shadow phases.
-- Build a second route graph or project-wide field browser.
-- Highlight all generic results at once.
-- Add multi-select or automatic first-field focus.
-- Infer proof from field-name text.
-- Prove unsupported transforms by approximation.
-- Change broad route topology or unrelated soccer analysis.
-- Replace the acceptance runner with production discovery.
-- Update the other planning documents named in the task.
-
-## Open questions
-
-No question blocks Slice 1. Two details can be settled during implementation:
-
-1. What exact field-count and payload caps fit the existing response budget?
-2. Which existing fixture location is the smallest stable home for the compact
-   non-soccer route case?
-
-Both questions are bounded by current code and do not change the two-slice
-direction.
-
-## Start here
-
-The first worker should implement Slice 1 only.
-
-1. Read `docs/application-structure.md` and the relevant frontend files.
-2. Inspect the current field rows, URL reconciliation, and graph focus selectors.
-3. Add one-field selection to the existing source picker.
-4. Preserve current analysis and use existing result data.
-5. Verify no-focus, focused, and clear states on the soccer route.
-6. Stop for review. Do not begin generic discovery in the same change.
+Each item needs direct product evidence before implementation.
