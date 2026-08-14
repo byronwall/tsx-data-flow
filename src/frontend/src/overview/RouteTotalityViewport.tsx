@@ -35,7 +35,7 @@ export type RouteTotalityViewportProps = {
   displayLabelIds: ReadonlySet<string>;
   displayZoom: RouteTotalityDisplayZoom;
   camera: TrajectoryGraphCamera;
-  cameraController: Pick<RouteTotalityCameraController, "dragging" | "startPan" | "movePan" | "finishPan" | "zoomFromWheel">;
+  cameraController: Pick<RouteTotalityCameraController, "dragging" | "startPan" | "movePan" | "finishPan" | "cancelPan" | "consumeSuppressedClick" | "clearEmptySelection" | "zoomFromWheel">;
   selection: RouteInvestigationSelection;
   fieldFocus: RouteTotalityFieldFocusModel;
   fieldFrontierLabels: ReadonlyMap<string, string>;
@@ -59,6 +59,12 @@ export function RouteTotalityViewport(props: RouteTotalityViewportProps) {
   });
   const labelRenderScale = createMemo(() => Math.max(.001, props.camera.scale * viewportScale()));
   onMount(() => {
+    const suppressDraggedClick = (event: MouseEvent) => {
+      const suppressed = props.cameraController.consumeSuppressedClick(event);
+      if (suppressed) event.stopPropagation();
+    };
+    svg?.addEventListener("click", suppressDraggedClick, true);
+    onCleanup(() => svg?.removeEventListener("click", suppressDraggedClick, true));
     const updateViewportSize = () => {
       const bounds = svg?.getBoundingClientRect();
       if (bounds) setViewportSize({ width: bounds.width, height: bounds.height });
@@ -83,10 +89,15 @@ export function RouteTotalityViewport(props: RouteTotalityViewportProps) {
       onPointerMove={(event) => props.cameraController.movePan(event)}
       onPointerUp={(event) => props.cameraController.finishPan(event)}
       onPointerCancel={(event) => props.cameraController.finishPan(event)}
+      onLostPointerCapture={() => props.cameraController.cancelPan()}
+      onClick={(event) => {
+        const ignored = event.target !== event.currentTarget;
+        if (!ignored) props.cameraController.clearEmptySelection();
+      }}
       onWheel={(event) => props.cameraController.zoomFromWheel(event)}
     >
       <defs>
-        <marker id="route-totality-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" /></marker>
+        <marker id="route-totality-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M 0 0 L 7 3.5 L 0 7 z" /></marker>
         <marker id="route-totality-force-arrow" markerWidth="5" markerHeight="5" refX="4.5" refY="2.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 0 L 5 2.5 L 0 5 z" /></marker>
       </defs>
       <g transform={`translate(${props.camera.x} ${props.camera.y}) scale(${props.camera.scale})`}>
@@ -97,7 +108,7 @@ export function RouteTotalityViewport(props: RouteTotalityViewportProps) {
           const withinFocus = props.emphasis.focusNodeIds.has(edge.from) && props.emphasis.focusNodeIds.has(edge.to);
           return <DisplayTotalityEdge edge={displayEdge} selection={target} selected={sameRouteInvestigationSelection(props.selection, target)} emphasisActive={props.emphasis.active} active={props.emphasis.activeLayoutEdgeIds.has(edge.id)} secondary={props.emphasis.secondaryLayoutEdgeIds.has(edge.id)} frontier={props.emphasis.frontierLayoutEdgeIds.has(edge.id)} fieldFocused={Boolean(props.fieldFocus.origin)} fieldActive={props.fieldFocus.activeEdgeIds.has(edge.id)} fieldFrontier={props.fieldFocus.frontierEdgeIds.has(edge.id)} fieldFrontierLabel={props.fieldFrontierLabels.get(edge.id) ?? null} hidden={props.isolated && !props.emphasis.focusEdgeIds.has(edge.id) && !withinFocus} onSelect={props.onSelect} onRegister={(element) => props.onRegisterMark(target.graphId, element)} />;
         }}</For></g>
-        <g class="route-totality-bridge-edges" aria-label="Cross-layer handoffs"><For each={props.displayLayout.bridges}>{(bridge) => <DisplayTotalityBridgeEdge bridge={bridge} visible={Boolean(bridge.fromNode && bridge.toNode) && (props.emphasis.active || Boolean(props.fieldFocus.origin))} active={props.emphasis.activeBridgeIds.has(bridge.bridge.bridge.id)} frontier={props.emphasis.frontierBridgeIds.has(bridge.bridge.bridge.id)} fieldFocused={Boolean(props.fieldFocus.origin)} fieldActive={props.fieldFocus.activeBridgeIds.has(bridge.bridge.bridge.id)} fieldFrontier={props.fieldFocus.frontierBridgeIds.has(bridge.bridge.bridge.id)} hidden={props.isolated && (!bridge.fromNode || !bridge.toNode || !props.emphasis.focusNodeIds.has(bridge.fromNode.id) || !props.emphasis.focusNodeIds.has(bridge.toNode.id))} />}</For></g>
+        <g class="route-totality-bridge-edges" aria-label="Cross-layer handoffs"><For each={props.displayLayout.bridges}>{(bridge) => <DisplayTotalityBridgeEdge bridge={bridge} emphasisActive={props.emphasis.active} visible={Boolean(bridge.fromNode && bridge.toNode) && (props.emphasis.active || Boolean(props.fieldFocus.origin))} active={props.emphasis.activeBridgeIds.has(bridge.bridge.bridge.id)} frontier={props.emphasis.frontierBridgeIds.has(bridge.bridge.bridge.id)} fieldFocused={Boolean(props.fieldFocus.origin)} fieldActive={props.fieldFocus.activeBridgeIds.has(bridge.bridge.bridge.id)} fieldFrontier={props.emphasis.frontierBridgeIds.has(bridge.bridge.bridge.id)} hidden={props.isolated && (!bridge.fromNode || !bridge.toNode || !props.emphasis.focusNodeIds.has(bridge.fromNode.id) || !props.emphasis.focusNodeIds.has(bridge.toNode.id))} />}</For></g>
         <RouteContextContinuityOverlay
           visual={props.contextVisual}
           emphasis={props.emphasis}
@@ -112,16 +123,10 @@ export function RouteTotalityViewport(props: RouteTotalityViewportProps) {
           return <DisplayTotalityNode node={displayNode} selection={target} selected={sameRouteInvestigationSelection(props.selection, target)} emphasisActive={props.emphasis.active} active={props.emphasis.activeNodeIds.has(node.id)} secondary={props.emphasis.secondaryNodeIds.has(node.id)} frontier={props.emphasis.frontierNodeIds.has(node.id)} fieldFocused={Boolean(props.fieldFocus.origin)} fieldActive={props.fieldFocus.activeNodeIds.has(node.id)} fieldFrontier={props.fieldFocus.frontierNodeIds.has(node.id)} fieldSummary={props.fieldFocus.summariesByNodeId.get(node.id) ?? null} uiCollapsed={props.layout.uiProjection.mode === "hidden" && props.layout.uiProjection.collapsedRootIds.has(node.id)} stackChildrenModified={props.layout.stackProjection.modifiedParentNodeIds.has(node.id)} hidden={props.isolated && !props.emphasis.focusNodeIds.has(node.id)} showLabel={props.displayLabelIds.has(displayNode.id)} findings={routeTotalityFindingSummaryForNode(props.totality, node)} labelRenderScale={labelRenderScale()} onSelect={props.onSelect} onRegister={(element) => props.onRegisterMark(target.graphId, element)} zoom={props.displayZoom} />;
         }}</For></g>
         <g class="route-totality-forces" classList={{ visible: props.forcesVisible }} aria-hidden={!props.forcesVisible}><For each={props.displayLayout.forces.filter((force) => force.magnitude > .01)}>{(force) => (
-          <line data-node-id={force.id} x1={force.x} y1={force.y} x2={force.x + force.dx} y2={force.y + force.dy} marker-end="url(#route-totality-force-arrow)">
-            <title>Next tick: Δx {round(force.dx)}, Δy {round(force.dy)}, magnitude {round(force.magnitude)}</title>
-          </line>
+          <line data-node-id={force.id} x1={force.x} y1={force.y} x2={force.x + force.dx} y2={force.y + force.dy} marker-end="url(#route-totality-force-arrow)" />
         )}</For></g>
         <Show when={props.layout.summary.status === "unavailable"}><text class="route-totality-empty-label" x={props.displayBounds.width / 2} y={props.displayBounds.height / 2} text-anchor="middle">No route totality graph is available.</text></Show>
       </g>
     </svg>
   </div>;
-}
-
-function round(value: number): number {
-  return Math.round(value * 1000) / 1000;
 }

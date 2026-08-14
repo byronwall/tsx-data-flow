@@ -73,8 +73,8 @@ export function selectionFromPersisted(
     );
   }
   if (persisted.kind === "node") {
-    const visibleId = layout.nodeRedirects.get(persisted.graphId) ?? persisted.graphId;
-    const node = (layout.nodes as RouteTotalityLayoutNode[]).find((candidate) => candidate.id === visibleId);
+    const node = (layout.nodes as RouteTotalityLayoutNode[]).find((candidate) => candidate.id === persisted.graphId)
+      ?? (layout.nodes as RouteTotalityLayoutNode[]).find((candidate) => candidate.id === layout.nodeRedirects.get(persisted.graphId));
     return node ? routeInvestigationSelectionForNode(node) : null;
   }
   const edge = layout.edges.find((candidate) => routeInvestigationSelectionForEdge(candidate).graphId === persisted.graphId);
@@ -97,7 +97,9 @@ export function persistedSelection(selection: RouteInvestigationSelection): Traj
 
 export function modelSelectionForInvestigationSelection(selection: RouteInvestigationSelection): RouteTotalitySelection | null {
   if (!selection || selection.target === "context") return null;
-  return { kind: selection.target, id: selection.graphId };
+  return selection.target === "edge"
+    ? { kind: "edge", id: selection.graphId, fromNodeId: selection.fromNodeId, toNodeId: selection.toNodeId }
+    : { kind: "node", id: selection.graphId };
 }
 
 export function reconcileRouteTotalityState(args: {
@@ -113,7 +115,7 @@ export function reconcileRouteTotalityState(args: {
   const requestedMode = args.scopeChanged
     ? null
     : args.currentMode ?? (args.initialPayload && args.requestedIsolation ? emphasisModeForSelection(selection) : null);
-  const emphasisMode = requestedMode && (selection?.target === "node" || (selection?.target === "edge" && selection.kind === "context-edge"))
+  const emphasisMode = requestedMode && (selection?.target === "node" || selection?.target === "edge")
     ? requestedMode
     : null;
   const emphasis = emphasisMode
@@ -137,7 +139,7 @@ export function reconcileRouteTotalityState(args: {
 }
 
 export function emphasisModeForSelection(selection: RouteInvestigationSelection): RouteTotalityEmphasisMode | null {
-  return selection && (selection.target === "node" || (selection.target === "edge" && selection.kind === "context-edge"))
+  return selection && (selection.target === "node" || selection.target === "edge")
     ? "both"
     : null;
 }

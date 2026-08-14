@@ -86,7 +86,6 @@ function ContextLinkMark(props: {
     tabindex={visibility() === "hidden" ? -1 : 0}
     aria-pressed={props.selected}
     aria-label={`${label()} context link from ${props.link.from?.nodeId} to ${props.link.to?.nodeId}`}
-    onPointerDown={(event) => event.stopPropagation()}
     onClick={(event) => {
       event.stopPropagation();
       if (props.link.from && props.link.to) props.onSelect(routeInvestigationSelectionForContextLink(props.link.link.id, props.link.from.nodeId, props.link.to.nodeId));
@@ -106,7 +105,6 @@ function ContextLinkMark(props: {
         {clip(label(), 44)}
       </text>
     </Show>
-    <title>{props.focused ? `${label()} · ${props.link.status} · Provider to consumer` : "Context continuity link · Provider to consumer"}</title>
   </g>;
 }
 
@@ -122,6 +120,8 @@ function ContextRelayMark(props: {
   return <g
     class={`context-color-${props.relay.colorIndex} status-${props.relay.status}`}
     classList={visibilityClasses(visibility())}
+    role="img"
+    aria-label={`${props.relay.pathLabel} · ${props.relay.status} · context relay`}
   >
     <path class="route-context-relay-line" d={geometry().path} />
     <ConsumerGlyph x={geometry().start.x} y={geometry().start.y} />
@@ -132,7 +132,6 @@ function ContextRelayMark(props: {
     <text class="route-context-overlay-label route-context-relay-label" x={geometry().label.x} y={geometry().label.y - 8} text-anchor="middle">
       {clip(props.relay.pathLabel, 52)}
     </text>
-    <title>{props.relay.pathLabel} · {props.relay.status} · context relay</title>
   </g>;
 }
 
@@ -152,7 +151,6 @@ function ContextNodeMarkGlyph(props: {
     tabindex={visibility() === "hidden" ? -1 : 0}
     aria-pressed={props.selected}
     aria-label={`${props.mark.role === "provider" ? "Provider" : "Consumer"} occurrence ${props.mark.occurrenceId}`}
-    onPointerDown={(event) => event.stopPropagation()}
     onClick={(event) => {
       event.stopPropagation();
       props.onSelect(routeInvestigationSelectionForContextOccurrence(props.mark.contextId, props.mark.occurrenceId, props.mark.role));

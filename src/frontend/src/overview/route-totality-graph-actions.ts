@@ -33,20 +33,16 @@ export type RouteTotalityGraphActionOptions = {
 
 export function createRouteTotalityGraphActions(options: RouteTotalityGraphActionOptions): RouteTotalityGraphActions {
   const select = (next: Exclude<RouteInvestigationSelection, null>) => {
-    const nextSelection = sameRouteInvestigationSelection(options.selection(), next) ? null : next;
-    options.setEmphasisMode(
-      nextSelection?.target === "node" || (nextSelection?.target === "edge" && nextSelection.kind === "context-edge")
-        ? "both"
-        : null,
-    );
+    const currentSelection = options.selection();
+    const sameSelection = sameRouteInvestigationSelection(currentSelection, next);
+    const nextSelection = sameSelection ? null : next;
+    const intendedEmphasisMode = nextSelection?.target === "node" || nextSelection?.target === "edge" ? "both" : null;
+    options.setEmphasisMode(intendedEmphasisMode);
     options.emitInvestigationState(nextSelection, false);
   };
   const selectFromInspector = (next: Exclude<RouteInvestigationSelection, null>) => {
-    options.setEmphasisMode(
-      next.target === "node" || (next.target === "edge" && next.kind === "context-edge")
-        ? "both"
-        : null,
-    );
+    const intendedEmphasisMode = next.target === "node" || next.target === "edge" ? "both" : null;
+    options.setEmphasisMode(intendedEmphasisMode);
     options.emitInvestigationState(next, false);
   };
   const clearSelection = () => {
@@ -64,7 +60,7 @@ export function createRouteTotalityGraphActions(options: RouteTotalityGraphActio
   };
   const emphasize = (mode: RouteTotalityEmphasisMode) => {
     const current = options.selection();
-    if (!current || current.target === "context" || (current.target === "edge" && current.kind !== "context-edge")) {
+    if (!current || current.target === "context") {
       return;
     }
     options.setEmphasisMode(mode);

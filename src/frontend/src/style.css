@@ -492,8 +492,8 @@
 .route-totality-camera button { min-width: 25px; min-height: 24px; padding: 2px 5px; font-size: .62rem; }
 .route-totality-camera button:nth-child(2) { min-width: 50px; font-family: var(--mono); }
 .route-totality-body { min-height: 0; position: relative; display: grid; grid-template-columns: minmax(0,1fr) minmax(280px,330px); overflow: hidden; }
-.route-totality-debug-overlay { position: absolute; top: 10px; right: 340px; z-index: 4; }
-.route-totality-debug-overlay[hidden] { display: none; }
+.route-totality-layout-debug-overlay { position: absolute; top: 10px; right: 340px; z-index: 4; }
+.route-totality-layout-debug-overlay[hidden] { display: none; }
 .route-totality-viewport { min-width: 0; min-height: 0; position: relative; overflow: hidden; background-color: #f8f9fc; background-image: linear-gradient(#e8eaf0 1px,transparent 1px),linear-gradient(90deg,#e8eaf0 1px,transparent 1px); background-size: 20px 20px; }
 .route-totality-svg { display: block; width: 100%; height: 100%; min-height: 500px; cursor: grab; touch-action: none; user-select: none; }
 .route-totality-svg.dragging { cursor: grabbing; }
@@ -508,8 +508,7 @@
 .route-totality-edge-family-render .route-totality-edge-line { stroke: #7d8799; }
 .route-totality-edge-family-data .route-totality-edge-line { stroke: #39739d; stroke-dasharray: 4 2; opacity: .82; }
 .route-totality-edge-family-boundary .route-totality-edge-line { stroke: #7d8799; stroke-dasharray: none; opacity: .7; }
-.route-totality-edges g { cursor: pointer; }
-.route-totality-edges g:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.route-totality-edges g { cursor: pointer; outline: none; }
 .route-totality-edges g:focus-visible .route-totality-edge-line { stroke: var(--accent); stroke-width: 2.7; opacity: 1; }
 .route-totality-edges g.selected .route-totality-edge-line { stroke: var(--accent); stroke-width: 2.7; opacity: 1; }
 .route-totality-edge-label { fill: var(--muted); font: 600 8px var(--mono); pointer-events: none; text-anchor: middle; }
@@ -788,6 +787,7 @@
   --route-totality-surface: var(--surface, var(--panel));
   --route-totality-focus: var(--accent);
   --route-totality-warning: var(--warning, #8b5100);
+  --mono: ui-monospace,SFMono-Regular,Menlo,monospace;
   background: var(--bg);
   color: var(--route-totality-ink);
 }
@@ -830,8 +830,8 @@
 }
 
 .route-totality-svg defs path {
-  fill: var(--route-totality-focus);
-  opacity: .7;
+  fill: #7e899d;
+  opacity: 1;
 }
 
 .route-totality-edges path {
@@ -849,9 +849,9 @@
 }
 
 .route-totality-edge-family-render .route-totality-edge-line {
-  stroke: color-mix(in srgb, var(--route-totality-ink) 62%, var(--border));
-  stroke-width: 1.3;
-  opacity: .72;
+  stroke: #7e899d;
+  stroke-width: 1.15;
+  opacity: .42;
 }
 
 .route-totality-edge-family-data .route-totality-edge-line {
@@ -862,15 +862,10 @@
 }
 
 .route-totality-edge-family-boundary .route-totality-edge-line {
-  stroke: color-mix(in srgb, var(--route-totality-ink) 62%, var(--border));
-  stroke-width: 1.3;
+  stroke: #7e899d;
+  stroke-width: 1.15;
   stroke-dasharray: none;
-  opacity: .72;
-}
-
-.route-totality-edges g:focus-visible {
-  outline: 2px solid var(--route-totality-focus);
-  outline-offset: 3px;
+  opacity: .42;
 }
 
 .route-totality-edges g:focus-visible .route-totality-edge-line,
@@ -881,6 +876,10 @@
 }
 
 .route-totality-edges g.emphasis-dimmed {
+  opacity: .1;
+}
+
+.route-totality-bridge-edges g.emphasis-dimmed {
   opacity: .1;
 }
 
@@ -951,8 +950,8 @@
 }
 
 .route-totality-node-kind-framework-boundary .route-totality-node-surface {
-  fill: color-mix(in srgb, #d58b22 12%, var(--route-totality-surface));
-  stroke: color-mix(in srgb, #b77921 64%, var(--border));
+  fill: #e5f0fa;
+  stroke: #39739d;
 }
 
 .route-totality-node-kind-terminal .route-totality-node-surface {
@@ -1002,6 +1001,24 @@
 
 .route-totality-nodes g.emphasis-dimmed {
   opacity: .1;
+}
+
+.route-totality-edges g.emphasis-dimmed:not(.selected):not(:focus-visible) > *,
+.route-totality-bridge-edges g.emphasis-dimmed:not(.selected):not(:focus-visible) > *,
+.route-totality-nodes g.emphasis-dimmed:not(.selected):not(:focus-visible) > *,
+.route-context-continuity-layer g.emphasis-dimmed:not(.selected):not(:focus-visible) > * {
+  opacity: inherit;
+}
+
+.route-totality-nodes g.emphasis-dimmed:not(.selected):not(:focus-visible) > .route-totality-finding-marker > *,
+.route-context-continuity-layer g.emphasis-dimmed:not(.selected):not(:focus-visible) > .route-context-role-mark > *,
+.route-context-continuity-layer g.emphasis-dimmed:not(.selected):not(:focus-visible) > .route-context-factory-mark > * {
+  opacity: inherit;
+}
+
+.route-context-continuity-layer g.emphasis-frontier > *,
+.route-context-continuity-layer g.emphasis-active > * {
+  opacity: inherit;
 }
 
 .route-totality-nodes g.emphasis-active .route-totality-node-surface {
@@ -1080,7 +1097,7 @@
 }
 
 .route-totality-nodes .route-totality-node-label {
-  font: 650 13px var(--mono);
+  font: 650 13px ui-monospace,SFMono-Regular,Menlo,monospace;
   paint-order: stroke;
   stroke: #f8f9fc;
   stroke-width: 3px;
@@ -1097,11 +1114,49 @@
 
 .route-totality-node-field-summary {
   fill: var(--lineage-field-text);
-  font: 750 9px var(--mono);
+  font: 750 9px ui-monospace,SFMono-Regular,Menlo,monospace;
   paint-order: stroke;
   stroke: #f8f9fc;
   stroke-width: 2.5px;
   stroke-linejoin: round;
+}
+
+.route-totality-graph .route-totality-evidence-focus li > span,
+.route-totality-graph .route-totality-evidence-list li > span,
+.route-totality-graph .route-totality-evidence-route-summary > span,
+.route-totality-graph .route-totality-field-summary-trigger > span,
+.route-totality-graph .route-totality-field-item > span,
+.route-totality-graph .route-totality-field-item button span,
+.route-totality-graph .route-totality-field-use > summary small,
+.route-totality-graph .route-totality-proof-list span,
+.route-totality-graph .route-totality-finding-item > span,
+.route-totality-graph .route-totality-field-group-heading small {
+  font-family: var(--mono);
+}
+
+.route-totality-graph code {
+  font-family: var(--mono);
+}
+
+.route-totality-graph .mono {
+  font-family: var(--mono);
+}
+
+.route-totality-edges g:focus-visible,
+.route-totality-nodes g:focus-visible {
+  opacity: 1;
+}
+
+.route-totality-edges g:focus-visible .route-totality-edge-line {
+  stroke: var(--route-totality-focus);
+  stroke-width: 3px;
+  opacity: 1;
+}
+
+.route-totality-nodes g:focus-visible .route-totality-node-surface {
+  stroke: var(--route-totality-focus);
+  stroke-width: 3px;
+  opacity: 1;
 }
 
 .route-totality-node-kind-label,
@@ -1771,6 +1826,7 @@
 }
 
 .route-context-continuity-layer g {
+  outline: none;
   transition: opacity .16s ease;
 }
 

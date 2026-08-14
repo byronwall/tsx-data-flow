@@ -262,7 +262,9 @@ export function buildRouteTotalityEmphasis(
   }
   const seedId = seedIds.values().next().value;
   const seed = layout.nodes.find((node) => node.id === seedId) ?? null;
-  if (!seed) return emptyRouteTotalityEmphasis();
+  if (!seed) {
+    return emptyRouteTotalityEmphasis();
+  }
 
   const layoutNodes = layout.nodes as RouteTotalityLayoutNode[];
   const nodesById = new Map(layoutNodes.map((node) => [node.id, node]));
@@ -411,7 +413,7 @@ export function buildRouteTotalityEmphasis(
       ? "Proven reach is emphasized. Partial or unsupported frontiers remain explicit."
       : "Only proven reach is emphasized.";
 
-  return Object.freeze({
+  const result = Object.freeze({
     active: true,
     mode,
     seedId: seed.id,
@@ -437,6 +439,7 @@ export function buildRouteTotalityEmphasis(
     provenEdgeCount: activeEdges.size,
     provenBridgeCount: activeBridges.size,
   });
+  return result;
 }
 
 function traversalCandidates(
@@ -498,11 +501,15 @@ function collectEmphasisSeedNodeIds(
   const nodeIds = new Set(layout.nodes.map((node) => node.id));
   const result = new Set<string>();
   if (!selection) return result;
+  if ("target" in selection && selection.target === "node" && nodeIds.has(selection.graphId)) {
+    result.add(selection.graphId);
+    return result;
+  }
   if ("kind" in selection && selection.kind === "node" && nodeIds.has(selection.id)) {
     result.add(selection.id);
     return result;
   }
-  if ("target" in selection && selection.target === "edge" && selection.kind === "context-edge") {
+  if (("kind" in selection && selection.kind === "edge") || ("target" in selection && selection.target === "edge")) {
     if (selection.fromNodeId && nodeIds.has(selection.fromNodeId)) result.add(selection.fromNodeId);
     if (selection.toNodeId && nodeIds.has(selection.toNodeId)) result.add(selection.toNodeId);
   }

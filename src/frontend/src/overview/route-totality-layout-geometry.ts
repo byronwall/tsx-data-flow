@@ -84,21 +84,20 @@ export function routeTotalityEdgePathForLayout(edge: RouteTotalityLayoutEdge): s
   const from = centerOf(edge.fromNode);
   const to = centerOf(edge.toNode);
   if (edge.from === edge.to) {
-    return `M ${from.x} ${from.y} C ${from.x + 48} ${from.y - 42}, ${from.x + 48} ${from.y + 42}, ${from.x} ${from.y}`;
+    return `M ${from.x} ${from.y} Q ${from.x + 48} ${from.y - 48} ${from.x} ${from.y}`;
   }
 
-  const start = connectionPoint(edge.fromNode, to);
-  const end = connectionPoint(edge.toNode, from);
-  const offset = (edge.parallelIndex - (edge.parallelCount - 1) / 2) * 14;
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    const bend = Math.max(28, Math.abs(dx) * 0.42);
-    return `M ${start.x} ${start.y} C ${start.x + Math.sign(dx) * bend} ${start.y + offset}, ${end.x - Math.sign(dx) * bend} ${end.y + offset}, ${end.x} ${end.y}`;
-  }
-
-  const bend = Math.max(28, Math.abs(dy) * 0.42);
-  return `M ${start.x} ${start.y} C ${start.x + offset} ${start.y + Math.sign(dy) * bend}, ${end.x + offset} ${end.y - Math.sign(dy) * bend}, ${end.x} ${end.y}`;
+  const start = connectionPoint(edge.fromNode, to, edge.fromNode.width / 2 + 1);
+  const end = connectionPoint(edge.toNode, from, edge.toNode.width / 2 + 7);
+  const distance = Math.max(1, Math.hypot(end.x - start.x, end.y - start.y));
+  const normal = { x: -(end.y - start.y) / distance, y: (end.x - start.x) / distance };
+  const bend = Math.min(36, distance * .12);
+  const parallelOffset = (edge.parallelIndex - (edge.parallelCount - 1) / 2) * 14;
+  const middle = {
+    x: (start.x + end.x) / 2 + normal.x * (bend + parallelOffset),
+    y: (start.y + end.y) / 2 + normal.y * (bend + parallelOffset),
+  };
+  return `M ${start.x} ${start.y} Q ${middle.x} ${middle.y} ${end.x} ${end.y}`;
 }
 
 function placeLayoutNodes(
@@ -175,14 +174,16 @@ function centerOf(
 function connectionPoint(
   node: RouteTotalityLayoutNode,
   other: { x: number; y: number },
+  distanceFromCenter: number,
 ): { x: number; y: number } {
   const own = centerOf(node);
   const dx = other.x - own.x;
   const dy = other.y - own.y;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return { x: node.x + (dx >= 0 ? node.width : 0), y: own.y };
-  }
-  return { x: own.x, y: node.y + (dy >= 0 ? node.height : 0) };
+  const distance = Math.max(1, Math.hypot(dx, dy));
+  return {
+    x: own.x + dx / distance * distanceFromCenter,
+    y: own.y + dy / distance * distanceFromCenter,
+  };
 }
 
 function lexical(left: string, right: string): number {

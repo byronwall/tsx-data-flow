@@ -29,6 +29,8 @@ export type RouteTotalityCameraController = {
   startPan: (event: PointerEvent) => void;
   movePan: (event: PointerEvent) => void;
   finishPan: (event: PointerEvent) => void;
+  consumeSuppressedClick: (event: MouseEvent) => boolean;
+  clearEmptySelection: () => void;
   zoomFromWheel: (event: WheelEvent) => void;
 };
 
@@ -43,6 +45,7 @@ type PanState = {
 const DEFAULT_MIN_SCALE = 0.55;
 const DEFAULT_MAX_SCALE = 10;
 const DEFAULT_COMMIT_DELAY = 180;
+const POINTER_MOVE_THRESHOLD = 4;
 
 export function createRouteTotalityCamera(options: RouteTotalityCameraOptions): RouteTotalityCameraController {
   const minScale = options.minScale ?? DEFAULT_MIN_SCALE;
@@ -54,7 +57,9 @@ export function createRouteTotalityCamera(options: RouteTotalityCameraOptions): 
   const [pan, setPan] = createSignal<PanState | null>(null);
   const dragging = createMemo(() => Boolean(pan()?.moved));
   let cameraCommitTimer: ReturnType<typeof setTimeout> | undefined;
+  let suppressClickTimer: ReturnType<typeof setTimeout> | undefined;
   let cameraCommitPending = false;
+  let suppressNextClick = false;
 
   const cancelPendingCommit = () => {
     if (cameraCommitTimer !== undefined) {
@@ -110,7 +115,6 @@ export function createRouteTotalityCamera(options: RouteTotalityCameraOptions): 
   const startPan = (event: PointerEvent) => {
     const svg = options.getSvg();
     if (event.button !== 0 || !svg) return;
-    svg.setPointerCapture?.(event.pointerId);
     setPan({
       pointerId: event.pointerId,
       startClientX: event.clientX,
@@ -126,23 +130,40 @@ export function createRouteTotalityCamera(options: RouteTotalityCameraOptions): 
     const viewport = options.getViewportSize();
     const dx = (event.clientX - active.startClientX) / bounds.width * viewport.width;
     const dy = (event.clientY - active.startClientY) / bounds.height * viewport.height;
-    const moved = active.moved || Math.hypot(event.clientX - active.startClientX, event.clientY - active.startClientY) > 4;
+    const moved = active.moved || Math.hypot(event.clientX - active.startClientX, event.clientY - active.startClientY) > POINTER_MOVE_THRESHOLD;
     if (!moved) return;
+    if (!active.moved) {
+      options.getSvg()?.setPointerCapture?.(event.pointerId);
+    }
     setPan({ ...active, moved });
     setLocalCamera({ ...active.camera, x: active.camera.x + dx, y: active.camera.y + dy });
   };
   const finishPan = (event: PointerEvent) => {
     const active = pan();
     if (!active || active.pointerId !== event.pointerId) return;
-    if (!active.moved) {
-      options.onTap();
-    } else {
+    if (active.moved) {
+      suppressNextClick = true;
+      if (suppressClickTimer !== undefined) clearTimeout(suppressClickTimer);
+      suppressClickTimer = setTimeout(() => {
+        suppressClickTimer = undefined;
+        suppressNextClick = false;
+      }, 0);
       commitCamera(camera());
     }
     const svg = options.getSvg();
     if (svg?.hasPointerCapture(event.pointerId)) svg.releasePointerCapture(event.pointerId);
     setPan(null);
   };
+  const consumeSuppressedClick = (event: MouseEvent) => {
+    if (event.detail === 0 || !suppressNextClick) return false;
+    if (suppressClickTimer !== undefined) {
+      clearTimeout(suppressClickTimer);
+      suppressClickTimer = undefined;
+    }
+    suppressNextClick = false;
+    return true;
+  };
+  const clearEmptySelection = () => options.onTap();
   const zoomFromWheel = (event: WheelEvent) => {
     event.preventDefault();
     const normalizedDelta = clamp(event.deltaY, -100, 100);
@@ -157,6 +178,7 @@ export function createRouteTotalityCamera(options: RouteTotalityCameraOptions): 
 
   onCleanup(() => {
     cancelPendingCommit();
+    if (suppressClickTimer !== undefined) clearTimeout(suppressClickTimer);
     cancelPan();
   });
 
@@ -173,6 +195,8 @@ export function createRouteTotalityCamera(options: RouteTotalityCameraOptions): 
     startPan,
     movePan,
     finishPan,
+    consumeSuppressedClick,
+    clearEmptySelection,
     zoomFromWheel,
   };
 }

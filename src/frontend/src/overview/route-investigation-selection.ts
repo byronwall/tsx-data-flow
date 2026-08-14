@@ -67,8 +67,8 @@ export function routeInvestigationSelectionForEdge(
     recordId: edge.id,
     graphId: `edge:${edge.family}:${edge.id}`,
     source: edge.source,
-    fromNodeId: null,
-    toNodeId: null,
+    fromNodeId: edge.from,
+    toNodeId: edge.to,
   };
 }
 

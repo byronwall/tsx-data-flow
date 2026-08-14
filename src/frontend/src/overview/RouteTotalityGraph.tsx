@@ -96,6 +96,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
   let skipControlledSync = false;
   let skipControlledCameraSync = false;
 
+
   const applyLocalInvestigationState = (nextSelection: RouteInvestigationSelection, nextIsolated: boolean) => {
     setSelection(nextSelection);
     setIsolated(nextIsolated);
@@ -224,7 +225,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
         layout: layout(),
         requestedSelection: controlledSelection !== undefined ? controlledSelection : persistedSelection(currentSelection),
         requestedIsolation: controlledIsolation !== undefined ? controlledIsolation : isolated(),
-        currentMode: selectionChanged && controlledSelection?.kind === "node" ? "both" : emphasisMode(),
+        currentMode: selectionChanged && (controlledSelection?.kind === "node" || controlledSelection?.kind === "edge") ? "both" : emphasisMode(),
         initialPayload: false,
         scopeChanged: false,
       });
@@ -476,7 +477,7 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
       onZoomIn={() => cameraController.zoomAt(camera().scale * 1.25, undefined, true)}
     />
     <div class="route-totality-body">
-      <div class="route-totality-debug-overlay" hidden={!layoutDebug.visible()}>
+      <div class="route-totality-layout-debug-overlay" hidden={!layoutDebug.visible()}>
         <ComponentTopologyDebugControls
           settings={layoutDebug.settings()}
           copied={layoutDebug.copied()}

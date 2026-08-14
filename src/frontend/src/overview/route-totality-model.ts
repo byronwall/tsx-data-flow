@@ -96,7 +96,7 @@ export type RouteTotalityLayoutEdge = RouteTotalityGraphEdge & {
 
 export type RouteTotalitySelection =
   | { kind: "node"; id: string }
-  | { kind: "edge"; id: string }
+  | { kind: "edge"; id: string; fromNodeId?: string | null; toNodeId?: string | null }
   | null;
 
 export type RouteTotalityOmission = {

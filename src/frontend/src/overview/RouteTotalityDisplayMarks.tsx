@@ -66,15 +66,11 @@ export function DisplayTotalityEdge(props: {
     aria-label={props.fieldFocused && props.fieldFrontier && props.fieldFrontierLabel
       ? props.fieldFrontierLabel
       : `Select ${props.edge.edge.family} edge ${props.edge.edge.label || props.edge.edge.kind}${props.active ? " · in emphasized reach" : props.frontier ? " · partial frontier" : ""}`}
-    onPointerDown={(event) => event.stopPropagation()}
     onClick={(event) => { event.stopPropagation(); props.onSelect(props.selection); }}
     onKeyDown={(event) => selectOnKey(event, props.selection, props.onSelect)}
   >
     <path class="route-totality-edge-hit" d={path()} />
     <path class="route-totality-edge-line" d={path()} />
-    <title>{props.fieldFocused && props.fieldFrontier && props.fieldFrontierLabel
-      ? props.fieldFrontierLabel
-      : `${props.edge.edge.label || props.edge.edge.kind} · ${props.edge.edge.detail} · ${props.edge.edge.locations[0] ? routeTotalityLocationLabel(props.edge.edge.locations[0]) : "Location unavailable"}`}</title>
   </g>;
 }
 
@@ -132,7 +128,6 @@ export function DisplayTotalityNode(props: {
     aria-hidden={props.hidden ? "true" : undefined}
     aria-pressed={props.selected}
     aria-label={`Select ${routeTotalityNodeKindLabel(props.node.node.kind)} ${label()}${props.uiCollapsed ? " · UI implementation hidden" : ""}${props.stackChildrenModified ? " · layout wrapper children promoted" : ""}${props.active ? " · in emphasized reach" : props.frontier ? " · partial frontier" : ""}${props.findings.count ? ` · ${props.findings.count} exact finding${props.findings.count === 1 ? "" : "s"}` : ""}`}
-    onPointerDown={(event) => event.stopPropagation()}
     onClick={(event) => { event.stopPropagation(); props.onSelect(props.selection); }}
     onKeyDown={(event) => selectOnKey(event, props.selection, props.onSelect)}
   >
@@ -143,7 +138,6 @@ export function DisplayTotalityNode(props: {
     <Show when={props.findings.count > 0}>
       <g class="route-totality-finding-marker" aria-hidden="true">
         <circle cx={centerX()} cy={centerY()} r={props.node.radius + 3} />
-        <title>{props.findings.count} exact indexed finding{props.findings.count === 1 ? "" : "s"}</title>
       </g>
     </Show>
     <Show when={props.showLabel}>
@@ -162,12 +156,12 @@ export function DisplayTotalityNode(props: {
         transform={`scale(${1 / labelScale()})`}
       >{fieldSummary()}</text>
     </Show>
-    <title>{label()}{props.uiCollapsed ? " · UI implementation hidden inside this node" : ""}{props.stackChildrenModified ? " · layout wrapper children were promoted into this node" : ""} · {summary()} · {details()} · {location()}</title>
   </g>;
 }
 
 export function DisplayTotalityBridgeEdge(props: {
   bridge: RouteTotalityDisplayLayoutBridge;
+  emphasisActive: boolean;
   visible: boolean;
   active: boolean;
   frontier: boolean;
@@ -180,13 +174,12 @@ export function DisplayTotalityBridgeEdge(props: {
   const bridge = () => props.bridge.bridge.bridge;
   const visiblePath = () => path();
   return <g
-    classList={{ "bridge-visible": props.visible && Boolean(visiblePath()), "bridge-active": props.active, "bridge-frontier": props.frontier, "field-path": props.fieldFocused && props.fieldActive, "field-frontier": props.fieldFocused && props.fieldFrontier && !props.fieldActive, "field-dimmed": props.fieldFocused && !props.fieldActive && !props.fieldFrontier, "isolation-hidden": props.hidden }}
+    classList={{ "bridge-visible": props.visible && Boolean(visiblePath()), "bridge-active": props.active, "bridge-frontier": props.frontier, "emphasis-dimmed": props.emphasisActive && !props.active && !props.frontier, "field-path": props.fieldFocused && props.fieldActive, "field-frontier": props.fieldFocused && props.fieldFrontier && !props.fieldActive, "field-dimmed": props.fieldFocused && !props.fieldActive && !props.fieldFrontier, "isolation-hidden": props.hidden }}
     role="img"
     aria-hidden={props.visible && !props.hidden && Boolean(visiblePath()) ? undefined : "true"}
     aria-label={`${bridge().direction === "origin-to-render" ? "Origin to render" : "Terminal to origin"} handoff · ${bridge().status}`}
   >
     <Show when={visiblePath()}>{(d) => <path class="route-totality-bridge-line" d={d()} />}</Show>
-    <title>{bridge().proof.detail} · {bridge().status} · {bridge().locations.length} exact location(s)</title>
   </g>;
 }
 
@@ -213,7 +206,6 @@ export function DisplayTotalityAnnotation(props: {
     aria-hidden={props.hidden ? "true" : undefined}
     aria-pressed={canSelect() ? props.selected : undefined}
     aria-label={`${annotation().label} · ${annotation().detail}`}
-    onPointerDown={(event) => event.stopPropagation()}
     onClick={(event) => {
       event.stopPropagation();
       if (props.selection) props.onSelect(props.selection);
@@ -227,15 +219,13 @@ export function DisplayTotalityAnnotation(props: {
     <rect x="-10" y="-18" width={annotationWidth(annotation())} height="34" fill="transparent" pointer-events="all" />
     <circle class="route-totality-node-surface" cx="0" cy="0" r="8" />
     <text class="route-totality-node-label" x={14 * labelScale()} y={4 * labelScale()} transform={`scale(${1 / labelScale()})`}>{clip(annotation().label, 24)}</text>
-    <title>{annotation().detail}{annotation().location ? ` · ${routeTotalityLocationLabel(annotation().location)}` : ""}</title>
   </g>;
 }
 
 export function DisplayBoundaryStubMark(props: { stub: RouteTotalityBoundaryStub }) {
-  return <g class={`route-totality-boundary-stub family-${props.stub.family}`}>
+  return <g class={`route-totality-boundary-stub family-${props.stub.family}`} role="img" aria-label={`${props.stub.label} · ${props.stub.detail}`}>
     <line class="route-totality-boundary-stub-line" x1={props.stub.x1} y1={props.stub.y1} x2={props.stub.x2} y2={props.stub.y2} />
     <text class="route-totality-boundary-stub-label" x={props.stub.x2} y={props.stub.y2 - 4} text-anchor={props.stub.textAnchor}>{props.stub.label}</text>
-    <title>{props.stub.label} · {props.stub.detail}</title>
   </g>;
 }
 
@@ -248,7 +238,7 @@ function nodeSurface(kind: RouteTotalityNodeKind, width: number, height: number)
   const centerY = height / 2;
   const radius = Math.min(width, height) / 2;
   if (kind === "terminal") return <rect class="route-totality-node-surface" x={centerX - radius} y={centerY - radius} width={radius * 2} height={radius * 2} rx="1" />;
-  if (kind === "framework-boundary" || kind === "gap") return <rect class="route-totality-node-surface" x={centerX - radius} y={centerY - radius} width={radius * 2} height={radius * 2} rx="1" transform={`rotate(45 ${centerX} ${centerY})`} />;
+  if (kind === "gap") return <rect class="route-totality-node-surface" x={centerX - radius} y={centerY - radius} width={radius * 2} height={radius * 2} rx="1" transform={`rotate(45 ${centerX} ${centerY})`} />;
   return <circle class="route-totality-node-surface" cx={centerX} cy={centerY} r={radius} />;
 }
 
@@ -257,7 +247,7 @@ function nodeStatusRing(className: string, kind: RouteTotalityNodeKind, width: n
   const centerY = height / 2;
   const radius = Math.min(width, height) / 2 + offset;
   if (kind === "terminal") return <rect class={className} x={centerX - radius} y={centerY - radius} width={radius * 2} height={radius * 2} rx="2" />;
-  if (kind === "framework-boundary" || kind === "gap") return <rect class={className} x={centerX - radius} y={centerY - radius} width={radius * 2} height={radius * 2} rx="2" transform={`rotate(45 ${centerX} ${centerY})`} />;
+  if (kind === "gap") return <rect class={className} x={centerX - radius} y={centerY - radius} width={radius * 2} height={radius * 2} rx="2" transform={`rotate(45 ${centerX} ${centerY})`} />;
   return <circle class={className} cx={centerX} cy={centerY} r={radius} />;
 }
 

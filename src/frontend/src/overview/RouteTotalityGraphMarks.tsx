@@ -38,7 +38,6 @@ export function TotalityEdge(props: {
   return <g ref={props.onRegister} data-route-selection={props.selection.graphId} class={`route-totality-edge-family-${props.edge.family}`} classList={{ selected: props.selected, "emphasis-active": props.active, "emphasis-frontier": props.frontier, "emphasis-dimmed": props.emphasisActive && !props.active && !props.frontier, "isolation-hidden": props.hidden }} role="button" tabIndex={props.hidden ? -1 : 0} aria-hidden={props.hidden ? "true" : undefined} aria-pressed={props.selected} aria-label={`Select ${props.edge.family} edge ${routeTotalityEdgeLabel(props.edge)}${props.active ? " · in emphasized reach" : props.frontier ? " · partial frontier" : ""}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); props.onSelect(props.selection); }} onKeyDown={(event) => selectOnKey(event, props.selection, props.onSelect)}>
     <path class="route-totality-edge-hit" d={path()} /><path class="route-totality-edge-line" d={path()} />
     <Show when={props.zoom === "high"}><text class="route-totality-edge-label" x={point().x} y={point().y}>{routeTotalityEdgeLabel(props.edge)}</text></Show>
-    <title>{routeTotalityEdgeLabel(props.edge)} · {props.edge.detail} · {props.edge.locations[0] ? routeTotalityLocationLabel(props.edge.locations[0]) : "Location unavailable"}</title>
   </g>;
 }
 
@@ -61,15 +60,13 @@ export function TotalityBridgeEdge(props: {
   });
   return <g classList={{ "bridge-visible": props.visible, "bridge-active": props.active, "bridge-frontier": props.frontier, "isolation-hidden": props.hidden }} role="img" aria-hidden={props.visible && !props.hidden ? undefined : "true"} aria-label={`${props.bridge.direction === "origin-to-render" ? "Origin to render" : "Terminal to origin"} handoff · ${props.bridge.status}`}>
     <path class="route-totality-bridge-line" d={path()} />
-    <title>{props.bridge.proof.detail} · {props.bridge.status} · {props.bridge.locations.length} exact location(s)</title>
   </g>;
 }
 
 export function BoundaryStubMark(props: { stub: RouteTotalityBoundaryStub }) {
-  return <g class={`route-totality-boundary-stub family-${props.stub.family}`}>
+  return <g class={`route-totality-boundary-stub family-${props.stub.family}`} role="img" aria-label={`${props.stub.label} · ${props.stub.detail}`}>
     <line class="route-totality-boundary-stub-line" x1={props.stub.x1} y1={props.stub.y1} x2={props.stub.x2} y2={props.stub.y2} />
     <text class="route-totality-boundary-stub-label" x={props.stub.x2} y={props.stub.y2 - 4} text-anchor={props.stub.textAnchor}>{props.stub.label}</text>
-    <title>{props.stub.label} · {props.stub.detail}</title>
   </g>;
 }
 
@@ -92,12 +89,11 @@ export function TotalityNode(props: {
   const details = createMemo(() => props.node.detailLines.join(" · "));
   return <g ref={props.onRegister} data-route-selection={props.selection.graphId} class={`route-totality-node-kind-${props.node.kind}`} classList={{ selected: props.selected, "emphasis-active": props.active, "emphasis-frontier": props.frontier, "emphasis-dimmed": props.emphasisActive && !props.active && !props.frontier, "isolation-hidden": props.hidden }} transform={`translate(${props.node.x} ${props.node.y})`} role="button" tabIndex={props.hidden ? -1 : 0} aria-hidden={props.hidden ? "true" : undefined} aria-pressed={props.selected} aria-label={`Select ${routeTotalityNodeKindLabel(props.node.kind)} ${label()}${props.active ? " · in emphasized reach" : props.frontier ? " · partial frontier" : ""}${props.findings.count ? ` · ${props.findings.count} exact finding${props.findings.count === 1 ? "" : "s"}` : ""}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); props.onSelect(props.selection); }} onKeyDown={(event) => selectOnKey(event, props.selection, props.onSelect)}>
     {nodeSurface(props.node.kind, props.node.width, props.node.height)}
-    <Show when={props.findings.count > 0}><g class="route-totality-finding-marker" aria-hidden="true"><circle cx={props.node.width - 10} cy="10" r="7" /><text x={props.node.width - 10} y="13" text-anchor="middle">{props.findings.count}</text><title>{props.findings.count} exact indexed finding{props.findings.count === 1 ? "" : "s"}</title></g></Show>
+    <Show when={props.findings.count > 0}><g class="route-totality-finding-marker" aria-hidden="true"><circle cx={props.node.width - 10} cy="10" r="7" /><text x={props.node.width - 10} y="13" text-anchor="middle">{props.findings.count}</text></g></Show>
     <text class="route-totality-node-label" x="14" y="23">{label()}</text>
     <text class="route-totality-node-kind-label" x="14" y="42">{routeTotalityNodeKindLabel(props.node.kind)}</text>
     <text class="route-totality-node-summary" x="14" y="61">{summary()}</text>
     <Show when={props.zoom === "high"}><text class="route-totality-node-location" x="14" y="73">{location()}</text></Show>
-    <title>{label()} · {summary()} · {details()} · {location()}</title>
   </g>;
 }
 
