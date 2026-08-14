@@ -98,7 +98,11 @@ export function selectRouteTotalityFieldFocus(
     addPathElements(activeNodeIds, attachment.evidencePathElementIds);
     addPathRelations(activeEdgeIds, attachment.evidencePathRelationIds);
     for (const terminalId of attachment.terminalIds) {
-      addSurfaceNode(layout, visibleNodeId(layout, `terminal:${terminalId}`), activeNodeIds);
+      const terminalNodeId = visibleNodeId(layout, `terminal:${terminalId}`);
+      if (terminalNodeId !== occurrenceNodeId) {
+        addSummary(summaries, terminalNodeId, attachment.field.label, 1, true, false);
+      }
+      addSurfaceNode(layout, terminalNodeId, activeNodeIds);
       addSurfaceEdge(layout, `render-terminal:${terminalId}`, activeEdgeIds);
     }
     addMatchingBridgeIds(
