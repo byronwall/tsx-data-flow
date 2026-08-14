@@ -62,6 +62,124 @@ return renderer() === "totality"
 Removal starts only after Route Totality has question parity. It must preserve
 source selection, field focus, findings, code navigation, state, and gaps.
 
+#### Confirmed remaining Current workspace surface
+
+##### Ordered source-to-terminal paths
+
+Current workspace lists ranked paths from one source to one terminal. A user
+can choose one path and focus the graph on that exact trajectory.
+
+Route Totality can emphasize reach from a selected record. It does not provide
+an ordered path picker or answer which concrete path to inspect first.
+
+```ts
+type PathChoice = {
+  sourceId: string;
+  terminalId: string;
+  operationIds: string[];
+  completeness: "complete" | "partial";
+};
+```
+
+This is the highest-impact Current-only product question.
+
+##### Semantic operation and shape explanation
+
+Current workspace shows ordered operation cards. Each card can show input and
+output shapes, field effects, completeness, and exact source expressions.
+
+Route Totality explains occurrences, evidence, fields, findings, and gaps. It
+does not provide an equivalent semantic-stage or before-and-after shape view.
+
+```ts
+type OperationChange = {
+  inputShapeId: string;
+  outputShapeId: string;
+  fieldEffects: string[];
+};
+```
+
+Decide whether Route Totality must own this view. A clear handoff to Current
+workspace could preserve it during an incremental cutover.
+
+##### Source-focused stage inventory
+
+Current workspace summarizes resources, owners, transforms, paths, and reached
+terminals for the selected source. It also distinguishes exact, handoff,
+resource-only, and unavailable source matches.
+
+Route Totality exposes stronger exact field proof. It lacks the same compact
+source-stage inventory and gives little feedback when no exact origin matches.
+
+```ts
+type SourceStageSummary = {
+  resources: string[];
+  transforms: string[];
+  terminalIds: string[];
+  match: "exact" | "handoff" | "resource" | "unavailable";
+};
+```
+
+The smallest repair is an explicit unmatched-source message. Add an inventory
+only if users still need the broader stage summary.
+
+##### Work packets
+
+Current workspace can collect selected operations into a local packet. Users
+can annotate, reorder, remove, persist, and copy packet entries as Markdown.
+
+Route Totality has no packet controls. Decide whether packets remain a product
+requirement before treating their absence as a cutover blocker.
+
+```ts
+type PacketEntry = {
+  route: string;
+  operationId: string;
+  note: string;
+};
+```
+
+##### Renderer-aware controls
+
+The shared `All paths` and `Evidence cards` controls remain visible in Route
+Totality, but Route Totality does not use that state.
+
+Hide or replace controls that do not affect the active renderer. Do not keep a
+control that appears to work but has no visible effect.
+
+##### Renderer comparison state
+
+Switching renderers clears Route Totality selection, camera, isolation, and
+field focus. This is safe, but it makes direct renderer comparison harder.
+
+Preserve separate renderer state only if side-by-side comparison remains an
+important cutover workflow. Do not add state complexity for ordinary use.
+
+##### Generic UI detail
+
+Current workspace can reveal or hide individual generic UI components. Route
+Totality provides one global generic UI visibility control.
+
+Per-component control is a lower-impact difference. It should block cutover
+only if real investigations require selective wrapper visibility.
+
+#### Differences that do not block cutover
+
+- Current topology and Route Totality do not need identical graph structures.
+- Manual node placement, layout ticks, copied topology JSON, and force arrows
+  are debug tools.
+- Route Totality already has stronger proof, gap, finding, and context views.
+- Both renderers support normal keyboard selection, isolation, navigation,
+  camera interaction, restoration, and partial states.
+
+#### Smallest cutover-oriented slice
+
+Make the shared view controls renderer-aware. Add one `Open ordered trajectory`
+action from Route Totality while preserving the selected route and source.
+
+This keeps the highest-value Current question available without copying the
+complete operation-card interface into Route Totality.
+
 ## Deferred candidates
 
 These items require a separate product decision.
