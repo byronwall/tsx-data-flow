@@ -3,31 +3,6 @@
 Keep only work that is not complete in this file. Remove an item after its
 implementation commit lands.
 
-## Active slice
-
-### Direct top-level scalar proof
-
-Prove direct `snapshot()?.field` reads that reach render terminals.
-
-Positive examples:
-
-- `teamDisplayName` reaches the team heading in `AppShell`.
-- `seasonName` reaches the season label in `AppShell`.
-
-Negative and regression examples:
-
-- `schemaVersion` stays available without route proof.
-- An unrelated equal-name field stays absent.
-- Existing `games[*]` attachments stay unchanged.
-- `projects[*].code` stays an `unsupported-transform` frontier.
-
-Reuse the current carrier, identity, attachment, and UI paths.
-
-Change `Available · not proven` to `Available · no proven route use`.
-
-Stop after direct scalar reads work. Do not add collection operations in this
-slice.
-
 ## Next decision
 
 Choose one option after the active slice. Do not start both.
