@@ -5,6 +5,7 @@ import type {
   ComponentTopologyLayoutNode,
   ComponentTopologyNode,
 } from "./component-topology-model";
+import { downstreamFringeDirection } from "./component-topology-fringe-direction";
 import { selectVisibleTopologyLabelIds } from "./component-topology-labels";
 
 type SimulationNode = ComponentTopologyLayoutNode & { vx: number; vy: number; lastDx: number; lastDy: number };
@@ -40,6 +41,7 @@ export type ComponentTopologyLayoutSettings = {
   markGap: number;
   collisionStrength: number;
   fringeStrength: number;
+  downstreamStrength: number;
 };
 
 export type ComponentTopologyForceVector = {
@@ -68,6 +70,7 @@ export const DEFAULT_COMPONENT_TOPOLOGY_LAYOUT_SETTINGS: ComponentTopologyLayout
   markGap: 12,
   collisionStrength: 1.7,
   fringeStrength: 2.1,
+  downstreamStrength: 1,
 };
 
 export function layoutComponentTopology(
@@ -394,7 +397,7 @@ function applyFringeAvoidance(
     const graphNeighbors = desires.neighborsById.get(node.id) ?? new Set();
     const parents = [...(desires.parentsById.get(node.id) ?? [])]
       .map((parentId) => positionById.get(parentId))
-      .filter((parent): parent is SimulationNode => Boolean(parent) && parent.kind !== "context");
+      .filter((parent): parent is SimulationNode => parent !== undefined && parent.kind !== "context");
     const downstreamDebt = parents.reduce((debt, parent) => ({
       x: debt.x + clamp((minimumDownstreamOffset - (node.x - parent.x)) / minimumDownstreamOffset, 0, 1),
       y: debt.y + clamp((minimumDownstreamOffset - (node.y - parent.y)) / minimumDownstreamOffset, 0, 1),
@@ -425,25 +428,17 @@ function applyFringeAvoidance(
       localPressure > 0 ? node.x - centerX / localPressure : 0,
       localPressure > 0 ? node.y - centerY / localPressure : 0,
       downstreamDebt,
+      settings.downstreamStrength,
+      hashUnit(`fringe:${node.id}`),
     );
     const centerDistance = Math.hypot(outward.x, outward.y);
     const repulsionMagnitude = Math.hypot(repulsionX, repulsionY);
-    const directionalPressure = Math.hypot(downstreamDebt.x, downstreamDebt.y);
-    const requestedForce = (repulsionMagnitude * .72 + directionalPressure * .6)
+    const requestedForce = (repulsionMagnitude * .72 + Math.hypot(downstreamDebt.x, downstreamDebt.y) * .6 * settings.downstreamStrength)
       * fringe * settings.fringeStrength * forceCooling;
     const force = Math.min(5, requestedForce);
     node.vx += outward.x / centerDistance * force;
     node.vy += outward.y / centerDistance * force;
   }
-}
-
-function downstreamFringeDirection(outwardX: number, outwardY: number, downstreamDebt: { x: number; y: number }) {
-  const scale = Math.max(1, Math.hypot(outwardX, outwardY));
-  const diagonalFloor = scale * .22;
-  return {
-    x: Math.max(diagonalFloor, outwardX) + downstreamDebt.x * scale * .65,
-    y: Math.max(diagonalFloor, outwardY) + downstreamDebt.y * scale * .65,
-  };
 }
 
 function isFringeCandidate(node: ComponentTopologyNode) {

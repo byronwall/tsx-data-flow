@@ -29,7 +29,8 @@ export function ComponentTopologyDebugControls(props: {
     <DebugRange label="Link distance" value={props.settings.targetLinkDistance} minimum={40} maximum={360} step={2} onInput={(value) => props.onSetting("targetLinkDistance", value)} />
     <DebugRange label="Mark gap" value={props.settings.markGap} minimum={0} maximum={40} step={1} onInput={(value) => props.onSetting("markGap", value)} />
     <DebugRange label="Collision" value={props.settings.collisionStrength} minimum={.2} maximum={4} step={.1} onInput={(value) => props.onSetting("collisionStrength", value)} />
-    <DebugRange label="Fringe push" value={props.settings.fringeStrength} minimum={0} maximum={5} step={.1} onInput={(value) => props.onSetting("fringeStrength", value)} />
+    <DebugRange label="Fringe push" value={props.settings.fringeStrength} minimum={0} maximum={10} step={.1} onInput={(value) => props.onSetting("fringeStrength", value)} />
+    <DebugRange label="Down-right bias" value={props.settings.downstreamStrength} minimum={0} maximum={10} step={.1} onInput={(value) => props.onSetting("downstreamStrength", value)} />
     <small>{props.editingPositions ? "Drag nodes to reposition" : `${props.onToggleEditing ? `${props.manualMoveCount ?? 0} manual ${(props.manualMoveCount ?? 0) === 1 ? "move" : "moves"} · ` : ""}${props.settings.separationPasses} separation ${props.settings.separationPasses === 1 ? "pass" : "passes"}`}{props.forcesVisible ? " · arrows show exact next-tick displacement (1:1)" : ""}</small>
   </aside>;
 }
