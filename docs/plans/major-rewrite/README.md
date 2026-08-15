@@ -5,7 +5,7 @@ implementation commit lands.
 
 ## Next decision
 
-Choose one option after the active slice. Do not start both.
+Choose one option. Do not start both.
 
 ### Add one collection operation
 
@@ -37,26 +37,7 @@ return renderer() === "totality"
 Removal starts only after Route Totality has question parity. It must preserve
 source selection, field focus, findings, code navigation, state, and gaps.
 
-#### Confirmed remaining Current workspace surface
-
-##### Ordered source-to-terminal paths
-
-Current workspace lists ranked paths from one source to one terminal. A user
-can choose one path and focus the graph on that exact trajectory.
-
-Route Totality can emphasize reach from a selected record. It does not provide
-an ordered path picker or answer which concrete path to inspect first.
-
-```ts
-type PathChoice = {
-  sourceId: string;
-  terminalId: string;
-  operationIds: string[];
-  completeness: "complete" | "partial";
-};
-```
-
-This is the highest-impact Current-only product question.
+#### Confirmed remaining Current workspace gaps
 
 ##### Semantic operation and shape explanation
 
@@ -76,6 +57,8 @@ type OperationChange = {
 
 Decide whether Route Totality must own this view. A clear handoff to Current
 workspace could preserve it during an incremental cutover.
+
+This is the highest-impact remaining Current-only product question.
 
 ##### Source-focused stage inventory
 
@@ -140,20 +123,23 @@ only if real investigations require selective wrapper visibility.
 
 #### Differences that do not block cutover
 
+- Exact field-use isolation now provides one field-backed
+  source-to-consumer-to-terminal path.
+- Normal and isolated views use the same canonical terminal routing.
 - Current topology and Route Totality do not need identical graph structures.
 - Manual node placement, layout ticks, copied topology JSON, and force arrows
   are debug tools.
 - Route Totality already has stronger proof, gap, finding, and context views.
-- Both renderers support normal keyboard selection, isolation, navigation,
-  camera interaction, restoration, and partial states.
+- Both renderers support isolation, navigation, camera interaction,
+  restoration, and partial states.
 
 #### Smallest cutover-oriented slice
 
-Make the shared view controls renderer-aware. Add one `Open ordered trajectory`
-action from Route Totality while preserving the selected route and source.
+Make the shared view controls renderer-aware. Hide or replace `All paths` and
+`Evidence cards` when Route Totality is active.
 
-This keeps the highest-value Current question available without copying the
-complete operation-card interface into Route Totality.
+This removes one confirmed misleading interaction without deciding the larger
+semantic operation and shape question.
 
 ## Deferred candidates
 
@@ -301,3 +287,6 @@ pnpm accept:route-field-proof \
 
 Follow `AGENTS.md` for the current lint, typecheck, browser, test, and build
 rules.
+
+The field-use isolation mouse gate passed on the stable canonical route. The
+final OS-level Enter and Space check remains pending approval.
