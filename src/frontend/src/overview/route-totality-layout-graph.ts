@@ -80,6 +80,9 @@ export function buildRouteTotalityGraph(totality: RouteTotality): RouteTotalityG
   const nodeIds = new Set(nodes.map((node) => node.id));
   const primaryNodeIds = primaryNodes.map((node) => node.id);
   const evidenceNodeIds = evidenceNodes.map((node) => node.id);
+  const occurrencesById = new Map(
+    (surface?.occurrences ?? []).map((occurrence) => [occurrence.id, occurrence] as const),
+  );
   const unresolvedEdgeIds: string[] = [];
   const edges: RouteTotalityGraphEdge[] = [];
   const addEdge = (edge: RouteTotalityGraphEdge): void => {
@@ -103,7 +106,10 @@ export function buildRouteTotalityGraph(totality: RouteTotality): RouteTotalityG
     addEdge(surfaceEdge(edge, boundaryIds));
   }
   for (const terminal of (surface?.terminals ?? []).slice().sort(compareTerminal)) {
-    const parent = terminal.renderParentId ?? terminal.ownerOccurrenceId;
+    const owner = terminal.ownerOccurrenceId ? occurrencesById.get(terminal.ownerOccurrenceId) : undefined;
+    const parent = owner && compareLocation(terminal.location, owner.callSite) === 0
+      ? owner.id
+      : terminal.renderParentId ?? terminal.ownerOccurrenceId;
     if (parent) addEdge(terminalEdge(terminal, parent, boundaryIds));
   }
   for (const relation of (evidence?.relations ?? [])
