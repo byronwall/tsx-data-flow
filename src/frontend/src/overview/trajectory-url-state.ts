@@ -3,9 +3,7 @@ import { buildRouteTotalityLayout } from "./route-totality-layout";
 import type { RouteAtlasKind, RouteAtlasSort } from "./route-atlas-model";
 import type { RouteTotalityLayout } from "./route-totality-model";
 
-export type TrajectoryView = "context" | "trajectory";
 export type GenericUiMode = "hidden" | "all";
-export type TrajectoryRenderer = "current" | "experimental" | "totality";
 export type TrajectoryTotalitySelection = {
   kind: "node" | "edge" | "context" | "context-edge";
   graphId: string;
@@ -14,11 +12,9 @@ export type TrajectoryTotalitySelection = {
 };
 export type TrajectoryGraphCamera = { x: number; y: number; scale: number };
 export type TrajectoryUrlState = {
-  open: boolean; route: string | null; flow: string | null; item: string | null; expand: string[]; isolate: boolean;
+  open: boolean; route: string | null; flow: string | null; isolate: boolean;
   mode: "atlas" | "detail"; kind: RouteAtlasKind; sort: RouteAtlasSort; source: string | null;
-  filter: string | null; view: TrajectoryView; genericUi: GenericUiMode | null; pan: { x: number; y: number } | null; zoom: number | null; packet: string | null;
-  /** Optional fields keep old callers and old URLs source-compatible. */
-  trajectoryRenderer?: TrajectoryRenderer;
+  filter: string | null; genericUi: GenericUiMode | null;
   totalitySelection?: TrajectoryTotalitySelection | null;
   graphCamera?: TrajectoryGraphCamera | null;
   contextFocus?: string | null;
@@ -27,37 +23,29 @@ export type TrajectoryUrlState = {
 };
 
 export type TrajectoryProjectionState = {
-  trajectoryRenderer: TrajectoryRenderer;
   totalitySelection: TrajectoryTotalitySelection | null;
   graphCamera: TrajectoryGraphCamera | null;
 };
 
 export const EMPTY_TRAJECTORY_STATE: TrajectoryUrlState = {
-  open: false, route: null, flow: null, item: null, expand: [], isolate: false, mode: "detail", kind: "pages", sort: "steps", source: null, filter: null, view: "context", genericUi: null, pan: null, zoom: null, packet: null,
-  trajectoryRenderer: "current", totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null,
+  open: false, route: null, flow: null, isolate: false, mode: "detail", kind: "pages", sort: "steps", source: null, filter: null, genericUi: null,
+  totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null,
 };
 
 const GRAPH_CAMERA_LIMITS = { coordinate: 100_000, minScale: 0.25, maxScale: 10 } as const;
 
 export function parseTrajectoryUrlState(search: string | URLSearchParams): TrajectoryUrlState {
   const params = typeof search === "string" ? new URLSearchParams(search) : search;
-  const pan = params.get("pan")?.split(",").map(Number);
-  const zoom = Number(params.get("zoom"));
   const state: TrajectoryUrlState = {
-    open: params.get("viz") === "trajectory", route: clean(params.get("route")), flow: clean(params.get("flow")), item: clean(params.get("item")),
-    expand: [...new Set((params.get("expand") ?? "").split(",").map((value) => value.trim()).filter(Boolean))], isolate: params.get("isolate") === "1",
+    open: params.get("viz") === "trajectory", route: clean(params.get("route")), flow: clean(params.get("flow")), isolate: params.get("isolate") === "1",
     mode: params.get("trajectoryMode") === "atlas" ? "atlas" : "detail",
     kind: params.get("routeKind") === "api" || params.get("routeKind") === "all" ? params.get("routeKind") as RouteAtlasKind : "pages",
     sort: (["paths", "unique", "substitutions", "gaps"].includes(params.get("routeSort") ?? "") ? params.get("routeSort") : "steps") as RouteAtlasSort,
     source: clean(params.get("sourceMethod")),
-    filter: clean(params.get("filter")), view: params.get("view") === "trajectory" ? "trajectory" : "context",
+    filter: clean(params.get("filter")),
     genericUi: params.get("genericUi") === "hidden" || params.get("genericUi") === "all" ? params.get("genericUi") as GenericUiMode : null,
-    pan: pan?.length === 2 && pan.every(Number.isFinite) ? { x: pan[0], y: pan[1] } : null,
-    zoom: Number.isFinite(zoom) && zoom > 0 ? zoom : null, packet: clean(params.get("packet")),
     fieldFocus: clean(params.get("totalityField")), consumerFocus: clean(params.get("totalityConsumer")),
   };
-  const renderer = params.get("trajectoryRenderer");
-  if (renderer !== null) state.trajectoryRenderer = parseRenderer(renderer);
   const totalitySelection = params.get("totalitySelection");
   if (totalitySelection !== null) state.totalitySelection = parseTotalitySelection(totalitySelection);
   const graphCamera = params.get("graphCamera");
@@ -69,24 +57,17 @@ export function parseTrajectoryUrlState(search: string | URLSearchParams): Traje
 
 export function serializeTrajectoryUrlState(state: TrajectoryUrlState, current = "") {
   const params = new URLSearchParams(current);
-  for (const key of ["viz", "route", "flow", "item", "expand", "isolate", "trajectoryMode", "routeKind", "routeSort", "sourceMethod", "filter", "view", "genericUi", "pan", "zoom", "packet", "trajectoryRenderer", "totalitySelection", "graphCamera", "contextFocus", "totalityField", "totalityConsumer"]) params.delete(key);
+  for (const key of ["viz", "route", "flow", "isolate", "trajectoryMode", "routeKind", "routeSort", "sourceMethod", "filter", "genericUi", "trajectoryRenderer", "totalitySelection", "graphCamera", "contextFocus", "totalityField", "totalityConsumer"]) params.delete(key);
   if (state.open) params.set("viz", "trajectory");
   if (state.route) params.set("route", state.route);
   if (state.flow) params.set("flow", state.flow);
-  if (state.item) params.set("item", state.item);
-  if (state.expand.length) params.set("expand", state.expand.join(","));
   if (state.isolate) params.set("isolate", "1");
   params.set("trajectoryMode", state.mode);
   params.set("routeKind", state.kind);
   params.set("routeSort", state.sort);
   if (state.source) params.set("sourceMethod", state.source);
   if (state.filter) params.set("filter", state.filter);
-  params.set("view", state.view);
   if (state.genericUi) params.set("genericUi", state.genericUi);
-  if (state.pan) params.set("pan", `${round(state.pan.x)},${round(state.pan.y)}`);
-  if (state.zoom) params.set("zoom", String(round(state.zoom)));
-  if (state.packet) params.set("packet", state.packet);
-  if (state.trajectoryRenderer !== undefined) params.set("trajectoryRenderer", state.trajectoryRenderer === "experimental" ? "totality" : state.trajectoryRenderer);
   if (state.totalitySelection) params.set("totalitySelection", `${state.totalitySelection.kind}:${state.totalitySelection.graphId}`);
   if (state.graphCamera) {
     const camera = normalizeGraphCamera(state.graphCamera);
@@ -102,8 +83,6 @@ export function normalizeTrajectoryUrlState(state: TrajectoryUrlState): Trajecto
   return {
     ...EMPTY_TRAJECTORY_STATE,
     ...state,
-    expand: [...new Set(state.expand)],
-    trajectoryRenderer: state.trajectoryRenderer === "experimental" ? "totality" : state.trajectoryRenderer ?? "current",
     totalitySelection: state.totalitySelection ?? null,
     graphCamera: state.graphCamera ? normalizeGraphCamera(state.graphCamera) : null,
     contextFocus: state.contextFocus ?? null,
@@ -115,7 +94,6 @@ export function normalizeTrajectoryUrlState(state: TrajectoryUrlState): Trajecto
 export function trajectoryProjectionState(state: TrajectoryUrlState): TrajectoryProjectionState {
   const normalized = normalizeTrajectoryUrlState(state);
   return {
-    trajectoryRenderer: normalized.trajectoryRenderer!,
     totalitySelection: normalized.totalitySelection!,
     graphCamera: normalized.graphCamera!,
   };
@@ -124,15 +102,12 @@ export function trajectoryProjectionState(state: TrajectoryUrlState): Trajectory
 export function sameTrajectoryUrlState(left: TrajectoryUrlState, right: TrajectoryUrlState) {
   const leftProjection = trajectoryProjectionState(left);
   const rightProjection = trajectoryProjectionState(right);
-  return left.open === right.open && left.route === right.route && left.flow === right.flow && left.item === right.item
-    && left.expand.length === right.expand.length && left.expand.every((item, index) => item === right.expand[index])
+  return left.open === right.open && left.route === right.route && left.flow === right.flow
     && left.isolate === right.isolate && left.mode === right.mode && left.kind === right.kind && left.sort === right.sort
-  && left.source === right.source && left.filter === right.filter && left.view === right.view && left.genericUi === right.genericUi
-  && samePoint(left.pan, right.pan) && left.zoom === right.zoom && left.packet === right.packet
+  && left.source === right.source && left.filter === right.filter && left.genericUi === right.genericUi
   && (left.contextFocus ?? null) === (right.contextFocus ?? null)
   && (left.fieldFocus ?? null) === (right.fieldFocus ?? null)
   && (left.consumerFocus ?? null) === (right.consumerFocus ?? null)
-  && leftProjection.trajectoryRenderer === rightProjection.trajectoryRenderer
   && sameSelection(leftProjection.totalitySelection, rightProjection.totalitySelection)
   && sameCamera(leftProjection.graphCamera, rightProjection.graphCamera);
 }
@@ -200,10 +175,7 @@ export function reconcileTrajectoryUrlState(state: TrajectoryUrlState, inventory
       ...state,
       mode,
       source,
-      route: route?.key ?? null,
       flow: flow?.key ?? null,
-      item: sameFlow ? state.item : null,
-      expand: sameFlow ? state.expand : [],
       isolate: sameFlow && state.isolate,
       totalitySelection: sameFlow ? state.totalitySelection : null,
       graphCamera: sameFlow ? state.graphCamera : null,
@@ -263,9 +235,6 @@ function lexical(left: string, right: string) { return left < right ? -1 : left 
 
 export function reconcileTrajectoryDetailState(state: TrajectoryUrlState, detail: RouteDataDetail) {
   const normalized = normalizeTrajectoryUrlState(state);
-  const validOperations = new Set(detail.operations.map((item) => item.key));
-  const item = normalized.item && validOperations.has(normalized.item) ? normalized.item : null;
-  const expand = normalized.expand.filter((key) => validOperations.has(key));
   const contextDeclarationIds = new Set(detail.totality?.contextContinuity.declarations.map((declaration) => declaration.id));
   const contextFocus = normalized.contextFocus && contextDeclarationIds.has(normalized.contextFocus) ? normalized.contextFocus : null;
   const selectedSource = normalized.source
@@ -288,19 +257,13 @@ export function reconcileTrajectoryDetailState(state: TrajectoryUrlState, detail
   const totalityLayout = buildRouteTotalityLayout(detail.totality);
   const totalitySelection = isTotalitySelectionValid(currentSelection, totalityLayout) ? currentSelection : null;
   const totalitySelectionInvalid = Boolean(currentSelection && !totalitySelection);
-  const hasValidIsolationOwner = normalized.trajectoryRenderer === "totality"
-    ? isTotalityIsolationFocusValid(totalitySelection, totalityLayout)
-    : normalized.trajectoryRenderer === "current" && Boolean(item);
+  const hasValidIsolationOwner = isTotalityIsolationFocusValid(totalitySelection, totalityLayout);
   const isolate = normalized.isolate && !totalitySelectionInvalid && hasValidIsolationOwner;
-  const invalid = normalized.item !== item || normalized.expand.length !== expand.length || normalized.totalitySelection !== totalitySelection || normalized.contextFocus !== contextFocus || normalized.fieldFocus !== validFieldFocus || normalized.consumerFocus !== validConsumerFocus;
+  const invalid = normalized.totalitySelection !== totalitySelection || normalized.isolate !== isolate || normalized.contextFocus !== contextFocus || normalized.fieldFocus !== validFieldFocus || normalized.consumerFocus !== validConsumerFocus;
   return {
-    state: { ...normalized, item, expand, isolate, totalitySelection, contextFocus, fieldFocus: validFieldFocus, consumerFocus: validConsumerFocus },
+    state: { ...normalized, isolate, totalitySelection, contextFocus, fieldFocus: validFieldFocus, consumerFocus: validConsumerFocus },
     notice: invalid ? "Some restored investigation state no longer exists and was cleared." : "",
   };
-}
-
-function parseRenderer(value: string): TrajectoryRenderer {
-  return value === "experimental" || value === "totality" ? "totality" : "current";
 }
 
 function parseTotalitySelection(value: string): TrajectoryTotalitySelection | null {
@@ -341,7 +304,6 @@ function isTotalityIsolationFocusValid(selection: TrajectoryTotalitySelection | 
     && layout.nodes.some((node) => node.id === selection.graphId && (node.kind === "origin" || node.kind === "terminal"));
 }
 
-function samePoint(left: { x: number; y: number } | null, right: { x: number; y: number } | null) { return left?.x === right?.x && left?.y === right?.y; }
 function sameSelection(left: TrajectoryTotalitySelection | null, right: TrajectoryTotalitySelection | null) { return left?.kind === right?.kind && left?.graphId === right?.graphId; }
 function sameCamera(left: TrajectoryGraphCamera | null, right: TrajectoryGraphCamera | null) { return left?.x === right?.x && left?.y === right?.y && left?.scale === right?.scale; }
 function clean(value: string | null | undefined) { const next = value?.trim(); return next ? next : null; }

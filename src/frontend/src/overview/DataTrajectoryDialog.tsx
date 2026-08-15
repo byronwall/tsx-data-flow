@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import type { RouteDataInventory } from "../../../api/contracts";
 import { fetchRouteData } from "../api";
-import { RouteTrajectoryWorkspace } from "./RouteTrajectoryWorkspace";
+import { RouteTotalityWorkspace } from "./RouteTotalityWorkspace";
 import { RouteAtlas } from "./RouteAtlas";
 import { TrajectorySourcePicker } from "./TrajectorySourcePicker";
 import { BROWSER_URL_CHANGE_EVENT, commitBrowserUrl, replaceBrowserUrlSilently } from "./trajectory-history";
@@ -112,17 +112,17 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     setNotice(restored.notice);
     lastUrlOpen = next.open;
     if (!sameTrajectoryUrlState(state(), next)) setState(next);
-    const legacyRenderer = new URLSearchParams(search).get("trajectoryRenderer") === "experimental";
-    if ((legacyRenderer || !sameTrajectoryUrlState(parseTrajectoryUrlState(search), next)) && typeof window !== "undefined") {
+    const hasLegacyRenderer = new URLSearchParams(search).has("trajectoryRenderer");
+    if ((hasLegacyRenderer || !sameTrajectoryUrlState(parseTrajectoryUrlState(search), next)) && typeof window !== "undefined") {
       commitBrowserUrl(serializeTrajectoryUrlState(next, search), true);
     }
   };
   const selectRoute = (routeKey: string) => {
     const flow = selectCheapestTrajectoryForRoute(props.inventory, routeKey);
-    update({ mode: "detail", route: routeKey, flow: flow?.key ?? null, source: null, item: null, expand: [], isolate: false, view: "context", pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null }, true);
+    update({ mode: "detail", route: routeKey, flow: flow?.key ?? null, source: null, isolate: false, totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null }, true);
   };
-  const selectSource = (source: string | null) => update({ source, item: null, expand: [], isolate: false, pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null }, true);
-  const selectSourceField = (source: string, fieldFocus: string) => update({ source, item: null, expand: [], isolate: false, pan: null, zoom: null, totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus, consumerFocus: null }, true);
+  const selectSource = (source: string | null) => update({ source, isolate: false, totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null }, true);
+  const selectSourceField = (source: string, fieldFocus: string) => update({ source, isolate: false, totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus, consumerFocus: null }, true);
   const warmSource = (source: string) => {
     const current = state();
     if (!current.open || current.mode !== "detail" || !current.route || !current.flow) return;
@@ -185,7 +185,7 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     document.addEventListener("keydown", keydown);
     window.addEventListener("popstate", syncUrl);
     window.addEventListener(BROWSER_URL_CHANGE_EVENT, syncUrl);
-    if (new URLSearchParams(window.location.search).get("trajectoryRenderer") === "experimental") {
+    if (new URLSearchParams(window.location.search).has("trajectoryRenderer")) {
       commitBrowserUrl(serializeTrajectoryUrlState(state(), window.location.search), true);
     }
     createEffect(() => {
@@ -197,7 +197,7 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     onCleanup(() => { document.removeEventListener("keydown", keydown); window.removeEventListener("popstate", syncUrl); window.removeEventListener(BROWSER_URL_CHANGE_EVENT, syncUrl); document.body.style.overflow = previousOverflow; detailController?.abort(); });
   });
   return <div ref={dialog} class="data-trajectory-modal" hidden={!state().open} role="dialog" aria-modal="true" aria-labelledby="data-trajectory-title">
-    <header class="data-trajectory-header"><div><h2 id="data-trajectory-title">Data trajectories</h2></div><Show when={state().mode === "detail"}><button type="button" class="route-atlas-back" onClick={() => update({ mode: "atlas", item: null, expand: [], isolate: false })}>← Routes</button><label class="trajectory-header-select"><span>Route</span><select aria-label="Selected application route" value={state().route ?? ""} onChange={(event) => selectRoute(event.currentTarget.value)}><For each={props.inventory.routes}>{(route) => <option value={route.key}>{route.pathPattern} · {route.trajectoryCount.toLocaleString()} paths</option>}</For></select></label><TrajectorySourcePicker sources={sourcePickerSources()} selectedKey={state().source} selectedFieldPath={state().fieldFocus ?? null} unprovenFieldPaths={unprovenFieldPaths()} onSelect={selectSource} onSelectField={selectSourceField} onWarmSource={warmSource} /><div class="trajectory-view-toggle" role="group" aria-label="Trajectory view"><button type="button" aria-pressed={state().view === "context"} onClick={() => update({ view: "context" })}>All paths</button><button type="button" aria-pressed={state().view === "trajectory"} onClick={() => update({ view: "trajectory" })}>Evidence cards</button></div></Show><button type="button" class="component-modal-close" aria-label="Close data trajectories" onClick={close}>×</button></header>
+    <header class="data-trajectory-header"><div><h2 id="data-trajectory-title">Data trajectories</h2></div><Show when={state().mode === "detail"}><button type="button" class="route-atlas-back" onClick={() => update({ mode: "atlas", isolate: false })}>← Routes</button><label class="trajectory-header-select"><span>Route</span><select aria-label="Selected application route" value={state().route ?? ""} onChange={(event) => selectRoute(event.currentTarget.value)}><For each={props.inventory.routes}>{(route) => <option value={route.key}>{route.pathPattern} · {route.trajectoryCount.toLocaleString()} paths</option>}</For></select></label><TrajectorySourcePicker sources={sourcePickerSources()} selectedKey={state().source} selectedFieldPath={state().fieldFocus ?? null} unprovenFieldPaths={unprovenFieldPaths()} onSelect={selectSource} onSelectField={selectSourceField} onWarmSource={warmSource} /></Show><button type="button" class="component-modal-close" aria-label="Close data trajectories" onClick={close}>×</button></header>
     <Show when={notice()}><p class="trajectory-restoration-notice" role="status">{notice()}</p></Show>
     <Show when={state().mode === "atlas"}><RouteAtlas inventory={props.inventory} kind={state().kind} sort={state().sort} filter={state().filter} source={state().source} onKind={(kind) => update({ kind })} onSort={(sort) => update({ sort })} onFilter={(filter) => update({ filter })} onSource={selectSource} onRoute={selectRoute} /></Show>
     <Show when={state().mode === "detail"}>
@@ -207,7 +207,7 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     </div>
     <Show when={visibleDetailError()}><p class="error" role="alert">{visibleDetailError()?.message ?? "Unable to load the selected trajectory."}</p></Show>
     <Show when={displayedDetail()} fallback={<Show when={!detail.loading} fallback={<div class="trajectory-loading"><strong>Loading trajectory</strong><p>Requesting route detail and assembling its ordered operations…</p></div>}><div class="trajectory-empty-state"><h3>No trajectory is available</h3><p>{selectedRoute()?.omissions.join(" ") || "Choose another route or inspect the route inventory."}</p><Show when={visibleDetailError()}><button type="button" onClick={() => void refetch()}>Try again</button></Show></div></Show>}>
-      {(data) => <RouteTrajectoryWorkspace detail={data()} generation={props.generation} state={state()} onState={update} onCloseTransient={setTransientOpen} />}
+      {(data) => <RouteTotalityWorkspace detail={data()} generation={props.generation} state={state()} onState={update} onCloseTransient={setTransientOpen} />}
     </Show>
     </Show>
   </div>;
