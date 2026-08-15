@@ -19,6 +19,7 @@ type FringeDesires = {
   fringeById: Map<string, number>;
   massById: Map<string, number>;
   neighborsById: Map<string, Set<string>>;
+  parentsById: Map<string, Set<string>>;
 };
 
 const COMPACTION_START_TICK = 88;
@@ -372,7 +373,7 @@ function buildFringeDesires(
     massById.set(node.id, mass);
     neighborsById.set(node.id, neighbors);
   }
-  return { fringeById, massById, neighborsById };
+  return { fringeById, massById, neighborsById, parentsById: incoming };
 }
 
 function applyFringeAvoidance(
@@ -383,12 +384,23 @@ function applyFringeAvoidance(
 ) {
   if (settings.fringeStrength <= 0) return;
   const neighborhoodRadius = clamp(settings.targetLinkDistance * 2.25, 120, 420);
+  const minimumDownstreamOffset = settings.targetLinkDistance * .18;
   const forceCooling = .35 + cooling * .65;
+  const positionById = new Map(positions.map((node) => [node.id, node]));
 
   for (const node of positions) {
     const fringe = desires.fringeById.get(node.id) ?? 0;
     if (fringe <= 0) continue;
     const graphNeighbors = desires.neighborsById.get(node.id) ?? new Set();
+    const parents = [...(desires.parentsById.get(node.id) ?? [])]
+      .map((parentId) => positionById.get(parentId))
+      .filter((parent): parent is SimulationNode => Boolean(parent) && parent.kind !== "context");
+    const downstreamDebt = parents.reduce((debt, parent) => ({
+      x: debt.x + clamp((minimumDownstreamOffset - (node.x - parent.x)) / minimumDownstreamOffset, 0, 1),
+      y: debt.y + clamp((minimumDownstreamOffset - (node.y - parent.y)) / minimumDownstreamOffset, 0, 1),
+    }), { x: 0, y: 0 });
+    if (parents.length) downstreamDebt.x /= parents.length;
+    if (parents.length) downstreamDebt.y /= parents.length;
     let centerX = 0;
     let centerY = 0;
     let repulsionX = 0;
@@ -408,26 +420,30 @@ function applyFringeAvoidance(
       repulsionY += dy / distance * pressure;
       localPressure += pressure;
     }
-    if (localPressure <= 0) continue;
+    if (localPressure <= 0 && downstreamDebt.x <= 0 && downstreamDebt.y <= 0) continue;
     const outward = downstreamFringeDirection(
-      node.x - centerX / localPressure,
-      node.y - centerY / localPressure,
-      node.id,
+      localPressure > 0 ? node.x - centerX / localPressure : 0,
+      localPressure > 0 ? node.y - centerY / localPressure : 0,
+      downstreamDebt,
     );
     const centerDistance = Math.hypot(outward.x, outward.y);
     const repulsionMagnitude = Math.hypot(repulsionX, repulsionY);
-    const requestedForce = repulsionMagnitude * .72 * fringe * settings.fringeStrength * forceCooling;
+    const directionalPressure = Math.hypot(downstreamDebt.x, downstreamDebt.y);
+    const requestedForce = (repulsionMagnitude * .72 + directionalPressure * .6)
+      * fringe * settings.fringeStrength * forceCooling;
     const force = Math.min(5, requestedForce);
     node.vx += outward.x / centerDistance * force;
     node.vy += outward.y / centerDistance * force;
   }
 }
 
-function downstreamFringeDirection(outwardX: number, outwardY: number, nodeId: string) {
-  const x = Math.max(0, outwardX);
-  const y = Math.max(0, outwardY);
-  if (x > 0 || y > 0) return { x, y };
-  return hashUnit(`fringe:${nodeId}`) < .5 ? { x: 1, y: 0 } : { x: 0, y: 1 };
+function downstreamFringeDirection(outwardX: number, outwardY: number, downstreamDebt: { x: number; y: number }) {
+  const scale = Math.max(1, Math.hypot(outwardX, outwardY));
+  const diagonalFloor = scale * .22;
+  return {
+    x: Math.max(diagonalFloor, outwardX) + downstreamDebt.x * scale * .65,
+    y: Math.max(diagonalFloor, outwardY) + downstreamDebt.y * scale * .65,
+  };
 }
 
 function isFringeCandidate(node: ComponentTopologyNode) {
