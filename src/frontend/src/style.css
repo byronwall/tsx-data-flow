@@ -742,7 +742,10 @@
 .route-totality-field-use > summary > span { min-width: 0; display: grid; gap: 1px; grid-column: 2; }
 .route-totality-field-use > summary b { min-width: 0; overflow-wrap: anywhere; color: var(--text); font: 650 .61rem var(--mono); }
 .route-totality-field-use > summary small { color: var(--muted); font-size: .56rem; line-height: 1.25; }
-.route-totality-field-use > summary > code { grid-column: 2; max-width: 100%; overflow: hidden; color: var(--muted); font-size: .55rem; text-overflow: ellipsis; white-space: nowrap; }
+.route-totality-field-use-meta { grid-column: 2; display: flex; align-items: center; gap: 5px; min-width: 0; }
+.route-totality-field-use-meta > code { min-width: 0; overflow: hidden; color: var(--muted); font-size: .55rem; text-overflow: ellipsis; white-space: nowrap; }
+.route-totality-field-use-isolate { flex: none; min-height: 20px; padding: 1px 4px; border-color: color-mix(in srgb, var(--lineage-proven) 30%, var(--border)); background: transparent; color: var(--lineage-field-text); font-size: .54rem; }
+.route-totality-field-use-isolate:hover,.route-totality-field-use-isolate:focus-visible { border-color: var(--lineage-proven); background: var(--surface); }
 .route-totality-field-use > summary:hover,.route-totality-field-use > summary:focus-visible { background: var(--accent-soft); }
 .route-totality-field-proof { display: grid; gap: 5px; padding: 3px 4px 6px 15px; background: color-mix(in srgb, var(--lineage-field-fill) 55%, var(--surface)); }
 .route-totality-field-proof dl { display: grid; gap: 1px; margin: 0; }

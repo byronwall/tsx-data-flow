@@ -27,6 +27,9 @@ export function RouteTotalityFieldSections(props: {
             <p>{fieldSectionDescription(result())}</p>
           </div>
           <Show when={result().selectedField}>
+            <Show when={result().selectedConsumer}>
+              <button type="button" class="route-totality-field-clear" onClick={() => props.onFieldFocusChange(result().selectedField, null)}>Show all uses</button>
+            </Show>
             <button type="button" class="route-totality-field-clear" onClick={props.onClearFieldFocus}>Show all fields</button>
           </Show>
         </div>
@@ -122,7 +125,22 @@ function FieldUse(props: {
   return <details class="route-totality-field-use" open={props.use.selected}>
     <summary onClick={() => props.onFieldFocusChange(props.fieldLabel, props.use.key)}>
       <span><b>{props.use.consumerLabel}</b><small>{props.use.consumerKind}</small><Show when={props.use.aliasLabel}><small class="route-totality-field-alias-step">Alias · <code>{props.use.aliasLabel}</code></small></Show></span>
-      <code title={formatLocation(location())}>{shortLocation(location())}</code>
+      <span class="route-totality-field-use-meta">
+        <code title={formatLocation(location())}>{shortLocation(location())}</code>
+        <Show when={props.use.attachment.consumer && props.use.attachment.terminalIds.length > 0}>
+          <button
+            type="button"
+            class="route-totality-field-use-isolate"
+            aria-label={`${props.use.selected ? "Show all uses instead of isolating" : "Isolate exact path for"} ${props.use.consumerLabel}`}
+            aria-pressed={props.use.selected}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              props.onFieldFocusChange(props.fieldLabel, props.use.selected ? null : props.use.key);
+            }}
+          >{props.use.selected ? "Show all uses" : "Isolate path"}</button>
+        </Show>
+      </span>
     </summary>
     <div class="route-totality-field-proof">
       <dl>
