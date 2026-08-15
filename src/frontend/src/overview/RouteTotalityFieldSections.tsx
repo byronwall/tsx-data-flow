@@ -122,39 +122,35 @@ function FieldUse(props: {
   onFieldFocusChange: (fieldFocus: string | null, consumerFocus?: string | null) => void;
 }) {
   const location = () => props.use.consumerLocation ?? props.use.attachment.field.location;
-  return <details class="route-totality-field-use" open={props.use.selected}>
-    <summary onClick={() => props.onFieldFocusChange(props.fieldLabel, props.use.key)}>
-      <span><b>{props.use.consumerLabel}</b><small>{props.use.consumerKind}</small><Show when={props.use.aliasLabel}><small class="route-totality-field-alias-step">Alias · <code>{props.use.aliasLabel}</code></small></Show></span>
-      <span class="route-totality-field-use-meta">
-        <code title={formatLocation(location())}>{shortLocation(location())}</code>
-        <Show when={props.use.attachment.consumer && props.use.attachment.terminalIds.length > 0}>
-          <button
-            type="button"
-            class="route-totality-field-use-isolate"
-            aria-label={`${props.use.selected ? "Show all uses instead of isolating" : "Isolate exact path for"} ${props.use.consumerLabel}`}
-            aria-pressed={props.use.selected}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              props.onFieldFocusChange(props.fieldLabel, props.use.selected ? null : props.use.key);
-            }}
-          >{props.use.selected ? "Show all uses" : "Isolate path"}</button>
-        </Show>
-      </span>
-    </summary>
-    <div class="route-totality-field-proof">
-      <dl>
-        <div><dt>Component occurrence</dt><dd>{props.use.componentName} · <code>{props.use.occurrenceId}</code></dd></div>
-        <div><dt>Field read</dt><dd><ProofLocation location={props.use.attachment.field.location} label="Open field read" onOpenSource={props.onOpenSource} /></dd></div>
-        <div><dt>Consumer</dt><dd><ProofLocation location={location()} label="Open exact consumer" onOpenSource={props.onOpenSource} /></dd></div>
-        <Show when={props.use.aliasLabel}><div><dt>Alias</dt><dd><code>{props.use.aliasLabel}</code></dd></div></Show>
-      </dl>
-      <details class="route-totality-proof-steps">
-        <summary>Proof steps <span>{props.use.attachment.transformationKinds.length}</span></summary>
-        <ol><For each={props.use.attachment.transformationKinds}>{(kind) => <li><code>{kind}</code></li>}</For></ol>
-      </details>
-    </div>
-  </details>;
+  return <div class="route-totality-field-use-row">
+    <details class="route-totality-field-use" open={props.use.selected}>
+      <summary onClick={() => props.onFieldFocusChange(props.fieldLabel, props.use.key)}>
+        <span><b>{props.use.consumerLabel}</b><small>{props.use.consumerKind}</small><Show when={props.use.aliasLabel}><small class="route-totality-field-alias-step">Alias · <code>{props.use.aliasLabel}</code></small></Show></span>
+        <span class="route-totality-field-use-meta"><code title={formatLocation(location())}>{shortLocation(location())}</code></span>
+      </summary>
+      <div class="route-totality-field-proof">
+        <dl>
+          <div><dt>Component occurrence</dt><dd>{props.use.componentName} · <code>{props.use.occurrenceId}</code></dd></div>
+          <div><dt>Field read</dt><dd><ProofLocation location={props.use.attachment.field.location} label="Open field read" onOpenSource={props.onOpenSource} /></dd></div>
+          <div><dt>Consumer</dt><dd><ProofLocation location={location()} label="Open exact consumer" onOpenSource={props.onOpenSource} /></dd></div>
+          <Show when={props.use.aliasLabel}><div><dt>Alias</dt><dd><code>{props.use.aliasLabel}</code></dd></div></Show>
+        </dl>
+        <details class="route-totality-proof-steps">
+          <summary>Proof steps <span>{props.use.attachment.transformationKinds.length}</span></summary>
+          <ol><For each={props.use.attachment.transformationKinds}>{(kind) => <li><code>{kind}</code></li>}</For></ol>
+        </details>
+      </div>
+    </details>
+    <Show when={props.use.attachment.consumer && props.use.attachment.terminalIds.length > 0}>
+      <button
+        type="button"
+        class="route-totality-field-use-isolate"
+        aria-label={`${props.use.selected ? "Show all uses instead of isolating" : "Isolate exact path for"} ${props.use.consumerLabel}`}
+        aria-pressed={props.use.selected}
+        onClick={() => props.onFieldFocusChange(props.fieldLabel, props.use.selected ? null : props.use.key)}
+      >{props.use.selected ? "Show all uses" : "Isolate path"}</button>
+    </Show>
+  </div>;
 }
 
 type WholeObjectHandoff = { componentName: string; fieldLabel: string; occurrenceId: string };

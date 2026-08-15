@@ -10,7 +10,7 @@ import { buildRouteTotalityBoundaryStubs } from "./route-totality-boundary-stubs
 import type { SourceEvidenceTarget } from "./source-evidence-model";
 import { routeTotalityFindingSummaryForSelection } from "./route-totality-finding-model";
 import { buildRouteTotalityDisplayModel } from "./route-totality-display-model";
-import { layoutRouteTotalityDisplay, type RouteTotalityDisplayLayout } from "./route-totality-display-layout";
+import { layoutRouteTotalityDisplay, type RouteTotalityDisplayLayout, type RouteTotalityDisplayLayoutEdge } from "./route-totality-display-layout";
 import { routeTotalityDisplayZoomLevel, selectRouteTotalityDisplayLabelIds, type RouteTotalityDisplayZoom } from "./route-totality-display-labels";
 import { RouteTotalityControls } from "./RouteTotalityControls";
 import { ComponentTopologyDebugControls } from "./ComponentTopologyDebugControls";
@@ -337,7 +337,13 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
     return [...displayLayout().nodes];
   });
   const visibleDisplayEdges = createMemo(() => {
-    return [...displayLayout().edges];
+    return exactFieldUseDisplayEdges(
+      displayLayout(),
+      props.totality,
+      activeFieldOrigin(),
+      props.fieldFocus,
+      props.consumerFocus,
+    );
   });
   const displayLabelIds = createMemo(() => selectRouteTotalityDisplayLabelIds(
     visibleDisplayNodes(),
@@ -547,6 +553,42 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
 
 function round(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function exactFieldUseDisplayEdges(
+  displayLayout: RouteTotalityDisplayLayout,
+  totality: RouteTotality | null,
+  origin: RouteTotalityFieldOriginFocus | null,
+  selectedField: string | null,
+  selectedConsumer: string | null,
+): readonly RouteTotalityDisplayLayoutEdge[] {
+  const surface = totality && "terminals" in totality.occurrenceSurface ? totality.occurrenceSurface : null;
+  if (!totality || !surface || !origin || !selectedField || !selectedConsumer) {
+    return [...displayLayout.edges];
+  }
+  const attachment = totality.fieldLineage.attachments.find((candidate) => (
+    candidate.origin.elementId === origin.elementId
+    && candidate.origin.role === origin.role
+    && candidate.origin.selectedEvidenceId === origin.selectedEvidenceId
+    && candidate.field.label === selectedField
+    && (candidate.consumer?.id === selectedConsumer || candidate.id === selectedConsumer)
+  ));
+  if (!attachment) return [...displayLayout.edges];
+  const terminalOwners = new Map(
+    attachment.terminalIds.flatMap((terminalId) => {
+      const terminal = surface.terminals.find((candidate) => candidate.id === terminalId);
+      return terminal?.ownerOccurrenceId ? [[terminalId, terminal.ownerOccurrenceId] as const] : [];
+    }),
+  );
+  if (!terminalOwners.size) return [...displayLayout.edges];
+  const nodesById = new Map(displayLayout.nodes.map((node) => [node.id, node]));
+  return displayLayout.edges.map((displayEdge) => {
+    if (displayEdge.edge.kind !== "render-terminal") return displayEdge;
+    const terminalId = displayEdge.edge.sourceTo;
+    const ownerOccurrenceId = terminalId ? terminalOwners.get(terminalId) : undefined;
+    const ownerNode = ownerOccurrenceId ? nodesById.get(`occurrence:${ownerOccurrenceId}`) : undefined;
+    return ownerNode ? { ...displayEdge, fromNode: ownerNode } : displayEdge;
+  });
 }
 
 function hiddenComponentPolicyFingerprint(policy: HiddenComponentPolicy): string {
