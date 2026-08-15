@@ -44,7 +44,7 @@ export function DataTrajectoryDialog(props: { inventory: RouteDataInventory; gen
     });
   });
   const resolvedDetail = createMemo(() => {
-    if (detail.error) return null;
+    if (detail.error || detail.loading) return null;
     const response = detail();
     const current = state();
     return response?.generation === props.generation && response.data.route.key === current.route && response.data.trajectory.key === current.flow ? response.data : null;
