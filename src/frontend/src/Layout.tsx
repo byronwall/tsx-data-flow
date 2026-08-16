@@ -1,7 +1,7 @@
 import { For, Show, createMemo, onCleanup, onMount } from "solid-js";
 import type { JSX } from "solid-js";
-import { REPORT_VIEWS, type ReportView } from "../../api/report-views";
-import { FILE_VIEWS, labelFor } from "./view-config";
+import type { ReportView } from "../../api/report-views";
+import { BROWSER_FILE_VIEWS, BROWSER_REPORT_VIEWS, labelFor } from "./view-config";
 import type { FileView } from "./view-config";
 
 export function Shell(props: {
@@ -73,7 +73,7 @@ export function ReportTabs(props: { active: ReportView | null }) {
       <a class="report-tab" classList={{ active: !active() }} href="/">
         Overview
       </a>
-      <For each={REPORT_VIEWS}>
+      <For each={BROWSER_REPORT_VIEWS}>
         {(view: string) => (
           <a
             class="report-tab"
@@ -97,7 +97,7 @@ export function FileTabs(props: { path: string; active: FileView | null }) {
       <a class="report-tab" classList={{ active: !active() }} href={base()}>
         Code map
       </a>
-      <For each={FILE_VIEWS}>
+      <For each={BROWSER_FILE_VIEWS}>
         {(view: string) => (
           <a
             class="report-tab"
