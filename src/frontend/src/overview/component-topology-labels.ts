@@ -5,6 +5,7 @@ export const DEFAULT_VISIBLE_TOPOLOGY_LABELS = 30;
 const LABEL_BUDGET_STEP = 15;
 const LABEL_ZOOM_STEP = 1.25;
 const ALL_LABELS_ZOOM_STEP = 5;
+const ORDINARY_COMPONENT_PRIORITY = 4;
 
 export function topologyLabelBudget(cameraScale: number, nodeCount: number) {
   if (nodeCount <= DEFAULT_VISIBLE_TOPOLOGY_LABELS) return nodeCount;
@@ -26,9 +27,14 @@ export function selectVisibleTopologyLabelIds(
   const selectedNodeId = options.selectedNodeId ?? null;
   const participantNodeIds = options.participantNodeIds ?? new Set<string>();
   const ranked = [...topology.nodes].sort((left, right) => {
-    const priorityDifference = labelPriority(left, selectedNodeId, participantNodeIds)
-      - labelPriority(right, selectedNodeId, participantNodeIds);
+    const leftPriority = labelPriority(left, selectedNodeId, participantNodeIds);
+    const rightPriority = labelPriority(right, selectedNodeId, participantNodeIds);
+    const priorityDifference = leftPriority - rightPriority;
     if (priorityDifference) return priorityDifference;
+    if (leftPriority === ORDINARY_COMPONENT_PRIORITY) {
+      const sourceLocationDifference = componentSourcePriority(left) - componentSourcePriority(right);
+      if (sourceLocationDifference) return sourceLocationDifference;
+    }
     const degreeDifference = degree(right) - degree(left);
     if (degreeDifference) return degreeDifference;
     const depthDifference = left.depth - right.depth;
@@ -44,7 +50,32 @@ function labelPriority(node: ComponentTopologyNode, selectedNodeId: string | nul
   if (node.routeEntry) return 1;
   if (node.kind !== "component") return 2;
   if (participantNodeIds.has(node.id)) return 3;
-  return 4;
+  return ORDINARY_COMPONENT_PRIORITY;
+}
+
+function componentSourcePriority(node: ComponentTopologyNode) {
+  if (!node.file) return 4;
+  if (!isSourceResolvedComponent(node.sourceIdentity)) return 3;
+  return sourceLocationPriority(node.file);
+}
+
+export function sourceLocationPriority(file: string | null) {
+  if (!file) return 4;
+  const segments = file
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => segment.toLowerCase());
+  if (segments.includes("styled-system")) return 2;
+  if (segments.includes("ui")) return 1;
+  if (segments.includes("node_modules")) return 3;
+  return 0;
+}
+
+function isSourceResolvedComponent(sourceIdentity: string | null) {
+  return sourceIdentity?.startsWith("rendered-component:")
+    || sourceIdentity?.startsWith("rendered-component-occurrence:")
+    || false;
 }
 
 function degree(node: ComponentTopologyNode) {

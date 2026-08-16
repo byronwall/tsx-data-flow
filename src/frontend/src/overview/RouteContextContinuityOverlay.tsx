@@ -75,22 +75,26 @@ function ContextLinkMark(props: {
     props.nodeVisibility(props.link.from!.nodeId),
     props.nodeVisibility(props.link.to!.nodeId),
   ]);
+  const interactionHidden = () => visibility() === "hidden";
   const label = () => {
     const paths = props.link.link.memberPaths.map(memberPath).filter(Boolean);
     return paths.length ? paths.join(" / ") : props.link.link.members.join(", ") || "whole value";
   };
   return <g
     class={`context-color-${props.link.colorIndex} status-${props.link.status}`}
-    classList={{ ...visibilityClasses(visibility()), selected: props.selected, interactive: true }}
-    role="button"
-    tabindex={visibility() === "hidden" ? -1 : 0}
-    aria-pressed={props.selected}
-    aria-label={`${label()} context link from ${props.link.from?.nodeId} to ${props.link.to?.nodeId}`}
+    classList={{ ...visibilityClasses(visibility()), selected: props.selected, interactive: true, "interaction-hidden": interactionHidden() }}
+    role={interactionHidden() ? undefined : "button"}
+    tabindex={interactionHidden() ? undefined : 0}
+    aria-hidden={interactionHidden() ? "true" : undefined}
+    aria-pressed={interactionHidden() ? undefined : props.selected}
+    aria-label={interactionHidden() ? undefined : `${label()} context link from ${props.link.from?.nodeId} to ${props.link.to?.nodeId}`}
     onClick={(event) => {
+      if (interactionHidden()) return;
       event.stopPropagation();
       if (props.link.from && props.link.to) props.onSelect(routeInvestigationSelectionForContextLink(props.link.link.id, props.link.from.nodeId, props.link.to.nodeId));
     }}
     onKeyDown={(event) => {
+      if (interactionHidden()) return;
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       if (props.link.from && props.link.to) props.onSelect(routeInvestigationSelectionForContextLink(props.link.link.id, props.link.from.nodeId, props.link.to.nodeId));
@@ -117,11 +121,13 @@ function ContextRelayMark(props: {
     props.nodeVisibility(props.relay.from!.nodeId),
     props.nodeVisibility(props.relay.to!.nodeId),
   ]);
+  const interactionHidden = () => visibility() === "hidden";
   return <g
     class={`context-color-${props.relay.colorIndex} status-${props.relay.status}`}
-    classList={visibilityClasses(visibility())}
+    classList={{ ...visibilityClasses(visibility()), "interaction-hidden": interactionHidden() }}
     role="img"
-    aria-label={`${props.relay.pathLabel} · ${props.relay.status} · context relay`}
+    aria-hidden={interactionHidden() ? "true" : undefined}
+    aria-label={interactionHidden() ? undefined : `${props.relay.pathLabel} · ${props.relay.status} · context relay`}
   >
     <path class="route-context-relay-line" d={geometry().path} />
     <ConsumerGlyph x={geometry().start.x} y={geometry().start.y} />
@@ -144,18 +150,22 @@ function ContextNodeMarkGlyph(props: {
 }) {
   const point = () => markPoint(props.mark);
   const visibility = () => props.nodeVisibility(props.mark.endpoint.nodeId);
+  const interactionHidden = () => visibility() === "hidden";
   return <g
     class={`context-color-${props.mark.colorIndex} status-${props.mark.status}`}
-    classList={{ ...visibilityClasses(visibility()), selected: props.selected, interactive: true }}
-    role="button"
-    tabindex={visibility() === "hidden" ? -1 : 0}
-    aria-pressed={props.selected}
-    aria-label={`${props.mark.role === "provider" ? "Provider" : "Consumer"} occurrence ${props.mark.occurrenceId}`}
+    classList={{ ...visibilityClasses(visibility()), selected: props.selected, interactive: true, "interaction-hidden": interactionHidden() }}
+    role={interactionHidden() ? undefined : "button"}
+    tabindex={interactionHidden() ? undefined : 0}
+    aria-hidden={interactionHidden() ? "true" : undefined}
+    aria-pressed={interactionHidden() ? undefined : props.selected}
+    aria-label={interactionHidden() ? undefined : `${props.mark.role === "provider" ? "Provider" : "Consumer"} occurrence ${props.mark.occurrenceId}`}
     onClick={(event) => {
+      if (interactionHidden()) return;
       event.stopPropagation();
       props.onSelect(routeInvestigationSelectionForContextOccurrence(props.mark.contextId, props.mark.occurrenceId, props.mark.role));
     }}
     onKeyDown={(event) => {
+      if (interactionHidden()) return;
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       props.onSelect(routeInvestigationSelectionForContextOccurrence(props.mark.contextId, props.mark.occurrenceId, props.mark.role));

@@ -28,6 +28,8 @@ const COMPACTION_END_TICK = 160;
 const COOLING_TIME_CONSTANT = 55;
 const MAX_SIMULATION_STEP = 12;
 const MAX_SEPARATION_STEP = 12;
+const TARGET_DISTANCE_TOLERANCE = .08;
+const TARGET_DISTANCE_SPRING_SCALE = .6;
 const DIAGONAL_COMPONENT = Math.SQRT1_2;
 const TERMINAL_DIRECTION = { x: Math.cos(Math.PI / 6), y: Math.sin(Math.PI / 6) };
 const LABEL_CHARACTER_WIDTH = 7.8;
@@ -216,7 +218,7 @@ function runSimulationTick(
     y: positions.reduce((sum, node) => sum + node.y, 0) / positions.length,
   };
   const anchorWeight = .009 * (1 - compaction * .84);
-  const springWeight = .02 + compaction * .04;
+  const springWeight = (.02 + compaction * .04) * TARGET_DISTANCE_SPRING_SCALE;
   for (const node of positions) {
     const target = anchors.get(node.id) ?? node;
     node.vx += (target.x - node.x) * anchorWeight * cooling;
@@ -233,7 +235,7 @@ function runSimulationTick(
     const terminalTetherWeight = link.terminalLeaf
       ? .03
       : to.terminal ? .012 * compaction : 0;
-    const distanceError = distance - desired;
+    const distanceError = softenTargetDistanceError(distance - desired, desired);
     const force = distanceError * springWeight * directionalCooling
       + Math.max(0, distanceError) * (terminalTetherWeight + link.subtreeCohesionWeight);
     const fx = dx / distance * force; const fy = dy / distance * force;
@@ -243,7 +245,7 @@ function runSimulationTick(
     applyAngleDesire(from, to, {
       x: specialParent ? -DIAGONAL_COMPONENT : to.terminal ? TERMINAL_DIRECTION.x : DIAGONAL_COMPONENT,
       y: specialParent ? DIAGONAL_COMPONENT : to.terminal ? TERMINAL_DIRECTION.y : DIAGONAL_COMPONENT,
-    }, desired, angleWeight * directionalCooling);
+    }, distance, angleWeight * directionalCooling);
     if (specialParent) {
       applyMinimumVerticalOffset(from, to, desired * .36, (.38 + compaction * .27) * directionalCooling);
       applyMaximumHorizontalOffset(from, to, 0, (.2 + compaction * .15) * directionalCooling);
@@ -564,6 +566,11 @@ function applyAngleDesire(
   from.vy -= yForce;
   to.vx += xForce;
   to.vy += yForce;
+}
+
+function softenTargetDistanceError(distanceError: number, desired: number) {
+  const tolerance = desired * TARGET_DISTANCE_TOLERANCE;
+  return Math.sign(distanceError) * Math.max(0, Math.abs(distanceError) - tolerance);
 }
 
 function applyMinimumVerticalOffset(from: SimulationNode, to: SimulationNode, minimumOffset: number, weight: number) {

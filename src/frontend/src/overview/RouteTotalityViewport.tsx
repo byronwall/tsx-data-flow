@@ -91,8 +91,10 @@ export function RouteTotalityViewport(props: RouteTotalityViewportProps) {
       onPointerCancel={(event) => props.cameraController.finishPan(event)}
       onLostPointerCapture={() => props.cameraController.cancelPan()}
       onClick={(event) => {
-        const ignored = event.target !== event.currentTarget;
-        if (!ignored) props.cameraController.clearEmptySelection();
+        const target = event.target instanceof Element ? event.target : null;
+        const mark = target?.closest("[data-route-selection]");
+        const hiddenMark = target?.closest(".interaction-hidden, .isolation-hidden");
+        if (!mark || hiddenMark) props.cameraController.clearEmptySelection();
       }}
       onWheel={(event) => props.cameraController.zoomFromWheel(event)}
     >

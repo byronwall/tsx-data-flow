@@ -43,6 +43,7 @@ export function DisplayTotalityEdge(props: {
   onRegister: (element: SVGGElement) => void;
 }) {
   const path = createMemo(() => routeTotalityDisplayEdgePath(props.edge));
+  const interactionHidden = () => props.hidden;
   return <g
     ref={props.onRegister}
     data-route-selection={props.selection.graphId}
@@ -57,16 +58,17 @@ export function DisplayTotalityEdge(props: {
       "field-dimmed": props.fieldFocused && !props.fieldActive && !props.fieldFrontier,
       "emphasis-dimmed": props.emphasisActive && !props.active && !props.frontier,
       "isolation-hidden": props.hidden,
+      "interaction-hidden": interactionHidden(),
     }}
-    role="button"
-    tabindex={props.hidden ? -1 : 0}
-    aria-hidden={props.hidden ? "true" : undefined}
-    aria-pressed={props.selected}
-    aria-label={props.fieldFocused && props.fieldFrontier && props.fieldFrontierLabel
+    role={interactionHidden() ? undefined : "button"}
+    tabindex={interactionHidden() ? undefined : 0}
+    aria-hidden={interactionHidden() ? "true" : undefined}
+    aria-pressed={interactionHidden() ? undefined : props.selected}
+    aria-label={interactionHidden() ? undefined : props.fieldFocused && props.fieldFrontier && props.fieldFrontierLabel
       ? props.fieldFrontierLabel
       : `Select ${props.edge.edge.family} edge ${props.edge.edge.label || props.edge.edge.kind}${props.active ? " · in emphasized reach" : props.frontier ? " · partial frontier" : ""}`}
-    onClick={(event) => { event.stopPropagation(); props.onSelect(props.selection); }}
-    onKeyDown={(event) => selectOnKey(event, props.selection, props.onSelect)}
+    onClick={(event) => { if (interactionHidden()) return; event.stopPropagation(); props.onSelect(props.selection); }}
+    onKeyDown={(event) => { if (interactionHidden()) return; selectOnKey(event, props.selection, props.onSelect); }}
   >
     <path class="route-totality-edge-hit" d={path()} />
     <path class="route-totality-edge-line" d={path()} />
@@ -100,6 +102,7 @@ export function DisplayTotalityNode(props: {
   const location = createMemo(() => routeTotalityLocationLabel(props.node.node.location));
   const details = createMemo(() => props.node.node.detailLines.join(" · "));
   const fieldSummary = createMemo(() => props.fieldSummary?.labelText ?? "");
+  const interactionHidden = () => props.hidden;
   const centerX = () => props.node.width / 2;
   const centerY = () => props.node.height / 2;
   const labelScale = () => Math.max(.001, props.labelRenderScale);
@@ -119,15 +122,16 @@ export function DisplayTotalityNode(props: {
       "stack-children-modified": props.stackChildrenModified,
       "emphasis-dimmed": props.emphasisActive && !props.active && !props.frontier,
       "isolation-hidden": props.hidden,
+      "interaction-hidden": interactionHidden(),
     }}
     transform={`translate(${props.node.x} ${props.node.y})`}
-    role="button"
-    tabindex={props.hidden ? -1 : 0}
-    aria-hidden={props.hidden ? "true" : undefined}
-    aria-pressed={props.selected}
-    aria-label={`Select ${routeTotalityNodeKindLabel(props.node.node.kind)} ${label()}${props.uiCollapsed ? " · UI implementation hidden" : ""}${props.stackChildrenModified ? " · layout wrapper children promoted" : ""}${props.active ? " · in emphasized reach" : props.frontier ? " · partial frontier" : ""}${props.findings.count ? ` · ${props.findings.count} exact finding${props.findings.count === 1 ? "" : "s"}` : ""}`}
-    onClick={(event) => { event.stopPropagation(); props.onSelect(props.selection); }}
-    onKeyDown={(event) => selectOnKey(event, props.selection, props.onSelect)}
+    role={interactionHidden() ? undefined : "button"}
+    tabindex={interactionHidden() ? undefined : 0}
+    aria-hidden={interactionHidden() ? "true" : undefined}
+    aria-pressed={interactionHidden() ? undefined : props.selected}
+    aria-label={interactionHidden() ? undefined : `Select ${routeTotalityNodeKindLabel(props.node.node.kind)} ${label()}${props.uiCollapsed ? " · UI implementation hidden" : ""}${props.stackChildrenModified ? " · layout wrapper children promoted" : ""}${props.active ? " · in emphasized reach" : props.frontier ? " · partial frontier" : ""}${props.findings.count ? ` · ${props.findings.count} exact finding${props.findings.count === 1 ? "" : "s"}` : ""}`}
+    onClick={(event) => { if (interactionHidden()) return; event.stopPropagation(); props.onSelect(props.selection); }}
+    onKeyDown={(event) => { if (interactionHidden()) return; selectOnKey(event, props.selection, props.onSelect); }}
   >
     <rect x={centerX() - 14} y={centerY() - 14} width="28" height="28" fill="transparent" pointer-events="all" />
     <Show when={props.uiCollapsed}>{nodeStatusRing("route-totality-node-collapse-ring", props.node.node.kind, props.node.width, props.node.height, 4)}</Show>
@@ -199,16 +203,18 @@ export function DisplayTotalityAnnotation(props: {
     class={kindClass()}
     classList={{ selected: props.selected, "isolation-hidden": props.hidden }}
     transform={`translate(${props.x} ${props.y})`}
-    role={canSelect() ? "button" : "img"}
-    tabindex={props.hidden || !canSelect() ? -1 : 0}
+    role={props.hidden ? undefined : canSelect() ? "button" : "img"}
+    tabindex={props.hidden || !canSelect() ? undefined : 0}
     aria-hidden={props.hidden ? "true" : undefined}
-    aria-pressed={canSelect() ? props.selected : undefined}
-    aria-label={`${annotation().label} · ${annotation().detail}`}
+    aria-pressed={!props.hidden && canSelect() ? props.selected : undefined}
+    aria-label={props.hidden ? undefined : `${annotation().label} · ${annotation().detail}`}
     onClick={(event) => {
+      if (props.hidden) return;
       event.stopPropagation();
       if (props.selection) props.onSelect(props.selection);
     }}
     onKeyDown={(event) => {
+      if (props.hidden) return;
       if (!props.selection || (event.key !== "Enter" && event.key !== " ")) return;
       event.preventDefault();
       props.onSelect(props.selection);

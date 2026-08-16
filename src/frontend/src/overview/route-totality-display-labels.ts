@@ -4,6 +4,7 @@ import {
   type RouteTotalityZoom,
 } from "./route-totality-model";
 import type { RouteTotalityDisplayLayoutNode } from "./route-totality-display-layout";
+import { sourceLocationPriority } from "./component-topology-labels";
 
 export type RouteTotalityDisplayZoom = "low" | "medium" | "high";
 
@@ -53,6 +54,7 @@ export function selectRouteTotalityDisplayLabelIds(
   const ranked = candidates.slice().sort((left, right) => (
     labelPriority(left, selectedNodeIds, focusedNodeIds, participantNodeIds, nearbyNodeIds)
       - labelPriority(right, selectedNodeIds, focusedNodeIds, participantNodeIds, nearbyNodeIds)
+    || sourceLocationDifference(left, right)
     || right.degree - left.degree
     || left.depth - right.depth
     || left.node.compactLabel.localeCompare(right.node.compactLabel)
@@ -72,6 +74,20 @@ export function selectRouteTotalityDisplayLabelIds(
     if (selectedNodeIds.has(node.id) || focusedNodeIds.has(node.id)) visible.add(node.id);
   }
   return visible;
+}
+
+function sourceLocationDifference(left: RouteTotalityDisplayLayoutNode, right: RouteTotalityDisplayLayoutNode) {
+  if (left.node.kind !== "occurrence" || right.node.kind !== "occurrence") return 0;
+  return sourceLocationPriority(definitionSourcePath(left))
+    - sourceLocationPriority(definitionSourcePath(right));
+}
+
+function definitionSourcePath(node: RouteTotalityDisplayLayoutNode) {
+  if (node.node.kind !== "occurrence") return node.node.location?.file ?? null;
+  const record = node.node.record;
+  return "definitionSourceIdentity" in record
+    ? record.definitionSourceIdentity
+    : node.node.location?.file ?? null;
 }
 
 export function routeTotalityDisplayNodeLabel(
@@ -103,7 +119,7 @@ function labelPriority(
   if (focusedNodeIds.has(node.id)) return 1;
   if (participantNodeIds.has(node.id)) return 2;
   if (nearbyNodeIds.has(node.id)) return 3;
-  if (node.layer === "surface") return node.depth === 0 ? 4 : 5;
+  if (node.layer === "surface") return 4;
   return 6;
 }
 

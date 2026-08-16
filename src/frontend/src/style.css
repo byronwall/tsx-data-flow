@@ -444,7 +444,15 @@
 .route-totality-edges g.emphasis-active .route-totality-edge-line { stroke: var(--accent); stroke-width: 2.6; opacity: 1; }
 .route-totality-edges g.emphasis-frontier .route-totality-edge-line { stroke: var(--warning,#8b5100); stroke-width: 2.2; opacity: 1; stroke-dasharray: 5 3; }
 .route-totality-edges g.selected { opacity: 1; }
-.route-totality-edges g.isolation-hidden,.route-totality-nodes g.isolation-hidden { display: none; }
+.route-totality-graph g.isolation-hidden {
+  display: none;
+  pointer-events: none;
+  cursor: default;
+}
+.route-totality-graph g.interaction-hidden {
+  pointer-events: none;
+  cursor: default;
+}
 .route-totality-bridge-edges g { display: none; pointer-events: none; }
 .route-totality-bridge-edges g.bridge-visible:not(.isolation-hidden) { display: block; }
 .route-totality-bridge-line { fill: none; stroke: #2e7890; stroke-width: 2; stroke-dasharray: 7 4; opacity: .86; vector-effect: non-scaling-stroke; }

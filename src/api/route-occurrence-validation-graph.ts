@@ -288,7 +288,11 @@ export const validateOccurrenceReferences = (
     issues,
     cancellation,
   );
-  uniqueKeys(surface.definitions, ["definitions"], (value) => value.compilerIdentity, issues, cancellation);
+  // TypeScript can report different local wrapper symbols with the same bare
+  // name (for example, two HOC-backed `Root` declarations). The source
+  // identity is part of the definition identity, so keep those definitions
+  // distinct while still rejecting duplicate definition records.
+  uniqueKeys(surface.definitions, ["definitions"], (value) => `${value.compilerIdentity}:${value.sourceIdentity}`, issues, cancellation);
   uniqueKeys(surface.definitions, ["definitions"], (value) => value.sourceIdentity, issues, cancellation);
 
   const definitionIds = new Set(definitions.keys());
