@@ -10,6 +10,7 @@ export function Shell(props: {
   actions?: () => JSX.Element;
   tabs?: () => JSX.Element;
   wide?: boolean;
+  viewportBound?: boolean;
   children: JSX.Element;
 }) {
   let headerRef: HTMLElement | undefined;
@@ -55,7 +56,7 @@ export function Shell(props: {
         {props.tabs?.()}
       </header>
       <div class="layout">
-        <main classList={{ wide: props.wide }}>{props.children}</main>
+        <main classList={{ wide: props.wide, "viewport-bound": props.viewportBound }}>{props.children}</main>
       </div>
     </>
   );
@@ -66,12 +67,21 @@ function FileContext(props: { path: string }) {
   return <span class="topbar-context" title={props.path}><span class="topbar-directory">{parts().directory}</span><strong class="topbar-file">{parts().name}</strong></span>;
 }
 
-export function ReportTabs(props: { active: ReportView | null }) {
+type WorkspaceTab = "overview" | "map" | "trajectories";
+
+export function ReportTabs(props: { active: ReportView | null; page?: WorkspaceTab }) {
   const active = () => props.active;
+  const page = () => props.page ?? (active() === null ? "overview" : null);
   return (
-    <nav class="report-tabs" aria-label="Workspace reports">
-      <a class="report-tab" classList={{ active: !active() }} href="/">
+    <nav class="report-tabs" aria-label="Workspace views">
+      <a class="report-tab" classList={{ active: page() === "overview" }} href="/" aria-current={page() === "overview" ? "page" : undefined}>
         Overview
+      </a>
+      <a class="report-tab" classList={{ active: page() === "map" }} href="/map" aria-current={page() === "map" ? "page" : undefined}>
+        World map
+      </a>
+      <a class="report-tab" classList={{ active: page() === "trajectories" }} href="/trajectories" aria-current={page() === "trajectories" ? "page" : undefined}>
+        Data trajectories
       </a>
       <For each={BROWSER_REPORT_VIEWS}>
         {(view: string) => (

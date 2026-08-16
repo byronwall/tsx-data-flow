@@ -1,16 +1,28 @@
-import { Show, createSignal, onCleanup, onMount } from "solid-js";
+import { Match, Switch, createSignal, onCleanup, onMount } from "solid-js";
 import type { JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { FilePage } from "./FilePage";
 import { OverviewPage } from "./OverviewPage";
 import { currentLocation, type Navigate } from "./router";
 import { ReportPage } from "./ReportPage";
+import { MapPage } from "./MapPage";
+import { TrajectoriesPage } from "./TrajectoriesPage";
 import { installPopoverController } from "./popover-controller";
 import { BROWSER_URL_CHANGE_EVENT, notifyBrowserUrlChange } from "./overview/trajectory-history";
 import "./style.css";
 
 function App() {
   const [location, setLocation] = createSignal(currentLocation());
+
+  onMount(() => {
+    const initial = currentLocation();
+    if (initial.pathname === "/" && initial.searchParams.get("viz") === "trajectory") {
+      initial.pathname = "/trajectories";
+      initial.searchParams.delete("viz");
+      window.history.replaceState({}, "", `${initial.pathname}${initial.search}`);
+      setLocation(initial);
+    }
+  });
 
   const navigate: Navigate = (href, replace = false) => {
     const next = new URL(href, window.location.origin);
@@ -62,23 +74,13 @@ function App() {
 
 function Router(props: { location: URL; navigate: Navigate }) {
   const path = () => props.location.pathname;
-  return (
-    <Show
-      when={path() === "/file"}
-      fallback={
-        <Show
-          when={path() === "/report"}
-          fallback={
-            <OverviewPage location={props.location} navigate={props.navigate} />
-          }
-        >
-          <ReportPage location={props.location} navigate={props.navigate} />
-        </Show>
-      }
-    >
-      <FilePage location={props.location} navigate={props.navigate} />
-    </Show>
-  );
+  return <Switch>
+    <Match when={path() === "/file"}><FilePage location={props.location} navigate={props.navigate} /></Match>
+    <Match when={path() === "/report"}><ReportPage location={props.location} navigate={props.navigate} /></Match>
+    <Match when={path() === "/map"}><MapPage location={props.location} /></Match>
+    <Match when={path() === "/trajectories"}><TrajectoriesPage location={props.location} /></Match>
+    <Match when={true}><OverviewPage location={props.location} navigate={props.navigate} /></Match>
+  </Switch>;
 }
 
 const root = document.getElementById("root");

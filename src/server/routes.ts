@@ -68,7 +68,7 @@ export function createRequestHandler(analysis: AnalysisService, frontendDist: st
       }
       const markdown = route.match(/^\/api\/report\.([A-Za-z0-9-]+)\.md$/);
       if (markdown) return void serveMarkdown(markdown[1], url, analysis, req, res);
-      if (route === "/" || route === "/file" || route === "/report") return sendSpa(res);
+      if (route === "/" || route === "/file" || route === "/report" || route === "/map" || route === "/trajectories") return sendSpa(res);
       if (route.startsWith("/api/")) return sendError(res, 404, "not_found", `Unknown API route: ${route}`);
       return sendSpa(res);
     } catch (error) {

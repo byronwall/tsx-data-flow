@@ -58,7 +58,6 @@ export function parseTrajectoryUrlState(search: string | URLSearchParams): Traje
 export function serializeTrajectoryUrlState(state: TrajectoryUrlState, current = "") {
   const params = new URLSearchParams(current);
   for (const key of ["viz", "route", "flow", "isolate", "trajectoryMode", "routeKind", "routeSort", "sourceMethod", "filter", "genericUi", "trajectoryRenderer", "totalitySelection", "graphCamera", "contextFocus", "totalityField", "totalityConsumer"]) params.delete(key);
-  if (state.open) params.set("viz", "trajectory");
   if (state.route) params.set("route", state.route);
   if (state.flow) params.set("flow", state.flow);
   if (state.isolate) params.set("isolate", "1");
@@ -152,7 +151,9 @@ export function reconcileTrajectoryUrlState(state: TrajectoryUrlState, inventory
         : "The restored route no longer exists; kept the valid trajectory on its owning route.");
     }
   }
-  if (!route && state.mode === "detail") {
+  if (!route && !state.route && !savedFlow) {
+    mode = "atlas";
+  } else if (!route && state.mode === "detail") {
     route = inventory.routes
       .filter((item) => routeMatchesKind(item, state.kind) && routeCanProduceUsefulDetail(item, inventory))
       .sort(compareRouteCost)[0] ?? null;
