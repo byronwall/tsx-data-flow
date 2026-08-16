@@ -24,7 +24,7 @@
 
 .topbar-directory { color: var(--muted); }
 .topbar-file { color: var(--fg); font-weight: 700; }
-.report-tabs{display:flex;gap:2px;overflow-x:auto;white-space:nowrap;margin:0 -4px}.report-tab{display:inline-block;padding:7px 10px;border-bottom:2px solid transparent;color:var(--muted);font-size:12.5px}.report-tab:hover{color:var(--fg);text-decoration:none}.report-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.report-tabs{display:flex;gap:2px;overflow-x:auto;white-space:nowrap;margin:0 -4px}.report-tab{display:inline-block;padding:3px 8px 2px;border-bottom:2px solid transparent;color:var(--muted);font-size:12.5px}.report-tab:hover{color:var(--fg);text-decoration:none}.report-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
 
 .finding-list-simple {
   padding-left: 18px;
@@ -1989,3 +1989,41 @@ main.viewport-bound { height: calc(100dvh - var(--topbar-height, 112px)); min-he
 .file-world-columns li{align-items:start}.file-world-columns li>.file-world-connection-main{display:grid;flex:1;gap:1px;min-width:0;white-space:normal}.file-world-connection-main>a{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-world-connection-main>span{color:var(--muted);font-size:9px;line-height:1.35}.file-world-connection-main>span code{white-space:normal}
 .world-map-inspector .map-connections button,.world-map-inspector .map-connections a{font-family:inherit;font-size:11px;line-height:1.4}.world-map-inspector .map-connections .mono{font-size:11px}.world-map-inspector .connection-status{font-size:9px}
 .world-map-inspector .inspector-filename{width:fit-content;color:var(--accent);font-weight:700}.world-map-inspector .landmark-list li{position:relative;display:block}.world-map-inspector .landmark-row{display:grid;grid-template-columns:68px minmax(0,1fr);gap:7px;align-items:center;width:100%;padding:7px 2px;color:var(--fg)}.world-map-inspector .landmark-row:hover,.world-map-inspector .landmark-row:focus{background:color-mix(in srgb,var(--accent) 6%,transparent);text-decoration:none}.world-map-inspector .landmark-row code{overflow:hidden;color:var(--fg);font-size:11px!important;font-weight:600;text-overflow:ellipsis;white-space:nowrap}.landmark-source-card{position:fixed;z-index:1000;padding:7px;visibility:hidden;opacity:0;pointer-events:none;border:1px solid var(--border);border-radius:6px;background:var(--surface);box-shadow:0 8px 20px rgb(0 0 0/.15);transition:opacity .1s ease,visibility 0s linear .1s}.landmark-source-card.active{visibility:visible;opacity:1;pointer-events:auto;transition-delay:0s}.landmark-source-card pre{display:grid;margin:0 0 5px;padding:5px;overflow-x:auto;border-radius:4px;background:var(--panel);font-size:9px}.landmark-source-card pre>span{display:grid;grid-template-columns:24px minmax(max-content,1fr);gap:7px;min-height:15px}.landmark-source-card pre>span.focus{background:color-mix(in srgb,var(--accent) 10%,transparent)}.landmark-source-card pre b{color:var(--muted);font-weight:400;text-align:right}.landmark-source-card pre code{overflow:visible!important;white-space:pre!important}.landmark-source-card>span{color:var(--muted);font-size:9px}
+
+/* Keep the navigation shell compact while file context remains page-owned. */
+.topbar { padding-top: 4px; }
+
+.page-nav-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.page-nav-row .report-tabs { flex: 1 1 auto; min-width: 0; }
+.page-nav-repository { flex: 0 1 min(220px, 30vw); min-width: 0; overflow: hidden; color: var(--muted); font: 600 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.page-nav-repository.is-empty { visibility: hidden; }
+.file-page-context { display: flex; align-items: baseline; gap: 12px; min-width: 0; margin: -14px 0 12px; }
+.file-page-context > .topbar-identity { flex: 1 1 auto; }
+.file-page-context > .topbar-actions { flex: 0 0 auto; }
+
+@media (max-width: 560px) {
+  .topbar { padding-inline: 12px; }
+  .page-nav-row { gap: 6px; }
+  .page-nav-repository { flex-basis: 128px; font-size: 11px; }
+  .file-page-context { gap: 6px; margin-bottom: 10px; }
+  .topbar-identity { flex: 1 1 auto; gap: 6px; min-width: 0; }
+  .topbar-identity > .brand { display: none; }
+  .topbar-identity > .topbar-context { display: block; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-directory { display: none; }
+  .topbar-file { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-identity > .file-world-context { flex: 0 0 128px; min-width: 0; }
+  .file-world-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px;
+    width: 100%;
+    max-width: 128px;
+    min-width: 0;
+    padding-inline: 5px;
+  }
+  .file-world-summary > span:first-child { min-width: 0; overflow: hidden; }
+  .file-world-summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-world-counts { display: none; }
+  .topbar-actions { flex: 0 0 auto; gap: 4px; }
+  .topbar-actions .btn,
+  .topbar-actions button { padding-inline: 6px; font-size: 12px; white-space: nowrap; }
+}

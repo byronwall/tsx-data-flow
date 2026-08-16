@@ -1,6 +1,6 @@
 import { Show, createResource, createSignal } from "solid-js";
 import { fetchWorkspace, refreshFailureMessage, refreshWorkspace } from "./api";
-import { ReportTabs, Shell } from "./Layout";
+import { PageNav, Shell } from "./Layout";
 import { LoadingStatus } from "./LoadingStatus";
 import { WorldMap } from "./overview/WorldMap";
 
@@ -15,7 +15,7 @@ export function MapPage(props: { location: URL }) {
     catch (error) { setRefreshError(refreshFailureMessage(error)); }
     finally { setRefreshing(false); }
   };
-  return <Shell wide context={response.error ? "" : response()?.data.workspace.displayRoot ?? ""} tabs={() => <ReportTabs active={null} page="map" />}>
+  return <Shell wide tabs={() => <PageNav active="map" repositoryLabel={response()?.data.workspace.displayRoot} />}>
     <div class="toolbar"><h1 style={{ margin: "0" }}>World map</h1><button type="button" disabled={refreshing()} onClick={() => void refresh()}>{refreshing() ? "Analyzing…" : "↻ Re-analyze"}</button></div>
     <Show when={refreshError()}><p class="error" role="alert">{refreshError()}</p></Show>
     <Show when={refreshing()}><LoadingStatus subject="workspace analysis" operation="refresh" isPending={() => refreshing()} /></Show>
