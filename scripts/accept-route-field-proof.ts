@@ -15,17 +15,17 @@ import type { RouteTotalityFieldAttachment } from "../src/analysis/route-totalit
 
 export type Obligation = { id: string; fieldPath: string; label: string; kind: string; alias: string | null; targetKey: string };
 export type Actual = { fieldPath: string; label: string; kind: string; alias: string | null; targetKey: string; occurrenceId: string; terminalId: string; consumerTerminalRelationId: string };
-export type Simulation = { kind: "missing" | "label" | "kind" | "alias" | "duplicate"; id: string } | null;
-export type ProofElement = { id: string; kind: string; status: string; ownerId?: string | null };
-export type ProofRelation = { id: string; from: string; to: string; kind: string; status: string; proof: { kind: string; status: string } };
+type Simulation = { kind: "missing" | "label" | "kind" | "alias" | "duplicate"; id: string } | null;
+type ProofElement = { id: string; kind: string; status: string; ownerId?: string | null };
+type ProofRelation = { id: string; from: string; to: string; kind: string; status: string; proof: { kind: string; status: string } };
 export type ProofEvidence = { elements: readonly ProofElement[]; relations: readonly ProofRelation[] };
-export type OccurrenceTerminal = { id: string; ownerOccurrenceId: string | null };
-export type FieldProofFrontier = { id: string; field: { label: string } | null; reason: string };
+type OccurrenceTerminal = { id: string; ownerOccurrenceId: string | null };
+type FieldProofFrontier = { id: string; field: { label: string } | null; reason: string };
 export type ProofHashIdentity = {
   route: { key: string; pathPattern: string; file: string };
   selectedOrigin: { key: string; evidenceId: string; elementId: string; file: string; line: number; column: number; span: { startLine: number; startColumn: number; endLine: number; endColumn: number } };
 };
-export type FieldProofEvaluation = {
+type FieldProofEvaluation = {
   actual: Actual[];
   fieldPaths: string[];
   attachments: number;
