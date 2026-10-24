@@ -4,6 +4,8 @@ Read [docs/application-structure.md](docs/application-structure.md) before makin
 
 Read [docs/design-preferences.md](docs/design-preferences.md) before changing frontend layout, tables, controls, typography, color, or information hierarchy.
 
+Read [docs/maps/README.md](docs/maps/README.md) before removing code or changing the route data / trajectory pipeline. Run `pnpm audit:dead-code` to find files and exports that no production entry point reaches; code imported only by tests counts as dead.
+
 ## Product iteration workflow
 
 - Optimize for product development, rapid iteration, and prototypes that answer whether an idea works. Prefer getting the behavior into a reviewable state over maintaining tests during each exploratory revision.

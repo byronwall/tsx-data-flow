@@ -7,6 +7,8 @@ project loading -> analysis domain -> server projections -> Zod DTOs -> Solid DO
                                 \-> Markdown/CLI
 ```
 
+Detailed code maps (trajectory pipeline, frontend pages, dead-code inventory) live in [maps/](maps/README.md).
+
 ## Boundaries
 
 - `src/project` owns discovery, tsconfig resolution, and TypeScript programs.
