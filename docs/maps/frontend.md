@@ -45,7 +45,7 @@ TrajectoriesPage (fetchWorkspace)
     └ TrajectorySourceDialog (fetchSourceExcerpt → /api/route-data/source)
 ```
 
-Despite the `component-topology-*` names, only these are live: `component-topology-layout.ts` (the force layout engine behind `route-totality-surface-layout.ts`), `component-topology-fringe-direction.ts`, `component-topology-labels.ts` (`sourceLocationPriority`, `selectVisibleTopologyLabelIds`), and `ComponentTopologyDebugControls.tsx`. `component-topology-model.ts` is imported only for its types. See [dead-code.md](dead-code.md).
+Despite the `component-topology-*` names, only these are live: `component-topology-layout.ts` (the force layout engine behind `route-totality-surface-layout.ts`), `component-topology-fringe-direction.ts`, `component-topology-labels.ts` (`sourceLocationPriority`, `selectVisibleTopologyLabelIds`), and `ComponentTopologyDebugControls.tsx`. Their shared graph types are in `component-topology-types.ts`. See [dead-code.md](dead-code.md).
 
 ### URL state
 

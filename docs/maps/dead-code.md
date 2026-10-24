@@ -16,6 +16,8 @@ Snapshot below: commit `b4f1ba4`.
 
 ## 1. Unreachable files — delete outright
 
+**Status: removed.** All of section 1, including the runtime-dead files and the broken tests, was deleted in the stacked cleanup PR. The tables stay as a record of what went. The live layout types now live in `component-topology-types.ts`. The live layout-engine tests moved to `test/frontend/component-topology-layout.test.ts`. About 220 dead CSS rules were pruned along with the files.
+
 25 files, 3,953 lines. No production entry point imports them.
 
 | Group | Files | Lines | Why it is dead | Tests that must go with it |
@@ -95,7 +97,7 @@ Run `pnpm audit:dead-code` for the full table, including the 16 unused types. Mo
 ### Test-only exports
 
 - `src/core.ts` `analyzeProgram`, used only by `test/integration/facade-exports.test.ts`
-- the four `component-topology-model.ts` builders listed above
+- ~~the four `component-topology-model.ts` builders listed above~~ (removed)
 
 ### Needless exports (used only inside their own file)
 
@@ -124,8 +126,8 @@ The audit cannot see these. The code runs, but its output is discarded or a valu
 
 ## Suggested cleanup order
 
-1. Delete the section 1 file groups one at a time, together with their CSS and their (approved) tests, and re-run `pnpm audit:dead-code` after each.
-2. Move the component-topology layout types next to `component-topology-layout.ts`. Then delete `component-topology-model/-normalization/-resource-proof` and rename the surviving layout engine so it no longer reads as the old topology view.
+1. ~~Delete the section 1 file groups one at a time, together with their CSS and their (approved) tests, and re-run `pnpm audit:dead-code` after each.~~ Done.
+2. ~~Move the component-topology layout types and delete `component-topology-model/-normalization/-resource-proof`.~~ Done. Still to do: rename the surviving layout engine so it no longer reads as the old topology view.
 3. Remove the unused value exports and collapse the alias and pass-through layers.
 4. Remove the section 3 dead branches, starting with shadow evidence. Then prune the `RouteDataDetail` fields that no consumer reads (see [trajectory-pipeline.md](trajectory-pipeline.md)).
 5. Strip needless `export` keywords.

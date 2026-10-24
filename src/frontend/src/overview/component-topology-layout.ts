@@ -4,7 +4,7 @@ import type {
   ComponentTopologyLayoutEdge,
   ComponentTopologyLayoutNode,
   ComponentTopologyNode,
-} from "./component-topology-model";
+} from "./component-topology-types";
 import { downstreamFringeDirection } from "./component-topology-fringe-direction";
 import { selectVisibleTopologyLabelIds } from "./component-topology-labels";
 

@@ -1,4 +1,4 @@
-import type { ComponentTopology, ComponentTopologyNode } from "./component-topology-model";
+import type { ComponentTopology, ComponentTopologyNode } from "./component-topology-types";
 
 export const DEFAULT_VISIBLE_TOPOLOGY_LABELS = 30;
 

@@ -9,7 +9,7 @@ import type {
   ComponentTopology,
   ComponentTopologyEdge,
   ComponentTopologyNode,
-} from "./component-topology-model";
+} from "./component-topology-types";
 import type {
   RouteTotalityDisplayEdge,
   RouteTotalityDisplayNode,
