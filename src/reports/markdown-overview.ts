@@ -1,6 +1,6 @@
 import type { AnalysisReport, AnalyzerArgs, Sink } from "../types";
 import path from "node:path";
-import { REPORT_VIEWS } from "../cli/args";
+import { REPORT_VIEWS } from "../api/report-views";
 import { findingTitle } from "../analysis/finding-title";
 import { primaryAdviceShape } from "../analysis/sink-shape";
 import {

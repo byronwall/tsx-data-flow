@@ -1,5 +1,6 @@
 import type { AnalysisReport, AnalyzerArgs } from "./types";
-import { REPORT_VIEWS, defaultMaxItemsFor } from "./cli/args";
+import { REPORT_VIEWS } from "./api/report-views";
+import { defaultMaxItemsFor } from "./cli/args";
 import { buildReport } from "./analysis/report-builder";
 import { selectViewPayload } from "./reports/json";
 import { regenFooter } from "./reports/regen-footer";

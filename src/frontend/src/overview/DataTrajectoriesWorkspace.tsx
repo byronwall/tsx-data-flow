@@ -9,7 +9,7 @@ import { isTrajectoryHistoryNoiseOnlyChange, normalizeTrajectoryUrlState, parseT
 
 export function DataTrajectoriesWorkspace(props: { inventory: RouteDataInventory; generation: number; initialSearch: string }) {
   const initial = untrack(() => reconcileTrajectoryUrlState(parseTrajectoryUrlState(props.initialSearch), props.inventory));
-  const [state, setState] = createSignal<TrajectoryUrlState>(normalizeTrajectoryUrlState({ ...initial.state, open: true }));
+  const [state, setState] = createSignal<TrajectoryUrlState>(normalizeTrajectoryUrlState(initial.state));
   const [notice, setNotice] = createSignal(initial.notice);
   let seededSearch = props.initialSearch;
   let detailController: AbortController | null = null;
@@ -89,7 +89,7 @@ export function DataTrajectoriesWorkspace(props: { inventory: RouteDataInventory
   const visibleDetailError = createMemo(() => (detail.loading ? null : detail.error));
   const applyState = (next: TrajectoryUrlState, push = false, writeHistory = true) => {
     const normalized = normalizeTrajectoryUrlState(next);
-    const pageState = normalizeTrajectoryUrlState({ ...normalized, open: true });
+    const pageState = normalizeTrajectoryUrlState(normalized);
     const current = state();
     const changed = !sameTrajectoryUrlState(current, pageState);
     if (!changed) return;
@@ -106,7 +106,7 @@ export function DataTrajectoriesWorkspace(props: { inventory: RouteDataInventory
     const restored = reconcileTrajectoryUrlState(parseTrajectoryUrlState(search), props.inventory);
     const next = normalizeTrajectoryUrlState(restored.state);
     setNotice(restored.notice);
-    const pageState = normalizeTrajectoryUrlState({ ...next, open: true });
+    const pageState = normalizeTrajectoryUrlState(next);
     if (!sameTrajectoryUrlState(state(), pageState)) setState(pageState);
     const canonicalSearch = serializeTrajectoryUrlState(pageState, search);
     if (canonicalSearch !== search && typeof window !== "undefined") {
@@ -135,7 +135,7 @@ export function DataTrajectoriesWorkspace(props: { inventory: RouteDataInventory
     const inventory = props.inventory;
     const restored = reconcileTrajectoryUrlState(state(), inventory);
     const next = normalizeTrajectoryUrlState(restored.state);
-    const pageState = normalizeTrajectoryUrlState({ ...next, open: true });
+    const pageState = normalizeTrajectoryUrlState(next);
     if (restored.notice) setNotice(restored.notice);
     if (sameTrajectoryUrlState(state(), pageState)) return;
     applyState(pageState, false);

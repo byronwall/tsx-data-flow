@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { REPORT_VIEWS, parseArgs } from "../../src/cli/args";
+import { REPORT_VIEWS } from "../../src/api/report-views";
+import { parseArgs } from "../../src/cli/args";
 import { helpText } from "../../src/cli/help";
 import {
   analyzeProject,

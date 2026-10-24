@@ -1,4 +1,4 @@
-import { REPORT_VIEWS } from "./args";
+import { REPORT_VIEWS } from "../api/report-views";
 
 export function helpText() {
   return `tsx-dataflow — render-path data-flow analyzer for TS/TSX projects

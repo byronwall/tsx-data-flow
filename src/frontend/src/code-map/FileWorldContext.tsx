@@ -24,7 +24,7 @@ export function FileWorldContext(props: { context: FilePage["worldContext"] }) {
             <span>{trajectory.depth} steps · burden {trajectory.burden.toFixed(2)}{trajectory.traceComplete ? "" : " · incomplete"}</span>
           </li>}</For></ul>
         </Show>
-        <a class="file-world-map-link" href={`/?area=${encodeURIComponent(area().id)}`}>Open this area in the repository map</a>
+        <a class="file-world-map-link" href={`/map?area=${encodeURIComponent(area().id)}`}>Open this area in the repository map</a>
         </div>
       </div>
   </section>;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { REPORT_VIEWS, parseArgs } from "../src/cli/args";
+import { REPORT_VIEWS } from "../src/api/report-views";
+import { parseArgs } from "../src/cli/args";
 import { analyzeProject, renderAllReports, renderReport } from "../src/core";
 import { createAnalyzerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
 import {

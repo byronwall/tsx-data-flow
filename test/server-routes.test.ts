@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REPORT_VIEWS } from "../src/cli/args";
-import { REPORT_VIEWS as API_REPORT_VIEWS } from "../src/api/report-views";
+import { REPORT_VIEWS } from "../src/api/report-views";
 import { createAnalyzer } from "../src/core";
 import { createServer } from "../src/server";
 import { createServerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
@@ -457,7 +456,7 @@ describe("createServer", () => {
       expect(markdown.status).toBe(200);
       expect(markdown.headers["Content-Type"]).toContain("text/markdown");
     }
-    for (const view of API_REPORT_VIEWS.filter((candidate) => candidate !== "overview")) {
+    for (const view of REPORT_VIEWS.filter((candidate) => candidate !== "overview")) {
       const structured = await call(handler, `/api/reports/${view}`);
       expect(structured.status).toBe(200);
       expect(reportResponseSchema.parse(JSON.parse(structured.body)).data.view).toBe(view);
