@@ -51,7 +51,7 @@ Despite the `component-topology-*` names, only these are live: `component-topolo
 
 `TrajectoryUrlState` (`trajectory-url-state.ts`): `route`, `flow`, `isolate=1`, `trajectoryMode=atlas|detail`, `routeKind=pages|api|all`, `routeSort=steps|paths|unique|substitutions|gaps`, `sourceMethod`, `filter`, `genericUi=hidden|all`, `totalitySelection=kind:graphId` (node, edge, context, context-edge), `graphCamera=x,y,scale`, `contextFocus`, `totalityField`, `totalityConsumer`.
 
-Changes to only the camera or context focus replace the URL silently (`isTrajectoryHistoryNoiseOnlyChange`). Every other change goes through `commitBrowserUrl`, which fires `BROWSER_URL_CHANGE_EVENT`. `viz` and `trajectoryRenderer` are legacy parameters that get stripped. The `open` field is always forced to `true`.
+Changes to only the camera or context focus replace the URL silently (`isTrajectoryHistoryNoiseOnlyChange`). Every other change goes through `commitBrowserUrl`, which fires `BROWSER_URL_CHANGE_EVENT`. The legacy `viz` and `trajectoryRenderer` parameters get stripped, and `/?viz=trajectory` still redirects to `/trajectories`.
 
 ### User flow
 
@@ -60,18 +60,15 @@ Changes to only the camera or context focus replace the URL silently (`isTraject
 3. **Source.** `TrajectorySourcePicker` calls `selectSource` or `selectSourceField`. The source key goes to the server, which returns field lineage for that source. The header marks a field unproven when `fieldLineage.attachments` has no entry for it.
 4. **Graph and inspector.** `RouteTotalityGraph` lays out the totality, projects the display model, and lays that out too. Selection, isolation, and camera write back through `onInvestigationStateChange`; field and consumer focus write back through `onFieldFocusChange`. Source links open `TrajectorySourceDialog`.
 
-### `RouteDataDetail` fields the live UI reads
+### `RouteDataDetail` fields
 
-Read: `evidence`, `operations` (`route-source-targets.ts`), `sources`, `totality`, `shadowEvidence`, `hiddenComponentPolicy`.
-
-Not read by any live UI: `exhaustiveGraph`, `context`, `shapes`, `values`, `terminals`. Only the dead component-topology, route-flow, and `RouteContextMap` code reads them. They are candidates to drop from the DTO once the backend confirms no other consumer (CLI Markdown does not use the DTO).
+`route`, `trajectory`, `operations` (`route-source-targets.ts`), `evidence`, `sources`, `totality`, `hiddenComponentPolicy`. The fields that no consumer read were removed in the 2026-10 cleanup.
 
 ## Known rough edges (not dead, but worth fixing)
 
-- `code-map/FileWorldContext.tsx` links to `/?area=…`, but only `/map` reads `area`. The link should be `/map?area=`.
 - `trajectory-url-state.ts` runs `buildRouteTotalityLayout(detail.totality)` on every detail load, without the hidden-component policy, just to validate the selection. `RouteTotalityGraph` then builds its own layout with the policy, so the work is duplicated and "hidden" mode validates against a different node set.
 - Back/forward navigation calls `applyUrlState` twice. App's `location` changes `initialSearch` (a reactive prop despite the name), and the workspace also listens for `popstate` and `BROWSER_URL_CHANGE_EVENT`.
-- The layout wrappers form three layers (geometry → layout → model) and import each other in a cycle. Several pass-throughs have no callers (see dead-code.md).
+- The layout wrappers form three layers (geometry → layout → model) and import each other in a cycle.
 - `component-topology-labels.ts` (`topologyLabelBudget`) and `route-totality-display-labels.ts` (`routeTotalityDisplayLabelBudget`) duplicate the same label-budget constants.
 - A local `lexical` comparator is redefined in about 15 overview modules.
 - The frontend bundle pulls in some `src/analysis` modules (cancellation, field-lineage binding, transition) through the shared `src/api/*-validation.ts` modules. That is allowed today because the validation lives in `src/api`, but it widens what the browser bundles.

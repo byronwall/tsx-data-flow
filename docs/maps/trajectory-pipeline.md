@@ -1,6 +1,6 @@
 # Data trajectory pipeline
 
-How the analyzer goes from "a route file" to "this persisted value reaches these fields in these components", and how that reaches the `/trajectories` UI. This is the part of the system to keep. Product intent lives in [../data-trajectory-intent.md](../data-trajectory-intent.md); this doc covers the mechanism. Snapshot: commit `b4f1ba4`.
+How the analyzer goes from "a route file" to "this persisted value reaches these fields in these components", and how that reaches the `/trajectories` UI. This is the part of the system to keep. Product intent lives in [../data-trajectory-intent.md](../data-trajectory-intent.md); this doc covers the mechanism. Snapshot: updated after the 2026-10 dead-code cleanup stack. Originally mapped at `b4f1ba4`.
 
 ## The short version
 
@@ -9,10 +9,10 @@ There are **three models** in every route-data response. Only one is rendered in
 | Model | Built by | Still load-bearing for |
 |---|---|---|
 | **Legacy semantic-stage** (operations, values, shapes, evidence, terminals, one trajectory per route) | `route-data.ts` `analyzeRouteData` + `route-data-legacy-support.ts` | The `flow` key (a route with no legacy candidate gets no trajectory, so no detail). The `sources` list that feeds the source picker. `evidence`/`operations` for source-viewer targets. |
-| **Exhaustive sink graph** | `route-data-trajectories.ts` `buildExhaustiveRouteGraph` | Only the atlas counts (`trajectoryCount`, `uniqueStepCount`, `substitutionStepCount`, `unknownGapCount`) in `RouteAtlas`. Its detail payload (`exhaustiveGraph`, `context`) is read only by dead frontend code. |
+| **Exhaustive sink graph** | `route-data-trajectories.ts` `buildExhaustiveRouteGraph` | Only the atlas counts (`trajectoryCount`, `uniqueStepCount`, `substitutionStepCount`, `unknownGapCount`) in `RouteAtlas`. Its detail payload was removed. |
 | **Route totality** (current) | `route-data-totality.ts` and families: program evidence, evidence slice, occurrence surface, context continuity, bridges, field proof | Everything `RouteTotalityWorkspace` draws. |
 
-A useful cleanup target: make totality stand on its own. Key the detail on route + source instead of the legacy `flow`, build `sources` from program-evidence facts, and then drop the legacy model and the exhaustive graph's detail payload.
+The next cleanup target: make totality stand on its own. Key the detail on route + source instead of the legacy `flow`, and build `sources` from program-evidence facts. Then the legacy model can go.
 
 ## Request lifecycle
 
@@ -31,8 +31,7 @@ src/server/analysis-worker.ts   perform(op) using src/server/cache.ts (one repor
     (api/projections/route-data.ts)           ├ selectedTotalitySource() → RouteTotalitySelectedSource
     reads report.routeData (eager)            ├ routeTotalityForRoute()  (lazy, cached per route+source)
     + buildExhaustiveRouteGraph per route     ├ projectRouteTotality()   → validateRouteTotality (throws)
-      (WeakMap-memoised) for atlas counts     └ addSelectedSourceFieldPaths, projectComponentContext,
-                                                annotateGraphSources (dead payload)
+      (WeakMap-memoised) for atlas counts     └ addSelectedSourceFieldPaths
   workspaceResponseSchema.parse               routeDataDetailTransportResponseSchema.parse (structure only)
                                     ▼                       ▼
 src/frontend/src/api.ts  routeDataDetailResponseSchema.parse → routeTotalitySchema.superRefine
@@ -54,8 +53,7 @@ src/frontend/src/api.ts  routeDataDetailResponseSchema.parse → routeTotalitySc
 | 3 | Resource ownership, consumers, HTTP bridges | `route-data-consumers.ts` `collectCalledDeclarations`. `route-data-resource.ts` `resolveResourceFetcher`, `isCanonicalCreateResourceCall`, `returnedConsumerFieldPaths`, `resourceBoundaryIdentity`. `route-data-http.ts` `collectResourceHttpBridges` (`createResource` → `/api/*`) | declarations, resource outputs, consumer fields, `RouteDataHttpBridgeResolution` |
 | 4 | Persisted-source detection (legacy) | `route-data-legacy-support.ts` `collectLegacyCandidates` → `chooseLegacyCandidates`, `buildLegacyTerminals` (cap 4) | `DataOperation`, `RouteDataValue`, `ValueShapeSummary`, `RouteDataEvidence`, `RouteDataTerminal`, one `RouteDataTrajectory` per route. `exactFileInputElementId` links a read to a program `file-input` fact, but only for `node:fs/promises` `readFile`. |
 | 5 | Program evidence provider (shared fact substrate) | `evidence-relation-provider.ts` `createLazyProgramEvidenceProvider`: `ProgramEvidenceCollector.collectFactsOnly()` (`program-evidence-collector*.ts`, `program-evidence-*.ts`, `http-bridge-evidence.ts`) → compact facts; `program-fact-index.ts` `ProgramFactIndex` (lazy hydration); `program-evidence-relation-loading.ts` (frontier-loaded relations); `evidence-relation-provider-lazy.ts` | `EvidenceRelationProvider { facts, getRelations, getGaps }` |
-| 6 | Shadow evidence | `route-shadow-evidence*.ts`, `component-occurrence-identity*.ts`, `transparent-wrapper-occurrence-projection.ts` | `RouteShadowEvidence`. Hardcoded to one app and never sent to the client; see "Dead branches". |
-| 7 | Session registration | `route-data-session.ts` `createRouteDataTotalitySession`, `registerRouteDataTotalitySession` (WeakMap keyed by the analysis) | Lazy per-route totality builder |
+| 6 | Session registration | `route-data-session.ts` `createRouteDataTotalitySession`, `registerRouteDataTotalitySession` (WeakMap keyed by the analysis) | Lazy per-route totality builder |
 
 ### Lazy — per route + selected source, on `/api/route-data`
 
@@ -63,16 +61,16 @@ src/frontend/src/api.ts  routeDataDetailResponseSchema.parse → routeTotalitySc
 
 | # | Stage | Files · key functions | Produces / purpose |
 |---|---|---|---|
-| 8 | Occurrence surface | `route-occurrence-surface.ts` `buildRouteOccurrenceSurface` using `RouteOccurrenceSurfaceBuilder` (`route-occurrence-surface-{builder,scanner,entry,accounting,finalize,graph,policy}.ts`, `route-occurrence-condition-evaluation.ts`, `-declaration-index.ts`, `-support.ts`) | `RouteOccurrenceSurface`: definitions, occurrences, edges, boundaries, terminals, omissions, totals. The component-instance tree and its render terminals. |
-| 9 | Context continuity | `solid-route-context-continuity.ts` `buildSolidRouteContextContinuity` (`SolidRouteContextCompiler` + `-hook/-read/-record/-relay/-route/-support`), uses `program-value-summary.ts` `ProgramValueSummaryAnalyzer` | `RouteContextContinuity` (`context-continuity.ts`): provider → read links |
-| 10 | Evidence slice | `evidence-slice.ts` `queryEvidenceSlice(provider, { seed })` + `-support`, `-normalization`, `-coverage` | `EvidenceSlice`: a bounded relation walk from the route entry (elements, relations, origins, terminals, gaps, coverage) |
-| 11 | Selected-source merge | `route-totality-selected-source.ts` `mergeSelectedRouteSource` | Connects the chosen file input to the slice, or records a gap |
-| 12 | Bridges | `route-totality-bridge.ts` `buildRouteTotalityBridges`, `route-totality-anchor-index.ts` `buildRouteTotalityAnchorIndex` | `RouteTotalityBridge[]`: origin→render and render-terminal→origin links between the slice and the surface |
-| 13 | Field proof / lineage (only with a selected source) | `route-totality-field-proof.ts` `buildSelectedRouteTotalityFieldProof` → `route-totality-field-proof-query.ts` `queryRouteTotalityFieldProof`; helpers `-index`, `-candidate`, `-carrier`, `-consumers`, `-component*`, `-transformations`, `-result`, `-policy`, `-ast`; verifiers `route-totality-field-transfer-{verifier,component-verifier,carrier-verifier}.ts`, `route-totality-field-target-consumer.ts` | `RouteTotalityFieldLineage` (attachments, frontiers, transformations; `route-totality-field-lineage.ts`). Without a source: `unavailableRouteTotalityFieldLineage(NO_SELECTED_SOURCE_FIELD_LINEAGE_REASON)`. |
-| 14 | Finding attachments | `route-totality-finding-attachments.ts` `attachRouteTotalityFindings` (called from the session) | `findingAttachments`, `findingIndex`: render-path findings pinned onto totality nodes |
-| 15 | Projection + validation | `api/projections/route-totality.ts` `projectRouteTotality` with `route-totality-{evidence,surface}-projection.ts`, `route-totality-field-lineage.ts`, `context-continuity.ts`, `cancellable-projection.ts`; validators `api/route-occurrence-validation*.ts`, `route-totality-bridge-validation.ts`, `route-totality-finding-validation.ts`, `route-totality-field-lineage-validation*.ts`, `route-context-continuity-validation.ts` | `RouteTotality` DTO (`api/route-totality-contracts.ts`) |
+| 7 | Occurrence surface | `route-occurrence-surface.ts` `buildRouteOccurrenceSurface` using `RouteOccurrenceSurfaceBuilder` (`route-occurrence-surface-{builder,scanner,entry,accounting,finalize,graph,policy}.ts`, `route-occurrence-condition-evaluation.ts`, `-declaration-index.ts`, `-support.ts`) | `RouteOccurrenceSurface`: definitions, occurrences, edges, boundaries, terminals, omissions, totals. The component-instance tree and its render terminals. |
+| 8 | Context continuity | `solid-route-context-continuity.ts` `buildSolidRouteContextContinuity` (`SolidRouteContextCompiler` + `-hook/-read/-record/-relay/-route/-support`), uses `program-value-summary.ts` `ProgramValueSummaryAnalyzer` | `RouteContextContinuity` (`context-continuity.ts`): provider → read links |
+| 9 | Evidence slice | `evidence-slice.ts` `queryEvidenceSlice(provider, { seed })` + `-support`, `-normalization`, `-coverage` | `EvidenceSlice`: a bounded relation walk from the route entry (elements, relations, origins, terminals, gaps, coverage) |
+| 10 | Selected-source merge | `route-totality-selected-source.ts` `mergeSelectedRouteSource` | Connects the chosen file input to the slice, or records a gap |
+| 11 | Bridges | `route-totality-bridge.ts` `buildRouteTotalityBridges`, `route-totality-anchor-index.ts` `buildRouteTotalityAnchorIndex` | `RouteTotalityBridge[]`: origin→render and render-terminal→origin links between the slice and the surface |
+| 12 | Field proof / lineage (only with a selected source) | `route-totality-field-proof.ts` `buildSelectedRouteTotalityFieldProof` → `route-totality-field-proof-query.ts` `queryRouteTotalityFieldProof`; helpers `-index`, `-candidate`, `-carrier`, `-consumers`, `-component*`, `-transformations`, `-result`, `-policy`, `-ast`; verifiers `route-totality-field-transfer-{verifier,component-verifier,carrier-verifier}.ts`, `route-totality-field-target-consumer.ts` | `RouteTotalityFieldLineage` (attachments, frontiers, transformations; `route-totality-field-lineage.ts`). Without a source: `unavailableRouteTotalityFieldLineage(NO_SELECTED_SOURCE_FIELD_LINEAGE_REASON)`. |
+| 13 | Finding attachments | `route-totality-finding-attachments.ts` `attachRouteTotalityFindings` (called from the session) | `findingAttachments`, `findingIndex`: render-path findings pinned onto totality nodes |
+| 14 | Projection + validation | `api/projections/route-totality.ts` `projectRouteTotality` with `route-totality-{evidence,surface}-projection.ts`, `route-totality-field-lineage.ts`, `context-continuity.ts`, `cancellable-projection.ts`; validators `api/route-occurrence-validation*.ts`, `route-totality-bridge-validation.ts`, `route-totality-finding-validation.ts`, `route-totality-field-lineage-validation*.ts`, `route-context-continuity-validation.ts` | `RouteTotality` DTO (`api/route-totality-contracts.ts`) |
 
-The acceptance runner for field-flow proofs (`scripts/accept-route-field-proof.ts`, see [../route-field-proof-acceptance.md](../route-field-proof-acceptance.md)) drives stages 8–13 directly.
+The acceptance runner for field-flow proofs (`scripts/accept-route-field-proof.ts`, see [../route-field-proof-acceptance.md](../route-field-proof-acceptance.md)) drives stages 7–12 directly.
 
 ## Types to know
 
@@ -97,33 +95,24 @@ The acceptance runner for field-flow proofs (`scripts/accept-route-field-proof.t
 | DTOs `RouteDataInventory`, `RouteDataDetail` | `src/api/contracts.ts` |
 | DTO `RouteTotality` | `src/api/route-totality-contracts.ts` |
 
-## Dead branches inside the live pipeline
+## Removed dead branches
 
-These sit inside files that are otherwise live. File-level dead code is in [dead-code.md](dead-code.md).
+The 2026-10 cleanup removed these from the live pipeline. See [dead-code.md](dead-code.md).
 
-- **Shadow evidence is computed and then thrown away.**
-  - `buildRouteShadowEvidence` runs eagerly on every analysis (`route-data.ts`). It is hardcoded to one external app: `route-shadow-evidence-compiler.ts` uses `TARGET_ROUTE = "/captures/[captureId]"`, `app/src/lib/pluck/...`, fixed line numbers and a fixed expression, and `component-occurrence-identity-support.ts` does the same.
-  - `buildRouteDataDetail` never copies `shadowEvidence` into the DTO, so the frontend's `detail.shadowEvidence` is always undefined.
-  - What can go: the `route-shadow-evidence*` chain, the Pluck occurrence diagnostic, `transparent-wrapper-occurrence-projection.ts`, `routeShadowEvidenceSchema`, and the UI's `shadowEvidence` props.
-- **The eager program-evidence branch.**
-  - The only path to `ProgramEvidenceCollector.collect()` / `collectProgramEvidence` is `scope-adapters/solid-route.ts` `loadSolidRouteEvidence` / `evidenceSliceAdapter`, and only the dead evidence-slice CLI calls those.
-  - The `ProgramEvidence` input branch of `queryEvidenceSlice` (`ArrayEvidenceRelationProvider`, `providerForProgramEvidence`, `normalizeProgramEvidence`) is dead for the same reason. Production uses only the lazy provider.
-- **Always-empty or never-read fields.**
-  - `RouteDataAnalysis.routeTotality` is always `[]`, so the fallback lookup in `route-data-session.ts` never hits.
-  - `discoverSolidRouteCandidates` receives `relations: []` and ignores it.
-  - `RouteTotalityRecord.counts` is never read: `projectRouteTotality` recomputes counts. `RouteTotalityRecord.key` duplicates `routeKey`.
-  - `FieldProofInput.route` is passed in but never used.
-- **Fields that never change value** (legacy trajectory in `route-data.ts`):
-  - `candidateGroups` always holds one-element groups, so the multi-member labels never appear.
-  - `terminalSelectionLimit: 4` duplicates `LEGACY_ROUTE_TERMINAL_CAP`.
-  - `handoffsProven` is always `false` and `ordering` is always `"semantic-stage"`.
-  - `completeness` is always `"partial"`; the `"unknown"` branch is unreachable. So the frontend check `completeness === "complete-for-supported-scope"` in `trajectory-url-state.ts` can never pass.
-- **Detail payload no live UI reads:** `exhaustiveGraph` (with `annotateGraphSources`), `context` (`projectComponentContext`), `values`, `shapes`, `terminals`.
-- **Duplicates:**
-  - `stableHash` (`route-discovery.ts` and `scope-seam.ts`)
-  - route discovery (AST and regex)
-  - `ProgramElement`/`ProgramRelation` types (`scope-seam.ts` and `program-evidence.ts`)
-- **Remnants of the removed legacy field traversal** (commit `ef0cd7a`): `route-totality-field-lineage-component-binding.ts` and `-truncation.ts` have no importers in `src/analysis`. Only `src/api/*validation*` uses a few of their helpers; the rest of their exports, and several in `-support.ts`, are unreferenced.
+- **Shadow evidence.** It was hardcoded to one Pluck route and never sent to the client. The `route-shadow-evidence*`, `component-occurrence-identity*`, and `transparent-wrapper-occurrence-projection` files are gone, and so are the schemas and UI props.
+- **Eager program evidence.** `collectProgramEvidence`, `ProgramEvidenceCollector.collect()`, the array relation provider, and the `ProgramEvidence` input to `queryEvidenceSlice` are gone. Only the lazy provider remains.
+- **Always-empty or never-read fields.** Removed `RouteDataAnalysis.routeTotality`, `RouteTotalityRecord.counts`, and `FieldProofInput.route`. Also removed the constant trajectory fields `terminalSelectionLimit`, `ordering`, and `handoffsProven`.
+- **Unread detail payload.** Removed `RouteDataDetail.exhaustiveGraph`, `context`, `values`, `shapes`, and `terminals`.
+- **Legacy field-traversal remnants** in `route-totality-field-lineage-*`.
+
+## Remaining oddities
+
+- **Constant `completeness`.** The legacy trajectory's `completeness` is always `"partial"`, so the frontend check `completeness === "complete-for-supported-scope"` in `trajectory-url-state.ts` never passes.
+- **Duplicates.**
+  - `stableHash` exists twice (`route-discovery.ts`, `scope-seam.ts`).
+  - Route discovery exists twice: AST and regex.
+  - The `ProgramElement`/`ProgramRelation` types exist twice (`scope-seam.ts`, `program-evidence.ts`).
+- **Ignored argument.** `discoverSolidRouteCandidates` receives `relations: []` and ignores it.
 
 ## Known limits worth knowing before refactoring
 
