@@ -8,7 +8,6 @@ import type {
   ProgramEvidenceCollectionStats,
   ProgramEvidenceGap,
   ProgramEvidenceGapReason,
-  ProgramEvidenceIndexes,
   ProgramEvidenceLocation,
   ProgramEvidenceOptions,
   ProgramEvidencePhaseName,
@@ -48,8 +47,6 @@ import {
   calleeName,
   compilerSymbolId,
   firstBindingIdentifier,
-  groupElements,
-  groupRelations,
   importModule,
   inside,
   isEffectName,
@@ -557,41 +554,6 @@ export class ProgramEvidenceCollectorSupport {
     return location;
   }
 
-  protected buildIndexes(elements: ProgramElement[]): ProgramEvidenceIndexes {
-    const elementsById = new Map(elements.map((element) => [element.id, element]));
-    const relationsById = new Map(
-      this.relations.map((relation) => [relation.id, relation]),
-    );
-    const outgoingRelationIds = groupRelations(
-      this.relations,
-      (relation) => relation.from,
-    );
-    const incomingRelationIds = groupRelations(
-      this.relations,
-      (relation) => relation.to,
-    );
-    const operationElements = elements.filter((element) => element.operationKind);
-    return {
-      elementsById,
-      relationsById,
-      outgoingRelationIds,
-      incomingRelationIds,
-      elementIdsByKind: groupElements(elements, (element) => element.kind),
-      elementIdsByFile: groupElements(elements, (element) => element.location.file),
-      elementIdsBySymbolId: groupElements(
-        elements,
-        (element) => element.symbolId ?? "",
-      ),
-      relationIdsByKind: groupRelations(
-        this.relations,
-        (relation) => relation.kind,
-      ),
-      operationIdsByKind: groupElements(
-        operationElements,
-        (element) => element.operationKind as ProgramOperationKind,
-      ),
-    };
-  }
 }
 
 function locationKey(location: ProgramEvidenceLocation): string {

@@ -1,12 +1,10 @@
 import path from "node:path";
 import * as TypeScript from "typescript";
 import type {
-  ProgramElement,
   ProgramEvidenceLocation,
   ProgramOperationKind,
   ProgramProof,
   ProgramProofKind,
-  ProgramRelation,
 } from "./program-evidence";
 
 export function asFunctionLike(
@@ -406,24 +404,4 @@ export function stableSerialize(value: unknown): string {
       .join(",")}}`;
   }
   return String(value);
-}
-
-export function groupElements<T extends string>(items: ProgramElement[], key: (item: ProgramElement) => T) {
-  const groups = new Map<T, string[]>();
-  for (const item of items) {
-    const group = groups.get(key(item)) ?? [];
-    group.push(item.id);
-    groups.set(key(item), group);
-  }
-  return groups;
-}
-
-export function groupRelations<T extends string>(items: ProgramRelation[], key: (item: ProgramRelation) => T) {
-  const groups = new Map<T, string[]>();
-  for (const item of items) {
-    const group = groups.get(key(item)) ?? [];
-    group.push(item.id);
-    groups.set(key(item), group);
-  }
-  return groups;
 }

@@ -5,11 +5,9 @@ import { collectReachableFiles, discoverRoute, stableHash } from "./route-discov
 import { resourceBoundaryIdentity } from "./route-data-resource";
 import { collectCalledDeclarations } from "./route-data-consumers";
 import { collectResourceHttpBridges, type RouteDataHttpBridge } from "./route-data-http";
-import { buildRouteShadowEvidence, type RouteShadowEvidence } from "./route-shadow-evidence";
 import { createLazyProgramEvidenceProvider } from "./evidence-relation-provider";
 import { discoverSolidRouteCandidates } from "./scope-adapters/solid-route";
 import { createRouteDataTotalitySession, registerRouteDataTotalitySession } from "./route-data-session";
-import type { RouteTotalityRecord } from "./route-data-totality";
 import {
   buildLegacyTerminals,
   chooseLegacyCandidates,
@@ -123,8 +121,6 @@ export interface RouteDataAnalysis {
   shapes: ValueShapeSummary[];
   evidence: RouteDataEvidence[];
   terminals: RouteDataTerminal[];
-  routeTotality: RouteTotalityRecord[];
-  shadowEvidence: RouteShadowEvidence | null;
 }
 
 export function analyzeRouteData(
@@ -268,17 +264,12 @@ export function analyzeRouteData(
   }
   const routeData: RouteDataAnalysis = {
     routes,
-    // Totality is an interactive detail concern. Keep the compact route and
-    // trajectory inventory eager, but retain the provider for one selected
-    // route so the workspace request does not build every route's frontier.
-    routeTotality: [],
     trajectories,
     operations,
     values,
     shapes,
     evidence,
     terminals,
-    shadowEvidence: buildRouteShadowEvidence(ts, program, root, routes, sinks),
   };
   registerRouteDataTotalitySession(
     routeData,

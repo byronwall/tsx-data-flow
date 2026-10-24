@@ -1,8 +1,10 @@
 import path from "node:path";
 import * as TypeScript from "typescript";
-import type { CompilerLocation } from "./component-occurrence-identity";
 import type { RouteSlotExpression } from "./route-occurrence-surface";
 import { stableHash } from "./route-discovery";
+import type { SourceSpan } from "../types";
+
+export type CompilerLocation = { file: string; line: number; column: number; span: SourceSpan };
 
 export type ResolvedComponent = {
   symbol: TypeScript.Symbol;

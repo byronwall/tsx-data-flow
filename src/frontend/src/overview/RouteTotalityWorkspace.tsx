@@ -39,7 +39,6 @@ export function RouteTotalityWorkspace(props: {
     <div class="route-totality-main">
       <RouteTotalityGraph
         totality={props.detail.totality}
-        shadowEvidence={props.detail.shadowEvidence}
         selectedSourceKey={props.state.source}
         selectedSourceEvidence={selectedSourceEvidence()}
         selectedSourceFieldPaths={selectedSourceFieldPaths()}

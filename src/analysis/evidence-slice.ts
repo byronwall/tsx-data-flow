@@ -1,11 +1,7 @@
-import type { ProgramEvidence } from "./program-evidence";
 import {
   NO_ANALYSIS_CANCELLATION,
   type AnalysisCancellationToken,
 } from "./cancellation";
-import {
-  providerForProgramEvidence,
-} from "./evidence-relation-provider";
 import {
   boundaryPolicy as normalizeBoundaryPolicy,
   stableHash,
@@ -23,7 +19,6 @@ import {
   type TerminalPolicyInput,
 } from "./scope-seam";
 import {
-  appendProgramGaps,
   appendProviderGaps,
   assertGapEndpointReferences,
   blockedBoundary,
@@ -60,7 +55,7 @@ export type SliceQuery = {
   cancellation?: AnalysisCancellationToken;
 };
 
-export type EvidenceSliceSource = ProgramEvidence | EvidenceRelationSource;
+export type EvidenceSliceSource = EvidenceRelationSource;
 
 /** Compatibility form for callers using the original plan's `scope` name. */
 export type ScopeSliceQuery = Omit<SliceQuery, "seed"> & { scope: ScopeSeed };
@@ -118,7 +113,7 @@ export function queryEvidenceSlice(
     normalizedRequest.budget,
     boundary.maxElements + boundary.maxRelations,
   );
-  const provider = relationProviderFor(evidence);
+  const provider = evidence;
   const indexed = indexProvider(provider);
   const includedElements = new Map<string, ProgramElement>();
   const includedRelations = new Map<string, ProgramRelation>();
@@ -415,11 +410,7 @@ export function queryEvidenceSlice(
 
   const elements = [...includedElements.values()];
   const relations = [...includedRelations.values()];
-  if (isEvidenceRelationProvider(evidence)) {
-    appendProviderGaps(provider, includedElements, addGap);
-  } else {
-    appendProgramGaps(evidence.gaps, includedElements, addGap);
-  }
+  appendProviderGaps(provider, includedElements, addGap);
   const normalizedGaps = normalizeGapEndpoints(gaps, includedElements);
   cancellation.throwIfCancelled();
   assertGapEndpointReferences(normalizedGaps, includedElements);
@@ -443,18 +434,6 @@ export function queryEvidenceSlice(
       budgetExhausted,
     ),
   };
-}
-
-function relationProviderFor(source: EvidenceSliceSource): EvidenceRelationSource {
-  return isEvidenceRelationProvider(source)
-    ? source
-    : providerForProgramEvidence(source);
-}
-
-function isEvidenceRelationProvider(source: EvidenceSliceSource): source is EvidenceRelationSource {
-  return "factIndex" in source
-    && typeof source.getRelations === "function"
-    && typeof source.getGaps === "function";
 }
 
 function normalizeRequest(

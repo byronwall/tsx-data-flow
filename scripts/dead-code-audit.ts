@@ -115,7 +115,10 @@ const target = (symbol: TypeScript.Symbol) => {
 for (const sourceFile of ourSourceFiles) {
   const current = path.resolve(sourceFile.fileName);
   const visit = (node: TypeScript.Node) => {
-    if (ts.isIdentifier(node)) {
+    // A declaration's own name (including each overload signature) is not a use.
+    const parent = node.parent;
+    const isDeclarationName = parent !== undefined && (ts.isFunctionDeclaration(parent) || ts.isVariableDeclaration(parent) || ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent) || ts.isTypeAliasDeclaration(parent) || ts.isEnumDeclaration(parent)) && parent.name === node;
+    if (ts.isIdentifier(node) && !isDeclarationName) {
       let symbol = checker.getSymbolAtLocation(node);
       if (ts.isShorthandPropertyAssignment(node.parent)) symbol = checker.getShorthandAssignmentValueSymbol(node.parent) ?? symbol;
       const declaration = symbol && target(symbol).declarations?.[0];
@@ -148,14 +151,14 @@ for (const file of sourceFiles.filter((candidate) => live.has(candidate))) {
   for (const exported of checker.getExportsOfModule(moduleSymbol)) {
     const symbol = target(exported);
     if (declaringFile.has(symbol) && declaringFile.get(symbol) !== file) continue;
-    const entry = references.get(symbol) ?? { live: new Set<string>(), test: new Set<string>(), self: 1 };
+    const entry = references.get(symbol) ?? { live: new Set<string>(), test: new Set<string>(), self: 0 };
     if (entry.live.size > 0) continue;
     const row = {
       file: rel(file),
       name: exported.name,
       isType: Boolean(symbol.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface)),
       testFiles: [...entry.test],
-      internalUses: entry.self - 1,
+      internalUses: entry.self,
     };
     if (row.internalUses > 0) internalOnlyExports.push(row);
     else if (row.testFiles.length > 0) testOnlyExports.push(row);

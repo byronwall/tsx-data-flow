@@ -67,26 +67,6 @@ export function indexProvider(provider: EvidenceRelationSource): ProviderEvidenc
   };
 }
 
-/* Normalization helpers live in evidence-slice-normalization.ts. */
-
-export function appendProgramGaps(
-  programGaps: readonly ProgramEvidenceGap[],
-  includedElements: ReadonlyMap<string, ProgramElement>,
-  addGap: (input: GapInput) => void,
-) {
-  for (const gap of programGaps) {
-    if (!includedElements.has(gap.from)) continue;
-    addGap({
-      from: gap.from,
-      to: gap.to,
-      label: gap.detail,
-      reason: scopeGapReason(gap.reason),
-      location: gap.location ? toSliceLocation(gap.location) : null,
-      status: "partial",
-    });
-  }
-}
-
 /** Append only gaps owned by elements already included in the slice. */
 export function appendProviderGaps(
   provider: EvidenceRelationSource,

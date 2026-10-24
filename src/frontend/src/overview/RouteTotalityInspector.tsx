@@ -1,5 +1,5 @@
 import { For, Show, type Accessor } from "solid-js";
-import type { RouteDataDetail, RouteTotality } from "../../../api/contracts";
+import type { RouteTotality } from "../../../api/contracts";
 import { routeTotalityNodeKindLabel, type RouteTotalityCountSummary, type RouteTotalityGraphSummary, type RouteTotalityLocation } from "./route-totality-model";
 import type {
   RouteTotalityInspectorLink,
@@ -26,7 +26,6 @@ import { RouteTotalityEvidenceSection } from "./RouteTotalityEvidenceSection";
 
 export function RouteTotalityInspector(props: {
   totality: RouteTotality | null;
-  shadowEvidence: RouteDataDetail["shadowEvidence"];
   summary: RouteTotalityGraphSummary;
   counts: readonly RouteTotalityCountSummary[];
   ledgerItems: readonly RouteTotalityLedgerSection[];
@@ -58,7 +57,7 @@ export function RouteTotalityInspector(props: {
         onOpenSource={props.onOpenSource}
         onSelect={props.onContextSelect}
       />
-      <Show when={props.selected()} fallback={<RouteTotalityOverview totality={props.totality} shadowEvidence={props.shadowEvidence} summary={props.summary} counts={props.counts} ledgerItems={props.ledgerItems} startSelectionAvailable={props.startSelectionAvailable} fieldResult={props.fieldResult} onSelectStart={props.onSelectStart} onOpenSource={props.onOpenSource} />}>
+      <Show when={props.selected()} fallback={<RouteTotalityOverview totality={props.totality} summary={props.summary} counts={props.counts} ledgerItems={props.ledgerItems} startSelectionAvailable={props.startSelectionAvailable} fieldResult={props.fieldResult} onSelectStart={props.onSelectStart} onOpenSource={props.onOpenSource} />}>
         {(record) => <>
           <header class="route-totality-inspector-header">
             <div>
@@ -81,7 +80,7 @@ export function RouteTotalityInspector(props: {
           <EmphasisSection record={record()} emphasis={props.emphasis} emphasisMode={props.emphasisMode} isolated={props.isolated} onEmphasize={props.onEmphasize} onClearEmphasis={props.onClearEmphasis} onIsolate={props.onIsolate} onRestore={props.onRestore} />
           <SourceLocations locations={record().locations} onOpenSource={props.onOpenSource} />
           <ProofRecords proofs={record().proof} onOpenSource={props.onOpenSource} />
-          <RouteTotalityEvidenceSection shadowEvidence={props.shadowEvidence} totality={props.totality} selected={record()} fieldResult={props.fieldResult} onOpenSource={props.onOpenSource} />
+          <RouteTotalityEvidenceSection totality={props.totality} selected={record()} fieldResult={props.fieldResult} onOpenSource={props.onOpenSource} />
           <FindingSection findings={props.findings} />
           <NeighborSection title="Incoming neighbors" items={record().incoming} empty="No incoming neighbor was returned." onSelect={props.onSelect} />
           <NeighborSection title="Outgoing neighbors" items={record().outgoing} empty="No outgoing neighbor was returned." onSelect={props.onSelect} />

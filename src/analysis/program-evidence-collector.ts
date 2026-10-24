@@ -1,37 +1,11 @@
 import type {
   CollectedProgramFacts,
-  ProgramEvidence,
 } from "./program-evidence";
 import type { RelationSink } from "./program-evidence-relation-loading";
 import { ProgramEvidenceCollectorJsxSupport } from "./program-evidence-collector-jsx-support";
 import { relative } from "./program-evidence-support";
 
 export class ProgramEvidenceCollector extends ProgramEvidenceCollectorJsxSupport {
-  collect(): ProgramEvidence {
-    this.collectSourceFacts();
-    const elements = this.facts.map((fact) => this.hydrateFact(fact));
-    const indexes = this.buildIndexes(elements);
-    return {
-      elements,
-      relations: this.relations,
-      gaps: this.gaps,
-      sourceFiles: this.files.map((file) => relative(this.root, file.fileName)),
-      indexes,
-      coverage: {
-        sourceFiles: this.files.length,
-        elements: elements.length,
-        relations: this.relations.length,
-        provenRelations: this.relations.filter(
-          (relation) => relation.confidence === "proven",
-        ).length,
-        partialRelations: this.relations.filter(
-          (relation) => relation.confidence === "partial",
-        ).length,
-        gaps: this.gaps.length,
-      },
-    };
-  }
-
   collectDeferredFacts(): CollectedProgramFacts {
     this.collectSourceFacts();
     return {

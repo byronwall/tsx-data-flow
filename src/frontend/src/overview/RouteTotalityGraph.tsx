@@ -34,7 +34,6 @@ const COMPACT_COUNT_KEYS = ["origins", "occurrences", "boundaries", "terminals",
 
 type RouteTotalityGraphProps = {
   totality: RouteTotality | null;
-  shadowEvidence: RouteDataDetail["shadowEvidence"];
   selectedSourceKey: string | null;
   selectedSourceEvidence: RouteDataDetail["evidence"][number] | null;
   selectedSourceFieldPaths: readonly string[];
@@ -514,7 +513,6 @@ export function RouteTotalityGraph(props: RouteTotalityGraphProps) {
       />
       <RouteTotalityInspector
         totality={props.totality}
-        shadowEvidence={props.shadowEvidence}
         summary={layout().summary}
         counts={compactCounts()}
         ledgerItems={ledgerItems()}

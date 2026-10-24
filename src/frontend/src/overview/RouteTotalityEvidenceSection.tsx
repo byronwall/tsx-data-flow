@@ -1,5 +1,5 @@
 import { For, Show, createMemo } from "solid-js";
-import type { RouteShadowEvidence, RouteTotality } from "../../../api/contracts";
+import type { RouteTotality } from "../../../api/contracts";
 import type { RouteTotalityFieldInspectorResult } from "./route-totality-field-inspector-model";
 import type { RouteTotalityInspectorRecord } from "./route-totality-inspector-model";
 import type { SourceEvidenceTarget } from "./source-evidence-model";
@@ -7,31 +7,29 @@ import { sourceTargetForLocation } from "./route-source-targets";
 import { buildRouteTotalityEvidenceModel, type EvidencePathStep } from "./route-totality-evidence-model";
 
 export function RouteTotalityEvidenceSection(props: {
-  shadowEvidence: RouteShadowEvidence | null | undefined;
   totality: RouteTotality | null;
   selected: RouteTotalityInspectorRecord | null;
   fieldResult: RouteTotalityFieldInspectorResult | null;
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
 }) {
   const model = createMemo(() => buildRouteTotalityEvidenceModel(
-    props.shadowEvidence,
     props.totality,
     props.selected,
     props.fieldResult,
   ));
   return <section class="route-totality-inspector-section route-totality-evidence-section">
-    <h3>Evidence <span>{shadowStatusLabel(model().shadow.status)} · {evidenceSourceLabel(model().shadow.source)}</span></h3>
-    <Show when={model().shadow.status !== "missing"} fallback={<p>No retained shadow evidence was returned for this route.</p>}>
+    <h3>Evidence <span>{evidenceStatusLabel(model().summary.status)} · {evidenceSourceLabel(model().summary.source)}</span></h3>
+    <Show when={model().summary.status !== "missing"} fallback={<p>No retained route evidence was returned for this route.</p>}>
       <p class="route-totality-evidence-note">Retained proof is summarized here. The full evidence graph is not rendered.</p>
       <dl class="route-totality-evidence-counts">
-        <div><dt>Nodes</dt><dd>{model().shadow.nodes.length}</dd></div>
-        <div><dt>Proven edges</dt><dd>{model().shadow.edges.length}</dd></div>
-        <div><dt>Gaps</dt><dd>{model().shadow.gaps.length}</dd></div>
+        <div><dt>Nodes</dt><dd>{model().summary.nodes.length}</dd></div>
+        <div><dt>Proven edges</dt><dd>{model().summary.edges.length}</dd></div>
+        <div><dt>Gaps</dt><dd>{model().summary.gaps.length}</dd></div>
       </dl>
-      <Show when={model().shadow.path.length}>
+      <Show when={model().summary.path.length}>
         <div class="route-totality-evidence-path">
-          <h4>Meaningful path <span>{model().shadow.path.length}</span></h4>
-          <ol><For each={model().shadow.path}>{(step) => <PathStep step={step} onOpenSource={props.onOpenSource} />}</For></ol>
+          <h4>Meaningful path <span>{model().summary.path.length}</span></h4>
+          <ol><For each={model().summary.path}>{(step) => <PathStep step={step} onOpenSource={props.onOpenSource} />}</For></ol>
         </div>
       </Show>
       <Show when={model().focus.matched}>
@@ -97,8 +95,8 @@ function EvidenceNodeList(props: {
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
 }) {
   return <div>
-    <h4>Nodes <span>{props.model.shadow.nodes.length}</span></h4>
-    <ul class="route-totality-evidence-list"><For each={props.model.shadow.nodes}>{(node) => <li><strong title={node.label}>{clip(node.label, 48)}</strong><span>{node.role} · {node.kind}</span><EvidenceLocation location={node.location} onOpenSource={props.onOpenSource} /></li>}</For></ul>
+    <h4>Nodes <span>{props.model.summary.nodes.length}</span></h4>
+    <ul class="route-totality-evidence-list"><For each={props.model.summary.nodes}>{(node) => <li><strong title={node.label}>{clip(node.label, 48)}</strong><span>{node.role} · {node.kind}</span><EvidenceLocation location={node.location} onOpenSource={props.onOpenSource} /></li>}</For></ul>
   </div>;
 }
 
@@ -107,8 +105,8 @@ function EvidenceEdgeList(props: {
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
 }) {
   return <div>
-    <h4>Proven edges <span>{props.model.shadow.edges.length}</span></h4>
-    <ul class="route-totality-evidence-list"><For each={props.model.shadow.edges}>{(edge) => <li><strong>{edge.proof.kind}</strong><span title={edge.proof.detail}>{clip(edge.proof.detail, 54)}</span><For each={edge.proof.locations}>{(location) => <EvidenceLocation location={location} onOpenSource={props.onOpenSource} />}</For></li>}</For></ul>
+    <h4>Proven edges <span>{props.model.summary.edges.length}</span></h4>
+    <ul class="route-totality-evidence-list"><For each={props.model.summary.edges}>{(edge) => <li><strong>{edge.proof.kind}</strong><span title={edge.proof.detail}>{clip(edge.proof.detail, 54)}</span><For each={edge.proof.locations}>{(location) => <EvidenceLocation location={location} onOpenSource={props.onOpenSource} />}</For></li>}</For></ul>
   </div>;
 }
 
@@ -117,9 +115,9 @@ function EvidenceGapList(props: {
   onOpenSource: (target: SourceEvidenceTarget, contextTargets?: readonly SourceEvidenceTarget[]) => void;
 }) {
   return <div>
-    <h4>Gaps <span>{props.model.shadow.gaps.length}</span></h4>
-    <Show when={props.model.shadow.gaps.length} fallback={<p>No retained evidence gaps were returned.</p>}>
-      <ul class="route-totality-evidence-list"><For each={props.model.shadow.gaps}>{(gap) => <li><strong title={gap.label}>{clip(gap.label, 48)}</strong><span>{humanize(gap.reason)}</span><EvidenceLocation location={gap.location} onOpenSource={props.onOpenSource} /></li>}</For></ul>
+    <h4>Gaps <span>{props.model.summary.gaps.length}</span></h4>
+    <Show when={props.model.summary.gaps.length} fallback={<p>No retained evidence gaps were returned.</p>}>
+      <ul class="route-totality-evidence-list"><For each={props.model.summary.gaps}>{(gap) => <li><strong title={gap.label}>{clip(gap.label, 48)}</strong><span>{humanize(gap.reason)}</span><EvidenceLocation location={gap.location} onOpenSource={props.onOpenSource} /></li>}</For></ul>
     </Show>
   </div>;
 }
@@ -135,11 +133,11 @@ function EvidenceLocation(props: {
   </Show>;
 }
 
-function shadowStatusLabel(status: ReturnType<typeof buildRouteTotalityEvidenceModel>["shadow"]["status"]) {
+function evidenceStatusLabel(status: ReturnType<typeof buildRouteTotalityEvidenceModel>["summary"]["status"]) {
   return status === "missing" ? "missing" : status;
 }
 
-function evidenceSourceLabel(source: ReturnType<typeof buildRouteTotalityEvidenceModel>["shadow"]["source"]) {
+function evidenceSourceLabel(source: ReturnType<typeof buildRouteTotalityEvidenceModel>["summary"]["source"]) {
   return source === "route-totality" ? "route proof" : source;
 }
 

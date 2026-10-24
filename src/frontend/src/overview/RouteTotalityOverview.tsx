@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import type { RouteDataDetail, RouteTotality } from "../../../api/contracts";
+import type { RouteTotality } from "../../../api/contracts";
 import type { RouteTotalityCountSummary, RouteTotalityGraphSummary } from "./route-totality-model";
 import type { RouteTotalityLedgerSection } from "./route-totality-graph-state";
 import { DisplayLegendMark } from "./RouteTotalityDisplayMarks";
@@ -10,7 +10,6 @@ import type { SourceEvidenceTarget } from "./source-evidence-model";
 
 export function RouteTotalityOverview(props: {
   totality: RouteTotality | null;
-  shadowEvidence: RouteDataDetail["shadowEvidence"];
   summary: RouteTotalityGraphSummary;
   counts: readonly RouteTotalityCountSummary[];
   ledgerItems: readonly RouteTotalityLedgerSection[];
@@ -44,7 +43,7 @@ export function RouteTotalityOverview(props: {
       </div>
     </section>
     <RouteTotalityCoverageLedger items={props.ledgerItems} inspector />
-    <RouteTotalityEvidenceSection shadowEvidence={props.shadowEvidence} totality={props.totality} selected={null} fieldResult={props.fieldResult} onOpenSource={props.onOpenSource} />
+    <RouteTotalityEvidenceSection totality={props.totality} selected={null} fieldResult={props.fieldResult} onOpenSource={props.onOpenSource} />
   </div>;
 }
 
