@@ -23,7 +23,7 @@ export type RouteTotalityTerminalAnchor = {
   routeLocation: SourceLocation;
 };
 
-export type RouteTotalityAnchorIssue = {
+type RouteTotalityAnchorIssue = {
   kind: "occurrence" | "terminal";
   endpointId: string;
   reason: "missing" | "ambiguous";

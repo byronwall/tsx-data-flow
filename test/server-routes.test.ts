@@ -1,12 +1,22 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { REPORT_VIEWS } from "../src/cli/args";
-import { REPORT_VIEWS as API_REPORT_VIEWS } from "../src/api/report-views";
+import { REPORT_VIEWS } from "../src/api/report-views";
 import { createAnalyzer } from "../src/core";
-import { createServer } from "../src/server";
+import { createServer as createAnalysisServer } from "../src/server";
 import { createServerFixtureProject as createFixtureProject } from "./helpers/fixture-project";
 import { call } from "./helpers/http";
 import { FIXTURE } from "./helpers/server-test-context";
 import { filePageResponseSchema, refreshResponseSchema, reportResponseSchema, routeDataDetailResponseSchema, sourceExcerptResponseSchema, workspaceResponseSchema } from "../src/api/contracts";
+
+// Serve a stub SPA shell so route tests do not depend on a production frontend build.
+const frontendDist = mkdtempSync(join(tmpdir(), "render-path-frontend-"));
+mkdirSync(join(frontendDist, "assets"));
+writeFileSync(join(frontendDist, "index.html"), '<!doctype html><html><head><link rel="stylesheet" href="/assets/index-test.css"></head><body><div id="root"></div><script type="module" src="/assets/index-test.js"></script></body></html>');
+writeFileSync(join(frontendDist, "assets", "index-test.js"), "");
+writeFileSync(join(frontendDist, "assets", "index-test.css"), "");
+const createServer = (args: Parameters<typeof createAnalysisServer>[0]) => createAnalysisServer(args, { frontendDist });
 
 function expectSpaShell(response) {
   expect(response.status).toBe(200);
@@ -457,7 +467,7 @@ describe("createServer", () => {
       expect(markdown.status).toBe(200);
       expect(markdown.headers["Content-Type"]).toContain("text/markdown");
     }
-    for (const view of API_REPORT_VIEWS.filter((candidate) => candidate !== "overview")) {
+    for (const view of REPORT_VIEWS.filter((candidate) => candidate !== "overview")) {
       const structured = await call(handler, `/api/reports/${view}`);
       expect(structured.status).toBe(200);
       expect(reportResponseSchema.parse(JSON.parse(structured.body)).data.view).toBe(view);

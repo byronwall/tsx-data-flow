@@ -57,7 +57,7 @@ export type RouteTotalityUnavailable = {
   reason: string;
 };
 
-export type RouteTotalityGap = {
+type RouteTotalityGap = {
   id: string;
   source: "route-selection" | "occurrence-surface" | "evidence-slice" | "context-continuity";
   reason: string;
@@ -122,26 +122,6 @@ export type RouteTotalityFindingIndexEntry = {
   };
 };
 
-export type RouteTotalityCounts = {
-  definitions: number;
-  emittedDefinitions: number;
-  totalOccurrences: number;
-  emittedOccurrences: number;
-  repeatedSites: number;
-  conditionalSites: number;
-  collectionSites: number;
-  frameworkBoundaries: number;
-  hiddenWrapperCompatibilityOccurrences: number;
-  terminalOccurrences: number;
-  namedOmissions: number;
-  omittedItems: number;
-  evidenceElements: number;
-  evidenceRelations: number;
-  evidenceOrigins: number;
-  evidenceTerminals: number;
-  evidenceGaps: number;
-};
-
 export type RouteTotalityRecord = {
   key: string;
   routeKey: string;
@@ -158,7 +138,6 @@ export type RouteTotalityRecord = {
   fieldLineage: RouteTotalityFieldLineage;
   findingAttachments: RouteTotalityFindingAttachment[];
   findingIndex: RouteTotalityFindingIndexEntry[];
-  counts: RouteTotalityCounts;
   gaps: RouteTotalityGap[];
   omissions: string[];
 };
@@ -166,26 +145,6 @@ export type RouteTotalityRecord = {
 type CandidateSelection = {
   candidate: ScopeCandidate;
   proof: EvidenceProof;
-};
-
-const EMPTY_COUNTS: RouteTotalityCounts = {
-  definitions: 0,
-  emittedDefinitions: 0,
-  totalOccurrences: 0,
-  emittedOccurrences: 0,
-  repeatedSites: 0,
-  conditionalSites: 0,
-  collectionSites: 0,
-  frameworkBoundaries: 0,
-  hiddenWrapperCompatibilityOccurrences: 0,
-  terminalOccurrences: 0,
-  namedOmissions: 0,
-  omittedItems: 0,
-  evidenceElements: 0,
-  evidenceRelations: 0,
-  evidenceOrigins: 0,
-  evidenceTerminals: 0,
-  evidenceGaps: 0,
 };
 
 const EMPTY_BRIDGE_COUNTS: RouteTotalityBridgeCounts = {
@@ -248,7 +207,7 @@ function buildRouteTotalityRecord(
     ? buildRouteTotalityBridges(evidenceSlice, occurrenceSurface, cancellation)
     : [];
   const selectedProof = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice) && selectedSource
-    ? buildSelectedRouteTotalityFieldProof(ts, program, root, provider, route, evidenceSlice, occurrenceSurface, selectedSource, cancellation)
+    ? buildSelectedRouteTotalityFieldProof(ts, program, root, provider, evidenceSlice, occurrenceSurface, selectedSource, cancellation)
     : null;
   const fieldLineage = !isUnavailable(occurrenceSurface) && !isUnavailable(evidenceSlice)
     ? selectedSource
@@ -274,7 +233,6 @@ function buildRouteTotalityRecord(
     ...route.omissions,
     ...(isUnavailable(occurrenceSurface) ? [occurrenceSurface.reason] : occurrenceSurface.omissions.map((omission) => omission.label)),
   ];
-  const counts = countsFor(occurrenceSurface, evidenceSlice);
   const status = isUnavailable(occurrenceSurface) || isUnavailable(evidenceSlice)
     ? "unavailable"
     : gaps.length || occurrenceSurface.status === "partial" || !evidenceSlice.coverage.complete || contextContinuity.status !== "complete"
@@ -296,7 +254,6 @@ function buildRouteTotalityRecord(
     fieldLineage,
     findingAttachments: [],
     findingIndex: [],
-    counts,
     gaps,
     omissions,
   };
@@ -358,24 +315,6 @@ function buildEvidenceSlice(provider: EvidenceRelationProvider, seed: ScopeSeed,
     if (isAnalysisCancelledError(error)) throw error;
     return { status: "unavailable", reason: `Shared evidence slice could not be queried: ${errorMessage(error)}.` };
   }
-}
-
-function countsFor(
-  occurrenceSurface: RouteOccurrenceSurface | RouteTotalityUnavailable,
-  evidenceSlice: EvidenceSlice | RouteTotalityUnavailable,
-): RouteTotalityCounts {
-  const counts = { ...EMPTY_COUNTS };
-  if (!isUnavailable(occurrenceSurface)) {
-    Object.assign(counts, occurrenceSurface.totals);
-  }
-  if (!isUnavailable(evidenceSlice)) {
-    counts.evidenceElements = evidenceSlice.coverage.elements.total;
-    counts.evidenceRelations = evidenceSlice.coverage.relations.total;
-    counts.evidenceOrigins = evidenceSlice.coverage.origins;
-    counts.evidenceTerminals = evidenceSlice.coverage.terminals;
-    counts.evidenceGaps = evidenceSlice.coverage.gaps;
-  }
-  return counts;
 }
 
 function surfaceGaps(surface: RouteOccurrenceSurface | RouteTotalityUnavailable): RouteTotalityGap[] {
@@ -458,7 +397,6 @@ function unavailableRecord(route: Pick<RouteRecord, "key" | "pathPattern" | "fil
     fieldLineage: unavailableRouteTotalityFieldLineage(reason),
     findingAttachments: [],
     findingIndex: [],
-    counts: { ...EMPTY_COUNTS },
     gaps: [gap],
     omissions: [reason],
   };

@@ -1,20 +1,16 @@
 import path from "node:path";
 import * as TypeScript from "typescript";
-import type { CompilerLocation } from "./component-occurrence-identity";
 import type { RouteSlotExpression } from "./route-occurrence-surface";
 import { stableHash } from "./route-discovery";
+import type { SourceSpan } from "../types";
 
-export type ResolvedComponent = {
+type CompilerLocation = { file: string; line: number; column: number; span: SourceSpan };
+
+type ResolvedComponent = {
   symbol: TypeScript.Symbol;
   declaration: TypeScript.Declaration | null;
   compilerIdentity: string;
 };
-
-export function visit(ts: typeof TypeScript, node: TypeScript.Node | undefined, callback: (node: TypeScript.Node) => void) {
-  if (!node) return;
-  callback(node);
-  ts.forEachChild(node, (child) => visit(ts, child, callback));
-}
 
 export function locationForNode(root: string, node: TypeScript.Node): CompilerLocation {
   const sourceFile = node.getSourceFile();
@@ -72,7 +68,7 @@ export function declarationForResolved(resolved: ResolvedComponent | null): Type
   return declaration;
 }
 
-export function isFunctionLikeDeclaration(node: TypeScript.Node): node is TypeScript.FunctionLikeDeclaration {
+function isFunctionLikeDeclaration(node: TypeScript.Node): node is TypeScript.FunctionLikeDeclaration {
   return TypeScript.isFunctionDeclaration(node)
     || TypeScript.isMethodDeclaration(node)
     || TypeScript.isGetAccessorDeclaration(node)
@@ -130,7 +126,7 @@ export function isJsxNode(ts: typeof TypeScript, node: TypeScript.Node): node is
   return ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node);
 }
 
-export function isCollectionType(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
+function isCollectionType(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
   try {
     const type = checker.getTypeAtLocation(node);
     const apparent = checker.getApparentType(type);
@@ -140,7 +136,7 @@ export function isCollectionType(checker: TypeScript.TypeChecker, node: TypeScri
   }
 }
 
-export function isUnknownType(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
+function isUnknownType(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
   try {
     const text = checker.typeToString(checker.getTypeAtLocation(node), node, TypeScript.TypeFormatFlags.NoTruncation);
     return text === "any" || text === "unknown";
@@ -155,10 +151,6 @@ export function safeTypeText(checker: TypeScript.TypeChecker, node: TypeScript.N
   } catch {
     return "unknown";
   }
-}
-
-export function isSlotExpression(ts: typeof TypeScript, checker: TypeScript.TypeChecker, node: TypeScript.Expression, declaration: TypeScript.FunctionLikeDeclaration | null) {
-  return Boolean(slotExpressionFor(ts, checker, node, declaration));
 }
 
 export function slotExpressionFor(ts: typeof TypeScript, checker: TypeScript.TypeChecker, node: TypeScript.Expression, declaration: TypeScript.FunctionLikeDeclaration | null): RouteSlotExpression | null {
@@ -249,11 +241,6 @@ export function hasSpreadAttribute(ts: typeof TypeScript, opening: TypeScript.Js
 export function sourceBackedCollection(ts: typeof TypeScript, checker: TypeScript.TypeChecker, node: TypeScript.Expression) {
   const expression = unwrapExpression(ts, node);
   return !isUnknownType(checker, expression) && isCollectionType(checker, expression);
-}
-
-export function functionDeclarationFromCall(ts: typeof TypeScript, checker: TypeScript.TypeChecker, node: TypeScript.CallExpression) {
-  const target = resolvedSymbol(ts, checker, node.expression);
-  return declarationForResolved(target);
 }
 
 export function isDeclarationFile(node: TypeScript.Node | null) {

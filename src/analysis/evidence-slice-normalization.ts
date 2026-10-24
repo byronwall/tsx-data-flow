@@ -17,58 +17,6 @@ import type {
 import { indexReadMetadataFromElement } from "./program-index-read-metadata";
 import { componentBindingMetadataFromAttributes } from "./program-component-binding-metadata";
 
-export function records<T>(value: unknown): T[] {
-  if (Array.isArray(value)) return value as T[];
-  if (value instanceof Map) return [...value.values()] as T[];
-  if (value && typeof value === "object") return Object.values(value) as T[];
-  return [];
-}
-
-/** Guard the collector shape before converting records to the scope contract. */
-export function isIndexedElement(value: unknown): value is IndexedProgramElement {
-  const candidate = asRecord(value);
-  return typeof candidate.id === "string"
-    && typeof candidate.kind === "string"
-    && typeof candidate.label === "string"
-    && isLocation(candidate.location)
-    && isProof(candidate.proof)
-    && Boolean(candidate.attributes && typeof candidate.attributes === "object")
-    && (candidate.confidence === "proven" || candidate.confidence === "partial");
-}
-
-/** Guard the collector relation shape before converting records to the scope contract. */
-export function isIndexedRelation(value: unknown): value is IndexedProgramRelation {
-  const candidate = asRecord(value);
-  return typeof candidate.id === "string"
-    && typeof candidate.from === "string"
-    && typeof candidate.to === "string"
-    && typeof candidate.kind === "string"
-    && isProof(candidate.proof)
-    && (candidate.confidence === "proven" || candidate.confidence === "partial");
-}
-
-function isLocation(value: unknown): value is IndexedProgramElement["location"] {
-  const candidate = asRecord(value);
-  return typeof candidate.file === "string"
-    && typeof candidate.line === "number"
-    && typeof candidate.column === "number"
-    && isSpan(candidate.span);
-}
-
-function isSpan(value: unknown): boolean {
-  const candidate = asRecord(value);
-  return ["startLine", "startColumn", "endLine", "endColumn"]
-    .every((key) => typeof candidate[key] === "number");
-}
-
-function isProof(value: unknown): value is ProgramProof {
-  const candidate = asRecord(value);
-  return typeof candidate.kind === "string"
-    && typeof candidate.detail === "string"
-    && Array.isArray(candidate.locations)
-    && candidate.locations.every(isLocation);
-}
-
 export function toSliceElement(element: IndexedProgramElement): ProgramElement {
   const status = element.confidence;
   return {
@@ -253,8 +201,4 @@ export function scopeGapReason(reason: string): EvidenceGap["reason"] {
     return reason;
   }
   return "unresolved-symbol";
-}
-
-export function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }

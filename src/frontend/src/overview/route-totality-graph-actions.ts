@@ -5,7 +5,7 @@ import {
 } from "./route-investigation-selection";
 import type { RouteTotalityEmphasis, RouteTotalityEmphasisMode } from "./route-totality-emphasis";
 
-export type RouteTotalityGraphActions = {
+type RouteTotalityGraphActions = {
   select: (selection: Exclude<RouteInvestigationSelection, null>) => void;
   selectFromInspector: (selection: Exclude<RouteInvestigationSelection, null>) => void;
   clearSelection: () => void;
@@ -17,7 +17,7 @@ export type RouteTotalityGraphActions = {
   restoreFullRoute: () => void;
 };
 
-export type RouteTotalityGraphActionOptions = {
+type RouteTotalityGraphActionOptions = {
   selection: () => RouteInvestigationSelection;
   emphasis: () => RouteTotalityEmphasis;
   setEmphasisMode: (mode: RouteTotalityEmphasisMode | null) => void;

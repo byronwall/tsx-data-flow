@@ -1,4 +1,7 @@
 import { REPORT_VIEWS, REPORT_VIEW_DEFINITIONS, reportViewLabel, type ReportView } from "../../api/report-views";
+type BrowserReportView = {
+  [View in ReportView]: (typeof REPORT_VIEW_DEFINITIONS)[View]["disposition"] extends "merge" ? never : View;
+}[ReportView];
 export type FileView = Exclude<ReportView, "overview">;
 
 export function labelFor(view: string | null | undefined): string {
@@ -8,8 +11,11 @@ export function labelFor(view: string | null | undefined): string {
     : view;
 }
 
+export const BROWSER_REPORT_VIEWS = REPORT_VIEWS.filter(
+  (view): view is BrowserReportView => REPORT_VIEW_DEFINITIONS[view].disposition !== "merge",
+);
 export const FILE_VIEWS: FileView[] = REPORT_VIEWS.filter(
-  (view: string): view is FileView => view !== "overview",
+  (view): view is FileView => view !== "overview",
 ).sort((left, right) => labelFor(left).localeCompare(labelFor(right)));
 
 export function isReportView(value: string | null): value is ReportView {

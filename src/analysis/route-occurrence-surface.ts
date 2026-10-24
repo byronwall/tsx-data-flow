@@ -5,12 +5,12 @@ import type { RouteRecord } from "./route-data";
 import { RouteOccurrenceSurfaceBuilder } from "./route-occurrence-surface-builder";
 
 export type RouteOccurrenceRepetition = "single" | "conditional" | "collection" | "unknown";
-export type RouteOccurrenceOwnership = "scope-entry" | "caller-owned" | "definition-owned";
+type RouteOccurrenceOwnership = "scope-entry" | "caller-owned" | "definition-owned";
 export type RouteFrameworkBoundaryKind = "portal" | "control-flow" | "collection" | "suspense-async" | "unsupported-ownership";
-export type RouteConditionOutcome = "truthy" | "falsey" | "unknown";
+type RouteConditionOutcome = "truthy" | "falsey" | "unknown";
 export type RouteOccurrenceOmissionReason = "budget-exhausted" | "recursion-limit" | "unsupported-syntax" | "unsupported-ownership" | "unresolved-symbol" | "dynamic-dispatch" | "external-code" | "identity-lost";
 export type RouteOccurrenceLocation = { file: string; line: number; column: number; span: SourceSpan };
-export type RouteSlotExpressionKind = "props.children" | "children-parameter" | "named-slot";
+type RouteSlotExpressionKind = "props.children" | "children-parameter" | "named-slot";
 export type RouteSlotExpression = { kind: RouteSlotExpressionKind; label: string };
 
 export type RouteOccurrenceDefinition = {
@@ -160,5 +160,3 @@ export type RouteOccurrenceSurfaceOptions = {
 export function buildRouteOccurrenceSurface(ts: typeof TypeScript, program: TypeScript.Program, root: string, route: RouteRecord, options: RouteOccurrenceSurfaceOptions = {}) {
   return new RouteOccurrenceSurfaceBuilder(ts, program, root, route, options).build();
 }
-
-export const buildRouteWideOccurrenceSurface = buildRouteOccurrenceSurface;

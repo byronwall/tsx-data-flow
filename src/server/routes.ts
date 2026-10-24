@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import { fileRequestSchema, reportRequestSchema, routeDataDetailRequestSchema, sourceExcerptRequestSchema } from "../api/contracts";
 import { AnalysisCancelledError } from "../analysis/cancellation";
-import { REPORT_VIEWS } from "../cli/args";
+import { REPORT_VIEWS } from "../api/report-views";
 import { RouteRequestConflictError, type AnalysisService } from "./analysis-service";
 import { send, sendError, sendFile, sendJson } from "./responses";
 
@@ -68,7 +68,7 @@ export function createRequestHandler(analysis: AnalysisService, frontendDist: st
       }
       const markdown = route.match(/^\/api\/report\.([A-Za-z0-9-]+)\.md$/);
       if (markdown) return void serveMarkdown(markdown[1], url, analysis, req, res);
-      if (route === "/" || route === "/file" || route === "/report") return sendSpa(res);
+      if (route === "/" || route === "/file" || route === "/report" || route === "/map" || route === "/trajectories") return sendSpa(res);
       if (route.startsWith("/api/")) return sendError(res, 404, "not_found", `Unknown API route: ${route}`);
       return sendSpa(res);
     } catch (error) {
@@ -111,7 +111,7 @@ function parseRouteRequestId(req: IncomingMessage, required: boolean): ParsedRou
 }
 
 async function serveMarkdown(view: string, url: URL, analysis: AnalysisService, req: IncomingMessage, res: ServerResponse) {
-  if (!REPORT_VIEWS.includes(view)) return send(res, 404, "not found");
+  if (!(REPORT_VIEWS as readonly string[]).includes(view)) return send(res, 404, "not found");
   const relPath = url.searchParams.get("path");
   try {
     const result = await awaitClientRequest(req, res, () => analysis.request<string | null>({ kind: "markdown", view, path: relPath }));

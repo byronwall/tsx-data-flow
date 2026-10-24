@@ -1,8 +1,6 @@
-import path from "node:path";
 import * as TypeScript from "typescript";
 import type { SourceSpan } from "../types";
 import { ProgramEvidenceCollector } from "./program-evidence-collector";
-import { programForRoot } from "./program-evidence-loading";
 import type { CompactProgramFact } from "./program-evidence-compact-facts";
 import type {
   ProgramEvidenceDeclarationCatalog,
@@ -195,32 +193,6 @@ export type ProgramEvidenceGap = {
   detail: string;
   location: ProgramEvidenceLocation | null;
 };
-export type ProgramEvidenceIndexes = {
-  elementsById: ReadonlyMap<string, ProgramElement>;
-  relationsById: ReadonlyMap<string, ProgramRelation>;
-  outgoingRelationIds: ReadonlyMap<string, readonly string[]>;
-  incomingRelationIds: ReadonlyMap<string, readonly string[]>;
-  elementIdsByKind: ReadonlyMap<ProgramElementKind, readonly string[]>;
-  elementIdsByFile: ReadonlyMap<string, readonly string[]>;
-  elementIdsBySymbolId: ReadonlyMap<string, readonly string[]>;
-  relationIdsByKind: ReadonlyMap<ProgramRelationKind, readonly string[]>;
-  operationIdsByKind: ReadonlyMap<ProgramOperationKind, readonly string[]>;
-};
-export type ProgramEvidence = {
-  elements: ProgramElement[];
-  relations: ProgramRelation[];
-  gaps: ProgramEvidenceGap[];
-  sourceFiles: string[];
-  indexes: ProgramEvidenceIndexes;
-  coverage: {
-    sourceFiles: number;
-    elements: number;
-    relations: number;
-    provenRelations: number;
-    partialRelations: number;
-    gaps: number;
-  };
-};
 export type ProgramEvidenceOptions = {
   includeDeclarationFiles?: boolean;
   sourceFiles?: readonly TypeScript.SourceFile[];
@@ -282,59 +254,3 @@ export type ProgramEvidenceCollectionStats = {
 
 export const EvidenceCollector = ProgramEvidenceCollector;
 export type EvidenceCollector = ProgramEvidenceCollector;
-
-export function collectProgramEvidence(fixtureRoot: string, options?: ProgramEvidenceOptions): ProgramEvidence;
-export function collectProgramEvidence(ts: typeof TypeScript, program: TypeScript.Program, root: string, options?: ProgramEvidenceOptions): ProgramEvidence;
-export function collectProgramEvidence(
-  first: string | typeof TypeScript,
-  second?: TypeScript.Program | ProgramEvidenceOptions,
-  third?: string,
-  fourth: ProgramEvidenceOptions = {},
-): ProgramEvidence {
-  if (typeof first === "string") {
-    const root = path.resolve(first);
-    const options = (second as ProgramEvidenceOptions | undefined) ?? {};
-    return new EvidenceCollector(TypeScript, programForRoot(root), root, options).collect();
-  }
-  return new EvidenceCollector(
-    first,
-    second as TypeScript.Program,
-    third as string,
-    fourth,
-  ).collect();
-}
-
-export const buildProgramEvidence = collectProgramEvidence;
-
-export async function collectProgramEvidenceForRoot(root: string): Promise<ProgramEvidence> {
-  return collectProgramEvidence(root);
-}
-
-export function forwardRelations(
-  evidence: ProgramEvidence,
-  elementId: string,
-  limit = Number.POSITIVE_INFINITY,
-) {
-  return relationIds(evidence, evidence.indexes.outgoingRelationIds.get(elementId) ?? [], limit);
-}
-
-export function backwardRelations(
-  evidence: ProgramEvidence,
-  elementId: string,
-  limit = Number.POSITIVE_INFINITY,
-) {
-  return relationIds(evidence, evidence.indexes.incomingRelationIds.get(elementId) ?? [], limit);
-}
-
-function relationIds(
-  evidence: ProgramEvidence,
-  ids: readonly string[],
-  limit: number,
-) {
-  return ids
-    .slice(0, Math.max(0, limit))
-    .map((id) => evidence.indexes.relationsById.get(id))
-    .filter(
-      (relation): relation is ProgramRelation => Boolean(relation),
-    );
-}

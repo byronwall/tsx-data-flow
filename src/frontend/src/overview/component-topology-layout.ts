@@ -4,7 +4,7 @@ import type {
   ComponentTopologyLayoutEdge,
   ComponentTopologyLayoutNode,
   ComponentTopologyNode,
-} from "./component-topology-model";
+} from "./component-topology-types";
 import { downstreamFringeDirection } from "./component-topology-fringe-direction";
 import { selectVisibleTopologyLabelIds } from "./component-topology-labels";
 
@@ -57,7 +57,7 @@ export type ComponentTopologyForceVector = {
 
 export type ComponentTopologyLayoutStep = "tick" | "separate";
 
-export type ComponentTopologyLayout = {
+type ComponentTopologyLayout = {
   nodes: ComponentTopologyLayoutNode[];
   edges: ComponentTopologyLayoutEdge[];
   forces: ComponentTopologyForceVector[];

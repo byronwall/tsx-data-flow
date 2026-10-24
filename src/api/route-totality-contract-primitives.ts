@@ -3,7 +3,7 @@ import { z } from "zod";
 export const nonEmptyStringSchema = z.string().min(1);
 export const nonNegativeIntegerSchema = z.number().int().nonnegative();
 export const positiveIntegerSchema = z.number().int().positive();
-export const evidenceStatusSchema = z.enum(["proven", "partial", "unsupported"]);
+const evidenceStatusSchema = z.enum(["proven", "partial", "unsupported"]);
 const sourceSpanSchema = z.strictObject({
   startLine: positiveIntegerSchema,
   startColumn: positiveIntegerSchema,
@@ -27,7 +27,7 @@ export const evidenceProofSchema = z.strictObject({
   locations: z.array(sourceLocationSchema).min(1),
   status: evidenceStatusSchema,
 });
-export const componentBindingMetadataSchema = z.strictObject({
+const componentBindingMetadataSchema = z.strictObject({
   propName: nonEmptyStringSchema.nullable(),
   valueMode: z.enum(["whole-object", "scalar-alias"]).nullable().optional(),
   sourceFieldName: nonEmptyStringSchema.nullable().optional(),
@@ -37,7 +37,7 @@ export const componentBindingMetadataSchema = z.strictObject({
   receiverElementId: nonEmptyStringSchema.nullable(),
   candidateCount: nonNegativeIntegerSchema.nullable(),
 });
-export const handlerIdentitySchema = z.strictObject({
+const handlerIdentitySchema = z.strictObject({
   receiverName: nonEmptyStringSchema,
   receiverSymbol: nonEmptyStringSchema,
   methodSymbol: nonEmptyStringSchema,
@@ -149,6 +149,7 @@ const programElementSchema = z.strictObject({
   consumerConditionLiteral: nonEmptyStringSchema.nullable(),
   consumerNestedShow: z.boolean().nullable(),
   consumerCollectionName: nonEmptyStringSchema.nullable(),
+  consumerTemplateText: nonEmptyStringSchema.nullable(),
   originRoles: z.array(originRoleSchema),
   terminalRoles: z.array(terminalRoleSchema),
   boundary: boundaryKindSchema.nullable(),
@@ -168,7 +169,7 @@ export const sliceOriginSchema = z.strictObject({
   status: evidenceStatusSchema,
   proof: z.array(evidenceProofSchema),
 });
-export const sliceTerminalSchema = z.strictObject({
+const sliceTerminalSchema = z.strictObject({
   elementId: nonEmptyStringSchema,
   role: terminalRoleSchema,
   label: nonEmptyStringSchema,

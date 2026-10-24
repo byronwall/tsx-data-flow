@@ -10,9 +10,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const sourceFrontendDist = path.join(here, "frontend", "dist");
 const builtFrontendDist = path.resolve(process.cwd(), "dist/src/frontend/dist");
 
-export function createServer(args: AnalyzerArgs) {
+export function createServer(args: AnalyzerArgs, options: { frontendDist?: string } = {}) {
   const analysis = createAnalysisService(args);
-  const handler = createRequestHandler(analysis, fs.existsSync(sourceFrontendDist) ? sourceFrontendDist : builtFrontendDist);
+  const frontendDist = options.frontendDist ?? (fs.existsSync(sourceFrontendDist) ? sourceFrontendDist : builtFrontendDist);
+  const handler = createRequestHandler(analysis, frontendDist);
   const server = http.createServer(handler);
   server.on("close", () => { void analysis.close(); });
   return { server, handler, analysis };

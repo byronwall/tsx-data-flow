@@ -375,12 +375,6 @@ function containsNode(container: TypeScript.Node, target: TypeScript.Node) {
   return container.getSourceFile() === target.getSourceFile() && container.getStart() <= target.getStart() && container.getEnd() >= target.getEnd();
 }
 
-function callExpressionName(ts: typeof TypeScript, node: TypeScript.CallExpression) {
-  if (ts.isIdentifier(node.expression)) return node.expression.text;
-  if (ts.isPropertyAccessExpression(node.expression)) return node.expression.name.text;
-  return "";
-}
-
 function inside(root: string, file: string) {
   const rel = path.relative(path.resolve(root), path.resolve(file));
   return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== "..");

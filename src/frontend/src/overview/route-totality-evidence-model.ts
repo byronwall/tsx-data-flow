@@ -1,54 +1,54 @@
-import type { RouteShadowEvidence, RouteTotality } from "../../../api/contracts";
+import type { RouteTotality } from "../../../api/contracts";
 import type { RouteTotalityFieldInspectorResult } from "./route-totality-field-inspector-model";
 import type { RouteTotalityInspectorRecord } from "./route-totality-inspector-model";
 
-type ShadowLocation = NonNullable<RouteShadowEvidence["nodes"][number]["location"]>;
 type RouteEvidence = Extract<RouteTotality["evidenceSlice"], { elements: unknown[] }>;
 type RouteEvidenceElement = RouteEvidence["elements"][number];
 type RouteEvidenceRelation = RouteEvidence["relations"][number];
 type RouteEvidenceGap = RouteEvidence["gaps"][number];
+type RouteEvidenceLocation = NonNullable<RouteEvidenceElement["location"]>;
 
-export type EvidenceNodeRecord = {
+type EvidenceNodeRecord = {
   id: string;
   role: string;
   kind: string;
   label: string;
-  location: ShadowLocation | null;
+  location: RouteEvidenceLocation | null;
 };
 
-export type EvidenceEdgeRecord = {
+type EvidenceEdgeRecord = {
   id: string;
   from: string;
   to: string;
   kind: string;
-  proof: { kind: string; detail: string; locations: readonly ShadowLocation[] };
+  proof: { kind: string; detail: string; locations: readonly RouteEvidenceLocation[] };
 };
 
-export type EvidenceGapRecord = {
+type EvidenceGapRecord = {
   id: string;
   from: string | null;
   to: string | null;
   label: string;
   reason: string;
-  location: ShadowLocation | null;
+  location: RouteEvidenceLocation | null;
 };
 
 export type EvidencePathStep = {
   role: string;
   label: string;
-  location: ShadowLocation | null;
+  location: RouteEvidenceLocation | null;
 };
 
-export type ShadowEvidenceModel = {
-  status: RouteShadowEvidence["status"] | "missing";
-  source: "shadow" | "route-totality" | "missing";
+type EvidenceSummaryModel = {
+  status: "proven" | "partial" | "missing";
+  source: "route-totality" | "missing";
   nodes: readonly EvidenceNodeRecord[];
   path: readonly EvidencePathStep[];
   edges: readonly EvidenceEdgeRecord[];
   gaps: readonly EvidenceGapRecord[];
 };
 
-export type RouteEvidenceFocus = {
+type RouteEvidenceFocus = {
   elementIds: ReadonlySet<string>;
   relationIds: ReadonlySet<string>;
   gapIds: ReadonlySet<string>;
@@ -58,8 +58,8 @@ export type RouteEvidenceFocus = {
   matched: boolean;
 };
 
-export type RouteTotalityEvidenceModel = {
-  shadow: ShadowEvidenceModel;
+type RouteTotalityEvidenceModel = {
+  summary: EvidenceSummaryModel;
   route: {
     status: "proven" | "partial" | "unavailable";
     elements: readonly RouteEvidenceElement[];
@@ -70,27 +70,17 @@ export type RouteTotalityEvidenceModel = {
 };
 
 export function buildRouteTotalityEvidenceModel(
-  shadowEvidence: RouteShadowEvidence | null | undefined,
   totality: RouteTotality | null,
   selected: RouteTotalityInspectorRecord | null,
   fieldResult: RouteTotalityFieldInspectorResult | null,
 ): RouteTotalityEvidenceModel {
   const routeEvidence = availableRouteEvidence(totality);
-  const shadow = shadowEvidence
-    ? {
-      status: shadowEvidence.status,
-      source: "shadow" as const,
-      nodes: shadowEvidence.nodes.map((node) => ({ ...node, location: node.location })),
-      path: meaningfulShadowPath(shadowEvidence),
-      edges: shadowEvidence.edges.map((edge) => ({ ...edge, proof: { ...edge.proof, locations: edge.proof.locations } })),
-      gaps: shadowEvidence.gaps.map((gap) => ({ ...gap })),
-    }
-    : routeEvidence
-      ? routeEvidenceFallback(totality, routeEvidence)
-      : { status: "missing" as const, source: "missing" as const, nodes: [], path: [], edges: [], gaps: [] };
+  const summary = routeEvidence
+    ? routeEvidenceSummary(totality, routeEvidence)
+    : { status: "missing" as const, source: "missing" as const, nodes: [], path: [], edges: [], gaps: [] };
   if (!routeEvidence) {
     return {
-      shadow,
+      summary,
       route: { status: "unavailable", elements: [], relations: [], gaps: [] },
       focus: emptyFocus(),
     };
@@ -117,7 +107,7 @@ export function buildRouteTotalityEvidenceModel(
     return gap ? [gap] : [];
   });
   return {
-    shadow,
+    summary,
     route: {
       status: totality?.status === "partial" ? "partial" : "proven",
       elements: routeEvidence.elements,
@@ -140,7 +130,7 @@ function availableRouteEvidence(totality: RouteTotality | null): RouteEvidence |
   return totality && "elements" in totality.evidenceSlice ? totality.evidenceSlice : null;
 }
 
-function routeEvidenceFallback(totality: RouteTotality | null, evidence: RouteEvidence): ShadowEvidenceModel {
+function routeEvidenceSummary(totality: RouteTotality | null, evidence: RouteEvidence): EvidenceSummaryModel {
   const elements = [...evidence.elements].sort((left, right) => Number(left.index ?? 0) - Number(right.index ?? 0));
   return {
     status: totality?.status === "partial" ? "partial" : "proven",
@@ -251,29 +241,6 @@ function emptyFocus(): RouteEvidenceFocus {
     gaps: [],
     matched: false,
   };
-}
-
-function meaningfulShadowPath(evidence: RouteShadowEvidence): EvidencePathStep[] {
-  const path = evidence.nodes
-    .filter((node, index) => index === 0 || index === evidence.nodes.length - 1 || isMeaningfulNode(node))
-    .map((node) => ({
-      role: humanize(node.role),
-      label: node.label,
-      location: nodeLocation(evidence, node),
-    }));
-  return deduplicatePath(path);
-}
-
-function isMeaningfulNode(node: RouteShadowEvidence["nodes"][number]): boolean {
-  const value = (node.kind + " " + node.label).toLowerCase();
-  return /boundary|component|occurrence|resource|context|prop|query|response|return|render|terminal|handoff/.test(value);
-}
-
-function nodeLocation(evidence: RouteShadowEvidence, node: RouteShadowEvidence["nodes"][number]): ShadowLocation | null {
-  if (node.location) return node.location;
-  if (node.role === "origin") return evidence.origin?.occurrence.location ?? evidence.origin?.definition.location ?? null;
-  if (node.role === "terminal") return evidence.terminal?.location ?? null;
-  return null;
 }
 
 function deduplicatePath(path: EvidencePathStep[]): EvidencePathStep[] {

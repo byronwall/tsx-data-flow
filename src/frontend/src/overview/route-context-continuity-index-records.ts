@@ -1,6 +1,6 @@
 import type { RouteTotality } from "../../../api/contracts";
 
-export type RouteContextContinuity = RouteTotality["contextContinuity"];
+type RouteContextContinuity = RouteTotality["contextContinuity"];
 export type ContextDeclaration = RouteContextContinuity["declarations"][number];
 export type ContextProvider = RouteContextContinuity["providers"][number];
 export type ContextValue = RouteContextContinuity["values"][number];
@@ -9,7 +9,7 @@ export type ContextConsumer = RouteContextContinuity["consumers"][number];
 export type ContextLink = RouteContextContinuity["links"][number];
 export type ContextRelay = RouteContextContinuity["relays"][number];
 export type ContextGap = RouteContextContinuity["gaps"][number];
-export type ContextRecordStatus = ContextDeclaration["status"];
+type ContextRecordStatus = ContextDeclaration["status"];
 export type ContextDerivedStatus = ContextRecordStatus | "unavailable";
 
 export type ContextDeclarationRecords = {
@@ -26,7 +26,7 @@ export type ContextDeclarationRecords = {
   gaps: readonly ContextGap[];
 };
 
-export type ContextRecordIndex = {
+type ContextRecordIndex = {
   declarationsById: ReadonlyMap<string, ContextDeclaration>;
   providersById: ReadonlyMap<string, ContextProvider>;
   valuesById: ReadonlyMap<string, ContextValue>;
@@ -39,14 +39,14 @@ export type ContextRecordIndex = {
   unassignedGaps: readonly ContextGap[];
 };
 
-export type ContextLinkReferences = {
+type ContextLinkReferences = {
   provider: ContextProvider | null;
   value: ContextValue | null;
   read: ContextRead | null;
   consumer: ContextConsumer | null;
 };
 
-export type ContextRelayReferences = {
+type ContextRelayReferences = {
   sourceDeclaration: ContextDeclaration | null;
   targetDeclaration: ContextDeclaration | null;
   sourceRead: ContextRead | null;
@@ -143,7 +143,7 @@ export function contextRecordStatus(record: ProofedContextRecord): ContextDerive
   return combineContextStatuses(record.status, proofStatus);
 }
 
-export function contextValueStatus(value: ContextValue): ContextDerivedStatus {
+function contextValueStatus(value: ContextValue): ContextDerivedStatus {
   return combineContextStatuses(
     contextRecordStatus(value),
     value.memberCertainty === "proven" ? "proven" : "partial",
@@ -151,7 +151,7 @@ export function contextValueStatus(value: ContextValue): ContextDerivedStatus {
   );
 }
 
-export function contextReadStatus(read: ContextRead): ContextDerivedStatus {
+function contextReadStatus(read: ContextRead): ContextDerivedStatus {
   return combineContextStatuses(
     contextRecordStatus(read),
     read.memberCertainty === "proven" ? "proven" : "partial",

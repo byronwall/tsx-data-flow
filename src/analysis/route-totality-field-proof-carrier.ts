@@ -4,12 +4,12 @@ import { isExactSourceCarrierRelation } from "./route-totality-field-transfer-ca
 import type { ProgramElement, ProgramRelation } from "./scope-seam";
 
 export type FieldCarrierPath = { call: ProgramElement; relations: ProgramRelation[] };
-export type FieldCarrierSearchResult =
+type FieldCarrierSearchResult =
   | { kind: "complete"; paths: FieldCarrierPath[] }
   | { kind: "budget-exhausted"; paths: FieldCarrierPath[] };
 
-export type FieldCarrierSearchLimits = { maxStates: number; maxDepth: number };
-export const FIELD_CARRIER_SEARCH_LIMITS: FieldCarrierSearchLimits = { maxStates: 256, maxDepth: 24 };
+type FieldCarrierSearchLimits = { maxStates: number; maxDepth: number };
+const FIELD_CARRIER_SEARCH_LIMITS: FieldCarrierSearchLimits = { maxStates: 256, maxDepth: 24 };
 
 /** Search exact carrier relations. Any unvisited state makes uniqueness unavailable. */
 export function searchFieldCarrierPaths(

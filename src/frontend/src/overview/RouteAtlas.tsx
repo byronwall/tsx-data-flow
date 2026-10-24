@@ -6,7 +6,7 @@ export function RouteAtlas(props: { inventory: RouteDataInventory; kind: RouteAt
   const routes = createMemo(() => atlasRoutes(props.inventory, props));
   const maximum = createMemo(() => atlasMaximum(routes()));
   const selectedSource = createMemo(() => props.inventory.sources.find((source) => source.key === props.source) ?? null);
-  return <main class="route-atlas">
+  return <section class="route-atlas">
     <header class="route-atlas-intro">
       <div><h3>Route complexity atlas</h3><p>Compare retained source-to-render evidence, then open a route to inspect its trajectories. Gaps flag transitions the analyzer cannot yet prove.</p></div>
       <div class="route-atlas-controls">
@@ -35,7 +35,7 @@ export function RouteAtlas(props: { inventory: RouteDataInventory; kind: RouteAt
       </div>
     </div>
     <footer class="route-atlas-footer"><span>{routes().length} routes shown</span><span>{props.inventory.totals.sources} concrete source methods</span><span>{props.inventory.totals.trajectories} retained trajectories</span></footer>
-  </main>;
+  </section>;
 }
 
 function SortHeader(props: { label: string; value: RouteAtlasSort; active: RouteAtlasSort; onSort: (sort: RouteAtlasSort) => void }) { return <div role="columnheader"><button type="button" aria-pressed={props.active === props.value} onClick={() => props.onSort(props.value)}>{props.label}<Show when={props.active === props.value}><span aria-hidden="true">↓</span></Show></button></div>; }

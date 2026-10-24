@@ -8,7 +8,7 @@ import type {
 type FindingAttachment = RouteTotality["findingAttachments"][number];
 type FindingIndexEntry = RouteTotality["findingIndex"][number];
 
-export type RouteTotalityFindingTargetDetail = {
+type RouteTotalityFindingTargetDetail = {
   kind: FindingAttachment["target"]["kind"];
   role: string | null;
   status: FindingAttachment["status"];

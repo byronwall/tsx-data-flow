@@ -35,7 +35,7 @@ export type RouteTotalityInvestigationStateChange = {
   camera?: TrajectoryGraphCamera | null;
 };
 
-export type RouteTotalityReconciliation = {
+type RouteTotalityReconciliation = {
   selection: RouteInvestigationSelection;
   emphasisMode: RouteTotalityEmphasisMode | null;
   isolated: boolean;
@@ -95,7 +95,7 @@ export function persistedSelection(selection: RouteInvestigationSelection): Traj
   return { kind: selection.target, graphId: selection.graphId };
 }
 
-export function modelSelectionForInvestigationSelection(selection: RouteInvestigationSelection): RouteTotalitySelection | null {
+function modelSelectionForInvestigationSelection(selection: RouteInvestigationSelection): RouteTotalitySelection | null {
   if (!selection || selection.target === "context") return null;
   return selection.target === "edge"
     ? { kind: "edge", id: selection.graphId, fromNodeId: selection.fromNodeId, toNodeId: selection.toNodeId }
@@ -144,11 +144,7 @@ export function emphasisModeForSelection(selection: RouteInvestigationSelection)
     : null;
 }
 
-export function sameCamera(left: TrajectoryGraphCamera, right: TrajectoryGraphCamera): boolean {
-  return left.x === right.x && left.y === right.y && left.scale === right.scale;
-}
-
-export type RouteTotalityLedgerItem = {
+type RouteTotalityLedgerItem = {
   id: string;
   label: string;
   detail: string;

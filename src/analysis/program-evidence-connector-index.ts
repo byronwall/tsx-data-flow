@@ -4,7 +4,7 @@ import type {
   ProgramRelationKind,
 } from "./program-evidence";
 
-export type CompactRelationPosition = Readonly<{
+type CompactRelationPosition = Readonly<{
   line: number;
   column: number;
 }>;
@@ -14,12 +14,12 @@ export type CompactRelationLocationToken = Readonly<{
   start: CompactRelationPosition;
   end: CompactRelationPosition;
 }>;
-export type CompactRelationProof = Readonly<{
+type CompactRelationProof = Readonly<{
   kind: ProgramProofKind;
   detail: string;
   locations: readonly CompactRelationLocationToken[];
 }>;
-export type CompactRelationDescriptorInput = {
+type CompactRelationDescriptorInput = {
   from: string;
   to: string;
   kind: ProgramRelationKind;
@@ -38,9 +38,9 @@ export type CompactRelationDescriptorInput = {
 export type CompactRelationDescriptor = Readonly<
   CompactRelationDescriptorInput & { descriptorId: string }
 >;
-export type CompactRelationDirection = "forward" | "backward";
+type CompactRelationDirection = "forward" | "backward";
 
-export type CompactRelationQuery = {
+type CompactRelationQuery = {
   elementId?: string;
   direction?: CompactRelationDirection | "both";
   from?: string;
@@ -81,7 +81,7 @@ export function createCompactRelationDescriptor(
   return Object.freeze(descriptor);
 }
 /** Reproduce `stableId("program-relation", ...)` without expanded locations. */
-export function compactRelationStableId(
+function compactRelationStableId(
   from: string,
   to: string,
   kind: ProgramRelationKind,
@@ -104,7 +104,7 @@ export function compactRelationStableId(
   return `program-relation:${(hash >>> 0).toString(36)}`;
 }
 /** Deterministic source order used by every index query. */
-export function compareCompactRelationDescriptors(
+function compareCompactRelationDescriptors(
   left: CompactRelationDescriptor,
   right: CompactRelationDescriptor,
 ): number {

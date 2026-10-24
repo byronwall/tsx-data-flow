@@ -22,7 +22,7 @@ export type SourceEvidenceTarget = {
 
 export type SourceTargetInput = RouteDataDetail["evidence"][number] | SourceLocationTarget | SourceEvidenceTarget;
 
-export type SourceTargetGroup = {
+type SourceTargetGroup = {
   path: string;
   targets: SourceEvidenceTarget[];
 };
@@ -84,7 +84,7 @@ export function groupSourceTargets(targets: readonly SourceEvidenceTarget[]): So
   return [...groups.values()];
 }
 
-export function sourceTargetsForNavigation(
+function sourceTargetsForNavigation(
   targets: readonly SourceEvidenceTarget[],
   selected: SourceEvidenceTarget | null,
 ): SourceEvidenceTarget[] {

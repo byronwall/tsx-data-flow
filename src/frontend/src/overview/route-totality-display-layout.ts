@@ -40,7 +40,7 @@ export type RouteTotalityDisplayLayoutBridge = {
   toNode: RouteTotalityDisplayLayoutNode | null;
 };
 
-export type RouteTotalityDisplayLayoutAnnotation = {
+type RouteTotalityDisplayLayoutAnnotation = {
   annotation: RouteTotalityDisplayAnnotation;
   anchorNode: RouteTotalityDisplayLayoutNode | null;
   anchorNodes: readonly RouteTotalityDisplayLayoutNode[];
@@ -61,7 +61,7 @@ export type RouteTotalityDisplayLayout = {
   height: number;
 };
 
-export type RouteTotalityDisplayLayoutOptions = {
+type RouteTotalityDisplayLayoutOptions = {
   settings?: ComponentTopologyLayoutSettings;
   steps?: readonly ComponentTopologyLayoutStep[];
 };
@@ -106,8 +106,6 @@ export function layoutRouteTotalityDisplay(
     height: baseHeight,
   });
 }
-
-export const layoutRouteTotalityDisplayModel = layoutRouteTotalityDisplay;
 
 export function routeTotalityDisplayEdgePath(edge: RouteTotalityDisplayLayoutEdge): string {
   const from = centerOf(edge.fromNode);

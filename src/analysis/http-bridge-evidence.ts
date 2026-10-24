@@ -12,7 +12,7 @@ export type HttpBridgeFetch = {
   ownerId: string | null;
 };
 
-export type HttpBridgeCall = {
+type HttpBridgeCall = {
   node: TypeScript.CallExpression | TypeScript.NewExpression;
   target: { id: string; declaration: TypeScript.FunctionLikeDeclaration } | null;
 };
@@ -29,7 +29,7 @@ export type HttpBridgeResponse = {
   ownerId: string | null;
 };
 
-export type HttpBridgeEvidenceContext = {
+type HttpBridgeEvidenceContext = {
   root: string;
   checkCancellation: () => void;
   ts: typeof TypeScript;
@@ -45,7 +45,7 @@ export type HttpBridgeEvidenceContext = {
   location: (node: TypeScript.Node) => ProgramEvidenceLocation;
 };
 
-export type HttpBridgeEvidence = {
+type HttpBridgeEvidence = {
   from: string;
   to: string;
   clientFetchId: string;

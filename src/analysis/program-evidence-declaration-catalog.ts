@@ -41,7 +41,7 @@ export type DeclarationCatalogRelation = {
   confidence: EvidenceConfidence;
 };
 
-export type ProgramEvidenceDeclarationCatalogStats = {
+type ProgramEvidenceDeclarationCatalogStats = {
   catalogEntries: number;
   catalogBytesEstimate: number;
 };
@@ -83,7 +83,7 @@ export type ProgramEvidenceDeclarationCatalog = ProgramEvidenceDeclarationCatalo
   forFiles(sourceFiles: ReadonlySet<string>): ProgramEvidenceDeclarationCatalogView;
 };
 
-export type ProgramEvidenceDeclarationCatalogSource = {
+type ProgramEvidenceDeclarationCatalogSource = {
   root: string;
   sourceFiles: readonly string[];
   allFacts: readonly CompactProgramFact[];

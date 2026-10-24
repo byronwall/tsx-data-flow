@@ -1,7 +1,7 @@
 import type { ProgramEvidenceCollectionStats } from "./program-evidence";
 import type { ProgramFactIndex } from "./program-fact-index";
 
-export type MemorySnapshot = {
+type MemorySnapshot = {
   rss: number;
   heapUsed: number;
   heapTotal: number;

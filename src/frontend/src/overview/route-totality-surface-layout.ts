@@ -9,20 +9,20 @@ import type {
   ComponentTopology,
   ComponentTopologyEdge,
   ComponentTopologyNode,
-} from "./component-topology-model";
+} from "./component-topology-types";
 import type {
   RouteTotalityDisplayEdge,
   RouteTotalityDisplayNode,
 } from "./route-totality-display-model";
 
-export type RouteTotalitySurfacePlacement = {
+type RouteTotalitySurfacePlacement = {
   id: string;
   x: number;
   y: number;
   radius: number;
 };
 
-export type RouteTotalitySurfaceLayout = {
+type RouteTotalitySurfaceLayout = {
   placements: readonly RouteTotalitySurfacePlacement[];
   forces: readonly ComponentTopologyForceVector[];
 };

@@ -19,7 +19,7 @@ import {
 } from "./http-bridge-evidence";
 import { componentBindingMetadataForElement } from "./program-component-binding-metadata";
 
-export type ProgramEvidenceHydrationContext = {
+type ProgramEvidenceHydrationContext = {
   ts: typeof TypeScript;
   checker: TypeScript.TypeChecker;
   filesByRelativeName: ReadonlyMap<string, TypeScript.SourceFile>;
@@ -113,7 +113,7 @@ export function connectProgramHttpBridges(context: {
 type ClearableMap = { clear: () => void };
 type ClearableList = { length: number };
 
-export type ProgramEvidenceTransientState = {
+type ProgramEvidenceTransientState = {
   maps: readonly ClearableMap[];
   lists: readonly ClearableList[];
 };

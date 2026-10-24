@@ -3,7 +3,7 @@ import type { ComponentTopologyLayoutSettings, ComponentTopologyLayoutStep } fro
 
 type NumericSetting = Exclude<keyof ComponentTopologyLayoutSettings, "separationPasses">;
 
-export type TopologyLayoutDebugController = {
+type TopologyLayoutDebugController = {
   visible: () => boolean;
   forcesVisible: () => boolean;
   copied: () => boolean;

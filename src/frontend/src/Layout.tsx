@@ -1,15 +1,12 @@
-import { For, Show, createMemo, onCleanup, onMount } from "solid-js";
+import { For, onCleanup, onMount } from "solid-js";
 import type { JSX } from "solid-js";
-import { REPORT_VIEWS, type ReportView } from "../../api/report-views";
-import { FILE_VIEWS, labelFor } from "./view-config";
-import type { FileView } from "./view-config";
+import type { ReportView } from "../../api/report-views";
+import { BROWSER_REPORT_VIEWS, labelFor } from "./view-config";
 
 export function Shell(props: {
-  context?: string;
-  contextActions?: () => JSX.Element;
-  actions?: () => JSX.Element;
   tabs?: () => JSX.Element;
   wide?: boolean;
+  viewportBound?: boolean;
   children: JSX.Element;
 }) {
   let headerRef: HTMLElement | undefined;
@@ -38,77 +35,59 @@ export function Shell(props: {
   return (
     <>
       <header class="topbar" ref={headerRef}>
-        <div class="topbar-bar">
-          <div class="topbar-identity">
-            <a class="brand" href="/">
-              tsx-dataflow
-            </a>
-            <Show when={props.context}>
-              {(context) => <FileContext path={context()} />}
-            </Show>
-            {props.contextActions?.()}
-          </div>
-          <Show when={props.actions}>
-            <div class="topbar-actions">{props.actions?.()}</div>
-          </Show>
-        </div>
         {props.tabs?.()}
       </header>
       <div class="layout">
-        <main classList={{ wide: props.wide }}>{props.children}</main>
+        <main classList={{ wide: props.wide, "viewport-bound": props.viewportBound }}>{props.children}</main>
       </div>
     </>
   );
 }
 
-function FileContext(props: { path: string }) {
-  const parts = createMemo(() => { const separator = props.path.lastIndexOf("/"); return { directory: separator >= 0 ? props.path.slice(0, separator + 1) : "", name: separator >= 0 ? props.path.slice(separator + 1) : props.path }; });
-  return <span class="topbar-context" title={props.path}><span class="topbar-directory">{parts().directory}</span><strong class="topbar-file">{parts().name}</strong></span>;
-}
+type PageNavPage = "overview" | "code-map" | "map" | "trajectories" | ReportView;
+type PageNavItem = { label: string; href: string; active: boolean };
 
-export function ReportTabs(props: { active: ReportView | null }) {
+export function PageNav(props: { active: PageNavPage; path?: string; repositoryLabel?: string }) {
   const active = () => props.active;
+  const path = () => props.path?.trim() ?? "";
+  const codeMapHref = () => path() ? `/file?path=${encodeURIComponent(path())}` : "/file";
+  const reportHref = (view: ReportView) => path()
+    ? `${codeMapHref()}&view=${encodeURIComponent(view)}`
+    : `/report?view=${encodeURIComponent(view)}`;
+  const items = (): PageNavItem[] => [
+    { label: "Overview", href: "/", active: active() === "overview" },
+    { label: "Code map", href: codeMapHref(), active: active() === "code-map" },
+    { label: "World map", href: "/map", active: active() === "map" },
+    { label: "Data trajectories", href: "/trajectories", active: active() === "trajectories" },
+    ...BROWSER_REPORT_VIEWS.map((view) => ({
+      label: labelFor(view),
+      href: reportHref(view),
+      active: active() === view,
+    })),
+  ];
   return (
-    <nav class="report-tabs" aria-label="Workspace reports">
-      <a class="report-tab" classList={{ active: !active() }} href="/">
-        Overview
-      </a>
-      <For each={REPORT_VIEWS}>
-        {(view: string) => (
-          <a
-            class="report-tab"
-            classList={{ active: active() === view }}
-            href={`/report?view=${encodeURIComponent(view)}`}
-            aria-current={active() === view ? "page" : undefined}
-          >
-            {labelFor(view)}
-          </a>
-        )}
-      </For>
-    </nav>
-  );
-}
-
-export function FileTabs(props: { path: string; active: FileView | null }) {
-  const base = () => `/file?path=${encodeURIComponent(props.path)}`;
-  const active = () => props.active;
-  return (
-    <nav class="report-tabs" aria-label="File sections">
-      <a class="report-tab" classList={{ active: !active() }} href={base()}>
-        Code map
-      </a>
-      <For each={FILE_VIEWS}>
-        {(view: string) => (
-          <a
-            class="report-tab"
-            classList={{ active: active() === view }}
-            href={`${base()}&view=${encodeURIComponent(view)}`}
-            aria-current={active() === view ? "page" : undefined}
-          >
-            {labelFor(view)}
-          </a>
-        )}
-      </For>
-    </nav>
+    <div class="page-nav-row">
+      <nav class="report-tabs" aria-label="Workspace views">
+        <For each={items()}>
+          {(item) => (
+            <a
+              class="report-tab"
+              classList={{ active: item.active }}
+              href={item.href}
+              aria-current={item.active ? "page" : undefined}
+            >
+              {item.label}
+            </a>
+          )}
+        </For>
+      </nav>
+      <span
+        class="page-nav-repository"
+        classList={{ "is-empty": !props.repositoryLabel }}
+        title={props.repositoryLabel}
+      >
+        {props.repositoryLabel ?? ""}
+      </span>
+    </div>
   );
 }

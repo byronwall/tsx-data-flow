@@ -1,9 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import {
-  collectProgramEvidenceForRoot,
-  type ProgramEvidence,
-} from "../program-evidence";
+
+
 import {
   boundaryPolicy,
   scopeCandidateId,
@@ -117,23 +115,6 @@ export function discoverSolidRouteCandidates(
 export function buildSolidRouteSeed(candidate: ScopeCandidate): ScopeSeed {
   return scopeSeedFor(candidate);
 }
-
-export type EvidenceSliceAdapterInput = {
-  evidence: ProgramEvidence;
-  seeds: ScopeSeed[];
-};
-
-export async function loadSolidRouteEvidence(fixtureRoot: string): Promise<EvidenceSliceAdapterInput> {
-  const root = path.resolve(fixtureRoot);
-  const evidence = await collectProgramEvidenceForRoot(root);
-  const candidates = discoverSolidRouteCandidates(root, evidence);
-  return { evidence, seeds: candidates.map(buildSolidRouteSeed) };
-}
-
-export const evidenceSliceAdapter = {
-  name: "solid-route",
-  load: loadSolidRouteEvidence,
-};
 
 function routeFiles(root: string, elements: readonly EvidenceElement[]): RouteFile[] {
   const files = new Map<string, RouteFile>();

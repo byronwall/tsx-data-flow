@@ -24,7 +24,7 @@ import type { HttpBridgeFetch, HttpBridgeResponse } from "./http-bridge-evidence
 
 type Attributes = Record<string, string | number | boolean | null>;
 
-export type ProgramEvidenceBoundaryContext = {
+type ProgramEvidenceBoundaryContext = {
   ts: typeof TypeScript;
   checker: TypeScript.TypeChecker;
   node: TypeScript.CallExpression;

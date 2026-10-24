@@ -2,8 +2,6 @@ import type { RouteTotality } from "../../../api/contracts";
 import type { RouteTotalityLayout, RouteTotalityLayoutEdge, RouteTotalityLayoutNode } from "./route-totality-model";
 
 export type RouteTotalityFieldOriginFocus = RouteTotality["fieldLineage"]["attachments"][number]["origin"];
-type RouteTotalityFieldAttachment = RouteTotality["fieldLineage"]["attachments"][number];
-type RouteTotalityFieldFrontier = RouteTotality["fieldLineage"]["frontiers"][number];
 
 export type RouteTotalityFieldOccurrenceSummary = {
   labels: readonly string[];

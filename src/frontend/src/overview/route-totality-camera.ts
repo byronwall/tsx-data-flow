@@ -3,9 +3,9 @@ import type { TrajectoryGraphCamera } from "./trajectory-url-state";
 
 export const DEFAULT_ROUTE_TOTALITY_CAMERA: TrajectoryGraphCamera = { x: 0, y: 0, scale: 1 };
 
-export type RouteTotalityCameraPoint = { x: number; y: number };
+type RouteTotalityCameraPoint = { x: number; y: number };
 
-export type RouteTotalityCameraOptions = {
+type RouteTotalityCameraOptions = {
   initialCamera: TrajectoryGraphCamera | null;
   getViewportSize: () => { width: number; height: number };
   getSvg: () => SVGSVGElement | undefined;

@@ -13,9 +13,9 @@ type RouteTotalityBridge = RouteTotality["bridges"][number];
 type FindingAttachment = RouteTotality["findingAttachments"][number];
 type FindingIndexEntry = RouteTotality["findingIndex"][number];
 
-export type RouteTotalityDisplayLayer = "surface" | "evidence";
-export type RouteTotalityDisplayAnnotationKind = "origin" | "gap" | "partial" | "finding";
-export type RouteTotalityDisplayAnnotationAttachment = "direct" | "unanchored" | "route-global";
+type RouteTotalityDisplayLayer = "surface" | "evidence";
+type RouteTotalityDisplayAnnotationKind = "origin" | "gap" | "partial" | "finding";
+type RouteTotalityDisplayAnnotationAttachment = "direct" | "unanchored" | "route-global";
 
 export type RouteTotalityDisplayNode = {
   id: string;
@@ -58,7 +58,7 @@ export type RouteTotalityDisplayAnnotation = {
   findingTargetRole: string | null;
 };
 
-export type RouteTotalityDisplayCounts = {
+type RouteTotalityDisplayCounts = {
   fullNodeCount: number;
   fullEdgeCount: number;
   surfaceNodeCount: number;
@@ -150,8 +150,6 @@ export function buildRouteTotalityDisplayModel(
     }),
   });
 }
-
-export const projectRouteTotalityDisplay = buildRouteTotalityDisplayModel;
 
 function buildAnnotations(
   layout: RouteTotalityLayout,

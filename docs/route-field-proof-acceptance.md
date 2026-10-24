@@ -39,6 +39,20 @@ The proof identity includes the selected source, field path, consumer target,
 occurrence ID, terminal ID, and consumer-terminal relation ID. The semantic hash
 therefore changes when any of those identities changes.
 
+## Obligation files
+
+`scripts/route-field-proof-obligations.json` (G01–G20) matches soccer-schedule
+commit `4a0c4d8`, which `test/route-totality-field-proof.test.ts` analyzes as a
+pinned snapshot. `scripts/route-field-proof-obligations-live.json` matches the
+current soccer-schedule checkout. It adds G21 for the second
+`CompletedGameSummary` link (`/games/${}/schedule`). When the live app adds or
+removes a consumer, update the live file only.
+
+A render consumer whose field is the direct substitution of a template literal
+records the literal's static text in its target key as `templateText` (for
+example `/games/${}/live`). Two links that read the same prop therefore stay
+separate obligations instead of colliding as one ambiguous target.
+
 ## Failure probes
 
 Use in-memory probes to verify the failure gate without changing fixture data:

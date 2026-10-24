@@ -5,11 +5,9 @@ import { collectReachableFiles, discoverRoute, stableHash } from "./route-discov
 import { resourceBoundaryIdentity } from "./route-data-resource";
 import { collectCalledDeclarations } from "./route-data-consumers";
 import { collectResourceHttpBridges, type RouteDataHttpBridge } from "./route-data-http";
-import { buildRouteShadowEvidence, type RouteShadowEvidence } from "./route-shadow-evidence";
 import { createLazyProgramEvidenceProvider } from "./evidence-relation-provider";
 import { discoverSolidRouteCandidates } from "./scope-adapters/solid-route";
 import { createRouteDataTotalitySession, registerRouteDataTotalitySession } from "./route-data-session";
-import type { RouteTotalityRecord } from "./route-data-totality";
 import {
   buildLegacyTerminals,
   chooseLegacyCandidates,
@@ -49,7 +47,7 @@ export interface RouteRecord {
   omissions: string[];
 }
 
-export interface RouteDataField { key: string; typeText: string; optional: boolean }
+interface RouteDataField { key: string; typeText: string; optional: boolean }
 export interface ValueShapeSummary {
   id: string;
   typeName: string | null;
@@ -59,7 +57,7 @@ export interface ValueShapeSummary {
   totalFields: number;
   opacityReason: string | null;
 }
-export interface RouteDataValue { id: string; label: string; shapeId: string; sourceOperationKey: string | null }
+interface RouteDataValue { id: string; label: string; shapeId: string; sourceOperationKey: string | null }
 export interface RouteDataFieldEffect { kind: RouteDataEffect; field: string | null; detail: string }
 export interface RouteDataEvidence {
   id: string;
@@ -100,7 +98,7 @@ export interface DataOperation {
   completenessReason: string;
 }
 export interface RouteDataTerminal { id: string; label: string; file: string; line: number; component: string | null; operationKey: string }
-export interface RouteDataTrajectory {
+interface RouteDataTrajectory {
   key: string;
   routeKey: string;
   label: string;
@@ -109,9 +107,6 @@ export interface RouteDataTrajectory {
   terminalIds: string[];
   supportingComponentIds: string[];
   routeReachableTerminalCount: number;
-  terminalSelectionLimit: number;
-  ordering: "semantic-stage";
-  handoffsProven: boolean;
   completeness: "complete-for-supported-scope" | "partial" | "unknown";
   omissions: string[];
 }
@@ -123,8 +118,6 @@ export interface RouteDataAnalysis {
   shapes: ValueShapeSummary[];
   evidence: RouteDataEvidence[];
   terminals: RouteDataTerminal[];
-  routeTotality: RouteTotalityRecord[];
-  shadowEvidence: RouteShadowEvidence | null;
 }
 
 export function analyzeRouteData(
@@ -258,9 +251,6 @@ export function analyzeRouteData(
         terminalIds: routeTerminals.map((terminal) => terminal.id),
         supportingComponentIds: route.componentNames.map((name) => `component:${stableHash(`${route.file}:${name}`)}`),
         routeReachableTerminalCount: routeSinks.length,
-        terminalSelectionLimit: 4,
-        ordering: "semantic-stage",
-        handoffsProven: false,
         completeness: routeOperationKeys.length ? "partial" : "unknown",
         omissions,
       });
@@ -268,17 +258,12 @@ export function analyzeRouteData(
   }
   const routeData: RouteDataAnalysis = {
     routes,
-    // Totality is an interactive detail concern. Keep the compact route and
-    // trajectory inventory eager, but retain the provider for one selected
-    // route so the workspace request does not build every route's frontier.
-    routeTotality: [],
     trajectories,
     operations,
     values,
     shapes,
     evidence,
     terminals,
-    shadowEvidence: buildRouteShadowEvidence(ts, program, root, routes, sinks),
   };
   registerRouteDataTotalitySession(
     routeData,
@@ -407,7 +392,6 @@ function declarationName(ts: typeof TypeScript, node: TypeScript.Node) {
   if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isVariableDeclaration(node)) && node.name && ts.isIdentifier(node.name)) return node.name.text;
   return null;
 }
-function lexical(a: string, b: string) { return a < b ? -1 : a > b ? 1 : 0; }
 function safeTypeAt(checker: TypeScript.TypeChecker, node: TypeScript.Node) { try { return checker.typeToString(checker.getTypeAtLocation(node), node, 1); } catch { return "unknown"; } }
 function relative(root: string, file: string) { return path.relative(root, file).replaceAll(path.sep, "/"); }
 function inside(root: string, file: string) { const rel = path.relative(path.resolve(root), path.resolve(file)); return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== ".."); }

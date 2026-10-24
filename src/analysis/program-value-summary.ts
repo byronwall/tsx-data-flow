@@ -1,5 +1,4 @@
 import * as TypeScript from "typescript";
-import { programForRoot } from "./program-evidence-loading";
 import {
   ProgramValueSummaryResolver,
   type ProgramValueEvaluationState,
@@ -16,9 +15,7 @@ import type {
   ProgramValueSummary,
   ProgramValueSummaryIssue,
   ProgramValueSummaryKind,
-  ProgramValueSummaryOptions,
   ProgramValueSummaryStatus,
-  ProgramValueTrace,
   ProgramValueTraceStep,
 } from "./program-value-summary-types";
 import {
@@ -327,66 +324,6 @@ export class ProgramValueSummaryAnalyzer extends ProgramValueSummaryResolver {
     };
   }
 
-}
-
-export function createProgramValueSummaryAnalyzer(
-  ts: typeof TypeScript,
-  program: TypeScript.Program,
-  root: string,
-  options: ProgramValueSummaryOptions = {},
-): ProgramValueSummaryAnalyzer {
-  return new ProgramValueSummaryAnalyzer(ts, program, root, options);
-}
-
-export function createProgramValueSummaryAnalyzerForRoot(
-  root: string,
-  options: ProgramValueSummaryOptions = {},
-): ProgramValueSummaryAnalyzer {
-  return new ProgramValueSummaryAnalyzer(TypeScript, programForRoot(root), root, options);
-}
-
-export function resolveProgramValueExpression(
-  ts: typeof TypeScript,
-  program: TypeScript.Program,
-  root: string,
-  expression: TypeScript.Expression,
-  options: ProgramValueSummaryOptions = {},
-): ProgramValueResolution {
-  return createProgramValueSummaryAnalyzer(ts, program, root, options).resolveExpression(expression);
-}
-
-export function summarizeProgramValueExpression(
-  ts: typeof TypeScript,
-  program: TypeScript.Program,
-  root: string,
-  expression: TypeScript.Expression,
-  options: ProgramValueSummaryOptions = {},
-): ProgramValueSummary {
-  return createProgramValueSummaryAnalyzer(ts, program, root, options).summarizeExpression(expression);
-}
-
-export function summarizeProgramValueCall(
-  ts: typeof TypeScript,
-  program: TypeScript.Program,
-  root: string,
-  call: TypeScript.CallExpression,
-  options: ProgramValueSummaryOptions = {},
-): ProgramValueSummary {
-  return createProgramValueSummaryAnalyzer(ts, program, root, options).summarizeCall(call);
-}
-
-export function enumerateProgramValueMembers(summary: ProgramValueSummary): readonly ProgramValueMember[] {
-  return summary.members;
-}
-
-export function traceProgramValueSource(
-  ts: typeof TypeScript,
-  program: TypeScript.Program,
-  root: string,
-  expression: TypeScript.Expression,
-  options: ProgramValueSummaryOptions = {},
-): ProgramValueTrace {
-  return createProgramValueSummaryAnalyzer(ts, program, root, options).traceReturnedBinding(expression);
 }
 
 function mergeStatuses(left: ProgramValueSummaryStatus, right: ProgramValueSummaryStatus): ProgramValueSummaryStatus {

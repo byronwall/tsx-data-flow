@@ -1,8 +1,8 @@
 import { For, Match, Show, Switch, createMemo, createResource, createSignal, untrack } from "solid-js";
 import type { ReportData } from "../../api/contracts";
 import type { ReportView } from "../../api/report-views";
-import { fetchReport, refreshFailureMessage, refreshWorkspace } from "./api";
-import { ReportTabs, Shell } from "./Layout";
+import { fetchReport, fetchWorkspace, refreshFailureMessage, refreshWorkspace } from "./api";
+import { PageNav, Shell } from "./Layout";
 import { LoadingStatus } from "./LoadingStatus";
 import { isReportView, labelFor } from "./view-config";
 import { SemanticGraph } from "./reports/SemanticGraph";
@@ -11,10 +11,11 @@ import type { Navigate } from "./router";
 
 export function ReportPage(props: { location: URL; navigate: Navigate }) {
   const view = createMemo<ReportView>(() => { const value = props.location.searchParams.get("view"); return isReportView(value) ? value : "findings"; });
+  const [workspace] = createResource(fetchWorkspace);
   const [response, { refetch }] = createResource(() => view(), (next) => next === "overview" ? Promise.resolve(null) : fetchReport(next));
   const [refreshing, setRefreshing] = createSignal(false); const [refreshError, setRefreshError] = createSignal("");
   const refresh = async () => { setRefreshing(true); setRefreshError(""); try { await refreshWorkspace(); await refetch(); } catch (error) { setRefreshError(refreshFailureMessage(error)); } finally { setRefreshing(false); } };
-  return <Shell context="Workspace reports" tabs={() => <ReportTabs active={view()} />}>
+  return <Shell tabs={() => <PageNav active={view()} repositoryLabel={workspace()?.data.workspace.displayRoot} />}>
     <div class="toolbar"><h1 style={{ margin: "0" }}>{labelFor(view())}</h1><a class="btn" href={`/api/report.${encodeURIComponent(view())}.md`}>Markdown</a><button type="button" disabled={refreshing()} onClick={() => void refresh()}>{refreshing() ? "Analyzing…" : "↻ Re-analyze"}</button></div>
     <Show when={refreshError()}><p class="error" role="alert">{refreshError()}</p></Show>
     <Show when={refreshing()}><LoadingStatus subject="report analysis" operation="refresh" isPending={() => refreshing()} /></Show>

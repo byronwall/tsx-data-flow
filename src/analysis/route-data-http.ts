@@ -30,7 +30,7 @@ export interface RouteDataHttpBridgeResolution {
  * one literal GET, and one exported API handler are all required before any
  * source is stitched across the transport boundary.
  */
-export function resolveResourceHttpBridge(
+function resolveResourceHttpBridge(
   ts: typeof TypeScript,
   checker: TypeScript.TypeChecker,
   root: string,

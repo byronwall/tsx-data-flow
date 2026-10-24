@@ -1,6 +1,6 @@
 import type { GenericUiMode } from "./trajectory-url-state";
 
-export type RouteTotalityControlsProps = {
+type RouteTotalityControlsProps = {
   routePath: string;
   routeFile: string;
   fieldOriginLabel: string | null;

@@ -11,7 +11,6 @@ export function RouteTotalityWorkspace(props: {
   generation: number;
   state: TrajectoryUrlState;
   onState: (patch: Partial<TrajectoryUrlState>, push?: boolean) => void;
-  onCloseTransient: (active: boolean) => void;
 }) {
   const [sourceTarget, setSourceTarget] = createSignal<SourceEvidenceTarget | null>(null);
   const [sourceContextTargets, setSourceContextTargets] = createSignal<SourceEvidenceTarget[]>([]);
@@ -25,7 +24,6 @@ export function RouteTotalityWorkspace(props: {
   const openSourceTarget = (target: SourceEvidenceTarget, contextTargets: readonly SourceEvidenceTarget[] = []) => {
     setSourceContextTargets([...contextTargets]);
     setSourceTarget(target);
-    props.onCloseTransient(true);
   };
   const selectSourceTarget = (id: string) => {
     const target = sourceDialogTargets().find((item) => item.id === id);
@@ -34,15 +32,13 @@ export function RouteTotalityWorkspace(props: {
   const closeSource = () => {
     setSourceTarget(null);
     setSourceContextTargets([]);
-    props.onCloseTransient(false);
   };
   const clearFieldFocus = () => props.onState({ fieldFocus: null, consumerFocus: null, totalitySelection: null, isolate: false });
 
   return <div class="route-totality-workspace">
-    <main>
+    <div class="route-totality-main">
       <RouteTotalityGraph
         totality={props.detail.totality}
-        shadowEvidence={props.detail.shadowEvidence}
         selectedSourceKey={props.state.source}
         selectedSourceEvidence={selectedSourceEvidence()}
         selectedSourceFieldPaths={selectedSourceFieldPaths()}
@@ -67,7 +63,7 @@ export function RouteTotalityWorkspace(props: {
         })}
         onOpenSource={openSourceTarget}
       />
-    </main>
+    </div>
     <TrajectorySourceDialog evidence={sourceTarget()} evidenceList={sourceDialogTargets()} generation={props.generation} onSelect={selectSourceTarget} onClose={closeSource} />
   </div>;
 }

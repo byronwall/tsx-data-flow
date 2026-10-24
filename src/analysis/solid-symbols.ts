@@ -33,10 +33,6 @@ export function resolvedSymbolAtLocation(
   return symbol ?? null;
 }
 
-export function declarationIdentity(declaration: TypeScript.Declaration) {
-  return `${path.normalize(declaration.getSourceFile().fileName)}:${declaration.getStart(declaration.getSourceFile())}`;
-}
-
 function safeQualifiedName(checker: TypeScript.TypeChecker, symbol: TypeScript.Symbol) {
   try {
     return checker.getFullyQualifiedName(symbol);

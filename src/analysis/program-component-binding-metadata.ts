@@ -13,7 +13,7 @@ export type ComponentBindingMetadata = {
   candidateCount: number | null;
 };
 
-export type ComponentBindingAttributes = Readonly<Record<string, string | number | boolean | null>>;
+type ComponentBindingAttributes = Readonly<Record<string, string | number | boolean | null>>;
 
 export type ComponentBindingOwnershipExpectation = {
   componentOccurrenceElementId: string;
@@ -23,7 +23,7 @@ export type ComponentBindingOwnershipExpectation = {
   candidateCount: number;
 };
 
-export type ComponentBindingGraphElement = {
+type ComponentBindingGraphElement = {
   id: string;
   kind: string;
   operationKind: string | null;
@@ -33,7 +33,7 @@ export type ComponentBindingGraphElement = {
   proof: readonly EvidenceProof[];
 };
 
-export type ComponentBindingGraphRelation = {
+type ComponentBindingGraphRelation = {
   id: string;
   from: string;
   to: string;
@@ -48,7 +48,7 @@ export type ComponentBindingEvidenceGraph = {
   outgoing: (id: string) => readonly ComponentBindingGraphRelation[];
 };
 
-export type ComponentBindingReceiverEvidence = {
+type ComponentBindingReceiverEvidence = {
   receiver: ComponentBindingGraphElement | undefined;
   fieldInputCandidates: readonly ComponentBindingGraphRelation[];
   fieldInput: ComponentBindingGraphRelation | null;
@@ -59,7 +59,7 @@ export type ComponentBindingReceiverEvidence = {
   ready: boolean;
 };
 
-export type ComponentBindingDefinitionEvidence = {
+type ComponentBindingDefinitionEvidence = {
   candidates: readonly ComponentBindingGraphRelation[];
   definition: ComponentBindingGraphElement | null;
   ready: boolean;

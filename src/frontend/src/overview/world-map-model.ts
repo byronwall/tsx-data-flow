@@ -1,14 +1,14 @@
 import type { Workspace } from "../../../api/contracts";
 
 type MapData = Workspace["semanticMap"];
-export type MapArea = MapData["areas"][number];
-export interface PositionedMapArea extends MapArea { x: number; y: number; role: "source" | "flow" | "terminal"; }
+type MapArea = MapData["areas"][number];
+interface PositionedMapArea extends MapArea { x: number; y: number; role: "source" | "flow" | "terminal"; }
 
 export const GRAPH_WIDTH = 1120;
 export const GRAPH_HEIGHT = 620;
 export const NODE_WIDTH = 220;
 export const NODE_HEIGHT = 46;
-export const GRAPH_NODE_LIMIT = 36;
+const GRAPH_NODE_LIMIT = 36;
 
 export function worldMapLayout(map: MapData): PositionedMapArea[] {
   const perLaneLimit = GRAPH_NODE_LIMIT / 3;

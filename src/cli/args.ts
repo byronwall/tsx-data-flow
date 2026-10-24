@@ -1,4 +1,5 @@
 import path from "node:path";
+import { REPORT_VIEWS } from "../api/report-views";
 import type { AnalyzerArgs } from "../types";
 import {
   findDefaultSource,
@@ -6,25 +7,6 @@ import {
 } from "../project/discovery";
 
 const VALID_FORMATS = new Set(["json", "markdown"]);
-// The concrete report views, in the order `--view all` emits them.
-export const REPORT_VIEWS = [
-  // The orientation document first: it guides an agent to every other report and
-  // carries the workspace aggregates (concentration, repair buckets, unknown edges).
-  "overview",
-  "findings",
-  "repeated-forks",
-  "work-packets",
-  "fan-out",
-  "fan-in",
-  "path-families",
-  "defensive-ledger",
-  "prop-relay",
-  "context-relay",
-  "boundary-report",
-  "junctions",
-  "inline-preview",
-  "component-refs",
-];
 // `all` is a meta-view: build the report once and emit every concrete view.
 const ALL_VIEWS = "all";
 // `coverage` is an accepted legacy alias, normalized to `overview` in parseArgs.

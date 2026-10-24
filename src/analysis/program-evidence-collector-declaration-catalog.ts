@@ -10,7 +10,7 @@ import type {
   ProgramEvidenceDeclarationCatalogView,
 } from "./program-evidence-declaration-catalog";
 
-export type DeclarationCatalogImportTarget = {
+type DeclarationCatalogImportTarget = {
   facts: CompactProgramFact[];
   functionsByNode: Map<string, DeclarationCatalogFunctionInfo>;
   functionsBySymbol: Map<string, DeclarationCatalogFunctionInfo>;

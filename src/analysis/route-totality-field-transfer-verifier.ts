@@ -20,15 +20,7 @@ export const EXACT_FIELD_TRANSFER_KINDS = [
   "nested-property-read",
   "occurrence-consumer",
 ] as const;
-export const SCALAR_FIELD_TRANSFER_KINDS = ["source-carrier", "property-read", "scalar-consumer"] as const;
-
-export const COMPONENT_FIELD_TRANSFER_KINDS = [
-  ...EXACT_FIELD_TRANSFER_KINDS.slice(0, 10),
-  "component-source-field",
-  "component-boundary",
-  "component-property-read",
-  "occurrence-consumer",
-] as const;
+const SCALAR_FIELD_TRANSFER_KINDS = ["source-carrier", "property-read", "scalar-consumer"] as const;
 
 export type ExactFieldTransferKind = typeof EXACT_FIELD_TRANSFER_KINDS[number]
   | "component-source-field"
@@ -68,6 +60,7 @@ export type FieldTransferElement = {
   consumerConditionLiteral?: string | null;
   consumerNestedShow?: boolean | null;
   consumerCollectionName?: string | null;
+  consumerTemplateText?: string | null;
   attributes?: Record<string, string | number | boolean | null>;
   originRoles?: readonly string[];
 };

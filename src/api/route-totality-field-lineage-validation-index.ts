@@ -10,15 +10,15 @@ import type { RouteOccurrenceSurface as DomainRouteOccurrenceSurface } from "../
 import { isFullyProvenElement, isFullyProvenProof } from "../analysis/route-totality-field-lineage-transition";
 import type { RouteTotality } from "./route-totality-contracts";
 
-export type AvailableEvidence = Extract<RouteTotality["evidenceSlice"], { elements: unknown[] }>;
+type AvailableEvidence = Extract<RouteTotality["evidenceSlice"], { elements: unknown[] }>;
 export type AvailableSurface = Extract<RouteTotality["occurrenceSurface"], { occurrences: unknown[] }>;
 export type EvidenceElement = AvailableEvidence["elements"][number];
 export type EvidenceRelation = AvailableEvidence["relations"][number];
 export type EvidenceOrigin = AvailableEvidence["origins"][number];
-export type EvidenceTerminal = AvailableEvidence["terminals"][number];
+type EvidenceTerminal = AvailableEvidence["terminals"][number];
 export type EvidenceGap = AvailableEvidence["gaps"][number];
 export type SurfaceOccurrence = AvailableSurface["occurrences"][number];
-export type SurfaceTerminal = AvailableSurface["terminals"][number];
+type SurfaceTerminal = AvailableSurface["terminals"][number];
 export type FieldAttachment = RouteTotality["fieldLineage"]["attachments"][number];
 export type FieldFrontier = RouteTotality["fieldLineage"]["frontiers"][number];
 export type FieldValue = FieldAttachment["field"] | NonNullable<FieldFrontier["field"]>;
@@ -137,15 +137,6 @@ export function endpointOccurrenceAnchors(
   }
   cancellation.throwIfCancelled();
   return matches;
-}
-
-export function endpointOccurrenceAnchorId(
-  anchors: RouteTotalityAnchorIndex,
-  occurrenceId: string,
-  cancellation: AnalysisCancellationToken,
-): string | null {
-  const matches = endpointOccurrenceAnchors(anchors, occurrenceId, cancellation);
-  return matches.length === 1 ? matches[0].evidenceElementId : null;
 }
 
 export function endpointTerminalAnchors(

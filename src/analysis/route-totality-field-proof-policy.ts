@@ -13,6 +13,7 @@ export type FieldProofConsumerSelector = {
   conditionLiteral?: string;
   nestedShow?: boolean;
   collectionName?: string;
+  templateText?: string;
 };
 
 export type FieldProofTargetSelector = {
@@ -68,6 +69,7 @@ export function fieldProofTargetKey(target: FieldProofTargetSelector): string {
       conditionLiteral: target.consumer.conditionLiteral ?? null,
       nestedShow: target.consumer.nestedShow ?? null,
       collectionName: target.consumer.collectionName ?? null,
+      templateText: target.consumer.templateText ?? null,
     },
   });
 }

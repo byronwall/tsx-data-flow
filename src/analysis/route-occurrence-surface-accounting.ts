@@ -12,7 +12,7 @@ export type RouteOccurrenceBudgetSet = {
   depth: number;
 };
 
-export type RouteOccurrenceTruncation = {
+type RouteOccurrenceTruncation = {
   definitions: boolean;
   occurrences: boolean;
   boundaries: boolean;

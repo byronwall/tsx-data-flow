@@ -1,11 +1,7 @@
-import type { ProgramEvidence } from "./program-evidence";
 import {
   NO_ANALYSIS_CANCELLATION,
   type AnalysisCancellationToken,
 } from "./cancellation";
-import {
-  providerForProgramEvidence,
-} from "./evidence-relation-provider";
 import {
   boundaryPolicy as normalizeBoundaryPolicy,
   stableHash,
@@ -23,7 +19,6 @@ import {
   type TerminalPolicyInput,
 } from "./scope-seam";
 import {
-  appendProgramGaps,
   appendProviderGaps,
   assertGapEndpointReferences,
   blockedBoundary,
@@ -32,7 +27,6 @@ import {
   hasBoundary,
   hasSliceRole,
   indexProvider,
-  normalizeProgramEvidence as normalizeProgramEvidenceSupport,
   normalizeGapEndpoints,
   positiveLimit,
   relationLocation,
@@ -45,15 +39,13 @@ import {
 import { coverageFor } from "./evidence-slice-coverage";
 import type {
   GapInput,
-  NormalizedProgramEvidence as SupportNormalizedProgramEvidence,
 } from "./evidence-slice-support";
 import type {
   SliceCoverage as SupportSliceCoverage,
-  SliceCoverageBucket as SupportSliceCoverageBucket,
   SliceTruncation as SupportSliceTruncation,
 } from "./evidence-slice-coverage";
 
-export type SliceQuery = {
+type SliceQuery = {
   seed: ScopeSeed;
   direction?: SliceDirection;
   boundaryPolicy?: BoundaryPolicyInput;
@@ -63,24 +55,17 @@ export type SliceQuery = {
   cancellation?: AnalysisCancellationToken;
 };
 
-export type EvidenceSliceSource = ProgramEvidence | EvidenceRelationSource;
+type EvidenceSliceSource = EvidenceRelationSource;
 
 /** Compatibility form for callers using the original plan's `scope` name. */
-export type ScopeSliceQuery = Omit<SliceQuery, "seed"> & { scope: ScopeSeed };
+type ScopeSliceQuery = Omit<SliceQuery, "seed"> & { scope: ScopeSeed };
 
-export type SliceCoverage = SupportSliceCoverage;
-export type SliceCoverageBucket = SupportSliceCoverageBucket;
-export type SliceTruncation = SupportSliceTruncation;
+type SliceCoverage = SupportSliceCoverage;
+type SliceTruncation = SupportSliceTruncation;
 
 export type EvidenceSlice = Omit<SeamEvidenceSlice, "coverage"> & {
   coverage: SliceCoverage;
 };
-
-export type NormalizedProgramEvidence = SupportNormalizedProgramEvidence;
-
-export function normalizeProgramEvidence(evidence: ProgramEvidence): NormalizedProgramEvidence {
-  return normalizeProgramEvidenceSupport(evidence);
-}
 
 type QueueItem = { elementId: string; depth: number };
 
@@ -128,7 +113,7 @@ export function queryEvidenceSlice(
     normalizedRequest.budget,
     boundary.maxElements + boundary.maxRelations,
   );
-  const provider = relationProviderFor(evidence);
+  const provider = evidence;
   const indexed = indexProvider(provider);
   const includedElements = new Map<string, ProgramElement>();
   const includedRelations = new Map<string, ProgramRelation>();
@@ -425,11 +410,7 @@ export function queryEvidenceSlice(
 
   const elements = [...includedElements.values()];
   const relations = [...includedRelations.values()];
-  if (isEvidenceRelationProvider(evidence)) {
-    appendProviderGaps(provider, includedElements, addGap);
-  } else {
-    appendProgramGaps(evidence.gaps, includedElements, addGap);
-  }
+  appendProviderGaps(provider, includedElements, addGap);
   const normalizedGaps = normalizeGapEndpoints(gaps, includedElements);
   cancellation.throwIfCancelled();
   assertGapEndpointReferences(normalizedGaps, includedElements);
@@ -454,21 +435,6 @@ export function queryEvidenceSlice(
     ),
   };
 }
-
-function relationProviderFor(source: EvidenceSliceSource): EvidenceRelationSource {
-  return isEvidenceRelationProvider(source)
-    ? source
-    : providerForProgramEvidence(source);
-}
-
-function isEvidenceRelationProvider(source: EvidenceSliceSource): source is EvidenceRelationSource {
-  return "factIndex" in source
-    && typeof source.getRelations === "function"
-    && typeof source.getGaps === "function";
-}
-
-/** Alias for callers that describe the operation as building a slice. */
-export const buildEvidenceSlice = queryEvidenceSlice;
 
 function normalizeRequest(
   request: SliceQuery | ScopeSliceQuery | ScopeSeed,

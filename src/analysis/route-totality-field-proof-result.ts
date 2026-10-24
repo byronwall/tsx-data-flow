@@ -17,7 +17,7 @@ import type {
 } from "./route-totality-field-lineage";
 import type { ExactFieldTransferKind } from "./route-totality-field-transfer-verifier";
 
-export type FieldProofResultInput = {
+type FieldProofResultInput = {
   origin: RouteTotalityFieldOrigin;
   collectionField: ProgramElement;
   collectionElement: ProgramElement | null;

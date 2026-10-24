@@ -12,7 +12,7 @@ export type TrajectoryTotalitySelection = {
 };
 export type TrajectoryGraphCamera = { x: number; y: number; scale: number };
 export type TrajectoryUrlState = {
-  open: boolean; route: string | null; flow: string | null; isolate: boolean;
+  route: string | null; flow: string | null; isolate: boolean;
   mode: "atlas" | "detail"; kind: RouteAtlasKind; sort: RouteAtlasSort; source: string | null;
   filter: string | null; genericUi: GenericUiMode | null;
   totalitySelection?: TrajectoryTotalitySelection | null;
@@ -22,13 +22,13 @@ export type TrajectoryUrlState = {
   consumerFocus?: string | null;
 };
 
-export type TrajectoryProjectionState = {
+type TrajectoryProjectionState = {
   totalitySelection: TrajectoryTotalitySelection | null;
   graphCamera: TrajectoryGraphCamera | null;
 };
 
-export const EMPTY_TRAJECTORY_STATE: TrajectoryUrlState = {
-  open: false, route: null, flow: null, isolate: false, mode: "detail", kind: "pages", sort: "steps", source: null, filter: null, genericUi: null,
+const EMPTY_TRAJECTORY_STATE: TrajectoryUrlState = {
+  route: null, flow: null, isolate: false, mode: "detail", kind: "pages", sort: "steps", source: null, filter: null, genericUi: null,
   totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null,
 };
 
@@ -37,7 +37,7 @@ const GRAPH_CAMERA_LIMITS = { coordinate: 100_000, minScale: 0.25, maxScale: 10 
 export function parseTrajectoryUrlState(search: string | URLSearchParams): TrajectoryUrlState {
   const params = typeof search === "string" ? new URLSearchParams(search) : search;
   const state: TrajectoryUrlState = {
-    open: params.get("viz") === "trajectory", route: clean(params.get("route")), flow: clean(params.get("flow")), isolate: params.get("isolate") === "1",
+    route: clean(params.get("route")), flow: clean(params.get("flow")), isolate: params.get("isolate") === "1",
     mode: params.get("trajectoryMode") === "atlas" ? "atlas" : "detail",
     kind: params.get("routeKind") === "api" || params.get("routeKind") === "all" ? params.get("routeKind") as RouteAtlasKind : "pages",
     sort: (["paths", "unique", "substitutions", "gaps"].includes(params.get("routeSort") ?? "") ? params.get("routeSort") : "steps") as RouteAtlasSort,
@@ -58,7 +58,6 @@ export function parseTrajectoryUrlState(search: string | URLSearchParams): Traje
 export function serializeTrajectoryUrlState(state: TrajectoryUrlState, current = "") {
   const params = new URLSearchParams(current);
   for (const key of ["viz", "route", "flow", "isolate", "trajectoryMode", "routeKind", "routeSort", "sourceMethod", "filter", "genericUi", "trajectoryRenderer", "totalitySelection", "graphCamera", "contextFocus", "totalityField", "totalityConsumer"]) params.delete(key);
-  if (state.open) params.set("viz", "trajectory");
   if (state.route) params.set("route", state.route);
   if (state.flow) params.set("flow", state.flow);
   if (state.isolate) params.set("isolate", "1");
@@ -91,7 +90,7 @@ export function normalizeTrajectoryUrlState(state: TrajectoryUrlState): Trajecto
   };
 }
 
-export function trajectoryProjectionState(state: TrajectoryUrlState): TrajectoryProjectionState {
+function trajectoryProjectionState(state: TrajectoryUrlState): TrajectoryProjectionState {
   const normalized = normalizeTrajectoryUrlState(state);
   return {
     totalitySelection: normalized.totalitySelection!,
@@ -102,7 +101,7 @@ export function trajectoryProjectionState(state: TrajectoryUrlState): Trajectory
 export function sameTrajectoryUrlState(left: TrajectoryUrlState, right: TrajectoryUrlState) {
   const leftProjection = trajectoryProjectionState(left);
   const rightProjection = trajectoryProjectionState(right);
-  return left.open === right.open && left.route === right.route && left.flow === right.flow
+  return left.route === right.route && left.flow === right.flow
     && left.isolate === right.isolate && left.mode === right.mode && left.kind === right.kind && left.sort === right.sort
   && left.source === right.source && left.filter === right.filter && left.genericUi === right.genericUi
   && (left.contextFocus ?? null) === (right.contextFocus ?? null)
@@ -110,13 +109,6 @@ export function sameTrajectoryUrlState(left: TrajectoryUrlState, right: Trajecto
   && (left.consumerFocus ?? null) === (right.consumerFocus ?? null)
   && sameSelection(leftProjection.totalitySelection, rightProjection.totalitySelection)
   && sameCamera(leftProjection.graphCamera, rightProjection.graphCamera);
-}
-
-export function isTrajectoryCameraOnlyChange(left: TrajectoryUrlState, right: TrajectoryUrlState) {
-  const leftCamera = trajectoryProjectionState(left).graphCamera;
-  const rightCamera = trajectoryProjectionState(right).graphCamera;
-  return !sameCamera(leftCamera, rightCamera)
-    && sameTrajectoryUrlState({ ...left, graphCamera: rightCamera }, right);
 }
 
 export function isTrajectoryHistoryNoiseOnlyChange(left: TrajectoryUrlState, right: TrajectoryUrlState) {
@@ -152,7 +144,9 @@ export function reconcileTrajectoryUrlState(state: TrajectoryUrlState, inventory
         : "The restored route no longer exists; kept the valid trajectory on its owning route.");
     }
   }
-  if (!route && state.mode === "detail") {
+  if (!route && !state.route && !savedFlow) {
+    mode = "atlas";
+  } else if (!route && state.mode === "detail") {
     route = inventory.routes
       .filter((item) => routeMatchesKind(item, state.kind) && routeCanProduceUsefulDetail(item, inventory))
       .sort(compareRouteCost)[0] ?? null;

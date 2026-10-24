@@ -2,19 +2,16 @@ import { Show, createMemo } from "solid-js";
 import {
   routeTotalityNodeKindLabel,
   type RouteTotalityNodeKind,
-  routeTotalityLocationLabel,
 } from "./route-totality-model";
 import {
   routeTotalityDisplayBridgePath,
   routeTotalityDisplayEdgePath,
-  type RouteTotalityDisplayLayoutAnnotation,
   type RouteTotalityDisplayLayoutBridge,
   type RouteTotalityDisplayLayoutEdge,
   type RouteTotalityDisplayLayoutNode,
 } from "./route-totality-display-layout";
 import {
   routeTotalityDisplayNodeLabel,
-  routeTotalityDisplayNodeSummary,
   type RouteTotalityDisplayZoom,
 } from "./route-totality-display-labels";
 import type {
@@ -98,9 +95,6 @@ export function DisplayTotalityNode(props: {
   zoom: RouteTotalityDisplayZoom;
 }) {
   const label = createMemo(() => routeTotalityDisplayNodeLabel(props.node, "low"));
-  const summary = createMemo(() => routeTotalityDisplayNodeSummary(props.node, props.zoom));
-  const location = createMemo(() => routeTotalityLocationLabel(props.node.node.location));
-  const details = createMemo(() => props.node.node.detailLines.join(" · "));
   const fieldSummary = createMemo(() => props.fieldSummary?.labelText ?? "");
   const interactionHidden = () => props.hidden;
   const centerX = () => props.node.width / 2;
@@ -185,47 +179,6 @@ export function DisplayTotalityBridgeEdge(props: {
   </g>;
 }
 
-export function DisplayTotalityAnnotation(props: {
-  item: RouteTotalityDisplayLayoutAnnotation;
-  x: number;
-  y: number;
-  selection: RouteInvestigationSelection;
-  selected: boolean;
-  hidden: boolean;
-  labelRenderScale: number;
-  onSelect: (selection: Exclude<RouteInvestigationSelection, null>) => void;
-}) {
-  const annotation = () => props.item.annotation;
-  const canSelect = () => Boolean(props.selection);
-  const kindClass = () => `route-totality-node-kind-${annotation().kind === "partial" ? "gap" : annotation().kind}`;
-  const labelScale = () => Math.max(.001, props.labelRenderScale);
-  return <g
-    class={kindClass()}
-    classList={{ selected: props.selected, "isolation-hidden": props.hidden }}
-    transform={`translate(${props.x} ${props.y})`}
-    role={props.hidden ? undefined : canSelect() ? "button" : "img"}
-    tabindex={props.hidden || !canSelect() ? undefined : 0}
-    aria-hidden={props.hidden ? "true" : undefined}
-    aria-pressed={!props.hidden && canSelect() ? props.selected : undefined}
-    aria-label={props.hidden ? undefined : `${annotation().label} · ${annotation().detail}`}
-    onClick={(event) => {
-      if (props.hidden) return;
-      event.stopPropagation();
-      if (props.selection) props.onSelect(props.selection);
-    }}
-    onKeyDown={(event) => {
-      if (props.hidden) return;
-      if (!props.selection || (event.key !== "Enter" && event.key !== " ")) return;
-      event.preventDefault();
-      props.onSelect(props.selection);
-    }}
-  >
-    <rect x="-10" y="-18" width={annotationWidth(annotation())} height="34" fill="transparent" pointer-events="all" />
-    <circle class="route-totality-node-surface" cx="0" cy="0" r="8" />
-    <text class="route-totality-node-label" x={14 * labelScale()} y={4 * labelScale()} transform={`scale(${1 / labelScale()})`}>{clip(annotation().label, 24)}</text>
-  </g>;
-}
-
 export function DisplayBoundaryStubMark(props: { stub: RouteTotalityBoundaryStub }) {
   return <g class={`route-totality-boundary-stub family-${props.stub.family}`} role="img" aria-label={`${props.stub.label} · ${props.stub.detail}`}>
     <line class="route-totality-boundary-stub-line" x1={props.stub.x1} y1={props.stub.y1} x2={props.stub.x2} y2={props.stub.y2} />
@@ -253,10 +206,6 @@ function nodeStatusRing(className: string, kind: RouteTotalityNodeKind, width: n
   if (kind === "terminal") return <rect class={className} x={centerX - radius} y={centerY - radius} width={radius * 2} height={radius * 2} rx="2" />;
   if (kind === "gap") return <rect class={className} x={centerX - radius} y={centerY - radius} width={radius * 2} height={radius * 2} rx="2" transform={`rotate(45 ${centerX} ${centerY})`} />;
   return <circle class={className} cx={centerX} cy={centerY} r={radius} />;
-}
-
-function annotationWidth(annotation: RouteTotalityDisplayLayoutAnnotation["annotation"]): number {
-  return Math.max(180, Math.min(420, annotation.label.length * 7 + 54));
 }
 
 function clip(value: string, limit: number) {

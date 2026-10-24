@@ -14,7 +14,7 @@ import {
   type AnalysisCancellationToken,
 } from "./cancellation";
 
-export interface RouteDataTotalitySession {
+interface RouteDataTotalitySession {
   get(
     routeKey: string,
     selectedSource: RouteTotalitySelectedSource | null,
@@ -87,10 +87,5 @@ export function routeTotalityForRoute(
   cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION,
 ): RouteTotalityRecord | null {
   cancellation.throwIfCancelled();
-  const retained = selectedSource
-    ? null
-    : analysis.routeTotality.find((record) => record.routeKey === routeKey) ?? null;
-  return retained
-    ?? sessions.get(analysis)?.get(routeKey, selectedSource, cancellation)
-    ?? null;
+  return sessions.get(analysis)?.get(routeKey, selectedSource, cancellation) ?? null;
 }

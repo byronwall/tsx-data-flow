@@ -31,14 +31,14 @@ import {
 } from "./program-value-summary-support";
 import { unwrap } from "./program-evidence-support";
 
-export const DEFAULT_PROGRAM_VALUE_SUMMARY_OPTIONS: Required<ProgramValueSummaryOptions> = {
+const DEFAULT_PROGRAM_VALUE_SUMMARY_OPTIONS: Required<ProgramValueSummaryOptions> = {
   maxCallDepth: 4,
   maxReturnBranches: 8,
   maxMembers: 32,
   maxAliasDepth: 16,
 };
 
-export type ProgramValueMutableBudget = {
+type ProgramValueMutableBudget = {
   maxCallDepth: number;
   maxReturnBranches: number;
   maxMembers: number;
@@ -48,7 +48,7 @@ export type ProgramValueMutableBudget = {
   members: number;
 };
 
-export type ProgramValueParameterBindingMap = Map<string, ProgramValueParameterBinding>;
+type ProgramValueParameterBindingMap = Map<string, ProgramValueParameterBinding>;
 
 export type ProgramValueEvaluationState = {
   budget: ProgramValueMutableBudget;

@@ -23,7 +23,7 @@ import type {
   ValueShapeSummary,
 } from "./route-data";
 
-export type LegacyRouteCandidate = {
+type LegacyRouteCandidate = {
   stage: number;
   kind: DataOperation["semanticKind"];
   effect: RouteDataEffect;

@@ -19,24 +19,24 @@ import {
   type RouteTotalityTerminalAnchor,
 } from "./route-totality-anchor-index";
 
-export type RouteTotalityBridgeDirection =
+type RouteTotalityBridgeDirection =
   | "origin-to-render"
   | "render-terminal-to-origin";
 
-export type RouteTotalityBridgeOriginEndpoint = {
+type RouteTotalityBridgeOriginEndpoint = {
   layer: "evidence-slice";
   kind: "origin";
   elementId: string;
   role: OriginRole;
 };
 
-export type RouteTotalityBridgeOccurrenceEndpoint = {
+type RouteTotalityBridgeOccurrenceEndpoint = {
   layer: "occurrence-surface";
   kind: "occurrence";
   occurrenceId: string;
 };
 
-export type RouteTotalityBridgeTerminalEndpoint = {
+type RouteTotalityBridgeTerminalEndpoint = {
   layer: "occurrence-surface";
   kind: "terminal";
   terminalId: string;

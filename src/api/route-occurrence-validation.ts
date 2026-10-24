@@ -21,7 +21,7 @@ import { validateRouteTotalityFindingAttachments } from "./route-totality-findin
 import { validateRouteTotalityFieldLineage } from "./route-totality-field-lineage-validation";
 import { validateRouteContextContinuity } from "./route-context-continuity-validation";
 
-export type RouteOccurrenceValidationIssue = ValidationIssue;
+type RouteOccurrenceValidationIssue = ValidationIssue;
 
 const isUnavailable = (
   value: RouteTotality["occurrenceSurface"] | RouteTotality["evidenceSlice"],
@@ -32,7 +32,7 @@ const evidenceCountStatus = (slice: EvidenceSlice): "exact" | "lower-bound" =>
     ? "lower-bound"
     : "exact";
 
-export const validateEvidenceSlice = (
+const validateEvidenceSlice = (
   slice: EvidenceSlice,
   cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION,
 ): RouteOccurrenceValidationIssue[] => [

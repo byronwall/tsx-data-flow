@@ -1,11 +1,6 @@
 import type { RouteTotality } from "../../../api/contracts";
 import type { HiddenComponentPolicy } from "../../../api/hidden-component-policy";
 import { buildRouteTotalityLayout } from "./route-totality-layout";
-import {
-  assignParallelIndices as assignParallelIndicesForLayout,
-  layoutRouteTotalityNodes as layoutRouteTotalityNodesForLayout,
-  routeTotalityEdgePathForLayout as edgePathForLayout,
-} from "./route-totality-layout-geometry";
 
 export type RouteTotalitySurface = Extract<
   RouteTotality["occurrenceSurface"],
@@ -23,7 +18,7 @@ export type RouteTotalityTerminal = RouteTotalitySurface["terminals"][number];
 export type RouteTotalityEvidenceElement = RouteTotalityEvidence["elements"][number];
 export type RouteTotalityEvidenceOrigin = RouteTotalityEvidence["origins"][number];
 export type RouteTotalityEvidenceGap = RouteTotalityEvidence["gaps"][number];
-export type RouteTotalityGap = RouteTotality["gaps"][number];
+type RouteTotalityGap = RouteTotality["gaps"][number];
 export type RouteTotalityNodeRecord =
   | RouteTotalityOccurrence
   | RouteTotalityBoundary
@@ -182,30 +177,6 @@ export type RouteTotalityLayoutOptions = {
   genericUiMode?: "hidden" | "all";
 };
 
-export const ROUTE_TOTALITY_MIN_VIEW = { width: 960, height: 540 } as const;
-
-export function assignParallelIndices(edges: RouteTotalityGraphEdge[]): void {
-  assignParallelIndicesForLayout(edges);
-}
-
-export function layoutRouteTotalityNodes(
-  nodes: RouteTotalityNode[],
-  edges: RouteTotalityGraphEdge[],
-  primaryNodeIds: string[],
-  evidenceNodeIds: string[],
-): { nodes: RouteTotalityLayoutNode[]; width: number; height: number } {
-  return layoutRouteTotalityNodesForLayout(
-    nodes,
-    edges,
-    primaryNodeIds,
-    evidenceNodeIds,
-  );
-}
-
-export function routeTotalityEdgePathForLayout(edge: RouteTotalityLayoutEdge): string {
-  return edgePathForLayout(edge);
-}
-
 export function layoutRouteTotality(totality: RouteTotality | null, options: RouteTotalityLayoutOptions = {}): RouteTotalityLayout {
   return buildRouteTotalityLayout(totality, options);
 }
@@ -224,17 +195,6 @@ export function routeTotalityNodeLabel(
   return zoom === "high" ? node.label : node.compactLabel;
 }
 
-export function routeTotalityNodeSummary(
-  node: RouteTotalityNode,
-  zoom: RouteTotalityZoom,
-): string {
-  return zoom === "high" ? node.detailLines.join(" · ") : node.compactSummary;
-}
-
-export function routeTotalityZoomLevel(scale: number): RouteTotalityZoom {
-  return scale >= 1.25 ? "high" : "low";
-}
-
 export function routeTotalityNodeKindLabel(kind: RouteTotalityNodeKind): string {
   if (kind === "framework-boundary") return "Framework boundary";
   if (kind === "evidence-element") return "Evidence element";
@@ -251,23 +211,6 @@ export function routeTotalityLocationLabel(
   return location
     ? `${location.file}:${location.line}:${location.column}`
     : "Location unavailable";
-}
-
-export function routeTotalityProofKindsForNode(
-  layout: RouteTotalityLayout,
-  nodeId: string,
-): string[] {
-  return [
-    ...new Set(
-      layout.edges
-        .filter((edge) => edge.from === nodeId || edge.to === nodeId)
-        .flatMap((edge) => (edge.proof ? [edge.proof.kind] : [])),
-    ),
-  ];
-}
-
-export function routeTotalityEdgePath(edge: RouteTotalityLayoutEdge): string {
-  return routeTotalityEdgePathForLayout(edge);
 }
 
 function humanize(value: string): string {

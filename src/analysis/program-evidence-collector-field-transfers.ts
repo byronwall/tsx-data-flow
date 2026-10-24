@@ -5,7 +5,7 @@ import { exactCallbackReturnExpression } from "./program-callback-return";
 import { resolveHandlerAction, type ResolvedHandlerAction } from "./program-evidence-handler-resolution";
 import {
   componentConditionAttributes, componentConditionCollection, componentConditionExpression, componentConditionLabel,
-  enclosingJsxOpening, enclosingJsxPropName, hasJsxExpressionAncestor, isCollectionPredicate,
+  enclosingJsxOpening, enclosingJsxPropName, enclosingTemplateText, hasJsxExpressionAncestor, isCollectionPredicate,
 } from "./program-evidence-collector-field-consumer-support";
 
 /** Collect compiler-backed facts for exact collection and JSX field transfers. */
@@ -110,6 +110,7 @@ export class ProgramEvidenceCollectorFieldTransferSupport extends ProgramEvidenc
         consumerKind: kind,
         tagName: opening?.tagName.getText(opening.getSourceFile()) ?? null,
         propName: opening ? enclosingJsxPropName(this.ts, field) : null,
+        templateText: kind === "render" ? enclosingTemplateText(this.ts, field) : null,
         label,
         ...(condition ? componentConditionAttributes(this.ts, condition) : {}),
         ...(condition ? { consumerCollection: componentConditionCollection(this.ts, field) } : {}),

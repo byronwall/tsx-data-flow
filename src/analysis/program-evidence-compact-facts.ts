@@ -8,7 +8,7 @@ import type {
 } from "./program-evidence";
 import type { ComponentBindingMetadata } from "./program-component-binding-metadata";
 
-export type CompactFactAttributes = Readonly<Record<string, string | number | boolean | null>>;
+type CompactFactAttributes = Readonly<Record<string, string | number | boolean | null>>;
 
 /**
  * A source-backed fact that is sufficient for selection and relation replay.

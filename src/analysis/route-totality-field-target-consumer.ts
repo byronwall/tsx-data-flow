@@ -32,10 +32,11 @@ type TargetElement = {
   consumerConditionLiteral?: string | null;
   consumerNestedShow?: boolean | null;
   consumerCollectionName?: string | null;
+  consumerTemplateText?: string | null;
   attributes?: Record<string, string | number | boolean | null>;
 };
 
-export type TargetConsumerEvidence = {
+type TargetConsumerEvidence = {
   consumerField: TargetElement;
   consumerValue: TargetElement;
   binding: TargetElement;
@@ -46,7 +47,7 @@ export type TargetConsumerEvidence = {
 };
 
 /** Build one strict target descriptor from the declared target and exact compiler evidence. */
-export function buildTargetConsumerDescriptor(
+function buildTargetConsumerDescriptor(
   targetKey: string,
   evidence: TargetConsumerEvidence,
 ): RouteTotalityFieldTargetConsumer | null {
@@ -54,6 +55,7 @@ export function buildTargetConsumerDescriptor(
   if (!target || !matchesTargetChain(target, evidence) || !evidence.renderTerminal.ownerId) return null;
   const kind = evidence.directConsumer ? consumerKind(evidence.binding) : target.consumer.kind;
   if (!kind || kind !== target.consumer.kind) return null;
+  if (!matchesTemplateText(target, evidence.binding, kind)) return null;
   const jsx = jsxIdentity(target, evidence);
   if ((target.consumer.tagName || target.consumer.componentName || !evidence.directConsumer) && !jsx) return null;
   const handler = handlerIdentity(target, evidence.binding, kind);
@@ -81,6 +83,15 @@ export function deriveTargetConsumerDescriptor(
   evidence: TargetConsumerEvidence,
 ): RouteTotalityFieldTargetConsumer | null {
   return buildTargetConsumerDescriptor(targetKey, evidence);
+}
+
+function matchesTemplateText(
+  target: FieldProofTargetSelector,
+  binding: TargetElement,
+  kind: "render" | "condition" | "handler",
+): boolean {
+  const templateText = kind === "render" ? projectedOrAttribute(binding, "consumerTemplateText", "templateText") : null;
+  return (target.consumer.templateText ?? null) === templateText;
 }
 
 function conditionIdentity(
@@ -241,7 +252,7 @@ function stringAttribute(element: TargetElement, key: string): string | null {
 
 function projectedOrAttribute(
   element: TargetElement,
-  projectedKey: "consumerConditionOperator" | "consumerConditionLiteral" | "consumerCollectionName",
+  projectedKey: "consumerConditionOperator" | "consumerConditionLiteral" | "consumerCollectionName" | "consumerTemplateText",
   attributeKey: string,
 ): string | null {
   const projected = element[projectedKey];

@@ -1,29 +1,20 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, createUniqueId, onCleanup, onMount, untrack } from "solid-js";
+import { For, Show, createMemo, createResource, createSignal, createUniqueId, onCleanup, untrack } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { Workspace } from "../../../api/contracts";
 import { fetchFilePage } from "../api";
 import { WorldMapGraph } from "./WorldMapGraph";
 import { FolderScopeTree } from "./FolderScopeTree";
-import { ComponentStructureMap } from "./ComponentStructureMap";
-import { DataTrajectoryDialog } from "./DataTrajectoryDialog";
-import { BROWSER_URL_CHANGE_EVENT, commitBrowserUrl } from "./trajectory-history";
-import { parseTrajectoryUrlState, serializeTrajectoryUrlState } from "./trajectory-url-state";
 import { folderScopes, scopeWorldMap, worldMapLayout } from "./world-map-model";
 
 type MapData = Workspace["semanticMap"];
 type Area = MapData["areas"][number];
 
-export function WorldMap(props: { map: MapData; routeData?: Workspace["routeData"]; generation?: number; initialSearch?: string; initialSelectedAreaId?: string | null; loadSourceLines?: (path: string) => Promise<Array<{ number: number; text: string }>> }) {
+export function WorldMap(props: { map: MapData; initialSelectedAreaId?: string | null; loadSourceLines?: (path: string) => Promise<Array<{ number: number; text: string }>> }) {
   const loadSourceLines = untrack(() => props.loadSourceLines);
   const [selectedFolder, setSelectedFolder] = createSignal<string | null>(null);
   const [selectedAreaId, setSelectedAreaId] = createSignal<string | null>(untrack(() => props.map.areas.some((area) => area.id === props.initialSelectedAreaId) ? props.initialSelectedAreaId! : null));
   const [selectedTrajectoryId, setSelectedTrajectoryId] = createSignal<string | null>(null);
   const [selectedValue, setSelectedValue] = createSignal<string | null>(null);
-  const [componentMapOpen, setComponentMapOpen] = createSignal(false);
-  const [trajectoryOpen, setTrajectoryOpen] = createSignal(untrack(() => parseTrajectoryUrlState(props.initialSearch ?? "").open));
-  let componentMapTrigger!: HTMLButtonElement;
-  let trajectoryTrigger!: HTMLButtonElement;
-  let componentMapDialog!: HTMLDivElement;
   const scopes = createMemo(() => folderScopes(props.map));
   const scopedMap = createMemo(() => scopeWorldMap(props.map, selectedFolder()));
   const area = createMemo(() => scopedMap().areas.find((item) => item.id === selectedAreaId()) ?? null);
@@ -35,36 +26,12 @@ export function WorldMap(props: { map: MapData; routeData?: Workspace["routeData
   const clearSelection = () => { setSelectedAreaId(null); setSelectedTrajectoryId(null); setSelectedValue(null); };
   const selectArea = (id: string) => { if (selectedAreaId() === id) { clearSelection(); return; } setSelectedAreaId(id); setSelectedTrajectoryId(null); setSelectedValue(null); };
   const selectFolder = (folder: string) => { setSelectedFolder(folder || null); clearSelection(); };
-  const openComponentMap = () => { setComponentMapOpen(true); queueMicrotask(() => componentMapDialog.querySelector<HTMLButtonElement>(".component-modal-close")?.focus()); };
-  const closeComponentMap = () => { setComponentMapOpen(false); queueMicrotask(() => componentMapTrigger.focus()); };
-  const openTrajectory = () => {
-    const search = typeof window === "undefined" ? props.initialSearch ?? "" : window.location.search;
-    const current = parseTrajectoryUrlState(search);
-    if (!current.open) commitBrowserUrl(serializeTrajectoryUrlState({ ...current, open: true }, search), false);
-    setTrajectoryOpen(true);
-  };
-  onMount(() => {
-    const previousOverflow = document.body.style.overflow;
-    const syncTrajectoryOpen = () => { if (window.location.pathname === "/") setTrajectoryOpen(parseTrajectoryUrlState(window.location.search).open); };
-    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape" && componentMapOpen()) closeComponentMap(); };
-    document.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("popstate", syncTrajectoryOpen);
-    window.addEventListener(BROWSER_URL_CHANGE_EVENT, syncTrajectoryOpen);
-    createEffect(() => { document.body.style.overflow = componentMapOpen() ? "hidden" : previousOverflow; });
-    onCleanup(() => { document.removeEventListener("keydown", handleKeyDown); window.removeEventListener("popstate", syncTrajectoryOpen); window.removeEventListener(BROWSER_URL_CHANGE_EVENT, syncTrajectoryOpen); document.body.style.overflow = previousOverflow; });
-  });
   return <section class="world-map" aria-labelledby="world-map-title">
-    <header class="section-heading"><div><h2 id="world-map-title">Repository world map</h2><p class="meta">Traced source-to-TSX data flow, with component hierarchy available as a full-screen map.</p></div><span class="meta">{props.map.components.totals.nodes} components · {props.map.areas.length} of {props.map.totals.areas} indexed files</span></header>
-    <div class="world-map-lenses" role="group" aria-label="World map view"><button ref={componentMapTrigger} type="button" aria-haspopup="dialog" onClick={openComponentMap}>Component structure</button><Show when={props.routeData}><button ref={trajectoryTrigger} type="button" aria-haspopup="dialog" onClick={openTrajectory}>Data trajectories</button></Show><button type="button" aria-pressed="true">Data flow</button></div>
+    <header class="section-heading"><div><h2 id="world-map-title">Repository world map</h2><p class="meta">Traced source-to-TSX data flow across indexed files.</p></div><span class="meta">{props.map.areas.length} of {props.map.totals.areas} indexed files</span></header>
     <div class="world-map-scopebar"><span class="scopebar-label">Folder scope</span><FolderScopeTree scopes={scopes()} selected={selectedFolder()} total={props.map.areas.length} onSelect={selectFolder} /><Show when={selectedFolder()}>{(folder) => <span class="meta">{folder()} plus directly connected context · {scopedMap().areas.length} available</span>}</Show></div><div class="world-map-workspace">
       <div class="world-map-canvas"><WorldMapGraph map={scopedMap()} selectedId={selectedAreaId()} onSelect={selectArea} onClear={clearSelection} /><Show when={props.map.totals.areas > props.map.areas.length}><p class="map-cap-note">The index contains the first {props.map.areas.length} of {props.map.totals.areas} analyzed areas. Use the complete file table below for paths outside this cap.</p></Show></div>
       <aside class="world-map-inspector" aria-label="Map selection inspector"><Show when={area()} fallback={<InspectorEmpty areaCount={scopedMap().areas.length} />} >{(selected) => <Inspector area={selected()} map={scopedMap()} visibleAreaIds={visibleAreaIds()} sourceLines={selectedSourceLines() ?? []} trajectories={visibleTrajectories()} selectedTrajectoryId={selectedTrajectoryId()} selectedValue={selectedValue()} onClear={clearSelection} onSelectArea={selectArea} onSelectTrajectory={setSelectedTrajectoryId} onSelectValue={setSelectedValue} trajectory={trajectory()} totalTrajectories={props.map.totals.trajectories} />}</Show></aside>
     </div>
-    <div ref={componentMapDialog} class="component-modal" hidden={!componentMapOpen()} role="dialog" aria-modal="true" aria-labelledby="component-modal-title">
-      <header class="component-modal-header"><h2 id="component-modal-title">Component structure</h2><span>{props.map.components.nodes.length} of {props.map.components.totals.nodes} components · arranged by render depth</span><button type="button" class="component-modal-close" aria-label="Close component structure" onClick={closeComponentMap}>×</button></header>
-      <ComponentStructureMap components={props.map.components} active={componentMapOpen()} />
-    </div>
-    <Show when={props.routeData}>{(inventory) => <DataTrajectoryDialog inventory={inventory()} generation={props.generation ?? 0} open={trajectoryOpen()} initialSearch={props.initialSearch ?? ""} onClose={() => { setTrajectoryOpen(false); queueMicrotask(() => trajectoryTrigger?.focus()); }} />}</Show>
   </section>;
 }
 

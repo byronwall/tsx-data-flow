@@ -27,10 +27,6 @@ export function emptyProgramEvidenceCollectionStats(sourceFilesVisited: number):
   };
 }
 
-export function emptyProgramEvidenceRelationStats(): ProgramEvidenceRelationStats {
-  return emptyRelationStats();
-}
-
 export function addProgramEvidenceCollectionStats(
   target: ProgramEvidenceCollectionStats,
   source: ProgramEvidenceCollectionStats,

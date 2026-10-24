@@ -33,12 +33,12 @@ export type SolidProviderSyntax = {
   valueExpression: TypeScript.Expression | null;
 };
 
-export type SolidProviderTagResult =
+type SolidProviderTagResult =
   | { kind: "provider"; syntax: SolidProviderSyntax }
   | { kind: "dynamic-provider"; opening: TypeScript.JsxOpeningLikeElement; context: SolidContextDeclaration | null }
   | null;
 
-export type SolidContextReadShape = {
+type SolidContextReadShape = {
   members: string[];
   memberPaths: ContextMemberPath[];
   memberCertainty: ContextMemberCertainty;
@@ -60,7 +60,7 @@ export type SolidContextValueShape = {
   summary: ProgramValueSummary | null;
 };
 
-export type SolidContextWrapper = {
+type SolidContextWrapper = {
   context: SolidContextDeclaration;
   underlyingCalls: TypeScript.CallExpression[];
 };
@@ -136,7 +136,7 @@ function contextProviderWrapperForTag(
   return null;
 }
 
-export function valueExpressionFor(
+function valueExpressionFor(
   ts: typeof TypeScript,
   opening: TypeScript.JsxOpeningLikeElement,
 ): TypeScript.Expression | null {
@@ -235,7 +235,7 @@ export function locationForContextNode(root: string, node: TypeScript.Node): Sou
   return locationForNode(root, node);
 }
 
-export function isFirstPartyFunction(root: string, node: TypeScript.Node): boolean {
+function isFirstPartyFunction(root: string, node: TypeScript.Node): boolean {
   const file = node.getSourceFile();
   const relative = path.relative(path.resolve(root), path.resolve(file.fileName));
   return !file.isDeclarationFile && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !relative.split(path.sep).includes("node_modules");
@@ -309,7 +309,6 @@ function usagePaths(
   const visit = (node: TypeScript.Node) => {
     if (node !== owner && isFunctionLike(ts, node)) return;
     if (ts.isIdentifier(node) && node !== binding && resolvedSymbolAtLocation(ts, checker, node) === symbol) {
-      const parent = unwrappedParent(ts, node);
       const path = propertyPathFromIdentifier(ts, node);
       if (path) {
         paths.push([...prefix, ...path]);
