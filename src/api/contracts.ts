@@ -6,8 +6,8 @@ import type {
 } from "./route-totality-contracts";
 export type RouteTotality = RouteTotalityContract;
 
-export const comparisonStateSchema = z.enum(["new", "worsened", "resolved", "unchanged"]);
-export const reviewScopeSchema = z.discriminatedUnion("kind", [
+const comparisonStateSchema = z.enum(["new", "worsened", "resolved", "unchanged"]);
+const reviewScopeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("project") }),
   z.strictObject({ kind: z.literal("file-set"), paths: z.array(z.string()) }),
   z.strictObject({ kind: z.literal("scope"), query: z.string() }),
@@ -21,14 +21,14 @@ export const apiErrorSchema = z.strictObject({
   }),
 });
 
-export const apiMetadataSchema = z.strictObject({
+const apiMetadataSchema = z.strictObject({
   apiVersion: z.literal(1),
   analysisVersion: z.number().int().nonnegative(),
   generation: z.number().int().nonnegative(),
   generatedAt: z.string(),
 });
 
-export const workspaceFileRowSchema = z.strictObject({
+const workspaceFileRowSchema = z.strictObject({
   path: z.string(),
   findings: z.strictObject({
     count: z.number().int().nonnegative(),
@@ -92,7 +92,7 @@ export const semanticMapSchema = z.strictObject({
   caps: z.strictObject({ areas: z.number().int().positive(), edges: z.number().int().positive(), trajectories: z.number().int().positive(), cleanup: z.number().int().positive() }),
 });
 
-export const routeDataConfidenceSchema = z.enum(["high", "medium", "low"]);
+const routeDataConfidenceSchema = z.enum(["high", "medium", "low"]);
 const routeParameterSchema = z.strictObject({ name: z.string(), kind: z.enum(["dynamic", "catch-all"]) });
 const routeDataEvidenceSchema = z.strictObject({
   id: z.string(), expression: z.string(), operationKind: z.string(), file: z.string(),
@@ -123,7 +123,7 @@ const trajectorySummarySchema = z.strictObject({
 });
 export const routeDataInventorySchema = z.strictObject({ routes: z.array(routeSummarySchema), sources: z.array(sourceMethodSummarySchema), trajectories: z.array(trajectorySummarySchema), totals: z.strictObject({ routes: z.number().int().nonnegative(), sources: z.number().int().nonnegative(), trajectories: z.number().int().nonnegative(), complete: z.number().int().nonnegative() }) });
 
-export const hiddenComponentPolicySchema = z.strictObject({
+const hiddenComponentPolicySchema = z.strictObject({
   enabledByDefault: z.boolean(),
   include: z.array(z.string()),
   exclude: z.array(z.string()),
@@ -156,14 +156,14 @@ const routeDataDetailBaseShape = {
   route: routeSummarySchema, trajectory: routeDataTrajectorySchema, operations: z.array(routeDataOperationSchema), evidence: z.array(routeDataEvidenceSchema),
   sources: z.array(sourceMethodSummarySchema),
 };
-export const routeDataDetailTransportSchema = z.strictObject({ ...routeDataDetailBaseShape, hiddenComponentPolicy: hiddenComponentPolicySchema, totality: routeTotalityStructureSchema.nullable() });
-export const routeDataDetailSchema = z.strictObject({ ...routeDataDetailBaseShape, hiddenComponentPolicy: hiddenComponentPolicySchema, totality: routeTotalitySchema.nullable() });
+const routeDataDetailTransportSchema = z.strictObject({ ...routeDataDetailBaseShape, hiddenComponentPolicy: hiddenComponentPolicySchema, totality: routeTotalityStructureSchema.nullable() });
+const routeDataDetailSchema = z.strictObject({ ...routeDataDetailBaseShape, hiddenComponentPolicy: hiddenComponentPolicySchema, totality: routeTotalitySchema.nullable() });
 export const routeDataDetailRequestSchema = z.strictObject({ route: z.string().trim().min(1), flow: z.string().trim().min(1), source: z.string().trim().min(1).optional(), generation: z.coerce.number().int().nonnegative().optional() });
 export const routeDataDetailResponseSchema = apiMetadataSchema.extend({ data: routeDataDetailSchema });
 export const routeDataDetailTransportResponseSchema = apiMetadataSchema.extend({ data: routeDataDetailTransportSchema });
-export const SOURCE_EXCERPT_MAX_PATH_LENGTH = 512;
+const SOURCE_EXCERPT_MAX_PATH_LENGTH = 512;
 export const SOURCE_EXCERPT_DEFAULT_CONTEXT_LINES = 5;
-export const SOURCE_EXCERPT_MAX_CONTEXT_LINES = 40;
+const SOURCE_EXCERPT_MAX_CONTEXT_LINES = 40;
 export const SOURCE_EXCERPT_MAX_SPAN_LINES = 256;
 export const SOURCE_EXCERPT_MAX_LINES = SOURCE_EXCERPT_MAX_SPAN_LINES + SOURCE_EXCERPT_MAX_CONTEXT_LINES * 2;
 
@@ -175,7 +175,7 @@ const sourceExcerptPositiveInteger = sourceExcerptInteger.refine((value) => valu
 const sourceExcerptNonnegativeInteger = sourceExcerptInteger.refine((value) => value >= 0, "Must be a non-negative integer");
 const sourceExcerptContextInteger = sourceExcerptInteger.pipe(z.number().int().nonnegative().max(SOURCE_EXCERPT_MAX_CONTEXT_LINES));
 const sourceExcerptPathSchema = z.string().trim().min(1).max(SOURCE_EXCERPT_MAX_PATH_LENGTH).refine((value) => !value.includes("\0"), "NUL bytes are not valid in source paths");
-export const sourceExcerptSpanSchema = z.strictObject({
+const sourceExcerptSpanSchema = z.strictObject({
   startLine: sourceExcerptPositiveInteger,
   startColumn: sourceExcerptPositiveInteger,
   endLine: sourceExcerptPositiveInteger,
@@ -289,7 +289,7 @@ const inventoryBase = {
   sort: z.strictObject({ score: z.number(), line: z.number(), sources: z.number(), kindOrder: z.number() }),
   flags: z.strictObject({ hasDetails: z.boolean(), hasDefenses: z.boolean() }),
 };
-export const inventoryEntrySchema = z.discriminatedUnion("kind", [
+const inventoryEntrySchema = z.discriminatedUnion("kind", [
   z.strictObject({ ...inventoryBase, kind: z.literal("finding"), burden: z.number(), severity: z.enum(["high", "medium", "low"]) }),
   z.strictObject({ ...inventoryBase, kind: z.literal("fork"), siteLines: z.array(z.number().int().nonnegative()), discriminant: z.string() }),
   z.strictObject({ ...inventoryBase, kind: z.literal("boundary"), verdict: z.string(), inboundSources: z.number().int().nonnegative(), callers: z.number().int().nonnegative() }),
@@ -332,7 +332,7 @@ export const expressionEvidenceSchema = z.strictObject({
 });
 const traceStepSchema = z.strictObject({ label: z.string(), kind: z.string(), detail: z.string().nullable(), location: sourcePointSchema.nullable(), snippet: z.string().nullable() });
 const defenseSchema = z.strictObject({ expression: z.string(), verdict: z.string(), origin: z.string(), type: z.string().nullable(), location: sourcePointSchema });
-export const findingDetailSchema = z.strictObject({
+const findingDetailSchema = z.strictObject({
   id: z.string(), label: z.string(), expression: z.string(), category: z.string(), type: z.string(),
   location: sourcePointSchema, span: z.strictObject({ startLine: z.number().int(), startColumn: z.number().int(), endLine: z.number().int(), endColumn: z.number().int() }),
   context: z.strictObject({ component: z.string().nullable(), tag: z.string().nullable(), attribute: z.string().nullable() }),

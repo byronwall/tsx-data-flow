@@ -2,16 +2,16 @@ export type ContextDensity = "sparse" | "dense";
 
 export type ContextDisplayMode = "automatic" | "overlay" | "marks";
 
-export type ContextResolvedDisplayMode = Exclude<ContextDisplayMode, "automatic">;
+type ContextResolvedDisplayMode = Exclude<ContextDisplayMode, "automatic">;
 
-export type ContextDisplayModeReason = "sparse" | "dense" | "focused" | "override";
+type ContextDisplayModeReason = "sparse" | "dense" | "focused" | "override";
 
-export type ContextDensityCounts = {
+type ContextDensityCounts = {
   consumers: number;
   providers: number;
 };
 
-export const CONTEXT_DENSITY_LIMITS = Object.freeze({
+const CONTEXT_DENSITY_LIMITS = Object.freeze({
   maxSparseConsumers: 3,
   maxSparseProviders: 2,
 });
@@ -23,7 +23,7 @@ export function classifyContextDensity(counts: ContextDensityCounts): ContextDen
     : "dense";
 }
 
-export function automaticContextDisplayMode(
+function automaticContextDisplayMode(
   density: ContextDensity,
   focused = false,
 ): ContextResolvedDisplayMode {

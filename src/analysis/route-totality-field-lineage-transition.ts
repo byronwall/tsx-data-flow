@@ -17,7 +17,7 @@ export type FieldLineageStopReason =
   | "unmapped-occurrence"
   | "unmapped-terminal";
 
-export type FieldLineageElement = {
+type FieldLineageElement = {
   id: string;
   kind: string;
   operationKind: string | null;
@@ -26,7 +26,7 @@ export type FieldLineageElement = {
   index?: ProgramIndexReadMetadata | null;
 };
 
-export type FieldLineageRelation = {
+type FieldLineageRelation = {
   id: string;
   from: string;
   to: string;
@@ -35,7 +35,7 @@ export type FieldLineageRelation = {
   proof: EvidenceProof;
 };
 
-export type FieldLineageTransitionContext = {
+type FieldLineageTransitionContext = {
   relation: FieldLineageRelation;
   source: FieldLineageElement | undefined;
   target: FieldLineageElement | undefined;
@@ -64,7 +64,7 @@ export type FieldLineageTransitionContext = {
   cancellation: AnalysisCancellationToken;
 };
 
-export type FieldLineageTransition =
+type FieldLineageTransition =
   | { kind: "preserve" }
   | { kind: "field-input" }
   | { kind: "component-prop" }
@@ -87,7 +87,7 @@ const REFERENCE_TARGETS = new Set(["value", "alias", "field-read"]);
 const ARGUMENT_SOURCES = new Set(["value", "alias", "field-read", "index-read", "call", "parameter"]);
 const COMPONENT_PROP_SOURCES = new Set(["value", "alias", "field-read", "index-read", "call", "parameter", "resource-result"]);
 
-export type IndexReadClassification =
+type IndexReadClassification =
   | { kind: "accepted"; segment: { kind: "string-index" | "numeric-index"; value: string } }
   | { kind: "dynamic" }
   | { kind: "partial" };

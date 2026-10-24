@@ -14,7 +14,7 @@ import {
   type AnalysisCancellationToken,
 } from "./cancellation";
 
-export interface RouteDataTotalitySession {
+interface RouteDataTotalitySession {
   get(
     routeKey: string,
     selectedSource: RouteTotalitySelectedSource | null,

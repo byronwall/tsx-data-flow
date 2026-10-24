@@ -28,7 +28,7 @@ type CallInfo = {
   target: FunctionInfo | null;
 };
 
-export type ProgramEvidenceTransportContext = {
+type ProgramEvidenceTransportContext = {
   ts: typeof TypeScript;
   checker: TypeScript.TypeChecker;
   root: string;

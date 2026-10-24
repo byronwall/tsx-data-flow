@@ -24,7 +24,7 @@ import type { RouteContextContinuityVisual } from "./route-context-continuity-st
 import { RouteContextContinuityOverlay } from "./RouteContextContinuityOverlay";
 import type { RouteTotalityFieldFocusModel } from "./route-totality-field-lineage-model";
 
-export type RouteTotalityViewportProps = {
+type RouteTotalityViewportProps = {
   totality: RouteTotality | null;
   layout: RouteTotalityLayout;
   displayLayout: RouteTotalityDisplayLayout;

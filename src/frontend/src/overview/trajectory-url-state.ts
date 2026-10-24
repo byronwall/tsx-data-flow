@@ -22,12 +22,12 @@ export type TrajectoryUrlState = {
   consumerFocus?: string | null;
 };
 
-export type TrajectoryProjectionState = {
+type TrajectoryProjectionState = {
   totalitySelection: TrajectoryTotalitySelection | null;
   graphCamera: TrajectoryGraphCamera | null;
 };
 
-export const EMPTY_TRAJECTORY_STATE: TrajectoryUrlState = {
+const EMPTY_TRAJECTORY_STATE: TrajectoryUrlState = {
   route: null, flow: null, isolate: false, mode: "detail", kind: "pages", sort: "steps", source: null, filter: null, genericUi: null,
   totalitySelection: null, graphCamera: null, contextFocus: null, fieldFocus: null, consumerFocus: null,
 };
@@ -90,7 +90,7 @@ export function normalizeTrajectoryUrlState(state: TrajectoryUrlState): Trajecto
   };
 }
 
-export function trajectoryProjectionState(state: TrajectoryUrlState): TrajectoryProjectionState {
+function trajectoryProjectionState(state: TrajectoryUrlState): TrajectoryProjectionState {
   const normalized = normalizeTrajectoryUrlState(state);
   return {
     totalitySelection: normalized.totalitySelection!,

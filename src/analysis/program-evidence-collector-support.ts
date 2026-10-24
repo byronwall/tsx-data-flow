@@ -62,7 +62,7 @@ import { NO_ANALYSIS_CANCELLATION, type AnalysisCancellationToken } from "./canc
 
 export type CollectorFunctionInfo = DeclarationCatalogFunctionInfo;
 
-export type CollectorCallInfo = {
+type CollectorCallInfo = {
   node: TypeScript.CallExpression | TypeScript.NewExpression;
   id: string;
   target: CollectorFunctionInfo | null;

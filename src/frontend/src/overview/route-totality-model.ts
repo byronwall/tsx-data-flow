@@ -18,7 +18,7 @@ export type RouteTotalityTerminal = RouteTotalitySurface["terminals"][number];
 export type RouteTotalityEvidenceElement = RouteTotalityEvidence["elements"][number];
 export type RouteTotalityEvidenceOrigin = RouteTotalityEvidence["origins"][number];
 export type RouteTotalityEvidenceGap = RouteTotalityEvidence["gaps"][number];
-export type RouteTotalityGap = RouteTotality["gaps"][number];
+type RouteTotalityGap = RouteTotality["gaps"][number];
 export type RouteTotalityNodeRecord =
   | RouteTotalityOccurrence
   | RouteTotalityBoundary

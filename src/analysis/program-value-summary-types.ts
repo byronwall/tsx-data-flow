@@ -8,7 +8,7 @@ export type ProgramValueSummaryStatus =
   | "cycle"
   | "budget-exhausted";
 
-export type ProgramValueSummaryConfidence = "proven" | "partial";
+type ProgramValueSummaryConfidence = "proven" | "partial";
 
 export type ProgramValueSummaryKind =
   | "object-literal"
@@ -19,7 +19,7 @@ export type ProgramValueSummaryKind =
   | "parameter"
   | "unsupported";
 
-export type ProgramValueSummaryIssueReason =
+type ProgramValueSummaryIssueReason =
   | "mutable-alias"
   | "unresolved-call"
   | "nested-unsupported-function"
@@ -38,7 +38,7 @@ export type ProgramValueSummaryIssueReason =
   | "member-budget"
   | "parameter-binding";
 
-export type ProgramValueProofKind =
+type ProgramValueProofKind =
   | "compiler-symbol"
   | "declaration"
   | "alias"
@@ -122,7 +122,7 @@ export type ProgramValueSummaryIssue = {
   proof: readonly ProgramValueProof[];
 };
 
-export type ProgramValueTraceStepKind =
+type ProgramValueTraceStepKind =
   | "member"
   | "alias"
   | "initializer"
@@ -184,7 +184,7 @@ export type ProgramValueReturnBranch = {
   proof: readonly ProgramValueProof[];
 };
 
-export type ProgramValueSummaryBudgetOptions = {
+type ProgramValueSummaryBudgetOptions = {
   maxCallDepth?: number;
   maxReturnBranches?: number;
   maxMembers?: number;
@@ -193,7 +193,7 @@ export type ProgramValueSummaryBudgetOptions = {
 
 export type ProgramValueSummaryOptions = ProgramValueSummaryBudgetOptions;
 
-export type ProgramValueSummaryBudget = {
+type ProgramValueSummaryBudget = {
   maxCallDepth: number;
   maxReturnBranches: number;
   maxMembers: number;

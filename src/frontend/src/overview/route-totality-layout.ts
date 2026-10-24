@@ -17,7 +17,7 @@ import type {
   RouteTotalityLayoutEdge,
 } from "./route-totality-model";
 
-export function assignParallelIndices(edges: RouteTotalityGraphEdge[]): void {
+function assignParallelIndices(edges: RouteTotalityGraphEdge[]): void {
   assignParallelIndicesInGeometry(edges);
 }
 

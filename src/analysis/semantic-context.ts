@@ -2,7 +2,7 @@ import path from "node:path";
 import type * as TypeScript from "typescript";
 import { isCanonicalSolidCall, resolvedSymbolAtLocation } from "./solid-symbols";
 
-export function contextIdentityForExpression(
+function contextIdentityForExpression(
   ts: typeof TypeScript,
   checker: TypeScript.TypeChecker,
   root: string,

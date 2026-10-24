@@ -45,7 +45,7 @@ import type {
   SliceTruncation as SupportSliceTruncation,
 } from "./evidence-slice-coverage";
 
-export type SliceQuery = {
+type SliceQuery = {
   seed: ScopeSeed;
   direction?: SliceDirection;
   boundaryPolicy?: BoundaryPolicyInput;
@@ -55,13 +55,13 @@ export type SliceQuery = {
   cancellation?: AnalysisCancellationToken;
 };
 
-export type EvidenceSliceSource = EvidenceRelationSource;
+type EvidenceSliceSource = EvidenceRelationSource;
 
 /** Compatibility form for callers using the original plan's `scope` name. */
-export type ScopeSliceQuery = Omit<SliceQuery, "seed"> & { scope: ScopeSeed };
+type ScopeSliceQuery = Omit<SliceQuery, "seed"> & { scope: ScopeSeed };
 
-export type SliceCoverage = SupportSliceCoverage;
-export type SliceTruncation = SupportSliceTruncation;
+type SliceCoverage = SupportSliceCoverage;
+type SliceTruncation = SupportSliceTruncation;
 
 export type EvidenceSlice = Omit<SeamEvidenceSlice, "coverage"> & {
   coverage: SliceCoverage;

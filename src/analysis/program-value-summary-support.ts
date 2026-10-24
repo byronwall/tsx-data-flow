@@ -20,12 +20,12 @@ export type ProgramValueCompilerContext = {
   root: string;
 };
 
-export type ProgramValueFunctionTarget = {
+type ProgramValueFunctionTarget = {
   identity: ProgramValueFunctionIdentity;
   symbol: TypeScript.Symbol | null;
 };
 
-export type ProgramValueReturnExpressions = {
+type ProgramValueReturnExpressions = {
   expressions: readonly TypeScript.Expression[];
   bareReturns: readonly TypeScript.ReturnStatement[];
 };
@@ -37,7 +37,7 @@ export type ProgramValueBindingElementSource = {
   propertyName: string;
 };
 
-export function resolvedSymbol(
+function resolvedSymbol(
   context: ProgramValueCompilerContext,
   node: TypeScript.Node,
 ): TypeScript.Symbol | null {
@@ -59,7 +59,7 @@ export function resolvedSymbol(
   return symbol ?? null;
 }
 
-export function symbolIdFor(
+function symbolIdFor(
   context: ProgramValueCompilerContext,
   node: TypeScript.Node,
 ): string | null {
@@ -74,7 +74,7 @@ export function declarationForNode(
   return declarationForSymbol(context, resolvedSymbol(context, node));
 }
 
-export function declarationForBinding(
+function declarationForBinding(
   context: ProgramValueCompilerContext,
   binding: TypeScript.BindingName,
 ): TypeScript.Declaration | null {
@@ -82,7 +82,7 @@ export function declarationForBinding(
   return declarationForSymbol(context, resolvedSymbol(context, binding));
 }
 
-export function declarationForSymbol(
+function declarationForSymbol(
   context: ProgramValueCompilerContext,
   symbol: TypeScript.Symbol | null,
 ): TypeScript.Declaration | null {
@@ -170,7 +170,7 @@ export function functionTarget(
   return null;
 }
 
-export function functionIdentity(
+function functionIdentity(
   context: ProgramValueCompilerContext,
   declaration: TypeScript.FunctionLikeDeclaration,
   symbol: TypeScript.Symbol | null,
@@ -191,7 +191,7 @@ export function functionIdentity(
   };
 }
 
-export function isFirstParty(root: string, node: TypeScript.Node): boolean {
+function isFirstParty(root: string, node: TypeScript.Node): boolean {
   const sourceFile = node.getSourceFile();
   const relativeFile = path.relative(path.resolve(root), path.resolve(sourceFile.fileName));
   return (

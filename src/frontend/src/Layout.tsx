@@ -44,7 +44,7 @@ export function Shell(props: {
   );
 }
 
-export type PageNavPage = "overview" | "code-map" | "map" | "trajectories" | ReportView;
+type PageNavPage = "overview" | "code-map" | "map" | "trajectories" | ReportView;
 type PageNavItem = { label: string; href: string; active: boolean };
 
 export function PageNav(props: { active: PageNavPage; path?: string; repositoryLabel?: string }) {

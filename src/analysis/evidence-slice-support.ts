@@ -31,7 +31,7 @@ export type GapInput = {
   proof?: EvidenceProof[];
 };
 
-export type RelationCandidate = {
+type RelationCandidate = {
   relation: ProgramRelation;
   targetId: string;
 };
@@ -53,7 +53,7 @@ export type EvidenceRelationSource = {
   getGaps: (elementId: string) => readonly ProgramEvidenceGap[];
 };
 
-export type ProviderEvidence = {
+type ProviderEvidence = {
   elementFor: (elementId: string) => ProgramElement | undefined;
 };
 

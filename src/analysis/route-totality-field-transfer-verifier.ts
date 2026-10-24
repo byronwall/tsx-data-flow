@@ -20,7 +20,7 @@ export const EXACT_FIELD_TRANSFER_KINDS = [
   "nested-property-read",
   "occurrence-consumer",
 ] as const;
-export const SCALAR_FIELD_TRANSFER_KINDS = ["source-carrier", "property-read", "scalar-consumer"] as const;
+const SCALAR_FIELD_TRANSFER_KINDS = ["source-carrier", "property-read", "scalar-consumer"] as const;
 
 export type ExactFieldTransferKind = typeof EXACT_FIELD_TRANSFER_KINDS[number]
   | "component-source-field"

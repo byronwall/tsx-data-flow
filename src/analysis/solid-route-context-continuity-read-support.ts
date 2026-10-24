@@ -36,7 +36,7 @@ export type ContextReadSyntax = {
   wrapper: boolean;
 };
 
-export type ContextReadSite = {
+type ContextReadSite = {
   syntax: ContextReadSyntax;
   host: RouteRenderOccurrence;
   read: ContextReadRecord;

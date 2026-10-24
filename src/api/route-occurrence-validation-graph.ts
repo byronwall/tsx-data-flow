@@ -22,7 +22,7 @@ export const prefixIssues = (
   for (const issue of nested) addIssue(issues, [...prefix, ...issue.path], issue.message);
 };
 
-export const uniqueKeys = <T>(
+const uniqueKeys = <T>(
   values: T[],
   path: Array<string | number>,
   keyOf: (value: T) => string,
@@ -39,7 +39,7 @@ export const uniqueKeys = <T>(
   return keys;
 };
 
-export const uniqueIdentity = <T>(
+const uniqueIdentity = <T>(
   values: T[],
   path: Array<string | number>,
   identityOf: (value: T) => string,
@@ -113,7 +113,7 @@ export const validateReferenceList = (
   });
 };
 
-export const validateRepetition = (
+const validateRepetition = (
   repetition: string,
   markers: string[],
   path: Array<string | number>,

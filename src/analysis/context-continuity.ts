@@ -2,7 +2,7 @@ import type { EvidenceProof, EvidenceStatus, SourceLocation } from "./scope-seam
 
 export type ContextMemberCertainty = "proven" | "unknown";
 
-export type ContextContinuityGapReason =
+type ContextContinuityGapReason =
   | "missing-provider"
   | "ambiguous-provider"
   | "dynamic-context-identity"
@@ -142,7 +142,7 @@ export type ContextContinuityGap = {
   proof: EvidenceProof[];
 };
 
-export type ContextContinuityCounts = {
+type ContextContinuityCounts = {
   declarations: number;
   providers: number;
   values: number;

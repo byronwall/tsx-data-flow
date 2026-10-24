@@ -9,7 +9,7 @@ type RouteDataSourceEvidence = RouteDataDetail["evidence"][number];
 type AvailableEvidence = Extract<RouteTotality["evidenceSlice"], { elements: unknown[] }>;
 type RouteTotalityOrigin = RouteTotality["fieldLineage"]["attachments"][number]["origin"];
 
-export type RouteTotalitySourceFocus = RouteTotalityOrigin | null;
+type RouteTotalitySourceFocus = RouteTotalityOrigin | null;
 
 export function exactRouteTotalityOriginForSource(
   totality: RouteTotality | null,

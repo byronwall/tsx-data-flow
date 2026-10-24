@@ -4,19 +4,13 @@ import type { RouteSlotExpression } from "./route-occurrence-surface";
 import { stableHash } from "./route-discovery";
 import type { SourceSpan } from "../types";
 
-export type CompilerLocation = { file: string; line: number; column: number; span: SourceSpan };
+type CompilerLocation = { file: string; line: number; column: number; span: SourceSpan };
 
-export type ResolvedComponent = {
+type ResolvedComponent = {
   symbol: TypeScript.Symbol;
   declaration: TypeScript.Declaration | null;
   compilerIdentity: string;
 };
-
-export function visit(ts: typeof TypeScript, node: TypeScript.Node | undefined, callback: (node: TypeScript.Node) => void) {
-  if (!node) return;
-  callback(node);
-  ts.forEachChild(node, (child) => visit(ts, child, callback));
-}
 
 export function locationForNode(root: string, node: TypeScript.Node): CompilerLocation {
   const sourceFile = node.getSourceFile();
@@ -74,7 +68,7 @@ export function declarationForResolved(resolved: ResolvedComponent | null): Type
   return declaration;
 }
 
-export function isFunctionLikeDeclaration(node: TypeScript.Node): node is TypeScript.FunctionLikeDeclaration {
+function isFunctionLikeDeclaration(node: TypeScript.Node): node is TypeScript.FunctionLikeDeclaration {
   return TypeScript.isFunctionDeclaration(node)
     || TypeScript.isMethodDeclaration(node)
     || TypeScript.isGetAccessorDeclaration(node)
@@ -132,7 +126,7 @@ export function isJsxNode(ts: typeof TypeScript, node: TypeScript.Node): node is
   return ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node);
 }
 
-export function isCollectionType(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
+function isCollectionType(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
   try {
     const type = checker.getTypeAtLocation(node);
     const apparent = checker.getApparentType(type);
@@ -142,7 +136,7 @@ export function isCollectionType(checker: TypeScript.TypeChecker, node: TypeScri
   }
 }
 
-export function isUnknownType(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
+function isUnknownType(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
   try {
     const text = checker.typeToString(checker.getTypeAtLocation(node), node, TypeScript.TypeFormatFlags.NoTruncation);
     return text === "any" || text === "unknown";

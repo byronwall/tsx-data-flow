@@ -13,7 +13,7 @@ export type FieldState = {
   location: SourceLocation;
 };
 
-export type ComponentPropReceiverState = {
+type ComponentPropReceiverState = {
   elementId: string;
   propName: string;
 };
@@ -86,7 +86,7 @@ export function proofsForStop(
   }];
 }
 
-export function uniqueLocations(
+function uniqueLocations(
   locations: readonly SourceLocation[],
   cancellation: AnalysisCancellationToken,
 ): SourceLocation[] {

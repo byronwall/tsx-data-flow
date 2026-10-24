@@ -1,9 +1,9 @@
 import type * as TypeScript from "typescript";
 import type { buildReport } from "./analysis/report-builder";
 import type { IdentityIndex } from "./analysis/identity";
-export interface SourceLocation { line: number; column: number; file?: string }
+interface SourceLocation { line: number; column: number; file?: string }
 export interface SourceSpan { startLine: number; startColumn: number; endLine: number; endColumn: number }
-export type EvidenceLevel = "proven-unnecessary" | "suspicious-transformation" | "trace-incomplete" | "fact";
+type EvidenceLevel = "proven-unnecessary" | "suspicious-transformation" | "trace-incomplete" | "fact";
 export interface EvidenceLocation extends SourceLocation { file: string }
 export interface ExpressionIdentityEvidence {
   expressionId: string;
@@ -223,12 +223,12 @@ export interface Sink {
   unit?: WorkUnitDetails;
   [key: string]: unknown;
 }
-export interface SinkScores {
+interface SinkScores {
     burden: number; rawBurden?: number; centralLeverage?: number; centrality?: number;
     investigationPriority?: number; quickWin?: number;
     burdenBreakdown?: { backgroundPenalty: number; rawSum: number; total: number; terms: BurdenTerm[] };
 }
-export interface BurdenTerm {
+interface BurdenTerm {
   key: string; label: string; weight: number; raw: number;
   normalized: number; contribution: number;
 }
@@ -236,7 +236,7 @@ export interface RankedSink extends Sink {
   scores: SinkScores;
   tier: string;
 }
-export interface WorkUnitDetails {
+interface WorkUnitDetails {
     sinkCount: number;
     members: Array<{ id: string; line: number; label: string }>;
     pivots: string[]; causes: string[]; shape: string;

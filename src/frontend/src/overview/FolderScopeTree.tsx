@@ -1,6 +1,6 @@
 import { For, Show, createSignal, untrack } from "solid-js";
 
-export interface FolderScope { path: string; count: number }
+interface FolderScope { path: string; count: number }
 interface FolderNode { name: string; path: string; count: number; children: FolderNode[] }
 
 export function FolderScopeTree(props: { scopes: FolderScope[]; selected: string | null; total: number; onSelect: (path: string) => void }) {

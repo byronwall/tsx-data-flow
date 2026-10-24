@@ -33,7 +33,7 @@ const equalCount = (
   if (actual !== expected) addIssue(issues, [...path, label], `count must equal ${expected}`);
 };
 
-export const validateTotalCount = (
+const validateTotalCount = (
   count: RouteCount,
   path: Array<string | number>,
   issues: ValidationIssue[],

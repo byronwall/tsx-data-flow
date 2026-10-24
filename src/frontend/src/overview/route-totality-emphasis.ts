@@ -17,7 +17,7 @@ type RouteTotalityBridgeEndpoint = RouteTotalityBridge["from"] | RouteTotalityBr
 type RouteTotalityContextLink = RouteTotality["contextContinuity"]["links"][number];
 type AdjacencyFamily = "render" | "data" | "boundary" | "bridge" | "context";
 
-export type RouteTotalityAdjacencyEdge = {
+type RouteTotalityAdjacencyEdge = {
   id: string;
   from: string;
   to: string;
@@ -44,7 +44,7 @@ export type RouteTotalityAdjacency = {
 
 export type RouteTotalityEmphasisMode = "forward" | "backward" | "both";
 
-export type RouteTotalityFrontier = {
+type RouteTotalityFrontier = {
   edgeId: string;
   nodeId: string;
   bridgeId: string | null;
@@ -54,7 +54,7 @@ export type RouteTotalityFrontier = {
   status: RouteTotalityStatus;
 };
 
-export type RouteTotalityOriginContributor = {
+type RouteTotalityOriginContributor = {
   id: string;
   label: string;
   role: string;

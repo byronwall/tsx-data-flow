@@ -21,7 +21,7 @@ import type { SliceDirection } from "./scope-seam";
 import type { AnalysisCancellationToken } from "./cancellation";
 
 /** The source-backed relation input before it becomes a public relation. */
-export type RelationRecipeInput = {
+type RelationRecipeInput = {
   id: string;
   from: string;
   to: string;
@@ -37,7 +37,7 @@ export type RelationRecipe = RelationRecipeInput & { sequence: number };
 export type RelationSink = (input: RelationRecipeInput) => void;
 
 /** Deduplicate relation recipes retained for one requested frontier. */
-export class RelationRecipeStore {
+class RelationRecipeStore {
   private readonly recipes: RelationRecipe[] = [];
   private readonly keys = new Set<string>();
 
@@ -56,7 +56,7 @@ export class RelationRecipeStore {
   }
 }
 
-export type RelationFrontier = {
+type RelationFrontier = {
   recipes: readonly RelationRecipe[];
   relationIndexCount: number;
   sourceFilesVisited: number;

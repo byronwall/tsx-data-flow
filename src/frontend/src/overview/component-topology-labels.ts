@@ -1,6 +1,6 @@
 import type { ComponentTopology, ComponentTopologyNode } from "./component-topology-types";
 
-export const DEFAULT_VISIBLE_TOPOLOGY_LABELS = 30;
+const DEFAULT_VISIBLE_TOPOLOGY_LABELS = 30;
 const ORDINARY_COMPONENT_PRIORITY = 4;
 
 export function selectVisibleTopologyLabelIds(

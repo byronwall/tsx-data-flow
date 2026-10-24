@@ -197,7 +197,7 @@ const routeOccurrenceTruncationSchema = z.strictObject({
   collection: z.boolean(),
   omissions: z.boolean(),
 });
-export const routeOccurrenceSurfaceStructureSchema = z.strictObject({
+const routeOccurrenceSurfaceStructureSchema = z.strictObject({
   id: nonEmptyStringSchema,
   status: z.enum(["complete", "partial", "unavailable"]),
   route: z.strictObject({
@@ -221,7 +221,7 @@ export const routeOccurrenceSurfaceStructureSchema = z.strictObject({
   totals: routeOccurrenceTotalsSchema,
   truncation: routeOccurrenceTruncationSchema,
 });
-export const routeOccurrenceSurfaceSchema = routeOccurrenceSurfaceStructureSchema
+const routeOccurrenceSurfaceSchema = routeOccurrenceSurfaceStructureSchema
   .superRefine((surface, context) => {
     for (const issue of validateRouteOccurrenceSurface(surface)) {
       context.addIssue({

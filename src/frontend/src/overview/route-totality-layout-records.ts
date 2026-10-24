@@ -19,7 +19,7 @@ import type {
 
 export type RenderEdge = RouteTotalitySurface["renderEdges"][number];
 export type EvidenceRelation = RouteTotalityEvidence["relations"][number];
-export type TotalityGap = RouteTotality["gaps"][number];
+type TotalityGap = RouteTotality["gaps"][number];
 export type GapRecord = {
   id: string;
   source: RouteTotalityNodeSource;
@@ -323,11 +323,11 @@ export function reuseCount(
   return surface?.occurrences.filter((item) => item.definitionId === occurrence.definitionId).length ?? 1;
 }
 
-export function surfaceNodeId(id: string, boundaryIds: ReadonlySet<string>): string {
+function surfaceNodeId(id: string, boundaryIds: ReadonlySet<string>): string {
   return boundaryIds.has(id) ? `boundary:${id}` : `occurrence:${id}`;
 }
 
-export function humanize(value: string): string {
+function humanize(value: string): string {
   return value.replaceAll("-", " ");
 }
 

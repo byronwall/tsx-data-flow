@@ -10,12 +10,12 @@ export type RouteTotalityFieldInspectorScope =
   | { kind: "origin" }
   | { kind: "occurrence"; occurrenceId: string };
 
-export type RouteTotalityFieldInspectorAttachment = {
+type RouteTotalityFieldInspectorAttachment = {
   attachment: RouteTotalityFieldAttachment;
   terminalCount: number;
 };
 
-export type RouteTotalityFieldInspectorFrontier = {
+type RouteTotalityFieldInspectorFrontier = {
   frontier: RouteTotalityFieldFrontier;
 };
 

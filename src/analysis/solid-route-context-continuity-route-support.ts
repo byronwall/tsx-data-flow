@@ -10,7 +10,7 @@ import { stableHash } from "./scope-seam";
 import { containsLocation, locationForContextNode, locationKey } from "./solid-route-context-continuity-support";
 import { resolvedSymbolAtLocation } from "./solid-symbols";
 
-export type RankedContextProvider = {
+type RankedContextProvider = {
   host: RouteRenderOccurrence;
   nestingDepth: number;
   occurrence: { id: string; location: SourceLocation };

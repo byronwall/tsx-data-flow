@@ -35,7 +35,7 @@ type TargetElement = {
   attributes?: Record<string, string | number | boolean | null>;
 };
 
-export type TargetConsumerEvidence = {
+type TargetConsumerEvidence = {
   consumerField: TargetElement;
   consumerValue: TargetElement;
   binding: TargetElement;
@@ -46,7 +46,7 @@ export type TargetConsumerEvidence = {
 };
 
 /** Build one strict target descriptor from the declared target and exact compiler evidence. */
-export function buildTargetConsumerDescriptor(
+function buildTargetConsumerDescriptor(
   targetKey: string,
   evidence: TargetConsumerEvidence,
 ): RouteTotalityFieldTargetConsumer | null {

@@ -19,7 +19,7 @@ export function matchedHiddenComponentRule(policy: HiddenComponentPolicy, file: 
   return policy.include.find((pattern) => matchesGlob(pattern, normalized)) ?? null;
 }
 
-export function normalizeProjectPath(file: string) {
+function normalizeProjectPath(file: string) {
   const normalized = file.replaceAll("\\", "/").replace(/^\.\//, "");
   if (!normalized || normalized.startsWith("/") || normalized.split("/").includes("..")) return null;
   return normalized;
@@ -31,7 +31,7 @@ export function normalizeProjectPath(file: string) {
  * validates patterns before they reach this function, while keeping matching
  * available to the browser without a Node-only glob dependency.
  */
-export function matchesGlob(pattern: string, file: string) {
+function matchesGlob(pattern: string, file: string) {
   const normalizedPattern = pattern.replace(/^\.\//, "");
   const normalizedFile = normalizeProjectPath(file);
   if (!normalizedFile || !normalizedPattern) return false;

@@ -57,7 +57,7 @@ export type ComponentTopologyForceVector = {
 
 export type ComponentTopologyLayoutStep = "tick" | "separate";
 
-export type ComponentTopologyLayout = {
+type ComponentTopologyLayout = {
   nodes: ComponentTopologyLayoutNode[];
   edges: ComponentTopologyLayoutEdge[];
   forces: ComponentTopologyForceVector[];

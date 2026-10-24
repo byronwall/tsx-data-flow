@@ -8,9 +8,9 @@ import {
   unwrapExpression,
 } from "./route-occurrence-support";
 
-export type RouteConditionOutcome = "truthy" | "falsey" | "unknown";
+type RouteConditionOutcome = "truthy" | "falsey" | "unknown";
 
-export type RouteConditionEvaluation = {
+type RouteConditionEvaluation = {
   outcome: RouteConditionOutcome;
   detail: string;
   nodes: TypeScript.Node[];

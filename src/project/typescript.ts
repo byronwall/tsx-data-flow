@@ -17,7 +17,7 @@ const packageDir = path.resolve(
   "../..",
 );
 
-export function loadTypescript(args: AnalyzerArgs) {
+function loadTypescript(args: AnalyzerArgs) {
   const bases: string[] = [
     args.typescriptFrom,
     args.tsconfig ? path.dirname(args.tsconfig) : null,

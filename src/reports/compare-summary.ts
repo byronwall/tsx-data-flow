@@ -31,7 +31,7 @@ export function reportSummaryForCompare(report: AnalysisReport, dependencies: Co
   };
 }
 
-export function findingFamiliesFor(report: AnalysisReport, dependencies: CompareSummaryDependencies) {
+function findingFamiliesFor(report: AnalysisReport, dependencies: CompareSummaryDependencies) {
   const {
     groupedRenderRecommendations,
     isProviderContextCandidate,
@@ -69,7 +69,7 @@ export function findingFamiliesFor(report: AnalysisReport, dependencies: Compare
   return unique(families);
 }
 
-export function uniqueDefenseEntries(sinks: Sink[]) {
+function uniqueDefenseEntries(sinks: Sink[]) {
   return unique(
     sinks.flatMap((sink: Sink) =>
       (sink.defenses ?? []).map(
@@ -80,7 +80,7 @@ export function uniqueDefenseEntries(sinks: Sink[]) {
   );
 }
 
-export function uniqueActionableDefenseEntries(sinks: Sink[], dependencies: CompareSummaryDependencies) {
+function uniqueActionableDefenseEntries(sinks: Sink[], dependencies: CompareSummaryDependencies) {
   const { isCertaintyBoundaryDefense } = dependencies;
   return unique(
     sinks.flatMap((sink: Sink) =>

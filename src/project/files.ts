@@ -1,5 +1,4 @@
 import type { AnalyzerArgs } from "../types";
-import fs from "node:fs";
 import path from "node:path";
 
 export const DEFAULT_IGNORED_PARTS = new Set([
@@ -28,15 +27,6 @@ export function shouldAnalyzeFile(file: string, args: AnalyzerArgs) {
     return false;
   }
   return true;
-}
-
-export function walkFiles(root: string): string[] {
-  const entries = fs.readdirSync(root, { withFileTypes: true });
-  return entries.flatMap((entry) => {
-    const current = path.join(root, entry.name);
-    if (entry.isDirectory()) return walkFiles(current);
-    return [current];
-  });
 }
 
 export function isWithin(file: string, root: string) {

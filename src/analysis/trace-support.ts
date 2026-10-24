@@ -150,7 +150,7 @@ export function getFunctionReturnExpressions(ts: typeof TypeScript, fn: TypeScri
   return found;
 }
 
-export function getFunctionReturnExpression(ts: typeof TypeScript, fn: TypeScript.FunctionLikeDeclaration): TypeScript.Expression | null {
+function getFunctionReturnExpression(ts: typeof TypeScript, fn: TypeScript.FunctionLikeDeclaration): TypeScript.Expression | null {
   return getFunctionReturnExpressions(ts, fn)[0] ?? null;
 }
 

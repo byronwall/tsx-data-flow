@@ -5,7 +5,7 @@ import type {
   RouteTotalityNodeSource,
 } from "./route-totality-model";
 
-export type RouteInvestigationEdgeFamily = "render" | "data" | "boundary" | "context";
+type RouteInvestigationEdgeFamily = "render" | "data" | "boundary" | "context";
 
 export type RouteInvestigationNodeSelection = {
   target: "node";

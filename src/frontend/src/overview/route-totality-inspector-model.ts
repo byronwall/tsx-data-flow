@@ -22,7 +22,7 @@ import type {
   ContextDeclaration,
 } from "./route-context-continuity-index-records";
 
-export type RouteTotalityRecordKind = RouteTotalityNodeKind | "edge";
+type RouteTotalityRecordKind = RouteTotalityNodeKind | "edge";
 export type RouteTotalityInspectorSelection = Exclude<RouteInvestigationSelection, null>;
 
 export type RouteTotalityInspectorLink = {
@@ -33,7 +33,7 @@ export type RouteTotalityInspectorLink = {
   location: RouteTotalityLocation | null;
 };
 
-export type RouteTotalityDefinitionRecord = {
+type RouteTotalityDefinitionRecord = {
   name: string;
   compilerIdentity: string;
   sourceIdentity: string;
@@ -65,7 +65,7 @@ export type RouteTotalityInspectorRecord = {
   contextConsumptions: RouteTotalityInspectorContextConsumption[];
 };
 
-export type RouteTotalityInspectorContextConsumption = {
+type RouteTotalityInspectorContextConsumption = {
   selection: Exclude<RouteInvestigationSelection, null>;
   label: string;
   detail: string;

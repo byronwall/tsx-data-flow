@@ -8,7 +8,7 @@ import { sourceRelationId, stableHash, type ProgramElement, type ProgramRelation
 import type { RouteTotalitySelectedSource } from "./route-totality-selected-source";
 import type { CompactProgramFact } from "./program-evidence-compact-facts";
 
-export type SelectedFilesystemInputResolution =
+type SelectedFilesystemInputResolution =
   | { kind: "exact"; element: ProgramElement }
   | { kind: "ambiguous"; element: ProgramElement }
   | { kind: "unresolved" };

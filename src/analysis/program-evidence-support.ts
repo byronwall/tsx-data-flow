@@ -82,7 +82,7 @@ export function isHandlerLike(
   );
 }
 
-export type ParameterOriginRole = "request" | "event" | null;
+type ParameterOriginRole = "request" | "event" | null;
 
 export function parameterOriginRole(checker: TypeScript.TypeChecker, parameter: TypeScript.ParameterDeclaration, handler: boolean): ParameterOriginRole {
   if (!handler) return null;
@@ -94,7 +94,7 @@ export function parameterOriginRole(checker: TypeScript.TypeChecker, parameter: 
   return null;
 }
 
-export type ExternalServiceCallKind = "external-read" | "message" | null;
+type ExternalServiceCallKind = "external-read" | "message" | null;
 
 export function externalServiceCallKind(
   ts: typeof TypeScript,
@@ -117,7 +117,7 @@ function isUnimplementedServiceDeclaration(ts: typeof TypeScript, declaration: T
     || ts.isPropertyDeclaration(declaration) && !declaration.initializer;
 }
 
-export type ResponseReturnRole = "http-response" | "response" | null;
+type ResponseReturnRole = "http-response" | "response" | null;
 
 export function responseReturnRole(ts: typeof TypeScript, node: TypeScript.Expression): ResponseReturnRole {
   const expression = unwrap(ts, node);
@@ -228,7 +228,7 @@ export function isKnownGlobal(name: string) {
   return new Set(["fetch", "setTimeout", "setInterval", "clearTimeout", "clearInterval", "Promise", "Error", "URL", "Date", "Math"]).has(name);
 }
 
-export function lastName(name: string) {
+function lastName(name: string) {
   return name.split(".").at(-1) ?? name;
 }
 
@@ -250,7 +250,7 @@ export function isExitStatusAssignment(ts: typeof TypeScript, node: TypeScript.B
   );
 }
 
-export function thisReceiver(ts: typeof TypeScript, node: TypeScript.Node) {
+function thisReceiver(ts: typeof TypeScript, node: TypeScript.Node) {
   return ts.isPropertyAccessExpression(node) ? node.expression : null;
 }
 
@@ -338,7 +338,7 @@ export function typeId(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
   return text === "unknown" ? null : text;
 }
 
-export function safeType(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
+function safeType(checker: TypeScript.TypeChecker, node: TypeScript.Node) {
   try {
     return checker.typeToString(checker.getTypeAtLocation(node), node, TypeScript.TypeFormatFlags.NoTruncation);
   } catch {

@@ -2,7 +2,7 @@ import type { z } from "zod";
 import { SOURCE_EXCERPT_DEFAULT_CONTEXT_LINES, apiErrorSchema, filePageResponseSchema, refreshResponseSchema, reportResponseSchema, routeDataDetailResponseSchema, sourceExcerptResponseSchema, workspaceResponseSchema } from "../../api/contracts";
 import type { SourceEvidenceTarget } from "./overview/source-evidence-model";
 
-export class ApiClientError extends Error {
+class ApiClientError extends Error {
   constructor(public readonly code: string, message: string, public readonly status: number) { super(message); }
 }
 

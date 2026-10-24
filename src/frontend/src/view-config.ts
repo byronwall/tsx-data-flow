@@ -1,5 +1,5 @@
 import { REPORT_VIEWS, REPORT_VIEW_DEFINITIONS, reportViewLabel, type ReportView } from "../../api/report-views";
-export type BrowserReportView = {
+type BrowserReportView = {
   [View in ReportView]: (typeof REPORT_VIEW_DEFINITIONS)[View]["disposition"] extends "merge" ? never : View;
 }[ReportView];
 export type FileView = Exclude<ReportView, "overview">;

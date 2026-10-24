@@ -1,7 +1,7 @@
 import type { Sink } from "../types";
 // Attributes that size the SVG/HTML shell itself. Split out from geometry so a
 // plain width={...} is not lumped with bar-coordinate math when grouping sinks.
-export const SVG_SHELL_ATTRIBUTES = new Set([
+const SVG_SHELL_ATTRIBUTES = new Set([
   "width",
   "height",
   "viewBox",
@@ -9,7 +9,7 @@ export const SVG_SHELL_ATTRIBUTES = new Set([
 ]);
 
 // Per-element coordinate/shape attributes - the bar-geometry family.
-export const GEOMETRY_FAMILY_ATTRIBUTES = new Set([
+const GEOMETRY_FAMILY_ATTRIBUTES = new Set([
   "transform",
   "x",
   "y",
@@ -28,7 +28,7 @@ export const GEOMETRY_FAMILY_ATTRIBUTES = new Set([
   "ry",
 ]);
 
-export const LOCAL_SCALAR_GEOMETRY_ATTRIBUTES = new Set([
+const LOCAL_SCALAR_GEOMETRY_ATTRIBUTES = new Set([
   ...GEOMETRY_FAMILY_ATTRIBUTES,
   "stroke-dasharray",
   "strokeDasharray",
@@ -36,9 +36,9 @@ export const LOCAL_SCALAR_GEOMETRY_ATTRIBUTES = new Set([
   "strokeDashoffset",
 ]);
 
-export const STYLE_ATTRIBUTES = new Set(["class", "className", "style"]);
+const STYLE_ATTRIBUTES = new Set(["class", "className", "style"]);
 export const CONTROL_FLOW_ATTRIBUTES = new Set(["when", "each", "fallback"]);
-export const IDENTITY_ATTRIBUTES = new Set([
+const IDENTITY_ATTRIBUTES = new Set([
   "id",
   "href",
   "xlink:href",

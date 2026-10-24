@@ -24,8 +24,8 @@ import type {
   EvidenceProviderInstrumentation as InstrumentationEvidenceProviderInstrumentation,
   ProviderOptions,
 } from "./evidence-relation-provider-instrumentation";
-export type RelationRecipe = ProgramEvidenceRelationRecipe;
-export type EvidenceProviderInstrumentation = InstrumentationEvidenceProviderInstrumentation;
+type RelationRecipe = ProgramEvidenceRelationRecipe;
+type EvidenceProviderInstrumentation = InstrumentationEvidenceProviderInstrumentation;
 
 export interface EvidenceRelationProvider {
   readonly factIndex: ProgramFactIndex;
@@ -35,7 +35,7 @@ export interface EvidenceRelationProvider {
   getInstrumentation(): EvidenceProviderInstrumentation;
 }
 
-export type LazyProgramEvidenceProvider = EvidenceRelationProvider;
+type LazyProgramEvidenceProvider = EvidenceRelationProvider;
 
 /**
  * Lazy relation provider backed by source-indexed relation recipes.
@@ -44,7 +44,7 @@ export type LazyProgramEvidenceProvider = EvidenceRelationProvider;
  * keeps endpoint recipes so a later frontier expansion can create exact proof
  * records without constructing a project-wide ProgramRelation array.
  */
-export class LazyEvidenceRelationProvider extends LazyEvidenceRelationProviderCore implements EvidenceRelationProvider {
+class LazyEvidenceRelationProvider extends LazyEvidenceRelationProviderCore implements EvidenceRelationProvider {
   constructor(
     factIndex: ProgramFactIndex,
     recipes: readonly RelationRecipe[],

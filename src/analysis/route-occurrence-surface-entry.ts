@@ -17,7 +17,7 @@ export function buildRouteEntry(builder: RouteOccurrenceSurfaceBuilder) {
   if (occurrence && definition) builder.expandOccurrence(occurrence, definition, 0);
 }
 
-export function routeDeclaration(ts: typeof TypeScript, checker: TypeScript.TypeChecker, file: TypeScript.SourceFile): TypeScript.Declaration | null {
+function routeDeclaration(ts: typeof TypeScript, checker: TypeScript.TypeChecker, file: TypeScript.SourceFile): TypeScript.Declaration | null {
   let result: TypeScript.Declaration | null = null;
   const visit = (node: TypeScript.Node) => {
     if (result) return;

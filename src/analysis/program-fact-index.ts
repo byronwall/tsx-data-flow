@@ -7,9 +7,9 @@ import {
 } from "./program-evidence-compact-facts";
 import type { SliceDirection } from "./scope-seam";
 
-export type ProgramFactRole = string;
+type ProgramFactRole = string;
 
-export type ProgramFactIndexInstrumentation = {
+type ProgramFactIndexInstrumentation = {
   compactFactCount: number;
   compactFactBytesEstimate: number;
   hydratedElementCount: number;
@@ -18,7 +18,7 @@ export type ProgramFactIndexInstrumentation = {
   memoHits: number;
 };
 
-export type ProgramFactHydrator = (fact: CompactProgramFact) => ProgramElement;
+type ProgramFactHydrator = (fact: CompactProgramFact) => ProgramElement;
 
 /**
  * Compact source catalog used to choose a bounded lazy evidence frontier.

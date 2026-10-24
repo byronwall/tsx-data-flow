@@ -23,8 +23,8 @@ import {
 } from "./route-context-continuity-index-records";
 
 export type ContextStatusFilter = "all" | "proven" | "partial" | "unsupported" | "gaps";
-export type ContextRole = "provider" | "consumer";
-export type ContextLinkMapping =
+type ContextRole = "provider" | "consumer";
+type ContextLinkMapping =
   | "mapped"
   | "default-value"
   | "missing-provider-record"

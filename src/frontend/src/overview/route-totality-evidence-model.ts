@@ -8,7 +8,7 @@ type RouteEvidenceRelation = RouteEvidence["relations"][number];
 type RouteEvidenceGap = RouteEvidence["gaps"][number];
 type RouteEvidenceLocation = NonNullable<RouteEvidenceElement["location"]>;
 
-export type EvidenceNodeRecord = {
+type EvidenceNodeRecord = {
   id: string;
   role: string;
   kind: string;
@@ -16,7 +16,7 @@ export type EvidenceNodeRecord = {
   location: RouteEvidenceLocation | null;
 };
 
-export type EvidenceEdgeRecord = {
+type EvidenceEdgeRecord = {
   id: string;
   from: string;
   to: string;
@@ -24,7 +24,7 @@ export type EvidenceEdgeRecord = {
   proof: { kind: string; detail: string; locations: readonly RouteEvidenceLocation[] };
 };
 
-export type EvidenceGapRecord = {
+type EvidenceGapRecord = {
   id: string;
   from: string | null;
   to: string | null;
@@ -39,7 +39,7 @@ export type EvidencePathStep = {
   location: RouteEvidenceLocation | null;
 };
 
-export type EvidenceSummaryModel = {
+type EvidenceSummaryModel = {
   status: "proven" | "partial" | "missing";
   source: "route-totality" | "missing";
   nodes: readonly EvidenceNodeRecord[];
@@ -48,7 +48,7 @@ export type EvidenceSummaryModel = {
   gaps: readonly EvidenceGapRecord[];
 };
 
-export type RouteEvidenceFocus = {
+type RouteEvidenceFocus = {
   elementIds: ReadonlySet<string>;
   relationIds: ReadonlySet<string>;
   gapIds: ReadonlySet<string>;
@@ -58,7 +58,7 @@ export type RouteEvidenceFocus = {
   matched: boolean;
 };
 
-export type RouteTotalityEvidenceModel = {
+type RouteTotalityEvidenceModel = {
   summary: EvidenceSummaryModel;
   route: {
     status: "proven" | "partial" | "unavailable";

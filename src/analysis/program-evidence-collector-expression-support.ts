@@ -36,7 +36,7 @@ export function constructorExpressionElementEvidence(
   };
 }
 
-export type ProgramEvidenceExpressionContext = {
+type ProgramEvidenceExpressionContext = {
   ts: typeof TypeScript;
   references: CollectorReferenceInfo[];
   parametersBySymbol: ReadonlyMap<string, string>;

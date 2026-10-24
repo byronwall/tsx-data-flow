@@ -7,7 +7,7 @@ import { asFunctionLike, compilerSymbolId } from "./program-evidence-support";
 import { resolveHandlerAction, type ResolvedHandlerAction } from "./program-evidence-handler-resolution";
 import type { ProgramElement } from "./scope-seam";
 
-export type ComponentBoundaryMode = "whole-object" | "scalar-alias";
+type ComponentBoundaryMode = "whole-object" | "scalar-alias";
 
 export type ExactComponentBoundary = {
   opening: TypeScript.JsxOpeningLikeElement;
@@ -25,9 +25,9 @@ export type ExactComponentBoundary = {
   target: TypeScript.FunctionLikeDeclaration;
 };
 
-export type ComponentBoundaryConsumerKind = "render" | "condition" | "handler";
+type ComponentBoundaryConsumerKind = "render" | "condition" | "handler";
 
-export type ExactComponentBoundaryConsumer = {
+type ExactComponentBoundaryConsumer = {
   field: TypeScript.PropertyAccessExpression;
   fieldElement: ProgramElement;
   valueElement: ProgramElement;

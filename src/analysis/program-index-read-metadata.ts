@@ -2,7 +2,7 @@ import type * as TypeScript from "typescript";
 import type { ProgramElement } from "./program-evidence";
 import type { ProgramIndexReadMetadata } from "./scope-seam";
 
-export type IndexReadAttributes = {
+type IndexReadAttributes = {
   operation: "index-read";
   indexKind: "string-literal" | "numeric-literal" | "dynamic";
   indexValue: string | null;
@@ -32,7 +32,7 @@ export function indexReadAttributes(
   return dynamicIndexReadAttributes();
 }
 
-export function dynamicIndexReadAttributes(): IndexReadAttributes {
+function dynamicIndexReadAttributes(): IndexReadAttributes {
   return {
     operation: "index-read",
     indexKind: "dynamic",

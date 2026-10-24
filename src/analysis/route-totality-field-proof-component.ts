@@ -2,14 +2,14 @@ import path from "node:path";
 import type * as TypeScript from "typescript";
 import { visitTypeScript } from "./route-totality-field-proof-ast";
 
-export type ExactShowUse = {
+type ExactShowUse = {
   opening: TypeScript.JsxOpeningLikeElement;
   when: TypeScript.CallExpression;
   render: TypeScript.ArrowFunction;
   parameter: TypeScript.Symbol;
 };
 
-export type ExactComponentConsumer = {
+type ExactComponentConsumer = {
   call: TypeScript.CallExpression;
   access: TypeScript.PropertyAccessExpression;
   opening: TypeScript.JsxOpeningLikeElement;

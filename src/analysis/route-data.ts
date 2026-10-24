@@ -47,7 +47,7 @@ export interface RouteRecord {
   omissions: string[];
 }
 
-export interface RouteDataField { key: string; typeText: string; optional: boolean }
+interface RouteDataField { key: string; typeText: string; optional: boolean }
 export interface ValueShapeSummary {
   id: string;
   typeName: string | null;
@@ -57,7 +57,7 @@ export interface ValueShapeSummary {
   totalFields: number;
   opacityReason: string | null;
 }
-export interface RouteDataValue { id: string; label: string; shapeId: string; sourceOperationKey: string | null }
+interface RouteDataValue { id: string; label: string; shapeId: string; sourceOperationKey: string | null }
 export interface RouteDataFieldEffect { kind: RouteDataEffect; field: string | null; detail: string }
 export interface RouteDataEvidence {
   id: string;
@@ -98,7 +98,7 @@ export interface DataOperation {
   completenessReason: string;
 }
 export interface RouteDataTerminal { id: string; label: string; file: string; line: number; component: string | null; operationKey: string }
-export interface RouteDataTrajectory {
+interface RouteDataTrajectory {
   key: string;
   routeKey: string;
   label: string;

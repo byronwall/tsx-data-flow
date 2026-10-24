@@ -47,8 +47,8 @@ const SIDE_EFFECT_CALLEES = new Set([
   "addEventListener",
 ]);
 
-export interface DerivedDeclaration { name: string; line: number }
-export interface RepeatedForkFinding {
+interface DerivedDeclaration { name: string; line: number }
+interface RepeatedForkFinding {
   id: string; kind: string; file: string; line: number; column: number;
   component: string | null; componentLine: number; discriminant: string;
   branchValues: string[]; namedValues: string[];

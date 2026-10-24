@@ -10,7 +10,7 @@ import type { ComponentBindingMetadata } from "./program-component-binding-metad
 
 export type EvidenceStatus = "proven" | "partial" | "unsupported";
 
-export type SourceSpan = {
+type SourceSpan = {
   startLine: number;
   startColumn: number;
   endLine: number;
@@ -114,7 +114,7 @@ export type TerminalRole =
   | "child-process"
   | "completion";
 
-export type ScopeKind = "route" | "command" | "handler" | "module" | "function" | string;
+type ScopeKind = "route" | "command" | "handler" | "module" | "function" | string;
 
 export type SliceDirection = "forward" | "backward" | "both";
 
@@ -169,7 +169,7 @@ export type ScopeSeed = {
   defaults: ScopePolicy;
 };
 
-export type EvidenceGapReason =
+type EvidenceGapReason =
   | "unsupported-syntax"
   | "dynamic-dispatch"
   | "external-code"
@@ -240,7 +240,7 @@ export type EvidenceSlice = {
   coverage: Coverage;
 };
 
-export const DEFAULT_BOUNDARY_POLICY: Readonly<BoundaryPolicy> = {
+const DEFAULT_BOUNDARY_POLICY: Readonly<BoundaryPolicy> = {
   maxDepth: 48,
   maxElements: 128,
   maxRelations: 256,
@@ -250,7 +250,7 @@ export const DEFAULT_BOUNDARY_POLICY: Readonly<BoundaryPolicy> = {
   stopAtBoundary: false,
 };
 
-export const DEFAULT_TERMINAL_POLICY: Readonly<TerminalPolicy> = {
+const DEFAULT_TERMINAL_POLICY: Readonly<TerminalPolicy> = {
   roles: [
     "render",
     "component-occurrence",
@@ -270,7 +270,7 @@ export const DEFAULT_TERMINAL_POLICY: Readonly<TerminalPolicy> = {
   stopAtTerminal: false,
 };
 
-export const DEFAULT_SCOPE_POLICY: Readonly<ScopePolicy> = {
+const DEFAULT_SCOPE_POLICY: Readonly<ScopePolicy> = {
   direction: "forward",
   boundaryPolicy: DEFAULT_BOUNDARY_POLICY,
   terminalPolicy: DEFAULT_TERMINAL_POLICY,

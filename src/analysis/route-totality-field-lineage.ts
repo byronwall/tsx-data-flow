@@ -6,7 +6,7 @@ export type RouteTotalityFieldSegment = {
   value: string;
 };
 
-export type RouteTotalityFieldConsumer = {
+type RouteTotalityFieldConsumer = {
   id: string;
   elementId: string;
   occurrenceElementId: string;
@@ -98,7 +98,7 @@ export type RouteTotalityFieldAttachment = {
   transformationKinds: string[];
 };
 
-export type RouteTotalityFieldFrontierReason = FieldLineageStopReason
+type RouteTotalityFieldFrontierReason = FieldLineageStopReason
   | "identity-lost"
   | "renamed-prop"
   | "evidence-truncated";

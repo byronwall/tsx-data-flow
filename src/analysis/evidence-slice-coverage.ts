@@ -9,7 +9,7 @@ import type {
   SliceTerminal,
 } from "./scope-seam";
 
-export type SliceCoverageBucket = {
+type SliceCoverageBucket = {
   total: number;
   elements: number;
   relations: number;

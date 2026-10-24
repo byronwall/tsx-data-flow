@@ -7,7 +7,7 @@ import { sourceLocationPriority } from "./component-topology-labels";
 
 export type RouteTotalityDisplayZoom = "low" | "medium" | "high";
 
-export const DEFAULT_ROUTE_TOTALITY_VISIBLE_LABELS = 30;
+const DEFAULT_ROUTE_TOTALITY_VISIBLE_LABELS = 30;
 
 const LABEL_BUDGET_STEP = 15;
 const LABEL_ZOOM_STEP = 1.25;
@@ -19,7 +19,7 @@ export function routeTotalityDisplayZoomLevel(scale: number): RouteTotalityDispl
   return "low";
 }
 
-export function routeTotalityDisplayLabelBudget(cameraScale: number, nodeCount: number): number {
+function routeTotalityDisplayLabelBudget(cameraScale: number, nodeCount: number): number {
   if (nodeCount <= DEFAULT_ROUTE_TOTALITY_VISIBLE_LABELS) return nodeCount;
   const normalizedScale = Math.max(1, cameraScale);
   const zoomStep = Math.max(0, Math.floor(Math.log(normalizedScale) / Math.log(LABEL_ZOOM_STEP) + Number.EPSILON * 8));

@@ -57,7 +57,7 @@ export type RouteTotalityUnavailable = {
   reason: string;
 };
 
-export type RouteTotalityGap = {
+type RouteTotalityGap = {
   id: string;
   source: "route-selection" | "occurrence-surface" | "evidence-slice" | "context-continuity";
   reason: string;
