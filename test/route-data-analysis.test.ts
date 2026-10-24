@@ -46,7 +46,6 @@ describe("route data trajectory analysis", () => {
     const operations = trajectory?.operationKeys.map((key) => report.routeData.operations.find((item) => item.key === key)! ) ?? [];
     expect(route?.confidence).toBe("high");
     expect(trajectory?.completeness).toBe("partial");
-    expect(trajectory?.handoffsProven).toBe(false);
     expect(operations.every((operation) => operation.inputValueIds.length === 0 && operation.inputShapeIds.length === 0)).toBe(true);
     expect(operations.map((item) => item.semanticKind)).toEqual(expect.arrayContaining(["read", "map", "boundary", "augment", "render"]));
     expect(operations.find((item) => item.semanticKind === "read")?.label.toLowerCase()).toContain("time block");
@@ -119,11 +118,10 @@ describe("route data trajectory analysis", () => {
 
     expect(report.routeData.evidence.some((item) => item.file.includes("live-smoke"))).toBe(false);
     expect(new Set(report.routeData.operations.map((item) => item.key)).size).toBe(report.routeData.operations.length);
-    const source = detail.context.nodes.find((item) => item.kind === "source")!;
-    expect(source).toMatchObject({ file: "src/store/boards.ts" });
+    const source = detail.sources.find((item) => item.file === "src/store/boards.ts")!;
+    expect(source).toBeTruthy();
     expect(source.label).not.toBe("Persisted value");
     expect(detail.operations[0].sourceExpressionIds.every((id) => detail.evidence.some((item) => item.id === id))).toBe(true);
-    expect(detail.context.nodes.find((item) => item.kind === "component")).toMatchObject({ label: "BoardRoute", role: "route", parentId: null });
     const sourceSummary = inventory.sources.find((item) => item.file === "src/store/boards.ts");
     expect(sourceSummary?.routeKeys).toContain(route.key);
     expect(inventory.routes.find((item) => item.key === route.key)).toMatchObject({ routeKind: "page", unknownGapCount: 0 });

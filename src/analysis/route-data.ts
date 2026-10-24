@@ -107,9 +107,6 @@ export interface RouteDataTrajectory {
   terminalIds: string[];
   supportingComponentIds: string[];
   routeReachableTerminalCount: number;
-  terminalSelectionLimit: number;
-  ordering: "semantic-stage";
-  handoffsProven: boolean;
   completeness: "complete-for-supported-scope" | "partial" | "unknown";
   omissions: string[];
 }
@@ -254,9 +251,6 @@ export function analyzeRouteData(
         terminalIds: routeTerminals.map((terminal) => terminal.id),
         supportingComponentIds: route.componentNames.map((name) => `component:${stableHash(`${route.file}:${name}`)}`),
         routeReachableTerminalCount: routeSinks.length,
-        terminalSelectionLimit: 4,
-        ordering: "semantic-stage",
-        handoffsProven: false,
         completeness: routeOperationKeys.length ? "partial" : "unknown",
         omissions,
       });

@@ -118,8 +118,7 @@ const sourceMethodSummarySchema = z.strictObject({
 const trajectorySummarySchema = z.strictObject({
   key: z.string(), routeKey: z.string(), label: z.string(), operationCount: z.number().int().nonnegative(), terminalCount: z.number().int().nonnegative(),
   sourceMethodKeys: z.array(z.string()), substitutionStepCount: z.number().int().nonnegative(),
-  routeReachableTerminalCount: z.number().int().nonnegative(), terminalSelectionLimit: z.number().int().positive(),
-  ordering: z.literal("semantic-stage"), handoffsProven: z.boolean(),
+  routeReachableTerminalCount: z.number().int().nonnegative(),
   completeness: z.enum(["complete-for-supported-scope", "partial", "unknown"]), omissions: z.array(z.string()),
 });
 export const routeDataInventorySchema = z.strictObject({ routes: z.array(routeSummarySchema), sources: z.array(sourceMethodSummarySchema), trajectories: z.array(trajectorySummarySchema), totals: z.strictObject({ routes: z.number().int().nonnegative(), sources: z.number().int().nonnegative(), trajectories: z.number().int().nonnegative(), complete: z.number().int().nonnegative() }) });
@@ -130,12 +129,6 @@ export const hiddenComponentPolicySchema = z.strictObject({
   exclude: z.array(z.string()),
   configPath: z.string().nullable(),
 });
-
-const routeDataShapeSchema = z.strictObject({
-  id: z.string(), typeName: z.string().nullable(), typeText: z.string(), kind: z.enum(["primitive", "object", "collection", "union", "opaque"]),
-  fields: z.array(z.strictObject({ key: z.string(), typeText: z.string(), optional: z.boolean() })), totalFields: z.number().int().nonnegative(), opacityReason: z.string().nullable(),
-});
-const routeDataValueSchema = z.strictObject({ id: z.string(), label: z.string(), shapeId: z.string(), sourceOperationKey: z.string().nullable() });
 const routeDataTransportBridgeSchema = z.strictObject({
   id: z.string(), path: z.string(), method: z.literal("GET"), apiRouteKey: z.string(), apiRouteFile: z.string(),
   handlerName: z.string(), handlerIdentity: z.string(), handlerFile: z.string(), handlerLine: z.number().int().positive(),
@@ -154,32 +147,14 @@ const routeDataOperationSchema = z.strictObject({
   owner: z.strictObject({ label: z.string(), file: z.string(), line: z.number().int().positive() }).nullable(),
   confidence: routeDataConfidenceSchema, completeness: z.enum(["complete", "partial", "opaque"]), completenessReason: z.string(),
 });
-const routeDataTerminalSchema = z.strictObject({ id: z.string(), label: z.string(), file: z.string(), line: z.number().int().positive(), component: z.string().nullable(), operationKey: z.string() });
 const routeDataTrajectorySchema = z.strictObject({
   key: z.string(), routeKey: z.string(), label: z.string(), sourceValueIds: z.array(z.string()), operationKeys: z.array(z.string()), terminalIds: z.array(z.string()), supportingComponentIds: z.array(z.string()),
-  routeReachableTerminalCount: z.number().int().nonnegative(), terminalSelectionLimit: z.number().int().positive(),
-  ordering: z.literal("semantic-stage"), handoffsProven: z.boolean(),
+  routeReachableTerminalCount: z.number().int().nonnegative(),
   completeness: z.enum(["complete-for-supported-scope", "partial", "unknown"]), omissions: z.array(z.string()),
 });
-const routeContextNodeSchema = z.strictObject({ id: z.string(), aliases: z.array(z.string()).optional(), kind: z.enum(["source", "component", "terminal"]), label: z.string(), file: z.string().nullable(), line: z.number().int().positive().nullable(), group: z.enum(["persistence", "route", "render"]), parentId: z.string().nullable(), role: z.enum(["persistence", "route", "component", "framework", "terminal"]) });
-const routeContextEdgeSchema = z.strictObject({ id: z.string(), from: z.string(), to: z.string(), kind: z.enum(["data", "component"]), relationship: z.enum(["hierarchy", "rendered"]).optional() });
-const exhaustiveRouteGraphSchema = z.strictObject({
-  nodes: z.array(z.strictObject({ key: z.string(), label: z.string(), snippet: z.string().nullable(), kind: z.string(), file: z.string().nullable(), line: z.number().int().positive().nullable(), column: z.number().int().positive().nullable(), boundaryId: z.string().nullable(), pathCount: z.number().int().positive(), minimumDepth: z.number().int().nonnegative(), component: z.string(), components: z.array(z.string()).min(1) })),
-  edges: z.array(z.strictObject({ key: z.string(), from: z.string(), to: z.string(), kind: z.string(), unknown: z.boolean(), pathCount: z.number().int().positive() })),
-  trajectories: z.array(z.strictObject({
-    key: z.string(), sinkId: z.string(), terminalLabel: z.string(),
-    stepKeys: z.array(z.string()), stepComponents: z.array(z.string()),
-    sourceMethodKeys: z.array(z.string()), sourceHandoffKeys: z.array(z.string()),
-    substitutionStepCount: z.number().int().nonnegative(),
-    completeness: z.enum(["complete-for-supported-scope", "partial"]),
-  })),
-  totals: z.strictObject({ sinks: z.number().int().nonnegative(), trajectories: z.number().int().nonnegative(), nodes: z.number().int().nonnegative(), edges: z.number().int().nonnegative(), components: z.number().int().nonnegative(), unknownTrajectories: z.number().int().nonnegative() }),
-  truncated: z.boolean(), cycleCount: z.number().int().nonnegative(), pathBudget: z.number().int().positive(),
-});
 const routeDataDetailBaseShape = {
-  route: routeSummarySchema, trajectory: routeDataTrajectorySchema, operations: z.array(routeDataOperationSchema), values: z.array(routeDataValueSchema), shapes: z.array(routeDataShapeSchema), evidence: z.array(routeDataEvidenceSchema), terminals: z.array(routeDataTerminalSchema),
+  route: routeSummarySchema, trajectory: routeDataTrajectorySchema, operations: z.array(routeDataOperationSchema), evidence: z.array(routeDataEvidenceSchema),
   sources: z.array(sourceMethodSummarySchema),
-  context: z.strictObject({ nodes: z.array(routeContextNodeSchema), edges: z.array(routeContextEdgeSchema) }), exhaustiveGraph: exhaustiveRouteGraphSchema,
 };
 export const routeDataDetailTransportSchema = z.strictObject({ ...routeDataDetailBaseShape, hiddenComponentPolicy: hiddenComponentPolicySchema, totality: routeTotalityStructureSchema.nullable() });
 export const routeDataDetailSchema = z.strictObject({ ...routeDataDetailBaseShape, hiddenComponentPolicy: hiddenComponentPolicySchema, totality: routeTotalitySchema.nullable() });

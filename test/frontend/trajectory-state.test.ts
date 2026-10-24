@@ -5,7 +5,7 @@ import { parseTrajectoryUrlState, reconcileTrajectoryUrlState, serializeTrajecto
 const inventory: RouteDataInventory = {
   routes: [{ key: "route:a", pathPattern: "/a", file: "src/routes/a.tsx", componentIdentityId: null, parameters: [], confidence: "high", componentNames: ["A"], routeKind: "page", sourceMethodKeys: ["source:a"], apiRouteKeys: [], trajectoryCount: 1, completeTrajectoryCount: 0, totalPathSteps: 2, uniqueStepCount: 2, substitutionStepCount: 0, unknownGapCount: 1, omissions: [] }],
   sources: [{ key: "source:a", label: "readA", kind: "file", file: "src/read.ts", line: 1, routeKeys: ["route:a"] }],
-  trajectories: [{ key: "flow:a", routeKey: "route:a", label: "A flow", operationCount: 2, terminalCount: 1, sourceMethodKey: "source:a", substitutionStepCount: 0, routeReachableTerminalCount: 1, terminalSelectionLimit: 4, ordering: "semantic-stage", handoffsProven: false, completeness: "partial", omissions: ["Cross-operation handoffs are not yet proven."] }],
+  trajectories: [{ key: "flow:a", routeKey: "route:a", label: "A flow", operationCount: 2, terminalCount: 1, sourceMethodKey: "source:a", substitutionStepCount: 0, routeReachableTerminalCount: 1, completeness: "partial", omissions: ["Cross-operation handoffs are not yet proven."] }],
   totals: { routes: 1, sources: 1, trajectories: 1, complete: 1 },
 };
 
