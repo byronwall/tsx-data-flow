@@ -50,8 +50,5 @@ After the 2026-10 cleanup stack:
 - **Naming.** The `component-topology-*` layout engine still carries the old view's name.
 - **Duplicates.** `stableHash` is defined twice (`route-discovery.ts`, `scope-seam.ts`). Route discovery is implemented twice (AST and regex). A local `lexical` comparator is copied into about 15 frontend modules.
 - **Duplicate layout work.** `trajectory-url-state.ts` builds a totality layout just to validate the selection.
-- **Pre-existing test failures.** Twenty tests fail on every branch in the stack:
-  - stale `trajectory-state` tests that use removed URL fields
-  - two layout-engine expectations
-  - server-route and golden tests
-- **Test memory.** `test/route-totality-field-proof.test.ts` peaks at about 1.9 GB of heap per worker. Run the suite with `--pool=forks --poolOptions.forks.maxForks=2 --poolOptions.forks.minForks=1`.
+- **Test memory.** `test/route-totality-field-proof.test.ts` peaks at about 1.9 GB of heap per worker. Run the suite with `--pool=forks --poolOptions.forks.maxForks=2 --poolOptions.forks.minForks=1`. The suite analyzes a pinned `soccer-schedule` snapshot and skips when that repo is absent.
+- **Field proof on the live soccer app.** Against the current `soccer-schedule` checkout, `/games/[gameId]` proves none of the 20 obligations. It stops at one `ambiguous-target` frontier. `readStore` now passes the parsed store through `migrateSoccerStore` and several `ensure*` mutators. The pinned snapshot still proves all 20.

@@ -11,15 +11,23 @@ const inventory: RouteDataInventory = {
 
 describe("trajectory URL state", () => {
   it("round trips every meaningful exploration field", () => {
-    const state = { open: true, route: "route:a", flow: "flow:a", item: "operation:1", expand: ["operation:1", "operation:2"], isolate: true, mode: "detail" as const, kind: "all" as const, sort: "substitutions" as const, source: "source:a", filter: "TimeBlockItem", view: "trajectory" as const, genericUi: null, pan: { x: 12.5, y: -4 }, zoom: 1.25, packet: "packet:1", fieldFocus: null, consumerFocus: null };
+    const state = {
+      route: "route:a", flow: "flow:a", isolate: true, mode: "detail" as const, kind: "all" as const, sort: "substitutions" as const,
+      source: "source:a", filter: "TimeBlockItem", genericUi: "hidden" as const,
+      totalitySelection: { kind: "node" as const, graphId: "node:1" }, graphCamera: { x: 12.5, y: -4, scale: 1.25 },
+      contextFocus: "context:1", fieldFocus: "field:title", consumerFocus: "consumer:1",
+    };
     expect(parseTrajectoryUrlState(serializeTrajectoryUrlState(state))).toEqual(state);
   });
   it("retains a valid route while clearing invalid descendants", () => {
-    const restored = reconcileTrajectoryUrlState(parseTrajectoryUrlState("?viz=trajectory&trajectoryMode=detail&route=route%3Aa&flow=missing&item=old&expand=old&isolate=1"), inventory);
+    const restored = reconcileTrajectoryUrlState(parseTrajectoryUrlState("?trajectoryMode=detail&route=route%3Aa&flow=missing&isolate=1&totalitySelection=node%3Aold&graphCamera=1,2,1&contextFocus=old&totalityField=old"), inventory);
     expect(restored.state.route).toBe("route:a");
     expect(restored.state.flow).toBe("flow:a");
-    expect(restored.state.item).toBeNull();
-    expect(restored.state.expand).toEqual([]);
+    expect(restored.state.isolate).toBe(false);
+    expect(restored.state.totalitySelection).toBeNull();
+    expect(restored.state.graphCamera).toBeNull();
+    expect(restored.state.contextFocus).toBeNull();
+    expect(restored.state.fieldFocus).toBeNull();
     expect(restored.notice).toContain("invalid descendants");
   });
 });
