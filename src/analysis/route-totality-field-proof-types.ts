@@ -15,9 +15,3 @@ export type FieldProofInput = {
   surface: RouteOccurrenceSurface;
   selectedSource: RouteTotalitySelectedSource;
 };
-
-export type FieldProofFailure = {
-  reason: "partial-proof" | "ambiguous-target" | "unsupported-transform";
-  detail: string;
-  currentElementId: string | null;
-};

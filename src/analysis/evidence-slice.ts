@@ -32,7 +32,6 @@ import {
   hasBoundary,
   hasSliceRole,
   indexProvider,
-  normalizeProgramEvidence as normalizeProgramEvidenceSupport,
   normalizeGapEndpoints,
   positiveLimit,
   relationLocation,
@@ -45,11 +44,9 @@ import {
 import { coverageFor } from "./evidence-slice-coverage";
 import type {
   GapInput,
-  NormalizedProgramEvidence as SupportNormalizedProgramEvidence,
 } from "./evidence-slice-support";
 import type {
   SliceCoverage as SupportSliceCoverage,
-  SliceCoverageBucket as SupportSliceCoverageBucket,
   SliceTruncation as SupportSliceTruncation,
 } from "./evidence-slice-coverage";
 
@@ -69,18 +66,11 @@ export type EvidenceSliceSource = ProgramEvidence | EvidenceRelationSource;
 export type ScopeSliceQuery = Omit<SliceQuery, "seed"> & { scope: ScopeSeed };
 
 export type SliceCoverage = SupportSliceCoverage;
-export type SliceCoverageBucket = SupportSliceCoverageBucket;
 export type SliceTruncation = SupportSliceTruncation;
 
 export type EvidenceSlice = Omit<SeamEvidenceSlice, "coverage"> & {
   coverage: SliceCoverage;
 };
-
-export type NormalizedProgramEvidence = SupportNormalizedProgramEvidence;
-
-export function normalizeProgramEvidence(evidence: ProgramEvidence): NormalizedProgramEvidence {
-  return normalizeProgramEvidenceSupport(evidence);
-}
 
 type QueueItem = { elementId: string; depth: number };
 
@@ -466,9 +456,6 @@ function isEvidenceRelationProvider(source: EvidenceSliceSource): source is Evid
     && typeof source.getRelations === "function"
     && typeof source.getGaps === "function";
 }
-
-/** Alias for callers that describe the operation as building a slice. */
-export const buildEvidenceSlice = queryEvidenceSlice;
 
 function normalizeRequest(
   request: SliceQuery | ScopeSliceQuery | ScopeSeed,

@@ -407,7 +407,6 @@ function declarationName(ts: typeof TypeScript, node: TypeScript.Node) {
   if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isVariableDeclaration(node)) && node.name && ts.isIdentifier(node.name)) return node.name.text;
   return null;
 }
-function lexical(a: string, b: string) { return a < b ? -1 : a > b ? 1 : 0; }
 function safeTypeAt(checker: TypeScript.TypeChecker, node: TypeScript.Node) { try { return checker.typeToString(checker.getTypeAtLocation(node), node, 1); } catch { return "unknown"; } }
 function relative(root: string, file: string) { return path.relative(root, file).replaceAll(path.sep, "/"); }
 function inside(root: string, file: string) { const rel = path.relative(path.resolve(root), path.resolve(file)); return rel === "" || (!rel.startsWith(`..${path.sep}`) && rel !== ".."); }

@@ -157,10 +157,6 @@ export function safeTypeText(checker: TypeScript.TypeChecker, node: TypeScript.N
   }
 }
 
-export function isSlotExpression(ts: typeof TypeScript, checker: TypeScript.TypeChecker, node: TypeScript.Expression, declaration: TypeScript.FunctionLikeDeclaration | null) {
-  return Boolean(slotExpressionFor(ts, checker, node, declaration));
-}
-
 export function slotExpressionFor(ts: typeof TypeScript, checker: TypeScript.TypeChecker, node: TypeScript.Expression, declaration: TypeScript.FunctionLikeDeclaration | null): RouteSlotExpression | null {
   const expression = unwrapExpression(ts, node);
   if (ts.isIdentifier(expression) && /^(?:children|slot|content)$/.test(expression.text)) {
@@ -249,11 +245,6 @@ export function hasSpreadAttribute(ts: typeof TypeScript, opening: TypeScript.Js
 export function sourceBackedCollection(ts: typeof TypeScript, checker: TypeScript.TypeChecker, node: TypeScript.Expression) {
   const expression = unwrapExpression(ts, node);
   return !isUnknownType(checker, expression) && isCollectionType(checker, expression);
-}
-
-export function functionDeclarationFromCall(ts: typeof TypeScript, checker: TypeScript.TypeChecker, node: TypeScript.CallExpression) {
-  const target = resolvedSymbol(ts, checker, node.expression);
-  return declarationForResolved(target);
 }
 
 export function isDeclarationFile(node: TypeScript.Node | null) {

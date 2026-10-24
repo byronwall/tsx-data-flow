@@ -1,10 +1,9 @@
 import type * as TypeScript from "typescript";
 import type { AnalyzerArgs } from "../types";
-import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { shouldAnalyzeFile, walkFiles } from "./files";
+import { shouldAnalyzeFile } from "./files";
 import { resolveProjectConfigs } from "./tsconfig";
 import type { TsconfigInfo } from "./tsconfig";
 import type { AnalyzerProgressReporter } from "../analysis/progress";
@@ -48,38 +47,6 @@ export function loadTypescript(args: AnalyzerArgs) {
       `(npm install -D typescript / pnpm add -D typescript / bun add -d typescript), ` +
       `or pass --typescript-from <path-to-a-dir-with-typescript-installed>.`,
   );
-}
-
-export function collectSourceFiles(ts: typeof TypeScript, args: AnalyzerArgs) {
-  const configs = args.tsconfigs?.length
-    ? args.tsconfigs
-    : args.tsconfig
-      ? [args.tsconfig]
-      : [];
-  const set = new Set();
-  for (const file of configs) {
-    if (!fs.existsSync(file)) continue;
-    const configFile = ts.readConfigFile(file, ts.sys.readFile);
-    if (configFile.error) {
-      const message = ts.flattenDiagnosticMessageText(
-        configFile.error.messageText,
-        "\n",
-      );
-      throw new Error(`Failed to read ${file}: ${message}`);
-    }
-    const parsed = ts.parseJsonConfigFileContent(
-      configFile.config,
-      ts.sys,
-      path.dirname(file),
-      undefined,
-      file,
-    );
-    for (const sourceFile of parsed.fileNames) {
-      if (shouldAnalyzeFile(sourceFile, args)) set.add(sourceFile);
-    }
-  }
-  if (set.size > 0) return [...set];
-  return walkFiles(args.source).filter((file: string) => shouldAnalyzeFile(file, args));
 }
 
 // Load TypeScript, resolve the governing tsconfig(s) (throwing loudly if none

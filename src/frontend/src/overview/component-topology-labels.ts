@@ -1,19 +1,7 @@
 import type { ComponentTopology, ComponentTopologyNode } from "./component-topology-types";
 
 export const DEFAULT_VISIBLE_TOPOLOGY_LABELS = 30;
-
-const LABEL_BUDGET_STEP = 15;
-const LABEL_ZOOM_STEP = 1.25;
-const ALL_LABELS_ZOOM_STEP = 5;
 const ORDINARY_COMPONENT_PRIORITY = 4;
-
-export function topologyLabelBudget(cameraScale: number, nodeCount: number) {
-  if (nodeCount <= DEFAULT_VISIBLE_TOPOLOGY_LABELS) return nodeCount;
-  const normalizedScale = Math.max(1, cameraScale);
-  const zoomStep = Math.max(0, Math.floor(Math.log(normalizedScale) / Math.log(LABEL_ZOOM_STEP) + Number.EPSILON * 8));
-  if (zoomStep >= ALL_LABELS_ZOOM_STEP) return nodeCount;
-  return Math.min(nodeCount, DEFAULT_VISIBLE_TOPOLOGY_LABELS + zoomStep * LABEL_BUDGET_STEP);
-}
 
 export function selectVisibleTopologyLabelIds(
   topology: ComponentTopology,

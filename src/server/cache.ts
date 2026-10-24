@@ -101,8 +101,6 @@ export function createAnalysisCache(args: AnalyzerArgs, reportProgress?: Analyze
   return { ensureBuilt, reviewReport, reportForFile, sourceFor, identitiesForFile, typescript, refresh, generation: () => generation };
 }
 
-export type AnalysisCache = ReturnType<typeof createAnalysisCache>;
-
 function isSafeRelativePath(value: string) {
   if (typeof value !== "string" || value.length === 0 || value.length > MAX_SOURCE_PATH_LENGTH || value.includes("\0")) return false;
   if (path.posix.isAbsolute(value) || path.win32.isAbsolute(value)) return false;

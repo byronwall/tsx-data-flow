@@ -15,7 +15,6 @@ import { emptyRouteTotalityEmphasis } from "./route-totality-emphasis-empty";
 type RouteTotalityBridge = RouteTotality["bridges"][number];
 type RouteTotalityBridgeEndpoint = RouteTotalityBridge["from"] | RouteTotalityBridge["to"];
 type RouteTotalityContextLink = RouteTotality["contextContinuity"]["links"][number];
-type RouteTotalityContextOccurrenceReference = RouteTotality["contextContinuity"]["providers"][number] | RouteTotality["contextContinuity"]["consumers"][number];
 type AdjacencyFamily = "render" | "data" | "boundary" | "bridge" | "context";
 
 export type RouteTotalityAdjacencyEdge = {

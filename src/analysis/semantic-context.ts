@@ -1,6 +1,5 @@
 import path from "node:path";
 import type * as TypeScript from "typescript";
-import type { ContextTraceLineage } from "../types";
 import { isCanonicalSolidCall, resolvedSymbolAtLocation } from "./solid-symbols";
 
 export function contextIdentityForExpression(
@@ -103,11 +102,6 @@ export function contextDestructuredBinding(
     ? contextIdentityForHookCall(ts, checker, root, declaration.initializer)
     : null;
   return identity ? { member, identity, declaration } : null;
-}
-
-export function lineageForTrace(lineages: ContextTraceLineage[] | undefined) {
-  const identities = [...new Set((lineages ?? []).map((lineage) => lineage.identity))];
-  return identities.length === 1 ? identities[0] : null;
 }
 
 function firstPartyFunctionForCall(

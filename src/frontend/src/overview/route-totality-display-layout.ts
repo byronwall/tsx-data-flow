@@ -107,8 +107,6 @@ export function layoutRouteTotalityDisplay(
   });
 }
 
-export const layoutRouteTotalityDisplayModel = layoutRouteTotalityDisplay;
-
 export function routeTotalityDisplayEdgePath(edge: RouteTotalityDisplayLayoutEdge): string {
   const from = centerOf(edge.fromNode);
   const to = centerOf(edge.toNode);

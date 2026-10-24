@@ -111,13 +111,6 @@ export function sameTrajectoryUrlState(left: TrajectoryUrlState, right: Trajecto
   && sameCamera(leftProjection.graphCamera, rightProjection.graphCamera);
 }
 
-export function isTrajectoryCameraOnlyChange(left: TrajectoryUrlState, right: TrajectoryUrlState) {
-  const leftCamera = trajectoryProjectionState(left).graphCamera;
-  const rightCamera = trajectoryProjectionState(right).graphCamera;
-  return !sameCamera(leftCamera, rightCamera)
-    && sameTrajectoryUrlState({ ...left, graphCamera: rightCamera }, right);
-}
-
 export function isTrajectoryHistoryNoiseOnlyChange(left: TrajectoryUrlState, right: TrajectoryUrlState) {
   const rightProjection = trajectoryProjectionState(right);
   return sameTrajectoryUrlState(

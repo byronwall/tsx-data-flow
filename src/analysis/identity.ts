@@ -132,7 +132,6 @@ function evidenceFor(
       });
       const selected = candidates[0];
       const symbol = selected?.symbol;
-      const source = expression.getSourceFile();
       const expressionId = expressionIdFor(root, expression);
       const base = expressionDescriptor(expressionId, expression, root, selected?.subject ?? expression);
       const type = typeIdentity(checker, expression);

@@ -22,14 +22,6 @@ export const EXACT_FIELD_TRANSFER_KINDS = [
 ] as const;
 export const SCALAR_FIELD_TRANSFER_KINDS = ["source-carrier", "property-read", "scalar-consumer"] as const;
 
-export const COMPONENT_FIELD_TRANSFER_KINDS = [
-  ...EXACT_FIELD_TRANSFER_KINDS.slice(0, 10),
-  "component-source-field",
-  "component-boundary",
-  "component-property-read",
-  "occurrence-consumer",
-] as const;
-
 export type ExactFieldTransferKind = typeof EXACT_FIELD_TRANSFER_KINDS[number]
   | "component-source-field"
   | "component-boundary"

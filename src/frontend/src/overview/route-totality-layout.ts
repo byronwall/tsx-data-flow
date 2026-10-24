@@ -2,7 +2,6 @@ import type { RouteTotality } from "../../../api/contracts";
 import {
   assignParallelIndices as assignParallelIndicesInGeometry,
   layoutRouteTotalityNodes as layoutNodes,
-  routeTotalityEdgePathForLayout as edgePathForLayout,
 } from "./route-totality-layout-geometry";
 import { buildRouteTotalityGraph } from "./route-totality-layout-graph";
 import { emptyRouteTotalityLayout } from "./route-totality-layout-summary";
@@ -20,10 +19,6 @@ import type {
 
 export function assignParallelIndices(edges: RouteTotalityGraphEdge[]): void {
   assignParallelIndicesInGeometry(edges);
-}
-
-export function routeTotalityEdgePathForLayout(edge: RouteTotalityLayoutEdge): string {
-  return edgePathForLayout(edge);
 }
 
 export function buildRouteTotalityLayout(totality: RouteTotality | null, options: RouteTotalityLayoutOptions = {}): RouteTotalityLayout {

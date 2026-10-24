@@ -144,10 +144,6 @@ export function emphasisModeForSelection(selection: RouteInvestigationSelection)
     : null;
 }
 
-export function sameCamera(left: TrajectoryGraphCamera, right: TrajectoryGraphCamera): boolean {
-  return left.x === right.x && left.y === right.y && left.scale === right.scale;
-}
-
 export type RouteTotalityLedgerItem = {
   id: string;
   label: string;

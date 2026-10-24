@@ -1,6 +1,5 @@
 import type {
   RouteTotalityGraphEdge,
-  RouteTotalityLayoutEdge,
   RouteTotalityLayoutNode,
   RouteTotalityNode,
 } from "./route-totality-model";
@@ -80,26 +79,6 @@ export function assignParallelIndices(edges: RouteTotalityGraphEdge[]): void {
   }
 }
 
-export function routeTotalityEdgePathForLayout(edge: RouteTotalityLayoutEdge): string {
-  const from = centerOf(edge.fromNode);
-  const to = centerOf(edge.toNode);
-  if (edge.from === edge.to) {
-    return `M ${from.x} ${from.y} Q ${from.x + 48} ${from.y - 48} ${from.x} ${from.y}`;
-  }
-
-  const start = connectionPoint(edge.fromNode, to, edge.fromNode.width / 2 + 1);
-  const end = connectionPoint(edge.toNode, from, edge.toNode.width / 2 + 7);
-  const distance = Math.max(1, Math.hypot(end.x - start.x, end.y - start.y));
-  const normal = { x: -(end.y - start.y) / distance, y: (end.x - start.x) / distance };
-  const bend = Math.min(36, distance * .12);
-  const parallelOffset = (edge.parallelIndex - (edge.parallelCount - 1) / 2) * 14;
-  const middle = {
-    x: (start.x + end.x) / 2 + normal.x * (bend + parallelOffset),
-    y: (start.y + end.y) / 2 + normal.y * (bend + parallelOffset),
-  };
-  return `M ${start.x} ${start.y} Q ${middle.x} ${middle.y} ${end.x} ${end.y}`;
-}
-
 function placeLayoutNodes(
   ids: string[],
   depth: Map<string, number>,
@@ -163,27 +142,6 @@ function layoutDepths(
   }
 
   return depth;
-}
-
-function centerOf(
-  node: Pick<RouteTotalityLayoutNode, "x" | "y" | "width" | "height">,
-): { x: number; y: number } {
-  return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
-}
-
-function connectionPoint(
-  node: RouteTotalityLayoutNode,
-  other: { x: number; y: number },
-  distanceFromCenter: number,
-): { x: number; y: number } {
-  const own = centerOf(node);
-  const dx = other.x - own.x;
-  const dy = other.y - own.y;
-  const distance = Math.max(1, Math.hypot(dx, dy));
-  return {
-    x: own.x + dx / distance * distanceFromCenter,
-    y: own.y + dy / distance * distanceFromCenter,
-  };
 }
 
 function lexical(left: string, right: string): number {

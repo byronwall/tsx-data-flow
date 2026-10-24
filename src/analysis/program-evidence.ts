@@ -303,38 +303,3 @@ export function collectProgramEvidence(
     fourth,
   ).collect();
 }
-
-export const buildProgramEvidence = collectProgramEvidence;
-
-export async function collectProgramEvidenceForRoot(root: string): Promise<ProgramEvidence> {
-  return collectProgramEvidence(root);
-}
-
-export function forwardRelations(
-  evidence: ProgramEvidence,
-  elementId: string,
-  limit = Number.POSITIVE_INFINITY,
-) {
-  return relationIds(evidence, evidence.indexes.outgoingRelationIds.get(elementId) ?? [], limit);
-}
-
-export function backwardRelations(
-  evidence: ProgramEvidence,
-  elementId: string,
-  limit = Number.POSITIVE_INFINITY,
-) {
-  return relationIds(evidence, evidence.indexes.incomingRelationIds.get(elementId) ?? [], limit);
-}
-
-function relationIds(
-  evidence: ProgramEvidence,
-  ids: readonly string[],
-  limit: number,
-) {
-  return ids
-    .slice(0, Math.max(0, limit))
-    .map((id) => evidence.indexes.relationsById.get(id))
-    .filter(
-      (relation): relation is ProgramRelation => Boolean(relation),
-    );
-}

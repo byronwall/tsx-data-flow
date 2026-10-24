@@ -18,7 +18,6 @@ import {
   resolveCatalogFn,
 } from "./trace-support";
 
-
 import {
   enclosingFunctionName,
   getSinkExpression,
@@ -368,13 +367,6 @@ function dedupeByKey<T>(items: T[], keyOf: (item: T) => string = (item) => (item
     distinct.push(item);
   }
   return distinct;
-}
-
-function findingSentence(sink: Sink) {
-  if (sink.metrics.impossibleDefenseCount > 0) {
-    return "A nullish fallback or optional access is unreachable under the checked TypeScript program.";
-  }
-  return "This rendered value has more data-flow plumbing than nearby JSX should usually need.";
 }
 
 function countBy(values: string[]): Record<string, number> {

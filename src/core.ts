@@ -1,6 +1,5 @@
-import type * as TypeScript from "typescript";
 import type { AnalysisReport, AnalyzerArgs } from "./types";
-import { REPORT_VIEWS, defaultMaxItemsFor, parseArgs } from "./cli/args";
+import { REPORT_VIEWS, defaultMaxItemsFor } from "./cli/args";
 import { buildReport } from "./analysis/report-builder";
 import { selectViewPayload } from "./reports/json";
 import { regenFooter } from "./reports/regen-footer";
@@ -43,13 +42,6 @@ export function createAnalyzer(args: AnalyzerArgs, reportProgress?: AnalyzerProg
     report: (overrides: Partial<AnalyzerArgs> = {}) =>
       buildReport(ts, program, { ...args, ...overrides }, modulePath, routing, identityIndex, reportProgress),
   };
-}
-
-export function analyzeProgram(ts: typeof TypeScript, program: TypeScript.Program, args: Partial<AnalyzerArgs> = {}) {
-  return buildReport(ts, program, {
-    ...parseArgs([], { root: args.root ?? process.cwd(), source: args.source ?? process.cwd() }),
-    ...args,
-  });
 }
 
 export function renderReport(report: AnalysisReport, args: AnalyzerArgs) {

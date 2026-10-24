@@ -3,11 +3,8 @@ import { REPORT_VIEWS } from "./report-views";
 import { routeTotalitySchema, routeTotalityStructureSchema } from "./route-totality-contracts";
 import { validateNestedOccurrenceEvidence } from "./route-shadow-evidence-validation";
 import type {
-  RouteOccurrenceSurface as RouteOccurrenceSurfaceContract,
   RouteTotality as RouteTotalityContract,
 } from "./route-totality-contracts";
-
-export type RouteOccurrenceSurface = RouteOccurrenceSurfaceContract;
 export type RouteTotality = RouteTotalityContract;
 
 export const comparisonStateSchema = z.enum(["new", "worsened", "resolved", "unchanged"]);
@@ -522,23 +519,15 @@ export const reportDataSchema = z.discriminatedUnion("view", [
   z.strictObject({ view: z.literal("inline-preview"), disposition: z.literal("merged"), target: z.literal("file-explorer"), message: z.string() }),
 ]);
 export const reportResponseSchema = apiMetadataSchema.extend({ data: reportDataSchema });
-
-export type ApiError = z.infer<typeof apiErrorSchema>;
 export type Workspace = z.infer<typeof workspaceSchema>;
 export type WorkspaceFileRow = z.infer<typeof workspaceFileRowSchema>;
-export type WorkspaceResponse = z.infer<typeof workspaceResponseSchema>;
 export type RouteDataInventory = z.infer<typeof routeDataInventorySchema>;
 export type RouteDataDetail = z.infer<typeof routeDataDetailSchema>;
 export type RouteShadowEvidence = z.infer<typeof routeShadowEvidenceSchema>;
-export type RouteDataDetailResponse = z.infer<typeof routeDataDetailResponseSchema>;
 export type SourceExcerptSpan = z.infer<typeof sourceExcerptSpanSchema>;
 export type SourceExcerptRequest = z.infer<typeof sourceExcerptRequestSchema>;
 export type SourceExcerptData = z.infer<typeof sourceExcerptResponseSchema>["data"];
-export type SourceExcerptResponse = z.infer<typeof sourceExcerptResponseSchema>;
-export type RefreshResponse = z.infer<typeof refreshResponseSchema>;
 export type FilePage = z.infer<typeof filePageSchema>;
-export type FilePageResponse = z.infer<typeof filePageResponseSchema>;
 export type InventoryEntry = z.infer<typeof inventoryEntrySchema>;
 export type FindingDetail = z.infer<typeof findingDetailSchema>;
 export type ReportData = z.infer<typeof reportDataSchema>;
-export type ReportResponse = z.infer<typeof reportResponseSchema>;

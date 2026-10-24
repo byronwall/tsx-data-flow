@@ -63,14 +63,3 @@ export function contextDensityDescription(density: ContextDensity): string {
     ? "At most 3 consumer occurrences and 2 Provider occurrences. Automatic mode shows explicit links."
     : "More than 3 consumer occurrences or more than 2 Provider occurrences. Automatic mode uses node marks until focused.";
 }
-
-export function contextDisplayModeLabel(mode: ContextDisplayMode | ContextResolvedDisplayMode): string {
-  if (mode === "automatic") return "Automatic context display";
-  return mode === "overlay" ? "Explicit context links" : "Context node marks";
-}
-
-export function contextDisplayModeDescription(mode: ContextResolvedDisplayMode): string {
-  return mode === "overlay"
-    ? "Show each retained context continuity link as an explicit overlay record."
-    : "Show context participation as marks on route display nodes."
-}

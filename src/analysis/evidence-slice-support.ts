@@ -1,6 +1,5 @@
 import type {
   ProgramElement as IndexedProgramElement,
-  ProgramEvidence,
   ProgramEvidenceGap,
   ProgramRelation as IndexedProgramRelation,
 } from "./program-evidence";
@@ -16,21 +15,11 @@ import type {
 } from "./scope-seam";
 import type { AnalysisCancellationToken } from "./cancellation";
 import {
-  asRecord,
-  isIndexedElement,
-  isIndexedRelation,
-  records,
   scopeGapReason,
   toSliceElement,
   toSliceLocation,
   toSliceRelation,
 } from "./evidence-slice-normalization";
-
-export type NormalizedProgramEvidence = {
-  elements: ProgramElement[];
-  relations: ProgramRelation[];
-  gaps: ProgramEvidenceGap[];
-};
 
 export type GapInput = {
   from: string | null;
@@ -64,77 +53,9 @@ export type EvidenceRelationSource = {
   getGaps: (elementId: string) => readonly ProgramEvidenceGap[];
 };
 
-export type IndexedEvidence = {
-  elements: ProgramElement[];
-  relations: ProgramRelation[];
-  gaps: ProgramEvidenceGap[];
-  elementsById: Map<string, ProgramElement[]>;
-  outgoing: Map<string, ProgramRelation[]>;
-  incoming: Map<string, ProgramRelation[]>;
-};
-
 export type ProviderEvidence = {
   elementFor: (elementId: string) => ProgramElement | undefined;
 };
-
-type EvidenceInput = {
-  elements?: unknown;
-  relations?: unknown;
-  elementById?: unknown;
-  relationById?: unknown;
-  indexes?: unknown;
-  index?: unknown;
-};
-
-/** Normalize raw collector records at the generic scope boundary. */
-export function normalizeProgramEvidence(evidence: ProgramEvidence): NormalizedProgramEvidence {
-  const indexed = indexEvidence(evidence);
-  return {
-    elements: indexed.elements,
-    relations: indexed.relations,
-    gaps: indexed.gaps,
-  };
-}
-
-/** Build eager endpoint indexes. Traversal remains lazy and bounded in the query. */
-export function indexEvidence(evidence: ProgramEvidence): IndexedEvidence {
-  const raw = evidence as unknown as EvidenceInput;
-  const index = asRecord(raw.indexes ?? raw.index);
-  const rawElements = records<IndexedProgramElement>(
-    raw.elements ?? index.elements ?? raw.elementById,
-  ).filter(isIndexedElement);
-  const rawRelations = records<IndexedProgramRelation>(
-    raw.relations ?? index.relations ?? raw.relationById,
-  ).filter(isIndexedRelation);
-  const elements = rawElements.map(toSliceElement);
-  const relations = rawRelations.map(toSliceRelation);
-  const elementsById = new Map<string, ProgramElement[]>();
-  for (const element of elements) {
-    const existing = elementsById.get(element.id) ?? [];
-    existing.push(element);
-    elementsById.set(element.id, existing);
-  }
-
-  const outgoing = new Map<string, ProgramRelation[]>();
-  const incoming = new Map<string, ProgramRelation[]>();
-  for (const relation of relations) {
-    const from = outgoing.get(relation.from) ?? [];
-    from.push(relation);
-    outgoing.set(relation.from, from);
-    const to = incoming.get(relation.to) ?? [];
-    to.push(relation);
-    incoming.set(relation.to, to);
-  }
-
-  return {
-    elements,
-    relations,
-    gaps: evidence.gaps ?? [],
-    elementsById,
-    outgoing,
-    incoming,
-  };
-}
 
 /** Keep provider indexing lazy. Only requested IDs are hydrated. */
 export function indexProvider(provider: EvidenceRelationSource): ProviderEvidence {
@@ -147,9 +68,6 @@ export function indexProvider(provider: EvidenceRelationSource): ProviderEvidenc
 }
 
 /* Normalization helpers live in evidence-slice-normalization.ts. */
-
-
-
 
 export function appendProgramGaps(
   programGaps: readonly ProgramEvidenceGap[],
@@ -216,32 +134,6 @@ export function assertGapEndpointReferences(
   }
 }
 
-export function relationsFor(
-  evidence: IndexedEvidence,
-  elementId: string,
-  direction: SliceDirection,
-): RelationCandidate[] {
-  const candidates: RelationCandidate[] = [];
-  if (direction === "forward" || direction === "both") {
-    for (const relation of evidence.outgoing.get(elementId) ?? []) {
-      candidates.push({ relation, targetId: relation.to });
-    }
-  }
-  if (direction === "backward" || direction === "both") {
-    for (const relation of evidence.incoming.get(elementId) ?? []) {
-      candidates.push({ relation, targetId: relation.from });
-    }
-  }
-  return candidates
-    .map((candidate, index) => ({
-      candidate,
-      index,
-      priority: relationPriority(evidence, candidate.targetId, direction),
-    }))
-    .sort((left, right) => right.priority - left.priority || left.index - right.index)
-    .map(({ candidate }) => candidate);
-}
-
 /** Expand one provider endpoint and retain only relations touching the frontier. */
 export function relationsForProvider(
   provider: EvidenceRelationSource,
@@ -269,49 +161,6 @@ function targetFor(
   if ((direction === "forward" || direction === "both") && relation.from === elementId) return relation.to;
   if ((direction === "backward" || direction === "both") && relation.to === elementId) return relation.from;
   return null;
-}
-
-function relationPriority(
-  evidence: IndexedEvidence,
-  targetId: string,
-  direction: SliceDirection,
-) {
-  const target = evidence.elementsById.get(targetId)?.[0];
-  if (!target) return 0;
-  const origin = target.originRoles.length > 0 ? 4 : 0;
-  const terminal = target.terminalRoles.length > 0 ? 3 : 0;
-  const boundary = target.boundary ? 2 : 0;
-  return Math.max(origin, terminal, boundary) * 1_000;
-}
-
-export function dequeuePriorityQueue(
-  queue: { elementId: string; depth: number }[],
-  evidence: IndexedEvidence,
-  direction: SliceDirection,
-) {
-  let bestIndex = 0;
-  let bestPriority = queuePriority(evidence, queue[0].elementId, direction);
-  for (let index = 1; index < queue.length; index += 1) {
-    const priority = queuePriority(evidence, queue[index].elementId, direction);
-    if (priority > bestPriority) {
-      bestIndex = index;
-      bestPriority = priority;
-    }
-  }
-  return queue.splice(bestIndex, 1)[0];
-}
-
-function queuePriority(
-  evidence: IndexedEvidence,
-  elementId: string,
-  direction: SliceDirection,
-) {
-  const element = evidence.elementsById.get(elementId)?.[0];
-  if (!element) return 0;
-  const origin = element.originRoles.length > 0 ? 4 : 0;
-  const terminal = element.terminalRoles.length > 0 ? 3 : 0;
-  const boundary = element.boundary ? 2 : 0;
-  return Math.max(origin, terminal, boundary) * 1_000;
 }
 
 /** Select the next frontier item using the provider's local fact priority. */

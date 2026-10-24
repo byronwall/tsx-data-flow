@@ -118,9 +118,6 @@ export type ScopeKind = "route" | "command" | "handler" | "module" | "function" 
 
 export type SliceDirection = "forward" | "backward" | "both";
 
-/** Alias used by adapters that describe the direction before issuing a query. */
-export type ScopeDirection = SliceDirection;
-
 export type BoundaryPolicy = {
   maxDepth: number;
   maxElements: number;
@@ -243,15 +240,6 @@ export type EvidenceSlice = {
   coverage: Coverage;
 };
 
-export type EvidenceSliceQuery = {
-  seed: ScopeSeed;
-  direction?: SliceDirection;
-  boundaryPolicy?: BoundaryPolicyInput;
-  terminalPolicy?: TerminalPolicyInput;
-  /** Maximum traversal work. The query reports a gap when this is exhausted. */
-  budget?: number;
-};
-
 export const DEFAULT_BOUNDARY_POLICY: Readonly<BoundaryPolicy> = {
   maxDepth: 48,
   maxElements: 128,
@@ -326,11 +314,6 @@ export function scopeSeedFor(candidate: ScopeCandidate): ScopeSeed {
     proof: candidate.proof,
     defaults: scopePolicy(candidate.defaults),
   };
-}
-
-/** Stable identity helper for source-backed elements. */
-export function sourceElementId(source: SourceIdentity, kind: string): string {
-  return `element:${stableHash(`${normalizeFile(source.file)}:${source.start}:${source.end}:${kind}`)}`;
 }
 
 /** Stable identity helper for source-backed relations. */

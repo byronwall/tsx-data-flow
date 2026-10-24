@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { REPORT_VIEWS, parseArgs } from "../../src/cli/args";
 import { helpText } from "../../src/cli/help";
 import {
-  analyzeProgram,
   analyzeProject,
   createAnalyzer,
   renderAllReports,
@@ -22,7 +21,6 @@ import {
 
 const facadeExports = {
   REPORT_VIEWS,
-  analyzeProgram,
   analyzeProject,
   createAnalyzer,
   entryTypeCountsByFile,
@@ -42,7 +40,6 @@ describe("public modules", () => {
   it("keeps every current public API importable from its defining module", () => {
     expect(Object.keys(facadeExports).sort()).toEqual([
       "REPORT_VIEWS",
-      "analyzeProgram",
       "analyzeProject",
       "createAnalyzer",
       "entryTypeCountsByFile",

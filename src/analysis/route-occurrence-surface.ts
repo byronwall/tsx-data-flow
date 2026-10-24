@@ -160,5 +160,3 @@ export type RouteOccurrenceSurfaceOptions = {
 export function buildRouteOccurrenceSurface(ts: typeof TypeScript, program: TypeScript.Program, root: string, route: RouteRecord, options: RouteOccurrenceSurfaceOptions = {}) {
   return new RouteOccurrenceSurfaceBuilder(ts, program, root, route, options).build();
 }
-
-export const buildRouteWideOccurrenceSurface = buildRouteOccurrenceSurface;

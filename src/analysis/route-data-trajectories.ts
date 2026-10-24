@@ -1,7 +1,5 @@
 import type { GraphEdge, GraphNode, ReportGraph, Sink } from "../types";
 import { stableHash } from "./route-discovery";
-
-export type ExhaustiveRouteGraph = ReturnType<typeof buildExhaustiveRouteGraph>;
 const PATH_BUDGET = 100_000;
 const DEPTH_BUDGET = 120;
 const UNOWNED_COMPONENT = "Unowned / external";

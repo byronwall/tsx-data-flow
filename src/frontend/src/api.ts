@@ -6,12 +6,6 @@ export class ApiClientError extends Error {
   constructor(public readonly code: string, message: string, public readonly status: number) { super(message); }
 }
 
-export async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) throw await responseError(response, url);
-  return response.json() as Promise<T>;
-}
-
 async function fetchParsed<T extends z.ZodType>(url: string, schema: T, init?: RequestInit): Promise<z.infer<T>> {
   const response = await fetchWithDevRestartRetry(url, init);
   if (!response.ok) throw await responseError(response, url);
@@ -105,12 +99,6 @@ export function fetchSourceExcerpt(
   return fetchParsed(`/api/route-data/source?${params.toString()}`, sourceExcerptResponseSchema);
 }
 export function refreshFailureMessage(error: unknown) { return `${error instanceof Error ? error.message : String(error)} Check the configured source and tsconfig paths, then try again.`; }
-
-export async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) throw await responseError(response, url);
-  return response.text();
-}
 
 async function responseError(response: Response, url: string) {
   try {

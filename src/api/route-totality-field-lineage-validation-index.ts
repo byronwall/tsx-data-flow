@@ -139,15 +139,6 @@ export function endpointOccurrenceAnchors(
   return matches;
 }
 
-export function endpointOccurrenceAnchorId(
-  anchors: RouteTotalityAnchorIndex,
-  occurrenceId: string,
-  cancellation: AnalysisCancellationToken,
-): string | null {
-  const matches = endpointOccurrenceAnchors(anchors, occurrenceId, cancellation);
-  return matches.length === 1 ? matches[0].evidenceElementId : null;
-}
-
 export function endpointTerminalAnchors(
   anchors: RouteTotalityAnchorIndex,
   terminalId: string,

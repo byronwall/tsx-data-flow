@@ -36,12 +36,6 @@ export const LOCAL_SCALAR_GEOMETRY_ATTRIBUTES = new Set([
   "strokeDashoffset",
 ]);
 
-// The union is what "this path computes geometry" keys off of.
-export const GEOMETRY_ATTRIBUTES = new Set([
-  ...SVG_SHELL_ATTRIBUTES,
-  ...GEOMETRY_FAMILY_ATTRIBUTES,
-]);
-
 export const STYLE_ATTRIBUTES = new Set(["class", "className", "style"]);
 export const CONTROL_FLOW_ATTRIBUTES = new Set(["when", "each", "fallback"]);
 export const IDENTITY_ATTRIBUTES = new Set([

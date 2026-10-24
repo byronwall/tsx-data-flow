@@ -17,9 +17,6 @@ export const BROWSER_REPORT_VIEWS = REPORT_VIEWS.filter(
 export const FILE_VIEWS: FileView[] = REPORT_VIEWS.filter(
   (view): view is FileView => view !== "overview",
 ).sort((left, right) => labelFor(left).localeCompare(labelFor(right)));
-export const BROWSER_FILE_VIEWS: BrowserReportView[] = [...BROWSER_REPORT_VIEWS].sort(
-  (left, right) => labelFor(left).localeCompare(labelFor(right)),
-);
 
 export function isReportView(value: string | null): value is ReportView {
   return REPORT_VIEWS.includes(value as ReportView);

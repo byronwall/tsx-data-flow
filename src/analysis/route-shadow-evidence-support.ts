@@ -98,11 +98,6 @@ export function locationForSink(root: string, sink: Sink): ShadowLocation {
   return { file: relative(root, sink.file), line: sink.line, column: sink.column, span: sink.span };
 }
 
-export function locationForTraceStep(root: string, step: NonNullable<Sink["identity"]>["upstreamPath"][number]): ShadowLocation {
-  const span = step.span ?? { startLine: step.line ?? 1, startColumn: 1, endLine: step.line ?? 1, endColumn: 1 };
-  return { file: step.file ?? "", line: step.line ?? span.startLine, column: span.startColumn, span };
-}
-
 export function relative(root: string, file: string) {
   if (!root) return file.replaceAll(path.sep, "/");
   const absolute = path.isAbsolute(file) ? file : path.resolve(root, file);

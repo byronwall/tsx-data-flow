@@ -145,8 +145,6 @@ export const validateEvidenceCoverage = (
   return issues;
 };
 
-export const validateEvidenceSliceTotals = (slice: EvidenceSlice): ValidationIssue[] => validateEvidenceCoverage(slice);
-
 export const validateSurfaceTotals = (
   surface: RouteOccurrenceSurface,
   cancellation: AnalysisCancellationToken = NO_ANALYSIS_CANCELLATION,

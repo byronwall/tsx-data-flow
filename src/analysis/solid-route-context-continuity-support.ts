@@ -309,7 +309,6 @@ function usagePaths(
   const visit = (node: TypeScript.Node) => {
     if (node !== owner && isFunctionLike(ts, node)) return;
     if (ts.isIdentifier(node) && node !== binding && resolvedSymbolAtLocation(ts, checker, node) === symbol) {
-      const parent = unwrappedParent(ts, node);
       const path = propertyPathFromIdentifier(ts, node);
       if (path) {
         paths.push([...prefix, ...path]);

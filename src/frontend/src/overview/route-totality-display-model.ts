@@ -151,8 +151,6 @@ export function buildRouteTotalityDisplayModel(
   });
 }
 
-export const projectRouteTotalityDisplay = buildRouteTotalityDisplayModel;
-
 function buildAnnotations(
   layout: RouteTotalityLayout,
   totality: RouteTotality | null,

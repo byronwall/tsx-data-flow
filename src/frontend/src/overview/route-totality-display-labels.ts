@@ -1,6 +1,5 @@
 import {
   routeTotalityNodeLabel,
-  routeTotalityNodeSummary,
   type RouteTotalityZoom,
 } from "./route-totality-model";
 import type { RouteTotalityDisplayLayoutNode } from "./route-totality-display-layout";
@@ -95,17 +94,6 @@ export function routeTotalityDisplayNodeLabel(
   zoom: RouteTotalityDisplayZoom,
 ): string {
   return routeTotalityNodeLabel(node.node, toRouteTotalityZoom(zoom));
-}
-
-export function routeTotalityDisplayNodeSummary(
-  node: RouteTotalityDisplayLayoutNode,
-  zoom: RouteTotalityDisplayZoom,
-): string {
-  return routeTotalityNodeSummary(node.node, toRouteTotalityZoom(zoom));
-}
-
-export function routeTotalityDisplayShowsExactEvidence(zoom: RouteTotalityDisplayZoom): boolean {
-  return zoom === "high";
 }
 
 function labelPriority(

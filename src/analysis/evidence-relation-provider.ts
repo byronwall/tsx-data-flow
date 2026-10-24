@@ -5,7 +5,6 @@ import type {
   ProgramEvidence,
   ProgramEvidenceGap,
   ProgramRelation,
-  ProgramRelationKind,
 } from "./program-evidence";
 import { EvidenceCollector, type ProgramEvidenceOptions } from "./program-evidence";
 import { ProgramFactIndex } from "./program-fact-index";
@@ -15,12 +14,10 @@ import {
 } from "./program-evidence-collector-instrumentation";
 import {
   ProgramEvidenceRelationFrontierLoader,
-  RelationRecipeStore as ProgramEvidenceRelationRecipeStore,
 } from "./program-evidence-relation-loading";
 import type {
   RelationFrontierLoader,
   RelationRecipe as ProgramEvidenceRelationRecipe,
-  RelationRecipeInput as ProgramEvidenceRelationRecipeInput,
 } from "./program-evidence-relation-loading";
 import type { SliceDirection } from "./scope-seam";
 import type { AnalysisCancellationToken } from "./cancellation";
@@ -32,16 +29,9 @@ import {
 import type {
   EvidenceProviderInstrumentation as InstrumentationEvidenceProviderInstrumentation,
   InstrumentationState,
-  MemorySnapshot as InstrumentationMemorySnapshot,
   ProviderOptions,
 } from "./evidence-relation-provider-instrumentation";
-
-/** Compatibility names retained for callers that imported recipe primitives. */
-export type RelationRecipeInput = ProgramEvidenceRelationRecipeInput;
 export type RelationRecipe = ProgramEvidenceRelationRecipe;
-export const RelationRecipeStore = ProgramEvidenceRelationRecipeStore;
-
-export type MemorySnapshot = InstrumentationMemorySnapshot;
 export type EvidenceProviderInstrumentation = InstrumentationEvidenceProviderInstrumentation;
 
 export interface EvidenceRelationProvider {
@@ -53,46 +43,6 @@ export interface EvidenceRelationProvider {
 }
 
 export type LazyProgramEvidenceProvider = EvidenceRelationProvider;
-
-/** Relation kinds currently represented by the source-backed collector. */
-export const SUPPORTED_LAZY_RELATION_KINDS: readonly ProgramRelationKind[] = [
-  "contains",
-  "declares-parameter",
-  "definition",
-  "references",
-  "invokes",
-  "argument",
-  "argument-binding",
-  "return-expression",
-  "return-value",
-  "performs",
-  "field-input",
-  "pack-field",
-  "renders",
-  "component-occurrence",
-  "component-prop",
-  "component-prop-binding",
-  "render-terminal",
-  "input-call",
-  "resource-loader",
-  "resource-result",
-  "effect-input",
-  "http-bridge",
-  "carrier",
-  "collection-element",
-  "callback-parameter",
-  "predicate-return",
-  "find-result",
-  "function-return",
-  "function-call",
-  "show-when",
-  "show-render-parameter",
-  "accessor-call",
-  "consumer-value",
-];
-
-/** No generated relation kind is silently omitted by the current provider. */
-export const UNSUPPORTED_LAZY_RELATION_KINDS: readonly ProgramRelationKind[] = [];
 
 /**
  * Lazy relation provider backed by source-indexed relation recipes.
@@ -241,22 +191,9 @@ export function createLazyProgramEvidenceProvider(
   return createLazyProvider(first, second as TypeScript.Program, third as string, fourth);
 }
 
-/** Descriptive alias for callers that use the provider terminology. */
-export const createProgramEvidenceProvider = createLazyProgramEvidenceProvider;
-
-/** Root-loading alias used by bounded large-project initialization probes. */
-export function createLazyProgramEvidenceProviderForRoot(root: string, options?: ProgramEvidenceOptions): LazyProgramEvidenceProvider {
-  return createLazyProgramEvidenceProvider(root, options);
-}
-
 /** Adapt an existing eager result to the provider seam. */
 export function providerForProgramEvidence(evidence: ProgramEvidence): EvidenceRelationProvider {
   return createEvidenceRelationProvider(evidence);
-}
-
-/** Build the compact fact index used by either provider implementation. */
-export function factIndexForProgramEvidence(evidence: ProgramEvidence): ProgramFactIndex {
-  return new ProgramFactIndex(evidence.elements, evidence.sourceFiles);
 }
 
 function createLazyProvider(

@@ -441,15 +441,6 @@ function groupedFieldName(sink: Sink) {
   );
 }
 
-// "1 file" / "3 files" — pluralize a count noun for prose.
-function plural(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
-
-function sum<T>(items: T[], project: (item: T) => number) {
-  return items.reduce((total, item) => total + project(item), 0);
-}
-
 export function reportSummaryForCompare(report: AnalysisReport) {
   return reportSummaryForCompareImpl(report, compareSummaryDependencies());
 }
@@ -467,19 +458,4 @@ function compareSummaryDependencies() {
     mirrorSingletonRiskFor,
     severityFor,
   };
-}
-
-function normalized(value: number) {
-  return Math.min(1, Math.log1p(value) / Math.log1p(20));
-}
-
-function clamp01(value: number) {
-  return Math.max(0, Math.min(1, value));
-}
-
-function countBy(values: string[]): Record<string, number> {
-  return values.reduce<Record<string, number>>((acc, value) => {
-    acc[value] = (acc[value] ?? 0) + 1;
-    return acc;
-  }, {});
 }
