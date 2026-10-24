@@ -60,6 +60,7 @@ export type FieldTransferElement = {
   consumerConditionLiteral?: string | null;
   consumerNestedShow?: boolean | null;
   consumerCollectionName?: string | null;
+  consumerTemplateText?: string | null;
   attributes?: Record<string, string | number | boolean | null>;
   originRoles?: readonly string[];
 };

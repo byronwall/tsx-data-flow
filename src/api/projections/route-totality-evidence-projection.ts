@@ -63,6 +63,7 @@ export function projectEvidenceSlice(slice: DomainEvidenceValue, cancellation: A
       consumerConditionLiteral: element.kind === "field-consumer" && typeof element.attributes?.conditionLiteral === "string" && element.attributes.conditionLiteral.length > 0 ? element.attributes.conditionLiteral : null,
       consumerNestedShow: element.kind === "field-consumer" && typeof element.attributes?.nestedShow === "boolean" ? element.attributes.nestedShow : null,
       consumerCollectionName: element.kind === "field-consumer" && typeof element.attributes?.consumerCollection === "string" ? element.attributes.consumerCollection : null,
+      consumerTemplateText: element.kind === "field-consumer" && typeof element.attributes?.templateText === "string" && element.attributes.templateText.length > 0 ? element.attributes.templateText : null,
       originRoles: [...element.originRoles],
       terminalRoles: [...element.terminalRoles],
       boundary: element.boundary,

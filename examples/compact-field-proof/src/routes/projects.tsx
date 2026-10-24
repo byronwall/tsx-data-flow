@@ -6,7 +6,10 @@ import type { Project, ProjectSnapshot } from "../store";
 function PageHeader(props: { title: string }) { return <Text value={props.title} />; }
 
 function ProjectLink(props: { projectId: string }) {
-  return <A href={`/projects/${props.projectId}`}>Open project</A>;
+  return <>
+    <A href={`/projects/${props.projectId}`}>Open project</A>
+    <A href={`/projects/${props.projectId}/settings`}>Project settings</A>
+  </>;
 }
 
 function ProjectDetails(props: { project: Project }) {

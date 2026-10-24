@@ -21,6 +21,14 @@ export function enclosingJsxPropName(ts: typeof TypeScript, field: TypeScript.Pr
   return null;
 }
 
+/** Static text of the template literal whose substitution is exactly this field read, with each substitution as `${}`. */
+export function enclosingTemplateText(ts: typeof TypeScript, field: TypeScript.PropertyAccessExpression): string | null {
+  const span = field.parent;
+  if (!span || !ts.isTemplateSpan(span) || span.expression !== field) return null;
+  const template = span.parent;
+  return template.head.text + template.templateSpans.map((item) => `\${}${item.literal.text}`).join("");
+}
+
 export function isCollectionPredicate(ts: typeof TypeScript, field: TypeScript.PropertyAccessExpression): boolean {
   let current: TypeScript.Node = field;
   while (current.parent) {

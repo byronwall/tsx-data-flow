@@ -393,6 +393,7 @@ function genericTargetForConsumer(
     if (consumer.componentName === "Show" && typeof attributes.nestedShow === "boolean") selector.nestedShow = attributes.nestedShow;
   }
   if (typeof attributes.consumerCollection === "string") selector.collectionName = attributes.consumerCollection;
+  if (consumer.kind === "render" && typeof attributes.templateText === "string") selector.templateText = attributes.templateText;
   return fieldProofTargetForConsumer({
     collectionFieldName: collectionField.fieldName!,
     predicateFieldName: predicateField.fieldName!,
@@ -402,6 +403,12 @@ function genericTargetForConsumer(
     componentPropName: boundary?.propName ?? null,
     consumer: selector,
   });
+}
+
+function hrefTemplateSuffix(attributes: Record<string, unknown>): string | null {
+  if (typeof attributes.templateText !== "string") return null;
+  const trailing = attributes.templateText.split("${}").at(-1) ?? "";
+  return trailing.split("/").filter(Boolean).at(-1) ?? null;
 }
 
 function genericConsumerLabel(consumer: CandidateConsumer, fieldName: string): string {
@@ -418,7 +425,7 @@ function genericConsumerLabel(consumer: CandidateConsumer, fieldName: string): s
       if (collection === "liveGames") return "Completed live gameId condition";
     }
     if (consumer.kind === "render" && consumer.boundary.componentName === "CompletedGameSummary"
-      && consumer.componentName === "A") return "Completed A.href live";
+      && consumer.componentName === "A") return `Completed A.href ${hrefTemplateSuffix(attributes) ?? "live"}`;
     if (consumer.kind === "render" && consumer.boundary.componentName === "ScheduledGamePlanningDetails") {
       return fieldName === "venueName" ? "ScheduledGamePlanningDetails venue" : "ScheduledGamePlanningDetails address";
     }
@@ -436,7 +443,7 @@ function genericConsumerLabel(consumer: CandidateConsumer, fieldName: string): s
   if (consumer.componentName === "PageHeader" && consumer.propName === "eyebrow" && consumer.kind === "condition") {
     return "PageHeader.eyebrow condition";
   }
-  if (consumer.componentName === "A" && consumer.propName === "href") return "A.href schedule";
+  if (consumer.componentName === "A" && consumer.propName === "href") return `A.href ${hrefTemplateSuffix(attributes) ?? "schedule"}`;
   if (consumer.componentName === "Show" && consumer.kind === "condition") {
     if (attributes.nestedShow === true) return "Show.when build actions";
     if (attributes.conditionOperator === "===") return "Show.when completed branch";

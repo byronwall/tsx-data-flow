@@ -6,6 +6,7 @@ import {
   conditionAttributes,
   conditionExpression,
   containsJsx,
+  enclosingTemplateText,
   propertyReads,
 } from "./program-evidence-collector-field-consumer-support";
 
@@ -47,6 +48,7 @@ export class ProgramEvidenceCollectorDirectConsumerSupport extends ProgramEviden
             consumerKind: kind,
             tagName,
             propName: attributeName,
+            templateText: kind === "render" ? enclosingTemplateText(this.ts, fieldRead) : null,
             label: action ? `${action.name}.${action.property}` : `${tagName}.${attributeName}`,
             ...(condition ? conditionAttributes(this.ts, conditionValue!, node) : {}),
             ...(action ? {

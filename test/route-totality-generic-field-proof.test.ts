@@ -15,14 +15,21 @@ describe("generic route field proof fixture", () => {
     expect(JSON.stringify(first)).toBe(JSON.stringify(second));
     expect(first.attachments.map((item) => item.field.label).sort()).toEqual([
       "projects[*].id",
+      "projects[*].id",
       "projects[*].name",
       "projects[*].ownerName",
     ]);
     expect(first.attachments.map((item) => item.consumer?.label).sort()).toEqual([
       "A.href schedule",
+      "A.href settings",
       "PageHeader.title",
       "ProjectDetails owner",
     ]);
+    // Two links consume the same prop; the template text keeps them as separate targets.
+    expect(first.attachments
+      .filter((item) => item.consumer?.target.jsx?.tagName === "A")
+      .map((item) => JSON.parse(item.consumer!.target.targetKey).consumer.templateText)
+      .sort()).toEqual(["/projects/${}", "/projects/${}/settings"]);
     expect(first.attachments.some((item) => item.field.label.includes("unrelated"))).toBe(false);
     expect(first.attachments.some((item) => item.field.label.endsWith(".code"))).toBe(false);
     expect(first.frontiers).toHaveLength(1);

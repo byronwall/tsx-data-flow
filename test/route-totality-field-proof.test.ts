@@ -53,6 +53,7 @@ type TargetKey = {
     conditionLiteral: string | null;
     nestedShow: boolean | null;
     collectionName: string | null;
+    templateText: string | null;
   };
 };
 
@@ -81,92 +82,92 @@ const expectedConsumers: ExpectedConsumer[] = [
   {
     name: "PageHeader.eyebrow condition", field: "games[*].status", kind: "condition", alias: null,
     file: "src/components/soccer/GamePages.tsx", line: 44, column: 22,
-    target: targetKey("status", "direct", null, null, { kind: "condition", directConsumer: true, componentName: "PageHeader", propName: "eyebrow", tagName: null, tagModule: "./PageHeader", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: "===", conditionLiteral: "completed", nestedShow: null, collectionName: null }),
+    target: targetKey("status", "direct", null, null, { kind: "condition", directConsumer: true, componentName: "PageHeader", propName: "eyebrow", tagName: null, tagModule: "./PageHeader", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: "===", conditionLiteral: "completed", nestedShow: null, collectionName: null, templateText: null }),
   },
   {
     name: "PageHeader.title", field: "games[*].opponentName", kind: "render", alias: null,
     file: "src/components/soccer/GamePages.tsx", line: 45, column: 20,
-    target: targetKey("opponentName", "direct", null, null, { kind: "render", directConsumer: false, componentName: "PageHeader", propName: "title", tagName: null, tagModule: "./PageHeader", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null }),
+    target: targetKey("opponentName", "direct", null, null, { kind: "render", directConsumer: false, componentName: "PageHeader", propName: "title", tagName: null, tagModule: "./PageHeader", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null, templateText: null }),
   },
   {
     name: "PageHeader.description date", field: "games[*].startsAt", kind: "render", alias: null,
     file: "src/components/soccer/GamePages.tsx", line: 46, column: 38,
-    target: targetKey("startsAt", "direct", null, null, { kind: "render", directConsumer: true, componentName: "PageHeader", propName: "description", tagName: null, tagModule: "./PageHeader", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null }),
+    target: targetKey("startsAt", "direct", null, null, { kind: "render", directConsumer: true, componentName: "PageHeader", propName: "description", tagName: null, tagModule: "./PageHeader", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null, templateText: null }),
   },
   {
     name: "PageHeader.description venue", field: "games[*].venueName", kind: "render", alias: null,
     file: "src/components/soccer/GamePages.tsx", line: 52, column: 21,
-    target: targetKey("venueName", "direct", null, null, { kind: "render", directConsumer: true, componentName: "PageHeader", propName: "description", tagName: null, tagModule: "./PageHeader", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null }),
+    target: targetKey("venueName", "direct", null, null, { kind: "render", directConsumer: true, componentName: "PageHeader", propName: "description", tagName: null, tagModule: "./PageHeader", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null, templateText: "${} · ${}" }),
   },
   {
     name: "Show.when build actions", field: "games[*].status", kind: "condition", alias: null,
     file: "src/components/soccer/GamePages.tsx", line: 55, column: 29,
-    target: targetKey("status", "direct", null, null, { kind: "condition", directConsumer: true, componentName: null, propName: "when", tagName: "Show", tagModule: "solid-js", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: "!==", conditionLiteral: "completed", nestedShow: true, collectionName: null }),
+    target: targetKey("status", "direct", null, null, { kind: "condition", directConsumer: true, componentName: null, propName: "when", tagName: "Show", tagModule: "solid-js", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: "!==", conditionLiteral: "completed", nestedShow: true, collectionName: null, templateText: null }),
   },
   {
     name: "A.href schedule", field: "games[*].id", kind: "render", alias: null,
     file: "src/components/soccer/GamePages.tsx", line: 64, column: 40,
-    target: targetKey("id", "direct", null, null, { kind: "render", directConsumer: true, componentName: null, propName: "href", tagName: "A", tagModule: "@solidjs/router", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null }),
+    target: targetKey("id", "direct", null, null, { kind: "render", directConsumer: true, componentName: null, propName: "href", tagName: "A", tagModule: "@solidjs/router", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null, templateText: "/games/${}/schedule" }),
   },
   {
     name: "Show.when edit action", field: "games[*].status", kind: "condition", alias: null,
     file: "src/components/soccer/GamePages.tsx", line: 71, column: 29,
-    target: targetKey("status", "direct", null, null, { kind: "condition", directConsumer: true, componentName: null, propName: "when", tagName: "Show", tagModule: "solid-js", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: "!==", conditionLiteral: "completed", nestedShow: false, collectionName: null }),
+    target: targetKey("status", "direct", null, null, { kind: "condition", directConsumer: true, componentName: null, propName: "when", tagName: "Show", tagModule: "solid-js", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: "!==", conditionLiteral: "completed", nestedShow: false, collectionName: null, templateText: null }),
   },
   {
     name: "deleteGame.id", field: "games[*].id", kind: "handler", alias: null,
     file: "src/components/soccer/GamePages.tsx", line: 80, column: 55,
-    target: targetKey("id", "direct", null, null, { kind: "handler", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: "deleteGame", argumentName: "id", handlerReceiverName: "data", conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null }),
+    target: targetKey("id", "direct", null, null, { kind: "handler", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: "deleteGame", argumentName: "id", handlerReceiverName: "data", conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null, templateText: null }),
   },
   {
     name: "Show.when completed branch", field: "games[*].status", kind: "condition", alias: null,
     file: "src/components/soccer/GamePages.tsx", line: 90, column: 19,
-    target: targetKey("status", "direct", null, null, { kind: "condition", directConsumer: true, componentName: null, propName: "when", tagName: "Show", tagModule: "solid-js", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: "===", conditionLiteral: "completed", nestedShow: false, collectionName: null }),
+    target: targetKey("status", "direct", null, null, { kind: "condition", directConsumer: true, componentName: null, propName: "when", tagName: "Show", tagModule: "solid-js", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: "===", conditionLiteral: "completed", nestedShow: false, collectionName: null, templateText: null }),
   },
   {
     name: "ScheduledGamePlanningDetails venue", field: "games[*].venueName", kind: "render", alias: null,
     file: "src/components/soccer/ScheduledGamePlanningDetails.tsx", line: 181, column: 44,
-    target: targetKey("venueName", "whole-object", "ScheduledGamePlanningDetails", "game", { kind: "render", directConsumer: true, componentName: null, propName: null, tagName: "Text", tagModule: "~/components/ui/text", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null }),
+    target: targetKey("venueName", "whole-object", "ScheduledGamePlanningDetails", "game", { kind: "render", directConsumer: true, componentName: null, propName: null, tagName: "Text", tagModule: "~/components/ui/text", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null, templateText: null }),
   },
   {
     name: "ScheduledGamePlanningDetails address", field: "games[*].venueAddress", kind: "render", alias: null,
     file: "src/components/soccer/ScheduledGamePlanningDetails.tsx", line: 183, column: 20,
-    target: targetKey("venueAddress", "whole-object", "ScheduledGamePlanningDetails", "game", { kind: "render", directConsumer: true, componentName: null, propName: null, tagName: "Text", tagModule: "~/components/ui/text", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null }),
+    target: targetKey("venueAddress", "whole-object", "ScheduledGamePlanningDetails", "game", { kind: "render", directConsumer: true, componentName: null, propName: null, tagName: "Text", tagModule: "~/components/ui/text", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null, templateText: null }),
   },
   {
     name: "Scheduled availability gameId condition", field: "games[*].id", kind: "condition", alias: null,
     file: "src/components/soccer/ScheduledGamePlanningDetails.tsx", line: 23, column: 25,
-    target: targetKey("id", "whole-object", "ScheduledGamePlanningDetails", "game", { kind: "condition", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: "availability" }),
+    target: targetKey("id", "whole-object", "ScheduledGamePlanningDetails", "game", { kind: "condition", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: "availability" , templateText: null }),
   },
   {
     name: "markAllAvailable.gameId", field: "games[*].id", kind: "handler", alias: null,
     file: "src/components/soccer/ScheduledGamePlanningDetails.tsx", line: 41, column: 52,
-    target: targetKey("id", "whole-object", "ScheduledGamePlanningDetails", "game", { kind: "handler", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: "markAllAvailable", argumentName: "gameId", handlerReceiverName: "data", conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null }),
+    target: targetKey("id", "whole-object", "ScheduledGamePlanningDetails", "game", { kind: "handler", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: "markAllAvailable", argumentName: "gameId", handlerReceiverName: "data", conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null, templateText: null }),
   },
   {
     name: "setAvailability.gameId", field: "games[*].id", kind: "handler", alias: null,
     file: "src/components/soccer/ScheduledGamePlanningDetails.tsx", line: 100, column: 39,
-    target: targetKey("id", "whole-object", "ScheduledGamePlanningDetails", "game", { kind: "handler", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: "setAvailability", argumentName: "gameId", handlerReceiverName: "data", conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null }),
+    target: targetKey("id", "whole-object", "ScheduledGamePlanningDetails", "game", { kind: "handler", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: "setAvailability", argumentName: "gameId", handlerReceiverName: "data", conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null, templateText: null }),
   },
   {
     name: "Completed schedule gameId condition", field: "games[*].id", kind: "condition", alias: "id -> gameId",
     file: "src/components/soccer/CompletedGameSummary.tsx", line: 23, column: 28,
-    target: targetKey("gameId", "scalar-alias", "CompletedGameSummary", "gameId", { kind: "condition", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: "schedules" }),
+    target: targetKey("gameId", "scalar-alias", "CompletedGameSummary", "gameId", { kind: "condition", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: "schedules" , templateText: null }),
   },
   {
     name: "Completed availability gameId condition", field: "games[*].id", kind: "condition", alias: "id -> gameId",
     file: "src/components/soccer/CompletedGameSummary.tsx", line: 28, column: 25,
-    target: targetKey("gameId", "scalar-alias", "CompletedGameSummary", "gameId", { kind: "condition", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: "availability" }),
+    target: targetKey("gameId", "scalar-alias", "CompletedGameSummary", "gameId", { kind: "condition", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: "availability" , templateText: null }),
   },
   {
     name: "Completed live gameId condition", field: "games[*].id", kind: "condition", alias: "id -> gameId",
     file: "src/components/soccer/CompletedGameSummary.tsx", line: 34, column: 45,
-    target: targetKey("gameId", "scalar-alias", "CompletedGameSummary", "gameId", { kind: "condition", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: "liveGames" }),
+    target: targetKey("gameId", "scalar-alias", "CompletedGameSummary", "gameId", { kind: "condition", directConsumer: true, componentName: null, propName: null, tagName: null, tagModule: null, actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: "liveGames" , templateText: null }),
   },
   {
     name: "Completed A.href live", field: "games[*].id", kind: "render", alias: "id -> gameId",
     file: "src/components/soccer/CompletedGameSummary.tsx", line: 139, column: 34,
-    target: targetKey("gameId", "scalar-alias", "CompletedGameSummary", "gameId", { kind: "render", directConsumer: true, componentName: null, propName: "href", tagName: "A", tagModule: "@solidjs/router", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null }),
+    target: targetKey("gameId", "scalar-alias", "CompletedGameSummary", "gameId", { kind: "render", directConsumer: true, componentName: null, propName: "href", tagName: "A", tagModule: "@solidjs/router", actionName: null, argumentName: null, handlerReceiverName: null, conditionOperator: null, conditionLiteral: null, nestedShow: null, collectionName: null, templateText: "/games/${}/live" }),
   },
 ];
 

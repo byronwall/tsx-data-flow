@@ -149,6 +149,7 @@ const programElementSchema = z.strictObject({
   consumerConditionLiteral: nonEmptyStringSchema.nullable(),
   consumerNestedShow: z.boolean().nullable(),
   consumerCollectionName: nonEmptyStringSchema.nullable(),
+  consumerTemplateText: nonEmptyStringSchema.nullable(),
   originRoles: z.array(originRoleSchema),
   terminalRoles: z.array(terminalRoleSchema),
   boundary: boundaryKindSchema.nullable(),
